@@ -15,7 +15,6 @@ Employee laptop agent for company deployments.
 from __future__ import annotations
 
 import ctypes
-from ctypes import wintypes
 import http.server
 import json
 import os
@@ -38,7 +37,7 @@ from mitmproxy.tools.main import mitmdump
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifai.dev-yp.com"
-AGENT_VERSION = "1.2.1"
+AGENT_VERSION = "1.2.2"
 HEARTBEAT_SECONDS = 30
 PAC_HTTP_HOST = "127.0.0.1"
 PAC_HTTP_PORT = 18085
@@ -277,7 +276,10 @@ def send_heartbeat(agent_id: str, status: str = "active") -> bool:
 
 def heartbeat_loop(agent_id: str, stop_event: threading.Event) -> None:
     while not stop_event.is_set():
-        send_heartbeat(agent_id)
+        send_heartbeat(agent_id, status="active")
+        # Sleep/wake must not drop PAC. Re-assert on every beat until uninstall.
+        set_windows_proxy_pac(enable=True, pac_url=pac_http_url(), silent=True)
+        set_browser_quic(enable_quic=False)
         stop_event.wait(HEARTBEAT_SECONDS)
 
 
@@ -397,9 +399,17 @@ def run_uninstall_prompt() -> int:
 # ---------------------------------------------------------------------------
 
 class _Tee:
+    """File-like stdout/stderr. mitmdump calls isatty(); missing it kills the proxy."""
+
+    closed = False
+    errors = "replace"
+    name = "<unifai-guard-log>"
+    mode = "w"
+
     def __init__(self, stream, log_file):
         self._stream = stream
         self._log = log_file
+        self.encoding = getattr(stream, "encoding", None) or "utf-8"
 
     def write(self, data):
         try:
@@ -413,6 +423,7 @@ class _Tee:
             self._log.flush()
         except Exception:
             pass
+        return len(data) if data is not None else 0
 
     def flush(self):
         try:
@@ -424,6 +435,27 @@ class _Tee:
             self._log.flush()
         except Exception:
             pass
+
+    def isatty(self) -> bool:
+        return False
+
+    def readable(self) -> bool:
+        return False
+
+    def writable(self) -> bool:
+        return True
+
+    def seekable(self) -> bool:
+        return False
+
+    def fileno(self):
+        raise OSError(9, "Tee has no fileno")
+
+    def reconfigure(self, *args, **kwargs):
+        fn = getattr(self._stream, "reconfigure", None)
+        if callable(fn):
+            return fn(*args, **kwargs)
+        return None
 
 
 def setup_file_logging() -> str:
@@ -512,21 +544,57 @@ def _notify_wininet() -> None:
     ctypes.windll.Wininet.InternetSetOptionW(0, 37, 0, 0)
 
 
+def _set_reg_dword(root, path: str, name: str, value: int) -> bool:
+    try:
+        key = winreg.CreateKeyEx(root, path, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, name, 0, winreg.REG_DWORD, value)
+        winreg.CloseKey(key)
+        return True
+    except Exception:
+        return False
+
+
 def set_browser_quic(enable_quic: bool) -> None:
     value = 1 if enable_quic else 0
+    ok = False
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        for path in (
+            r"Software\Policies\Google\Chrome",
+            r"Software\Policies\Microsoft\Edge",
+            r"Software\Google\Chrome",
+            r"Software\Microsoft\Edge",
+        ):
+            if _set_reg_dword(root, path, "QuicAllowed", value):
+                ok = True
+    if not ok and not enable_quic:
+        print("[UnifAI Guard WARNING] Could not disable Chrome/Edge HTTP/3 (QUIC). ChatGPT/Gemini may bypass the proxy.")
+
+
+def set_browser_pac_policy(enable: bool, pac_url: str | None = None) -> None:
+    """Force Chrome/Edge to use the Guard PAC even when they ignore Windows Internet Settings."""
+    if pac_url is None:
+        pac_url = pac_http_url()
     for path in (
         r"Software\Policies\Google\Chrome",
         r"Software\Policies\Microsoft\Edge",
     ):
         try:
             key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE)
-            winreg.SetValueEx(key, "QuicAllowed", 0, winreg.REG_DWORD, value)
+            if enable:
+                winreg.SetValueEx(key, "ProxyMode", 0, winreg.REG_SZ, "pac_script")
+                winreg.SetValueEx(key, "ProxyPacUrl", 0, winreg.REG_SZ, pac_url)
+            else:
+                for name in ("ProxyMode", "ProxyPacUrl"):
+                    try:
+                        winreg.DeleteValue(key, name)
+                    except FileNotFoundError:
+                        pass
             winreg.CloseKey(key)
         except Exception as e:
-            print(f"[UnifAI Guard WARNING] Could not set QuicAllowed on {path}: {e}")
+            print(f"[UnifAI Guard WARNING] Could not set browser PAC policy on {path}: {e}")
 
 
-def set_windows_proxy_pac(enable: bool, pac_url: str | None = None) -> bool:
+def set_windows_proxy_pac(enable: bool, pac_url: str | None = None, silent: bool = False) -> bool:
     if pac_url is None:
         pac_url = pac_http_url()
     key_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
@@ -541,15 +609,18 @@ def set_windows_proxy_pac(enable: bool, pac_url: str | None = None) -> bool:
             except FileNotFoundError:
                 pass
             winreg.SetValueEx(key, "ProxyOverride", 0, winreg.REG_SZ, "localhost;127.0.0.1;<local>")
-            print(f"[UnifAI Guard] Windows PAC ENABLED -> {pac_url}")
+            if not silent:
+                print(f"[UnifAI Guard] Windows PAC ENABLED -> {pac_url}")
         else:
             winreg.SetValueEx(key, "ProxyEnable", 0, winreg.REG_DWORD, 0)
             try:
                 winreg.DeleteValue(key, "AutoConfigURL")
             except FileNotFoundError:
                 pass
-            print("[UnifAI Guard] Windows Proxy / PAC DISABLED.")
+            if not silent:
+                print("[UnifAI Guard] Windows Proxy / PAC DISABLED.")
         winreg.CloseKey(key)
+        set_browser_pac_policy(enable=enable, pac_url=pac_url)
         _notify_wininet()
         return True
     except Exception as e:
@@ -765,93 +836,10 @@ def run_proxy_server(addon_script: str, port: int = 8085) -> None:
     try:
         print(f"[UnifAI Guard] Launching MitM Security Interceptor on Port {port}...")
         mitmdump(args)
+    except SystemExit as e:
+        print(f"[UnifAI Guard WARNING] Proxy engine exited ({e})")
     except Exception as e:
         print(f"[UnifAI Guard ERROR] Proxy engine stopped: {e}")
-
-
-def start_power_watch(agent_id: str, stop_event: threading.Event) -> None:
-    """Tell UnifAI when Windows is sleeping or shutting down so the UI can label it."""
-
-    def _console_handler(ctrl_type: int) -> bool:
-        # 2=CTRL_CLOSE, 5=LOGOFF, 6=SHUTDOWN
-        if ctrl_type in (2, 5, 6):
-            send_heartbeat(agent_id, status="shutdown")
-        return False
-
-    try:
-        handler_type = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_uint)
-        cb = handler_type(_console_handler)
-        start_power_watch._console_cb = cb  # type: ignore[attr-defined]
-        ctypes.windll.kernel32.SetConsoleCtrlHandler(cb, True)
-    except Exception as e:
-        print(f"[UnifAI Guard WARNING] Shutdown handler not registered: {e}")
-
-    def _wnd_loop() -> None:
-        try:
-            user32 = ctypes.windll.user32
-            kernel32 = ctypes.windll.kernel32
-            WM_POWERBROADCAST = 0x0218
-            WM_ENDSESSION = 0x0016
-            WM_QUERYENDSESSION = 0x0011
-            WM_DESTROY = 0x0002
-            PBT_APMSUSPEND = 0x0004
-            PBT_APMRESUMEAUTOMATIC = 0x0012
-            PBT_APMRESUMESUSPEND = 0x0007
-
-            WNDPROC = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_void_p)
-
-            class WNDCLASSW(ctypes.Structure):
-                _fields_ = [
-                    ("style", ctypes.c_uint),
-                    ("lpfnWndProc", ctypes.c_void_p),
-                    ("cbClsExtra", ctypes.c_int),
-                    ("cbWndExtra", ctypes.c_int),
-                    ("hInstance", ctypes.c_void_p),
-                    ("hIcon", ctypes.c_void_p),
-                    ("hCursor", ctypes.c_void_p),
-                    ("hbrBackground", ctypes.c_void_p),
-                    ("lpszMenuName", ctypes.c_wchar_p),
-                    ("lpszClassName", ctypes.c_wchar_p),
-                ]
-
-            def wnd_proc(hwnd, msg, wparam, lparam):
-                if msg == WM_POWERBROADCAST:
-                    wp = int(wparam) if wparam else 0
-                    if wp == PBT_APMSUSPEND:
-                        send_heartbeat(agent_id, status="sleep")
-                    elif wp in (PBT_APMRESUMEAUTOMATIC, PBT_APMRESUMESUSPEND):
-                        send_heartbeat(agent_id, status="active")
-                elif msg in (WM_QUERYENDSESSION, WM_ENDSESSION):
-                    send_heartbeat(agent_id, status="shutdown")
-                elif msg == WM_DESTROY:
-                    user32.PostQuitMessage(0)
-                return user32.DefWindowProcW(hwnd, msg, wparam, lparam)
-
-            proc = WNDPROC(wnd_proc)
-            start_power_watch._wnd_proc = proc  # type: ignore[attr-defined]
-            class_name = "UnifAIGuardPowerWnd"
-            wc = WNDCLASSW()
-            wc.lpfnWndProc = ctypes.cast(proc, ctypes.c_void_p)
-            wc.hInstance = kernel32.GetModuleHandleW(None)
-            wc.lpszClassName = class_name
-            atom = user32.RegisterClassW(ctypes.byref(wc))
-            if not atom:
-                return
-            hwnd = user32.CreateWindowExW(0, class_name, "UnifAIGuard", 0, 0, 0, 0, 0, 0, None, wc.hInstance, None)
-            if not hwnd:
-                return
-            msg = ctypes.wintypes.MSG()
-            while not stop_event.is_set():
-                ret = user32.PeekMessageW(ctypes.byref(msg), None, 0, 0, 1)
-                if ret:
-                    user32.TranslateMessage(ctypes.byref(msg))
-                    user32.DispatchMessageW(ctypes.byref(msg))
-                else:
-                    stop_event.wait(0.4)
-        except Exception as e:
-            print(f"[UnifAI Guard WARNING] Sleep/shutdown watcher: {e}")
-
-    threading.Thread(target=_wnd_loop, daemon=True).start()
 
 
 # ---------------------------------------------------------------------------
@@ -919,27 +907,27 @@ def main() -> None:
     stop_event = threading.Event()
     threading.Thread(target=sync_pac_loop, args=(stop_event,), daemon=True).start()
     threading.Thread(target=heartbeat_loop, args=(agent_id, stop_event), daemon=True).start()
-    start_power_watch(agent_id, stop_event)
 
     def cleanup_and_exit(signum=None, frame=None):
         print("\n[UnifAI Guard] Shutting down agent...")
-        send_heartbeat(agent_id, status="shutdown")
         stop_event.set()
-        set_windows_proxy_pac(enable=False)
-        set_browser_quic(enable_quic=True)
         sys.exit(0)
 
     signal.signal(signal.SIGINT, cleanup_and_exit)
     signal.signal(signal.SIGTERM, cleanup_and_exit)
 
-    print("[UnifAI Guard] Agent is active.")
+    print("[UnifAI Guard] Agent is active. Sleep/shutdown keep monitoring; only uninstall stops Guard.")
+    port = int(PROXY_ADDR.rsplit(":", 1)[-1] or "8085")
     try:
-        run_proxy_server(addon_script, port=int(PROXY_ADDR.rsplit(":", 1)[-1] or "8085"))
+        while not stop_event.is_set():
+            set_windows_proxy_pac(enable=True, pac_url=pac_http_url(), silent=True)
+            run_proxy_server(addon_script, port=port)
+            if stop_event.is_set():
+                break
+            print("[UnifAI Guard] Proxy stopped — staying Active, restarting in 2s (sleep/wake safe).")
+            stop_event.wait(2)
     finally:
-        send_heartbeat(agent_id, status="shutdown")
         stop_event.set()
-        set_windows_proxy_pac(enable=False)
-        set_browser_quic(enable_quic=True)
 
 
 if __name__ == "__main__":

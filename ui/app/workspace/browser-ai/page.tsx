@@ -595,11 +595,8 @@ export default function BrowserAiPage() {
 
 	const getAgentStatusBadge = (status: string) => {
 		const s = (status || "").toLowerCase();
-		if (s === "active") return <Badge className="bg-emerald-950 text-emerald-400 border border-emerald-800">Active</Badge>;
-		if (s === "sleep") return <Badge className="bg-amber-950 text-amber-300 border border-amber-800">Inactive (sleep)</Badge>;
-		if (s === "shutdown") return <Badge className="bg-orange-950 text-orange-300 border border-orange-800">Inactive (shutdown)</Badge>;
-		if (s === "inactive") return <Badge className="bg-amber-950 text-amber-300 border border-amber-800">Inactive</Badge>;
 		if (s === "uninstalled") return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">Uninstalled</Badge>;
+		return <Badge className="bg-emerald-950 text-emerald-400 border border-emerald-800">Active</Badge>;
 		return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">{status || "unknown"}</Badge>;
 	};
 
@@ -2127,9 +2124,6 @@ export default function BrowserAiPage() {
 								<SelectContent>
 									<SelectItem value="all">All statuses</SelectItem>
 									<SelectItem value="active">Active</SelectItem>
-									<SelectItem value="sleep">Inactive (sleep)</SelectItem>
-									<SelectItem value="shutdown">Inactive (shutdown)</SelectItem>
-									<SelectItem value="inactive">Inactive</SelectItem>
 									<SelectItem value="uninstalled">Uninstalled</SelectItem>
 								</SelectContent>
 							</Select>
@@ -2167,7 +2161,7 @@ export default function BrowserAiPage() {
 					<Card className="bg-card border-border">
 						<CardHeader>
 							<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
-							<CardDescription>Installed Guard stays Active until sleep, shutdown, or uninstall. Sleep/shutdown are reported by the laptop EXE.</CardDescription>
+							<CardDescription>Installed Guard stays Active and keeps intercepting until uninstall. Sleep and shutdown do not stop Guard.</CardDescription>
 						</CardHeader>
 						<CardContent className="p-0">
 							<Table>

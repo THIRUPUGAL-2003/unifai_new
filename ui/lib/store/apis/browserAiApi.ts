@@ -32,7 +32,7 @@ export interface BrowserAIAgent {
 	transport_name?: string;
 	os_version: string;
 	agent_version: string;
-	status: "active" | "inactive" | "sleep" | "shutdown" | "uninstalled" | string;
+	status: "active" | "uninstalled" | string;
 	last_seen_at: string;
 	installed_at: string;
 	uninstalled_at?: string;

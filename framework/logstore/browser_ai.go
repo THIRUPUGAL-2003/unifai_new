@@ -53,7 +53,7 @@ type BrowserAIAgent struct {
 	TransportName string     `json:"transport_name"`
 	OSVersion     string     `json:"os_version"`
 	AgentVersion  string     `json:"agent_version"`
-	Status        string     `gorm:"index" json:"status"` // active | inactive | sleep | shutdown | uninstalled
+	Status        string     `gorm:"index" json:"status"` // active | uninstalled
 	LastSeenAt    time.Time  `gorm:"index" json:"last_seen_at"`
 	InstalledAt   time.Time  `json:"installed_at"`
 	UninstalledAt *time.Time `json:"uninstalled_at,omitempty"`
@@ -958,7 +958,7 @@ func (m *BrowserAIManager) UpsertAgentHeartbeat(ctx context.Context, incoming *B
 			TransportName: nicGUIDFromTransport(incoming.TransportName),
 			OSVersion:     strings.TrimSpace(incoming.OSVersion),
 			AgentVersion:  strings.TrimSpace(incoming.AgentVersion),
-			Status:        heartbeatStatus(incoming.Status),
+			Status:        AgentStatusActive,
 			LastSeenAt:    now,
 			InstalledAt:   now,
 			CreatedAt:     now,
@@ -979,7 +979,7 @@ func (m *BrowserAIManager) UpsertAgentHeartbeat(ctx context.Context, incoming *B
 	}
 	existing.OSVersion = firstNonEmpty(strings.TrimSpace(incoming.OSVersion), existing.OSVersion)
 	existing.AgentVersion = firstNonEmpty(strings.TrimSpace(incoming.AgentVersion), existing.AgentVersion)
-	existing.Status = heartbeatStatus(incoming.Status)
+	existing.Status = AgentStatusActive
 	existing.LastSeenAt = now
 	existing.UpdatedAt = now
 	existing.UninstalledAt = nil
@@ -999,17 +999,6 @@ func nicGUIDFromTransport(raw string) string {
 		return ""
 	}
 	return strings.ToUpper(m)
-}
-
-func heartbeatStatus(raw string) string {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case AgentStatusSleep:
-		return AgentStatusSleep
-	case AgentStatusShutdown:
-		return AgentStatusShutdown
-	default:
-		return AgentStatusActive
-	}
 }
 
 func firstNonEmpty(values ...string) string {
