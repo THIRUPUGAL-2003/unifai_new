@@ -1,0 +1,322 @@
+---
+title: "Client Configuration"
+description: "Configure the UnifAI client: connection pool, logging, CORS, header filtering, compat shims, and MCP settings"
+icon: "gear"
+---
+
+The `unifai.client` block controls how UnifAI manages its internal worker pool, request logging, authentication enforcement, header policies, SDK compatibility shims, and MCP agent behaviour. All settings map directly to the `client` section of the rendered `config.json`.
+
+---
+
+## Connection Pool
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `unifai.client.initialPoolSize` | Pre-allocated worker goroutines per provider queue | `300` |
+| `unifai.client.dropExcessRequests` | Drop requests when queue is full instead of waiting | `false` |
+
+A larger pool reduces latency spikes under burst load at the cost of higher baseline memory. For production workloads with multiple providers, `1000` is a common starting point.
+
+```yaml
+# client-pool.yaml
+image:
+  tag: "v1.4.11"
+
+unifai:
+  client:
+    initialPoolSize: 1000
+    dropExcessRequests: true   # Return 429 instead of queuing indefinitely
+```
+
+```bash
+helm install unifai unifai/unifai -f client-pool.yaml
+
+# Or set inline
+helm upgrade unifai unifai/unifai \
+  --reuse-values \
+  --set unifai.client.initialPoolSize=1000 \
+  --set unifai.client.dropExcessRequests=true
+```
+
+---
+
+## Request & Response Logging
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `unifai.client.enableLogging` | Log all LLM requests and responses | `true` |
+| `unifai.client.disableContentLogging` | Strip message content from logs (keeps metadata) | `false` |
+| `unifai.client.logRetentionDays` | Days to retain log entries in the store | `365` |
+| `unifai.client.loggingHeaders` | HTTP request headers to capture in log metadata | `[]` |
+
+Set `disableContentLogging: true` for HIPAA / PCI compliance workloads where message content must not be persisted.
+
+```yaml
+unifai:
+  client:
+    enableLogging: true
+    disableContentLogging: true    # PII / compliance: store metadata only
+    logRetentionDays: 90
+    loggingHeaders:
+      - "x-request-id"
+      - "x-user-id"
+```
+
+```bash
+helm upgrade unifai unifai/unifai \
+  --reuse-values \
+  --set unifai.client.disableContentLogging=true \
+  --set unifai.client.logRetentionDays=90
+```
+
+---
+
+## Security & CORS
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `unifai.client.allowedOrigins` | CORS allowed origins | `["*"]` |
+| `unifai.client.enforceGovernanceHeader` | Require `x-uf-vk` virtual-key header on every request | `false` |
+| `unifai.client.maxRequestBodySizeMb` | Maximum allowed request body size | `100` |
+| `unifai.client.whitelistedRoutes` | Routes that bypass auth middleware | `[]` |
+
+```yaml
+unifai:
+  client:
+    allowedOrigins:
+      - "https://app.yourdomain.com"
+      - "https://admin.yourdomain.com"
+    enforceGovernanceHeader: true  # Every request must carry a virtual key
+    maxRequestBodySizeMb: 50
+    whitelistedRoutes:
+      - "/health"
+      - "/metrics"
+```
+
+```bash
+helm install unifai unifai/unifai \
+  --set image.tag=v1.4.11 \
+  --set unifai.client.enforceGovernanceHeader=true
+```
+
+---
+
+## Header Filtering
+
+Controls which `x-uf-eh-*` headers are forwarded to upstream LLM providers.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `unifai.client.headerFilterConfig.allowlist` | Only these headers are forwarded (whitelist mode) | `[]` |
+| `unifai.client.headerFilterConfig.denylist` | These headers are always blocked | `[]` |
+| `unifai.client.requiredHeaders` | Headers that must be present on every request | `[]` |
+| `unifai.client.allowedHeaders` | Additional headers permitted for CORS and WebSocket | `[]` |
+
+When both lists are empty, all `x-uf-eh-*` headers pass through. Specifying an `allowlist` enables strict whitelist mode - only listed headers are forwarded.
+
+```yaml
+unifai:
+  client:
+    headerFilterConfig:
+      allowlist:
+        - "x-uf-eh-anthropic-version"
+        - "x-uf-eh-openai-beta"
+      denylist: []
+    requiredHeaders:
+      - "x-request-id"
+```
+
+---
+
+## Authentication
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `unifai.authConfig.isEnabled` | Enable username/password auth for the API and dashboard | `false` |
+| `unifai.authConfig.adminUsername` | Admin username (plain text, prefer secret) | `""` |
+| `unifai.authConfig.adminPassword` | Admin password (plain text, prefer secret) | `""` |
+| `unifai.authConfig.existingSecret` | Kubernetes Secret name for credentials | `""` |
+| `unifai.authConfig.usernameKey` | Key within the secret for username | `"username"` |
+| `unifai.authConfig.passwordKey` | Key within the secret for password | `"password"` |
+| `unifai.authConfig.disableAuthOnInference` | Skip auth check on `/v1/*` inference routes | `false` |
+
+```bash
+# Create secret first
+kubectl create secret generic unifai-admin \
+  --from-literal=username='admin' \
+  --from-literal=password='your-secure-password'
+```
+
+```yaml
+unifai:
+  authConfig:
+    isEnabled: true
+    disableAuthOnInference: false
+    existingSecret: "unifai-admin"
+    usernameKey: "username"
+    passwordKey: "password"
+```
+
+```bash
+helm upgrade unifai unifai/unifai \
+  --reuse-values \
+  -f auth-values.yaml
+```
+
+---
+
+## Encryption
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `unifai.encryptionKey` | Optional encryption key (plain text - use `encryptionKeySecret` in production). If omitted, data is stored in plaintext. | `""` |
+| `unifai.encryptionKeySecret.name` | Kubernetes Secret name containing the key | `""` |
+| `unifai.encryptionKeySecret.key` | Key within the secret | `"encryption-key"` |
+
+Always use a Kubernetes Secret in production:
+
+```bash
+kubectl create secret generic unifai-encryption \
+  --from-literal=encryption-key='your-32-byte-encryption-key-here'
+```
+
+```yaml
+unifai:
+  encryptionKeySecret:
+    name: "unifai-encryption"
+    key: "encryption-key"
+```
+
+```bash
+helm install unifai unifai/unifai \
+  --set image.tag=v1.4.11 \
+  -f encryption-values.yaml
+```
+
+---
+
+## Async Jobs & Database Pings
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `unifai.client.disableDbPingsInHealth` | Exclude DB connectivity from `/health` checks | `false` |
+| `unifai.client.asyncJobResultTTL` | TTL (seconds) for async job results | `3600` |
+
+---
+
+## Compat Shims
+
+Compatibility flags that let UnifAI silently adapt request/response shapes for SDK integrations:
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `unifai.client.compat.convertTextToChat` | Wrap legacy text completions as chat messages | `false` |
+| `unifai.client.compat.convertChatToResponses` | Translate chat completions to Responses API format | `false` |
+| `unifai.client.compat.shouldDropParams` | Silently drop unsupported parameters instead of erroring | `false` |
+| `unifai.client.compat.shouldConvertParams` | Auto-convert parameter names across provider schemas | `false` |
+
+```yaml
+unifai:
+  client:
+    compat:
+      shouldDropParams: true     # Useful when proxying mixed SDK traffic
+      convertTextToChat: true    # For clients using the legacy /v1/completions endpoint
+```
+
+---
+
+## Prometheus Labels
+
+Add custom labels to every Prometheus metric emitted by UnifAI:
+
+```yaml
+unifai:
+  client:
+    prometheusLabels:
+      - name: "environment"
+        value: "production"
+      - name: "region"
+        value: "us-east-1"
+```
+
+---
+
+## MCP Agent Settings
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `unifai.mcp.toolManagerConfig.maxAgentDepth` | Maximum tool-call recursion depth for MCP agent mode | `10` |
+| `unifai.mcp.toolManagerConfig.toolExecutionTimeout` | Timeout per tool execution in seconds | `30` |
+| `unifai.mcp.toolManagerConfig.codeModeBindingLevel` | Code mode binding level (`server` or `tool`) | `server` |
+| `unifai.mcp.toolManagerConfig.disableAutoToolInject` | Disable automatic MCP tool injection | `false` |
+| `unifai.mcp.toolSyncInterval` | Global tool sync interval as a Go duration string (for example `10m`). Use `0s` to use the runtime default (it does **not** disable sync). This differs from legacy `unifai.client.mcpToolSyncInterval: 0`, which represented disabled behavior. | `10m` |
+
+```yaml
+unifai:
+  mcp:
+    toolSyncInterval: "15m"
+    toolManagerConfig:
+      maxAgentDepth: 15
+      toolExecutionTimeout: 60
+      codeModeBindingLevel: "tool"
+      disableAutoToolInject: false
+```
+
+---
+
+## Full Example
+
+```yaml
+# client-full.yaml
+image:
+  tag: "v1.4.11"
+
+unifai:
+  encryptionKeySecret:
+    name: "unifai-encryption"
+    key: "encryption-key"
+
+  authConfig:
+    isEnabled: true
+    disableAuthOnInference: false
+    existingSecret: "unifai-admin"
+    usernameKey: "username"
+    passwordKey: "password"
+
+  client:
+    initialPoolSize: 1000
+    dropExcessRequests: true
+    allowedOrigins:
+      - "https://app.yourdomain.com"
+    enableLogging: true
+    disableContentLogging: false
+    logRetentionDays: 90
+    enforceGovernanceHeader: true
+    maxRequestBodySizeMb: 100
+    headerFilterConfig:
+      allowlist: []
+      denylist: []
+    prometheusLabels:
+      - name: "environment"
+        value: "production"
+  mcp:
+    toolSyncInterval: "10m"
+    toolManagerConfig:
+      maxAgentDepth: 10
+      toolExecutionTimeout: 30
+      codeModeBindingLevel: "server"
+      disableAutoToolInject: false
+```
+
+```bash
+# Create prerequisites
+kubectl create secret generic unifai-encryption \
+  --from-literal=encryption-key='your-32-byte-encryption-key-here'
+
+kubectl create secret generic unifai-admin \
+  --from-literal=username='admin' \
+  --from-literal=password='your-secure-password'
+
+# Install
+helm install unifai unifai/unifai -f client-full.yaml
+```

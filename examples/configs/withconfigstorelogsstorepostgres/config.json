@@ -1,0 +1,27 @@
+{
+  "$schema": "https://www.getunifai.ai/schema",
+  "config_store": {
+    "enabled": true,
+    "type": "postgres",
+    "config": {
+      "host": "localhost",
+      "port": "5432",
+      "user": "unifai",
+      "password": "unifai_password",
+      "db_name": "unifai",
+      "ssl_mode": "disable"
+    }
+  },
+  "logs_store": {
+    "enabled": true,
+    "type": "postgres",
+    "config": {
+      "host": "localhost",
+      "port": "5432",
+      "user": "unifai",
+      "password": "unifai_password",
+      "db_name": "unifai",
+      "ssl_mode": "disable"
+    }
+  }
+}

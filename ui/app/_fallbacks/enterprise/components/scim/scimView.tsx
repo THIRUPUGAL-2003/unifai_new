@@ -1,0 +1,127 @@
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { getErrorMessage } from "@/lib/store";
+import { useGetSCIMConfigQuery, useUpdateSCIMConfigMutation } from "@enterprise/lib/store/apis/scimApi";
+import { SCIMConfig } from "@enterprise/lib/types/workspace";
+import { Save, UserRoundCog } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+
+export default function SCIMView() {
+	const { data, isLoading: loading } = useGetSCIMConfigQuery();
+	const [updateConfig, { isLoading: saving }] = useUpdateSCIMConfigMutation();
+	const [config, setConfig] = useState<SCIMConfig>({ enabled: false, provider: "okta", config: {} });
+
+	useEffect(() => {
+		if (data) setConfig({ ...data, config: data.config || {} });
+	}, [data]);
+
+	const setField = (key: string, value: string) => {
+		setConfig((current) => ({ ...current, config: { ...current.config, [key]: value } }));
+	};
+
+	const save = async () => {
+		try {
+			const next = await updateConfig(config).unwrap();
+			setConfig({ ...next, config: next.config || {} });
+			toast.success("SCIM configuration saved");
+		} catch (err) {
+			toast.error(getErrorMessage(err));
+		}
+	};
+
+	if (loading) {
+		return <div className="text-muted-foreground p-6 text-sm">Loading SCIM config…</div>;
+	}
+
+	return (
+		<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
+			<div>
+				<h1 className="flex items-center gap-2 text-2xl font-semibold">
+					<UserRoundCog className="h-6 w-6" />
+					SCIM / User Provisioning
+				</h1>
+				<p className="text-muted-foreground mt-1 text-sm">Connect Okta, Entra, or Keycloak and map claims into UnifAI roles and teams.</p>
+			</div>
+
+			<Card>
+				<CardHeader>
+					<CardTitle className="text-base">Provider</CardTitle>
+					<CardDescription>Settings persist in the config database as scim_config.</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-4">
+					<div className="flex items-center justify-between rounded-lg border p-3">
+						<div>
+							<Label>Enable SCIM</Label>
+							<p className="text-muted-foreground text-xs">Turns on the provisioning configuration for this workspace.</p>
+						</div>
+						<Switch checked={config.enabled} onCheckedChange={(enabled) => setConfig({ ...config, enabled })} />
+					</div>
+					<div className="space-y-1">
+						<Label>Identity provider</Label>
+						<select
+							value={config.provider || "okta"}
+							onChange={(e) => setConfig({ ...config, provider: e.target.value })}
+							className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+						>
+							<option value="okta">Okta</option>
+							<option value="entra">Microsoft Entra</option>
+							<option value="keycloak">Keycloak</option>
+						</select>
+					</div>
+					{config.provider === "okta" && (
+						<>
+							<Field label="Issuer URL" value={config.config.issuerUrl || ""} onChange={(value) => setField("issuerUrl", value)} />
+							<Field label="Client ID" value={config.config.clientId || ""} onChange={(value) => setField("clientId", value)} />
+							<Field label="Client secret" type="password" value={config.config.clientSecret || ""} onChange={(value) => setField("clientSecret", value)} />
+							<Field label="API token" type="password" value={config.config.apiToken || ""} onChange={(value) => setField("apiToken", value)} />
+						</>
+					)}
+					{config.provider === "entra" && (
+						<>
+							<Field label="Tenant ID" value={config.config.tenantId || ""} onChange={(value) => setField("tenantId", value)} />
+							<Field label="Client ID" value={config.config.clientId || ""} onChange={(value) => setField("clientId", value)} />
+							<Field label="Client secret" type="password" value={config.config.clientSecret || ""} onChange={(value) => setField("clientSecret", value)} />
+						</>
+					)}
+					{config.provider === "keycloak" && (
+						<>
+							<Field label="Issuer URL" value={config.config.issuerUrl || ""} onChange={(value) => setField("issuerUrl", value)} />
+							<Field label="Client ID" value={config.config.clientId || ""} onChange={(value) => setField("clientId", value)} />
+							<Field label="Client secret" type="password" value={config.config.clientSecret || ""} onChange={(value) => setField("clientSecret", value)} />
+							<Field label="Realm" value={config.config.realm || ""} onChange={(value) => setField("realm", value)} />
+						</>
+					)}
+					<div className="flex justify-end">
+						<Button onClick={() => void save()} disabled={saving}>
+							<Save className="h-4 w-4" />
+							{saving ? "Saving…" : "Save SCIM config"}
+						</Button>
+					</div>
+				</CardContent>
+			</Card>
+		</div>
+	);
+}
+
+function Field({
+	label,
+	value,
+	onChange,
+	type = "text",
+}: {
+	label: string;
+	value: string;
+	onChange: (value: string) => void;
+	type?: string;
+}) {
+	return (
+		<div className="space-y-1">
+			<Label>{label}</Label>
+			<Input type={type} value={value} onChange={(e) => onChange(e.target.value)} />
+		</div>
+	);
+}

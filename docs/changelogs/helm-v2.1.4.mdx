@@ -1,0 +1,17 @@
+---
+title: "v2.1.4"
+description: "Helm v2.1.4 changelog - 2026-04-24"
+---
+
+<Update label="UnifAI Helm" description="v2.1.4">
+
+## Changelog
+
+- Added stricter cluster discovery validation in Helm templates:
+  - Require `unifai.cluster.discovery.serviceName` when `unifai.cluster.discovery.type` is `consul`, `etcd`, or `udp`.
+  - For `udp` discovery, require both:
+    - `unifai.cluster.discovery.udpBroadcastPort`
+    - `unifai.cluster.discovery.allowedAddressSpace`
+- Added/updated template fail-fast errors so invalid discovery config is rejected at render time instead of failing later at runtime.
+
+</Update>

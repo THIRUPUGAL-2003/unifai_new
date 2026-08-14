@@ -1,0 +1,2625 @@
+import React, { useState, useEffect, useRef } from "react";
+import {
+	Globe,
+	RefreshCw,
+	Shield,
+	ShieldCheck,
+	Plus,
+	Search,
+	CheckCircle2,
+	AlertTriangle,
+	AlertCircle,
+	Copy,
+	Check,
+	Eye,
+	EyeOff,
+	Download,
+	ExternalLink,
+	Activity,
+	Terminal,
+	FileText,
+	ChevronLeft,
+	ChevronRight,
+	CornerDownRight,
+	Trash2,
+	Pencil,
+	X,
+	SlidersHorizontal,
+	Zap,
+	BrainCircuit,
+	Radio,
+	FileKey,
+	Upload,
+	Bot,
+	Save,
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions } from "./relatedHosts";
+
+import {
+	useGetBrowserAiLogsQuery,
+	useClearBrowserAiLogsMutation,
+	useGetBrowserAiRulesQuery,
+	useCreateBrowserAiRuleMutation,
+	useUpdateBrowserAiRuleMutation,
+	useDeleteBrowserAiRuleMutation,
+	useGetBrowserAiControlsQuery,
+	useUpdateBrowserAiControlsMutation,
+	useGetBrowserAiTargetsQuery,
+	useCreateBrowserAiTargetMutation,
+	useUpdateBrowserAiTargetMutation,
+	useDeleteBrowserAiTargetMutation,
+	useGetBrowserAiAgentsQuery,
+	useGetBrowserAiAgentSettingsQuery,
+	useSaveBrowserAiUninstallKeyMutation,
+	BrowserAILogEntry,
+	BrowserGuardRule,
+	BrowserControlSettings,
+	BrowserTargetWebsite,
+} from "@/lib/store/apis/browserAiApi";
+import { useGetProvidersQuery, useGetModelsQuery } from "@/lib/store/apis/providersApi";
+import { getApiBaseUrl } from "@/lib/utils/port";
+
+export default function BrowserAiPage() {
+	const [activeTab, setActiveTab] = useState("overview");
+
+	// Live updates & Polling control
+	const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
+
+	// Pagination & Filters state
+	const [searchQuery, setSearchQuery] = useState("");
+	const [selectedPlatform, setSelectedPlatform] = useState("all");
+	const [selectedAction, setSelectedAction] = useState("all");
+	const [pageLimit, setPageLimit] = useState(25);
+	const [pageOffset, setPageOffset] = useState(0);
+
+	const [ruleSearch, setRuleSearch] = useState("");
+	const [targetSearch, setTargetSearch] = useState("");
+	const [selectedLog, setSelectedLog] = useState<BrowserAILogEntry | null>(null);
+	const [copiedPrompt, setCopiedPrompt] = useState(false);
+	const [setupPackageDownloading, setSetupPackageDownloading] = useState(false);
+	const [setupPackageError, setSetupPackageError] = useState("");
+	const [uninstallKeyInput, setUninstallKeyInput] = useState("");
+	const [uninstallKeyMessage, setUninstallKeyMessage] = useState("");
+	const [uninstallKeyError, setUninstallKeyError] = useState("");
+	// Plaintext is hashed server-side; keep last saved value only for this browser session.
+	const [savedUninstallKeyDisplay, setSavedUninstallKeyDisplay] = useState("");
+	const [uninstallKeyEditing, setUninstallKeyEditing] = useState(false);
+	const [showUninstallKey, setShowUninstallKey] = useState(false);
+	const [agentSearch, setAgentSearch] = useState("");
+	const [agentStatusFilter, setAgentStatusFilter] = useState("all");
+	const [agentPageOffset, setAgentPageOffset] = useState(0);
+	const agentPageLimit = 50;
+
+	// Dialog states
+	const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
+	const [targetDialogOpen, setTargetDialogOpen] = useState(false);
+	const [ruleError, setRuleError] = useState("");
+	const [targetError, setTargetError] = useState("");
+
+	// New Rule Form
+	const [newRuleName, setNewRuleName] = useState("");
+	const [newRuleSeverity, setNewRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
+	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("REDACT");
+	const [newRulePattern, setNewRulePattern] = useState("");
+	const [newRuleDescription, setNewRuleDescription] = useState("");
+	const [newRuleWarningMessage, setNewRuleWarningMessage] = useState("");
+
+	// New Target Form
+	const [newTargetDomain, setNewTargetDomain] = useState("");
+	const [newTargetPlatform, setNewTargetPlatform] = useState("");
+	const [newTargetBlockSite, setNewTargetBlockSite] = useState(false);
+	const [customRelatedHosts, setCustomRelatedHosts] = useState<string[]>([""]);
+	const [extraHostDrafts, setExtraHostDrafts] = useState<Record<string, string>>({});
+
+	// Edit Target Form
+	const [editTarget, setEditTarget] = useState<BrowserTargetWebsite | null>(null);
+	const [editTargetDomain, setEditTargetDomain] = useState("");
+	const [editTargetPlatform, setEditTargetPlatform] = useState("");
+	const [editTargetBlockSite, setEditTargetBlockSite] = useState(false);
+	const [editTargetDialogOpen, setEditTargetDialogOpen] = useState(false);
+
+	// Edit Rule Form
+	const [editRule, setEditRule] = useState<BrowserGuardRule | null>(null);
+	const [editRuleName, setEditRuleName] = useState("");
+	const [editRuleSeverity, setEditRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
+	const [editRuleAction, setEditRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("REDACT");
+	const [editRulePattern, setEditRulePattern] = useState("");
+	const [editRuleDescription, setEditRuleDescription] = useState("");
+	const [editRuleWarningMessage, setEditRuleWarningMessage] = useState("");
+	const [editRuleDialogOpen, setEditRuleDialogOpen] = useState(false);
+
+	const activePolling = liveUpdatesEnabled ? 3000 : undefined;
+
+	// --- Violation Notification State ---
+	const [violationToasts, setViolationToasts] = useState<
+		Array<{ id: string; platform: string; reason: string; prompt: string; time: string }>
+	>([]);
+	const seenBlockedIds = useRef<Set<string>>(new Set());
+	const notifPermission = useRef<NotificationPermission>("default");
+
+	// Request browser notification permission on mount
+	useEffect(() => {
+		if (typeof window !== "undefined" && "Notification" in window) {
+			Notification.requestPermission().then((perm) => {
+				notifPermission.current = perm;
+			});
+		}
+	}, []);
+
+	// RTK Queries with auto-polling for real-time live updates
+	const {
+		data: logsData,
+		refetch: refetchLogs,
+		isFetching: logsLoading,
+	} = useGetBrowserAiLogsQuery(
+		{
+			platform: selectedPlatform !== "all" ? selectedPlatform : undefined,
+			action: selectedAction !== "all" ? selectedAction : undefined,
+			search: searchQuery || undefined,
+			limit: pageLimit,
+			offset: pageOffset,
+		},
+		{ pollingInterval: activePolling }
+	);
+
+	const { data: rulesData, refetch: refetchRules } = useGetBrowserAiRulesQuery(undefined, { pollingInterval: activePolling });
+	const { data: targetsData, refetch: refetchTargets } = useGetBrowserAiTargetsQuery(undefined, { pollingInterval: activePolling });
+	const { data: controlsData } = useGetBrowserAiControlsQuery(undefined, { pollingInterval: activePolling });
+	const {
+		data: agentsData,
+		refetch: refetchAgents,
+		isFetching: agentsLoading,
+	} = useGetBrowserAiAgentsQuery(
+		{
+			status: agentStatusFilter !== "all" ? agentStatusFilter : undefined,
+			search: agentSearch || undefined,
+			limit: agentPageLimit,
+			offset: agentPageOffset,
+		},
+		{ pollingInterval: activePolling }
+	);
+	const { data: agentSettingsData, refetch: refetchAgentSettings } = useGetBrowserAiAgentSettingsQuery();
+	const [saveUninstallKey, { isLoading: savingUninstallKey }] = useSaveBrowserAiUninstallKeyMutation();
+
+	const controls: BrowserControlSettings = controlsData?.controls || {
+		id: "browser-controls-default",
+		enabled: true,
+		block_upload: false,
+		upload_warning: "",
+	};
+	const [uploadWarningDraft, setUploadWarningDraft] = useState("");
+	const [uploadWarningEditing, setUploadWarningEditing] = useState(false);
+	const [uploadWarningSaving, setUploadWarningSaving] = useState(false);
+	const [uploadWarningError, setUploadWarningError] = useState("");
+	useEffect(() => {
+		if (!uploadWarningEditing) {
+			setUploadWarningDraft(controls.upload_warning || "");
+		}
+	}, [controls.upload_warning, uploadWarningEditing]);
+	const agents = agentsData?.agents || [];
+	const totalAgents = agentsData?.total || 0;
+	const activeAgentsCount = agents.filter((a) => a.status === "active").length;
+	const agentSettings = agentSettingsData?.settings;
+
+	// Per-target Reply Bot editor
+	const [replyBotTarget, setReplyBotTarget] = useState<BrowserTargetWebsite | null>(null);
+	const [replyBotDialogOpen, setReplyBotDialogOpen] = useState(false);
+	const [replyBotEnabled, setReplyBotEnabled] = useState(false);
+	const [replyBotProvider, setReplyBotProvider] = useState("");
+	const [replyBotModel, setReplyBotModel] = useState("");
+	const [replyBotMode, setReplyBotMode] = useState<"violations" | "all">("violations");
+	const [replyBotSaving, setReplyBotSaving] = useState(false);
+
+	const { data: providersData } = useGetProvidersQuery();
+	const { data: replyModelsData, isFetching: replyModelsLoading } = useGetModelsQuery(
+		{ provider: replyBotProvider || undefined, limit: 80, unfiltered: true },
+		{ skip: !replyBotProvider || !replyBotDialogOpen }
+	);
+	const providerOptions: string[] = (providersData || []).map((p) => String(p.name)).sort();
+	const modelOptions: string[] = (replyModelsData?.models || []).map((m) => m.name);
+
+	const openReplyBotDialog = (tgt: BrowserTargetWebsite) => {
+		setReplyBotTarget(tgt);
+		setReplyBotEnabled(!!tgt.reply_bot_enabled);
+		setReplyBotProvider(tgt.reply_bot_provider || "");
+		setReplyBotModel(tgt.reply_bot_model || "");
+		setReplyBotMode(tgt.reply_bot_mode === "all" ? "all" : "violations");
+		setReplyBotDialogOpen(true);
+	};
+
+	// --- Detect new blocked violations and fire notifications ---
+	useEffect(() => {
+		if (!logsData?.logs) return;
+		const newBlocked = logsData.logs.filter(
+			(l) => l.action === "Blocked" && l.id && !seenBlockedIds.current.has(l.id)
+		);
+		if (newBlocked.length === 0) return;
+		newBlocked.forEach((log) => {
+			seenBlockedIds.current.add(log.id);
+			const toastId = log.id;
+			const platform = log.platform || "AI Platform";
+			const reason = log.rule_triggered || "Security Rule Violation";
+			const prompt = log.user_prompt_full?.slice(0, 60) || log.risk_score?.toString() || "";
+			const time = new Date().toLocaleTimeString();
+
+			// Show browser system notification
+			if (typeof window !== "undefined" && "Notification" in window && notifPermission.current === "granted") {
+				try {
+					new Notification("🚨 AI Guard: Security Violation Blocked!", {
+						body: `[${platform}] ${reason}`,
+						icon: "/favicon.ico",
+						tag: toastId,
+					});
+				} catch {}
+			}
+
+			// Show in-page toast
+			setViolationToasts((prev) => [
+				{ id: toastId, platform, reason, prompt, time },
+				...prev.slice(0, 4),
+			]);
+			// Auto-dismiss after 8 seconds
+			setTimeout(() => {
+				setViolationToasts((prev) => prev.filter((t) => t.id !== toastId));
+			}, 8000);
+		});
+	}, [logsData]);
+
+	const [clearLogs] = useClearBrowserAiLogsMutation();
+	const [createRule] = useCreateBrowserAiRuleMutation();
+	const [updateRule] = useUpdateBrowserAiRuleMutation();
+	const [deleteRule] = useDeleteBrowserAiRuleMutation();
+	const [updateControls] = useUpdateBrowserAiControlsMutation();
+	const [createTarget] = useCreateBrowserAiTargetMutation();
+	const [updateTarget] = useUpdateBrowserAiTargetMutation();
+	const [deleteTarget] = useDeleteBrowserAiTargetMutation();
+
+	const patchControl = async (patch: Partial<BrowserControlSettings>) => {
+		try {
+			await updateControls(patch).unwrap();
+			return true;
+		} catch {
+			return false;
+		}
+	};
+
+	const saveUploadWarning = async () => {
+		setUploadWarningError("");
+		setUploadWarningSaving(true);
+		const text = uploadWarningDraft.trim();
+		const ok = await patchControl({ upload_warning: text });
+		setUploadWarningSaving(false);
+		if (!ok) {
+			setUploadWarningError("Could not save warning. Try again.");
+			return;
+		}
+		setUploadWarningDraft(text);
+		setUploadWarningEditing(false);
+	};
+
+	const saveTargetReplyBot = async () => {
+		if (!replyBotTarget) return;
+		if (replyBotEnabled && (!replyBotProvider || !replyBotModel)) return;
+		setReplyBotSaving(true);
+		try {
+			await updateTarget({
+				id: replyBotTarget.id,
+				updates: {
+					reply_bot_enabled: replyBotEnabled,
+					reply_bot_provider: replyBotProvider,
+					reply_bot_model: replyBotModel,
+					reply_bot_mode: replyBotMode,
+				},
+			}).unwrap();
+			setReplyBotDialogOpen(false);
+			setReplyBotTarget(null);
+		} catch {
+			// next poll refreshes
+		} finally {
+			setReplyBotSaving(false);
+		}
+	};
+
+	const handleEditTarget = async () => {
+		if (!editTarget || !editTargetDomain.trim()) return;
+		try {
+			await updateTarget({
+				id: editTarget.id,
+				updates: {
+					domain: editTargetDomain.trim(),
+					platform_name: editTargetPlatform.trim() || "AI Platform",
+					block_site: editTargetBlockSite,
+					status: editTargetBlockSite ? "BLOCKED" : editTarget.monitored ? "MONITORED" : "PAUSED",
+				},
+			}).unwrap();
+			setEditTargetDialogOpen(false);
+			setEditTarget(null);
+		} catch (e) {
+			// error
+		}
+	};
+
+	const handleEditRuleSubmit = async () => {
+		if (!editRule || !editRuleName.trim() || !editRulePattern.trim()) return;
+		try {
+			await updateRule({
+				id: editRule.id,
+				updates: {
+					name: editRuleName.trim(),
+					severity: editRuleSeverity,
+					action: editRuleAction,
+					pattern: editRulePattern.trim(),
+					description: editRuleDescription.trim(),
+					warning_message: editRuleWarningMessage.trim(),
+				},
+			}).unwrap();
+			setEditRuleDialogOpen(false);
+			setEditRule(null);
+		} catch (e) {
+			// error
+		}
+	};
+
+	const logs = logsData?.logs || [];
+	const totalLogs = logsData?.total || logs.length;
+	const rules = rulesData?.rules || [];
+	const targets = targetsData?.targets || [];
+	const addedTargetDomains = targets.map((t) => t.domain);
+	const newTargetRelatedGroup = relatedHostsForDomain(newTargetDomain);
+
+	const activeRulesCount = rules.filter((r) => r.active).length;
+	const monitoredTargetsCount = targets.filter((t) => t.monitored).length;
+	const blockedCount = logs.filter((l) => l.action === "Blocked").length;
+	const redactedCount = logs.filter((l) => l.action === "Redacted").length;
+	const warnedCount = logs.filter((l) => l.action === "Warned").length;
+	const highRiskCount = logs.filter((l) => (l.risk_score || 0) >= 70 || l.predictive_risk === "HIGH" || l.predictive_risk === "CRITICAL").length;
+	const avgRiskScore = logs.length > 0 ? Math.round(logs.reduce((acc, curr) => acc + (curr.risk_score || 10), 0) / logs.length) : 0;
+
+	const handleCopyPrompt = (text: string) => {
+		navigator.clipboard.writeText(text);
+		setCopiedPrompt(true);
+		setTimeout(() => setCopiedPrompt(false), 2000);
+	};
+
+	const handleDownloadSetupPackage = async () => {
+		setSetupPackageDownloading(true);
+		setSetupPackageError("");
+		try {
+			const res = await fetch(`${getApiBaseUrl()}/browser-ai/setup/download.zip`, {
+				credentials: "include",
+			});
+			if (!res.ok) {
+				throw new Error(`Download failed (${res.status})`);
+			}
+			const blob = await res.blob();
+			const url = window.URL.createObjectURL(blob);
+			const link = document.createElement("a");
+			link.href = url;
+			link.download = "unifai-browser-ai-setup.zip";
+			document.body.appendChild(link);
+			link.click();
+			link.remove();
+			window.URL.revokeObjectURL(url);
+		} catch (error) {
+			setSetupPackageError(error instanceof Error ? error.message : "Failed to download setup package");
+		} finally {
+			setSetupPackageDownloading(false);
+		}
+	};
+
+	const handleSaveUninstallKey = async () => {
+		setUninstallKeyMessage("");
+		setUninstallKeyError("");
+		const nextKey = uninstallKeyInput.trim();
+		if (!nextKey) {
+			setUninstallKeyError("Enter a new uninstall key to save");
+			return;
+		}
+		try {
+			await saveUninstallKey({
+				key: nextKey,
+				require_uninstall_key: agentSettings?.require_uninstall_key ?? true,
+				updated_by: "admin",
+			}).unwrap();
+			setSavedUninstallKeyDisplay(nextKey);
+			setUninstallKeyInput("");
+			setUninstallKeyEditing(false);
+			setShowUninstallKey(true);
+			setUninstallKeyMessage("Uninstall key saved. Share this key with IT — server stores only a hash.");
+			refetchAgentSettings();
+		} catch (error) {
+			setUninstallKeyError(error instanceof Error ? error.message : "Failed to save uninstall key");
+		}
+	};
+
+	const handleToggleRequireUninstallKey = async (checked: boolean) => {
+		setUninstallKeyMessage("");
+		setUninstallKeyError("");
+		try {
+			await saveUninstallKey({
+				require_uninstall_key: checked,
+				updated_by: "admin",
+			}).unwrap();
+			setUninstallKeyMessage(checked ? "Uninstall key is now required." : "Uninstall key requirement disabled.");
+			refetchAgentSettings();
+		} catch (error) {
+			setUninstallKeyError(error instanceof Error ? error.message : "Failed to update uninstall policy");
+		}
+	};
+
+	const handleCreateRule = async () => {
+		if (!newRuleName.trim()) {
+			setRuleError("Please enter a Rule Name.");
+			return;
+		}
+		if (!newRulePattern.trim()) {
+			setRuleError("Please enter a Regex Pattern (e.g. sk-[a-zA-Z0-9]{32}).");
+			return;
+		}
+		setRuleError("");
+		try {
+			await createRule({
+				name: newRuleName.trim(),
+				severity: newRuleSeverity,
+				action: newRuleAction,
+				pattern: newRulePattern.trim(),
+				description: newRuleDescription.trim(),
+				warning_message: newRuleWarningMessage.trim(),
+				active: true,
+			}).unwrap();
+			setNewRuleName("");
+			setNewRulePattern("");
+			setNewRuleDescription("");
+			setNewRuleWarningMessage("");
+			setRuleDialogOpen(false);
+		} catch (err: any) {
+			setRuleError(err?.data?.message || err?.message || "Failed to create rule");
+		}
+	};
+
+	const handleCreateTarget = async () => {
+		const domain = normalizeTargetDomain(newTargetDomain);
+		if (!domain) {
+			setTargetError("Enter a domain only, e.g. gemini.google.com (no https://).");
+			return;
+		}
+		setTargetError("");
+		const platformName = newTargetPlatform.trim() || domain;
+		const payload = {
+			platform_name: platformName,
+			monitored: true,
+			block_site: newTargetBlockSite,
+			status: newTargetBlockSite ? "BLOCKED" : "MONITORED",
+		};
+		try {
+			const created = await createTarget({ domain, ...payload }).unwrap();
+			const parentId = created?.target?.id || "";
+			for (const extra of customRelatedHosts) {
+				const host = normalizeTargetDomain(extra);
+				if (!host || host === domain) continue;
+				try {
+					await createTarget({ domain: host, ...payload, parent_id: parentId }).unwrap();
+				} catch {
+					const existing = targets.find((t) => normalizeTargetDomain(t.domain) === host);
+					if (existing && parentId) {
+						try {
+							await updateTarget({ id: existing.id, updates: { parent_id: parentId } }).unwrap();
+						} catch {
+							// already in the list — skip
+						}
+					}
+				}
+			}
+			setNewTargetDomain("");
+			setNewTargetPlatform("");
+			setNewTargetBlockSite(false);
+			setCustomRelatedHosts([""]);
+			setTargetDialogOpen(false);
+		} catch (err: any) {
+			setTargetError(err?.data?.message || err?.message || "Failed to create target domain");
+		}
+	};
+
+	const fillSuggestedRelatedHost = (host: string) => {
+		const n = normalizeTargetDomain(host);
+		if (!n) return;
+		setCustomRelatedHosts((prev) => {
+			if (prev.some((v) => normalizeTargetDomain(v) === n)) return prev;
+			const emptyIdx = prev.findIndex((v) => !v.trim());
+			if (emptyIdx >= 0) {
+				const next = [...prev];
+				next[emptyIdx] = n;
+				return next;
+			}
+			return [...prev, n];
+		});
+	};
+
+	const handleAddRelatedHost = async (parent: BrowserTargetWebsite, host: string) => {
+		const domain = normalizeTargetDomain(host);
+		if (!domain || domain === normalizeTargetDomain(parent.domain)) return;
+		const parentId = parent.parent_id || parent.id;
+		const payload = {
+			domain,
+			platform_name: parent.platform_name || domain,
+			monitored: parent.monitored,
+			block_site: !!parent.block_site,
+			status: parent.block_site ? "BLOCKED" : parent.monitored ? "MONITORED" : "PAUSED",
+			parent_id: parentId,
+		};
+		try {
+			await createTarget(payload).unwrap();
+		} catch (err: any) {
+			const existing = targets.find((t) => normalizeTargetDomain(t.domain) === domain);
+			if (existing) {
+				try {
+					await updateTarget({ id: existing.id, updates: { parent_id: parentId } }).unwrap();
+					return;
+				} catch {
+					// fall through
+				}
+			}
+			setTargetError(err?.data?.message || err?.message || "Failed to add related host");
+		}
+	};
+
+	const getPlatformBadge = (platform: string) => {
+		const p = platform.toLowerCase();
+		if (p.includes("claude")) {
+			return <Badge className="bg-purple-950/60 text-purple-300 border border-purple-700/60">Claude</Badge>;
+		} else if (p.includes("chatgpt") || p.includes("openai")) {
+			return <Badge className="bg-emerald-950/60 text-emerald-300 border border-emerald-700/60">ChatGPT</Badge>;
+		} else if (p.includes("gemini") || p.includes("google")) {
+			return <Badge className="bg-blue-950/60 text-blue-300 border border-blue-700/60">Gemini</Badge>;
+		} else if (p.includes("copilot") || p.includes("microsoft")) {
+			return <Badge className="bg-cyan-950/60 text-cyan-300 border border-cyan-700/60">Copilot</Badge>;
+		} else if (p.includes("perplexity")) {
+			return <Badge className="bg-amber-950/60 text-amber-300 border border-amber-700/60">Perplexity</Badge>;
+		} else if (p.includes("deepseek")) {
+			return <Badge className="bg-indigo-950/60 text-indigo-300 border border-indigo-700/60">DeepSeek</Badge>;
+		}
+		return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">{platform || "AI Platform"}</Badge>;
+	};
+
+	const getAgentStatusBadge = (status: string) => {
+		const s = (status || "").toLowerCase();
+		if (s === "active") return <Badge className="bg-emerald-950 text-emerald-400 border border-emerald-800">Active</Badge>;
+		if (s === "sleep") return <Badge className="bg-amber-950 text-amber-300 border border-amber-800">Inactive (sleep)</Badge>;
+		if (s === "shutdown") return <Badge className="bg-orange-950 text-orange-300 border border-orange-800">Inactive (shutdown)</Badge>;
+		if (s === "inactive") return <Badge className="bg-amber-950 text-amber-300 border border-amber-800">Inactive</Badge>;
+		if (s === "uninstalled") return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">Uninstalled</Badge>;
+		return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">{status || "unknown"}</Badge>;
+	};
+
+	const nicGuidOnly = (raw?: string) => {
+		const m = (raw || "").match(/\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}/);
+		return m ? m[0].toUpperCase() : "";
+	};
+
+	const filteredRules = rules.filter(
+		(r) => r.name.toLowerCase().includes(ruleSearch.toLowerCase()) || r.pattern.toLowerCase().includes(ruleSearch.toLowerCase())
+	);
+
+	const targetSearchLower = targetSearch.toLowerCase().trim();
+	const targetMatchesSearch = (tgt: BrowserTargetWebsite) => {
+		if (!targetSearchLower) return true;
+		const statusLabel = tgt.block_site ? "blocked" : tgt.monitored ? "monitored" : "paused";
+		return (
+			(tgt.domain || "").toLowerCase().includes(targetSearchLower) ||
+			(tgt.platform_name || "").toLowerCase().includes(targetSearchLower) ||
+			statusLabel.includes(targetSearchLower)
+		);
+	};
+	const visibleTargetRows: { tgt: BrowserTargetWebsite; isChild: boolean }[] = [];
+	for (const group of groupTargetsByParent(targets)) {
+		const parentHit = targetMatchesSearch(group.parent);
+		const childHits = group.children.filter(targetMatchesSearch);
+		if (!targetSearchLower || parentHit || childHits.length > 0) {
+			visibleTargetRows.push({ tgt: group.parent, isChild: false });
+			const kids = !targetSearchLower || parentHit ? group.children : childHits;
+			for (const child of kids) {
+				visibleTargetRows.push({ tgt: child, isChild: true });
+			}
+		}
+	}
+
+	// Pagination calculations
+	const currentPage = Math.floor(pageOffset / pageLimit) + 1;
+	const totalPages = Math.ceil(totalLogs / pageLimit) || 1;
+
+	return (
+		<div className="space-y-6 p-2 md:p-6 text-foreground max-w-7xl mx-auto">
+			{/* Header View */}
+			<div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-border pb-5">
+				<div>
+					<div className="flex items-center gap-3">
+						<Globe className="h-6 w-6 text-primary" />
+						<h1 className="text-2xl font-bold tracking-tight">Browser AI Observability</h1>
+					</div>
+					<p className="text-muted-foreground text-sm mt-1">
+						Monitor browser AI prompts, predict security threat levels, auto-redact secrets in-flight, and control DLP guardrails.
+					</p>
+				</div>
+				<div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
+					<div className="flex items-center gap-2 bg-card border border-border px-3 py-1.5 rounded-md text-xs">
+						<Switch
+							checked={liveUpdatesEnabled}
+							onCheckedChange={setLiveUpdatesEnabled}
+							id="live-update-switch"
+						/>
+						<Label htmlFor="live-update-switch" className="cursor-pointer font-medium text-xs">
+							Live Update
+						</Label>
+					</div>
+
+					<Button
+						variant="outline"
+						size="sm"
+						onClick={() => {
+							refetchLogs();
+							refetchRules();
+							refetchTargets();
+						}}
+						className="gap-2 border-border hover:bg-accent h-8 text-xs"
+					>
+						<RefreshCw className={`h-3.5 w-3.5 ${logsLoading ? "animate-spin" : ""}`} />
+						Refresh
+					</Button>
+				</div>
+			</div>
+
+			{/* Sub-navigation Tabs */}
+			<Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+				<TabsList className="bg-card border border-border p-1">
+					<TabsTrigger value="overview" className="gap-2">
+						<Activity className="h-4 w-4" /> Overview
+					</TabsTrigger>
+					<TabsTrigger value="logs" className="gap-2">
+						<FileText className="h-4 w-4" /> Prompt Logs ({totalLogs})
+					</TabsTrigger>
+					<TabsTrigger value="rules" className="gap-2">
+						<Shield className="h-4 w-4" /> Guard Rules ({rules.length})
+					</TabsTrigger>
+					<TabsTrigger value="targets" className="gap-2">
+						<Globe className="h-4 w-4" /> Target Websites ({targets.length})
+					</TabsTrigger>
+					<TabsTrigger value="agents" className="gap-2">
+						<Radio className="h-4 w-4" /> Guard Agents ({totalAgents})
+					</TabsTrigger>
+					<TabsTrigger value="setup" className="gap-2">
+						<Terminal className="h-4 w-4" /> Setup
+					</TabsTrigger>
+				</TabsList>
+
+				{/* TAB 1: OVERVIEW */}
+				<TabsContent value="overview" className="space-y-6">
+					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription className="flex items-center gap-1.5">
+									<Globe className="h-3.5 w-3.5 text-muted-foreground" /> Total Prompts Intercepted
+								</CardDescription>
+								<CardTitle className="text-3xl font-bold">{totalLogs}</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<p className="text-xs text-muted-foreground">Passing through HTTPS proxy</p>
+							</CardContent>
+						</Card>
+
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription className="flex items-center gap-1.5">
+									<ShieldCheck className="h-3.5 w-3.5 text-purple-400" /> In-Flight Redactions
+								</CardDescription>
+								<CardTitle className="text-3xl font-bold text-purple-400">{redactedCount}</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<p className="text-xs text-muted-foreground">Secrets sanitized before AI model</p>
+							</CardContent>
+						</Card>
+
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription className="flex items-center gap-1.5">
+									<BrainCircuit className="h-3.5 w-3.5 text-amber-400" /> Predictive High Risk
+								</CardDescription>
+								<CardTitle className="text-3xl font-bold text-amber-400">{highRiskCount}</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<p className="text-xs text-muted-foreground">Avg Risk Score: {avgRiskScore}%</p>
+							</CardContent>
+						</Card>
+
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription className="flex items-center gap-1.5">
+									<AlertTriangle className="h-3.5 w-3.5 text-red-400" /> Blocked Violations
+								</CardDescription>
+								<CardTitle className="text-3xl font-bold text-red-400">{blockedCount}</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<p className="text-xs text-muted-foreground">Security policy breaches blocked</p>
+							</CardContent>
+						</Card>
+					</div>
+
+					<Card className="bg-card border-border">
+						<CardHeader>
+							<CardTitle className="text-lg">Recent Intercepted Activity</CardTitle>
+							<CardDescription>Real-time prompt stream captured from browser sessions</CardDescription>
+						</CardHeader>
+						<CardContent>
+							<div className="rounded-md border border-border overflow-x-auto">
+								<Table>
+									<TableHeader>
+										<TableRow className="border-border hover:bg-transparent">
+											<TableHead className="w-[170px]">Timestamp</TableHead>
+											<TableHead className="w-[120px]">Platform</TableHead>
+											<TableHead className="w-[130px]">Guard</TableHead>
+											<TableHead>User Prompt Preview</TableHead>
+											<TableHead className="w-[100px] text-right">Est. Tokens</TableHead>
+											<TableHead className="w-[110px]">Action</TableHead>
+											<TableHead className="w-[160px]">Reply Bot</TableHead>
+											<TableHead className="w-[90px] text-right">Details</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{logs.slice(0, 5).map((log) => (
+											<TableRow
+												key={log.id}
+												onClick={() => setSelectedLog(log)}
+												className="cursor-pointer border-border hover:bg-accent/50 transition-colors"
+											>
+												<TableCell className="text-xs text-muted-foreground font-mono">
+													{new Date(log.timestamp).toLocaleString()}
+												</TableCell>
+												<TableCell>{getPlatformBadge(log.platform)}</TableCell>
+												<TableCell className="text-xs text-muted-foreground max-w-[130px] truncate" title={log.agent_hostname || log.agent_id || ""}>
+													{log.agent_hostname || log.agent_id || "—"}
+												</TableCell>
+												<TableCell className="font-mono text-xs max-w-xs truncate">{log.user_prompt_preview}</TableCell>
+												<TableCell className="text-right text-xs font-mono">{log.est_tokens}</TableCell>
+												<TableCell>
+													{log.action === "Blocked" ? (
+														<Badge className="bg-red-950/80 text-red-400 border-red-700/60 gap-1 text-[11px]">
+															<AlertTriangle className="h-3 w-3" /> Blocked
+														</Badge>
+													) : log.action === "Bot Answered" ? (
+														<Badge className="bg-sky-950/80 text-sky-300 border-sky-700/60 gap-1 text-[11px]">
+															<Bot className="h-3 w-3" /> Bot Answered
+														</Badge>
+													) : log.action === "Redacted" ? (
+														<Badge className="bg-purple-950/80 text-purple-300 border-purple-700/60 gap-1 text-[11px]">
+															<ShieldCheck className="h-3 w-3" /> Redacted
+														</Badge>
+													) : log.action === "Warned" ? (
+														<Badge className="bg-amber-950/80 text-amber-300 border-amber-700/60 gap-1 text-[11px]">
+															<AlertCircle className="h-3 w-3" /> Warned
+														</Badge>
+													) : (
+														<Badge className="bg-emerald-950/80 text-emerald-400 border-emerald-700/60 gap-1 text-[11px]">
+															<CheckCircle2 className="h-3 w-3" /> Allowed
+														</Badge>
+													)}
+												</TableCell>
+												<TableCell>
+													{log.reply_bot_provider || log.reply_bot_model ? (
+														<div className="space-y-0.5">
+															<div className="flex items-center gap-1 text-[11px] text-sky-400 font-medium">
+																<Bot className="h-3 w-3 shrink-0" />
+																<span className="truncate max-w-[130px]">{log.reply_bot_provider || "—"}</span>
+															</div>
+															<p className="text-[10px] text-muted-foreground font-mono truncate max-w-[140px]">
+																{log.reply_bot_model || "—"}
+															</p>
+														</div>
+													) : (
+														<span className="text-[11px] text-muted-foreground">—</span>
+													)}
+												</TableCell>
+												<TableCell className="text-right">
+													<Button
+														variant="ghost"
+														size="icon"
+														onClick={(e) => {
+															e.stopPropagation();
+															setSelectedLog(log);
+														}}
+														className="h-8 w-8 text-muted-foreground hover:text-foreground"
+													>
+														<Eye className="h-4 w-4" />
+													</Button>
+												</TableCell>
+											</TableRow>
+										))}
+										{logs.length === 0 && (
+											<TableRow>
+												<TableCell colSpan={8} className="text-center py-6 text-muted-foreground">
+													No prompts intercepted yet. Start browsing AI platforms via proxy.
+												</TableCell>
+											</TableRow>
+										)}
+									</TableBody>
+								</Table>
+							</div>
+						</CardContent>
+					</Card>
+				</TabsContent>
+
+				{/* TAB 2: PROMPT LOGS */}
+				<TabsContent value="logs" className="space-y-4">
+					<Card className="bg-card border-border">
+						<CardHeader className="pb-4">
+							<div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+								<div>
+									<CardTitle className="text-lg">Prompt & Chat History</CardTitle>
+									<CardDescription>Live intercepted requests passing through the proxy</CardDescription>
+								</div>
+								<div className="flex items-center gap-2">
+									<Button variant="outline" size="sm" onClick={() => clearLogs()} className="text-destructive hover:bg-destructive/10 border-destructive/30">
+										Clear Logs
+									</Button>
+								</div>
+							</div>
+
+							{/* Search & Filter Toolbar */}
+							<div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
+								<div className="relative">
+									<Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+									<Input
+										placeholder="Search prompts or domain..."
+										value={searchQuery}
+										onChange={(e) => {
+											setSearchQuery(e.target.value);
+											setPageOffset(0);
+										}}
+										className="pl-9 bg-background border-border"
+									/>
+								</div>
+								<Select
+									value={selectedPlatform}
+									onValueChange={(val) => {
+										setSelectedPlatform(val);
+										setPageOffset(0);
+									}}
+								>
+									<SelectTrigger className="bg-background border-border">
+										<SelectValue placeholder="All Platforms" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">All Platforms</SelectItem>
+										<SelectItem value="ChatGPT">ChatGPT</SelectItem>
+										<SelectItem value="Claude">Claude</SelectItem>
+										<SelectItem value="Gemini">Gemini</SelectItem>
+										<SelectItem value="Copilot">Copilot</SelectItem>
+										<SelectItem value="Perplexity">Perplexity</SelectItem>
+										<SelectItem value="DeepSeek">DeepSeek</SelectItem>
+									</SelectContent>
+								</Select>
+								<Select
+									value={selectedAction}
+									onValueChange={(val) => {
+										setSelectedAction(val);
+										setPageOffset(0);
+									}}
+								>
+									<SelectTrigger className="bg-background border-border">
+										<SelectValue placeholder="All Status" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">All Status</SelectItem>
+										<SelectItem value="Allowed">Allowed</SelectItem>
+										<SelectItem value="Blocked">Blocked</SelectItem>
+										<SelectItem value="Bot Answered">Bot Answered</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+						</CardHeader>
+
+						<CardContent>
+							<div className="rounded-md border border-border overflow-x-auto">
+								<Table>
+									<TableHeader>
+										<TableRow className="border-border hover:bg-transparent">
+											<TableHead className="w-[170px]">Timestamp</TableHead>
+											<TableHead className="w-[120px]">Platform</TableHead>
+											<TableHead className="w-[130px]">Guard</TableHead>
+											<TableHead>User Prompt Preview</TableHead>
+											<TableHead className="w-[100px] text-right">Est. Tokens</TableHead>
+											<TableHead className="w-[110px]">Action</TableHead>
+											<TableHead className="w-[160px]">Reply Bot</TableHead>
+											<TableHead className="w-[90px] text-right">Details</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{logs.map((log) => (
+											<TableRow
+												key={log.id}
+												onClick={() => setSelectedLog(log)}
+												className="cursor-pointer border-border hover:bg-accent/50 transition-colors"
+											>
+												<TableCell className="text-xs text-muted-foreground font-mono">
+													{new Date(log.timestamp).toLocaleString()}
+												</TableCell>
+												<TableCell>{getPlatformBadge(log.platform)}</TableCell>
+												<TableCell className="text-xs text-muted-foreground max-w-[130px] truncate" title={log.agent_hostname || log.agent_id || ""}>
+													{log.agent_hostname || log.agent_id || "—"}
+												</TableCell>
+												<TableCell className="font-mono text-xs max-w-xs truncate">{log.user_prompt_preview}</TableCell>
+												<TableCell className="text-right text-xs font-mono">{log.est_tokens}</TableCell>
+												<TableCell>
+													{log.action === "Blocked" ? (
+														<Badge className="bg-red-950/80 text-red-400 border-red-700/60 gap-1 text-[11px]">
+															<AlertTriangle className="h-3 w-3" /> Blocked
+														</Badge>
+													) : log.action === "Bot Answered" ? (
+														<Badge className="bg-sky-950/80 text-sky-300 border-sky-700/60 gap-1 text-[11px]">
+															<Bot className="h-3 w-3" /> Bot Answered
+														</Badge>
+													) : log.action === "Redacted" ? (
+														<Badge className="bg-purple-950/80 text-purple-300 border-purple-700/60 gap-1 text-[11px]">
+															<ShieldCheck className="h-3 w-3" /> Redacted
+														</Badge>
+													) : log.action === "Warned" ? (
+														<Badge className="bg-amber-950/80 text-amber-300 border-amber-700/60 gap-1 text-[11px]">
+															<AlertCircle className="h-3 w-3" /> Warned
+														</Badge>
+													) : (
+														<Badge className="bg-emerald-950/80 text-emerald-400 border-emerald-700/60 gap-1 text-[11px]">
+															<CheckCircle2 className="h-3 w-3" /> Allowed
+														</Badge>
+													)}
+												</TableCell>
+												<TableCell>
+													{log.reply_bot_provider || log.reply_bot_model ? (
+														<div className="space-y-0.5">
+															<div className="flex items-center gap-1 text-[11px] text-sky-400 font-medium">
+																<Bot className="h-3 w-3 shrink-0" />
+																<span className="truncate max-w-[130px]">{log.reply_bot_provider || "—"}</span>
+															</div>
+															<p className="text-[10px] text-muted-foreground font-mono truncate max-w-[140px]">
+																{log.reply_bot_model || "—"}
+															</p>
+														</div>
+													) : (
+														<span className="text-[11px] text-muted-foreground">—</span>
+													)}
+												</TableCell>
+												<TableCell className="text-right">
+													<Button
+														variant="ghost"
+														size="icon"
+														onClick={(e) => {
+															e.stopPropagation();
+															setSelectedLog(log);
+														}}
+														className="h-8 w-8 text-muted-foreground hover:text-foreground"
+													>
+														<Eye className="h-4 w-4" />
+													</Button>
+												</TableCell>
+											</TableRow>
+										))}
+										{logs.length === 0 && (
+											<TableRow>
+												<TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+													No prompt logs match your filter criteria.
+												</TableCell>
+											</TableRow>
+										)}
+									</TableBody>
+								</Table>
+							</div>
+
+							{/* Standard Pagination Controls */}
+							<div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-4 text-xs text-muted-foreground">
+								<div className="flex items-center gap-2">
+									<span>Rows per page</span>
+									<Select
+										value={pageLimit.toString()}
+										onValueChange={(val) => {
+											setPageLimit(Number(val));
+											setPageOffset(0);
+										}}
+									>
+										<SelectTrigger className="h-8 w-[70px] bg-background border-border">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="10">10</SelectItem>
+											<SelectItem value="25">25</SelectItem>
+											<SelectItem value="50">50</SelectItem>
+											<SelectItem value="100">100</SelectItem>
+										</SelectContent>
+									</Select>
+									<span>
+										Showing {totalLogs > 0 ? pageOffset + 1 : 0} to {Math.min(pageOffset + pageLimit, totalLogs)} of {totalLogs} entries
+									</span>
+								</div>
+
+								<div className="flex items-center gap-2">
+									<span>
+										Page {currentPage} of {totalPages}
+									</span>
+									<div className="flex items-center gap-1">
+										<Button
+											variant="outline"
+											size="icon"
+											disabled={pageOffset === 0}
+											onClick={() => setPageOffset(Math.max(0, pageOffset - pageLimit))}
+											className="h-8 w-8 border-border"
+										>
+											<ChevronLeft className="h-4 w-4" />
+										</Button>
+										<Button
+											variant="outline"
+											size="icon"
+											disabled={pageOffset + pageLimit >= totalLogs}
+											onClick={() => setPageOffset(pageOffset + pageLimit)}
+											className="h-8 w-8 border-border"
+										>
+											<ChevronRight className="h-4 w-4" />
+										</Button>
+									</div>
+								</div>
+							</div>
+						</CardContent>
+					</Card>
+				</TabsContent>
+
+				{/* TAB 3: GUARD RULES */}
+				<TabsContent value="rules" className="space-y-4">
+					{/* Browser Interaction Controls */}
+					<Card className="bg-card border-border overflow-hidden">
+						<CardHeader className="pb-4">
+							<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+								<div className="space-y-1">
+									<div className="flex flex-wrap items-center gap-2">
+										<CardTitle className="text-lg">File upload policy</CardTitle>
+										<Badge
+											variant="outline"
+											className={
+												controls.enabled
+													? "border-emerald-700/70 bg-emerald-950/40 text-emerald-400"
+													: "border-border text-muted-foreground"
+											}
+										>
+											{controls.enabled ? "Active" : "Paused"}
+										</Badge>
+									</div>
+									<CardDescription>
+										Control uploads on monitored AI sites. Prompts and PDF content still use Guard Rules below.
+									</CardDescription>
+								</div>
+							</div>
+						</CardHeader>
+						<CardContent className="pt-0">
+							<div className="overflow-hidden rounded-lg border border-border divide-y divide-border">
+								{/* Master */}
+								<div className="flex items-center justify-between gap-4 bg-background/50 px-4 py-3.5">
+									<div className="min-w-0 flex items-start gap-3">
+										<div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card">
+											<SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
+										</div>
+										<div className="min-w-0">
+											<p className="text-sm font-medium">Upload controls</p>
+											<p className="text-xs text-muted-foreground mt-0.5">
+												Turn off to pause all upload enforcement on employee browsers.
+											</p>
+										</div>
+									</div>
+									<Switch
+										checked={!!controls.enabled}
+										onCheckedChange={(val) => patchControl({ enabled: val })}
+										aria-label="Enable upload controls"
+									/>
+								</div>
+
+								{/* Block every file */}
+								<div
+									className={`flex items-center justify-between gap-4 px-4 py-3.5 transition-opacity ${
+										controls.enabled ? "bg-card" : "bg-muted/20 opacity-60"
+									}`}
+								>
+									<div className="min-w-0 flex items-start gap-3">
+										<div
+											className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+												controls.enabled && controls.block_upload
+													? "border-rose-800/50 bg-rose-950/30"
+													: "border-border bg-background"
+											}`}
+										>
+											<Upload
+												className={`h-4 w-4 ${
+													controls.enabled && controls.block_upload ? "text-rose-400" : "text-muted-foreground"
+												}`}
+											/>
+										</div>
+										<div className="min-w-0 space-y-1.5">
+											<div className="flex flex-wrap items-center gap-2">
+												<p className="text-sm font-medium">Block all uploads</p>
+												{controls.enabled && controls.block_upload ? (
+													<Badge className="bg-rose-950/70 text-rose-300 border-rose-800/60 text-[10px] px-1.5 py-0">
+														Blocking
+													</Badge>
+												) : (
+													<Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
+														Allow clean files
+													</Badge>
+												)}
+											</div>
+											<p className="text-xs text-muted-foreground leading-relaxed">
+												{controls.block_upload
+													? "Every file/attachment to AI chats is blocked."
+													: "Clean files are allowed. Files that match Guard Rules inside PDF/text are still blocked."}
+											</p>
+										</div>
+									</div>
+									<Switch
+										checked={!!controls.block_upload}
+										disabled={!controls.enabled}
+										onCheckedChange={(val) => patchControl({ block_upload: val })}
+										aria-label="Block all uploads"
+									/>
+								</div>
+
+								<div className="space-y-2 bg-card px-4 py-3.5">
+									<div className="flex items-center justify-between gap-2">
+										<Label>Upload policy warning</Label>
+										{!uploadWarningEditing && (controls.upload_warning || "").trim() ? (
+											<Button
+												type="button"
+												size="sm"
+												variant="ghost"
+												className="h-8 shrink-0 text-muted-foreground hover:text-foreground"
+												onClick={() => {
+													setUploadWarningError("");
+													setUploadWarningDraft(controls.upload_warning || "");
+													setUploadWarningEditing(true);
+												}}
+											>
+												<Pencil className="h-3.5 w-3.5 mr-1.5" />
+												Edit
+											</Button>
+										) : null}
+									</div>
+									{uploadWarningEditing || !(controls.upload_warning || "").trim() ? (
+										<>
+											<Textarea
+												placeholder="Message employees see when this upload policy blocks a file..."
+												value={uploadWarningDraft}
+												onChange={(e) => setUploadWarningDraft(e.target.value)}
+												rows={3}
+											/>
+											<div className="flex items-center justify-between gap-2">
+												<p className="text-xs text-muted-foreground">
+													Shown when Block all uploads stops a file. Guard Rule hits inside a file use that rule&apos;s warning instead. Leave blank for no message.
+												</p>
+												<div className="flex items-center gap-2 shrink-0">
+													{uploadWarningEditing && (controls.upload_warning || "").trim() ? (
+														<Button
+															type="button"
+															size="sm"
+															variant="ghost"
+															disabled={uploadWarningSaving}
+															onClick={() => {
+																setUploadWarningError("");
+																setUploadWarningDraft(controls.upload_warning || "");
+																setUploadWarningEditing(false);
+															}}
+														>
+															Cancel
+														</Button>
+													) : null}
+													<Button
+														type="button"
+														size="sm"
+														variant="outline"
+														className="shrink-0"
+														disabled={uploadWarningSaving}
+														onClick={saveUploadWarning}
+													>
+														<Save className="h-3.5 w-3.5 mr-1.5" />
+														{uploadWarningSaving ? "Saving..." : "Save warning"}
+													</Button>
+												</div>
+											</div>
+											{uploadWarningError ? (
+												<p className="text-xs text-destructive">{uploadWarningError}</p>
+											) : null}
+										</>
+									) : (
+										<div className="rounded-md border border-amber-800/40 bg-amber-950/20 px-3 py-2">
+											<p className="text-xs text-amber-100/90 whitespace-pre-wrap break-words">
+												{(controls.upload_warning || "").trim()}
+											</p>
+										</div>
+									)}
+								</div>
+							</div>
+						</CardContent>
+					</Card>
+
+					<Card className="bg-card border-border">
+						<CardHeader>
+							<div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+								<div>
+									<CardTitle className="text-lg">DLP Guard Rules ({rules.length} Configured)</CardTitle>
+									<CardDescription>Real-time regular expressions matched against browser prompts</CardDescription>
+								</div>
+								<Dialog open={ruleDialogOpen} onOpenChange={setRuleDialogOpen}>
+									<DialogTrigger asChild>
+										<Button className="gap-2">
+											<Plus className="h-4 w-4" /> Add Rule
+										</Button>
+									</DialogTrigger>
+									<DialogContent className="bg-card border-border text-foreground sm:max-w-md">
+										<DialogHeader>
+											<DialogTitle>Create Guard Rule</DialogTitle>
+											<DialogDescription>Define a new DLP regex rule for real-time prompt inspection.</DialogDescription>
+										</DialogHeader>
+
+										{ruleError && <div className="p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{ruleError}</div>}
+
+										<div className="space-y-4 py-2">
+											<div className="space-y-1.5">
+												<Label>Rule Name</Label>
+												<Input placeholder="e.g. OpenAI API Key" value={newRuleName} onChange={(e) => setNewRuleName(e.target.value)} />
+											</div>
+											<div className="grid grid-cols-2 gap-3">
+												<div className="space-y-1.5">
+													<Label>Severity</Label>
+													<Select value={newRuleSeverity} onValueChange={(v: any) => setNewRuleSeverity(v)}>
+														<SelectTrigger>
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent>
+															<SelectItem value="CRITICAL">CRITICAL</SelectItem>
+															<SelectItem value="HIGH">HIGH</SelectItem>
+															<SelectItem value="MEDIUM">MEDIUM</SelectItem>
+														</SelectContent>
+													</Select>
+												</div>
+												<div className="space-y-1.5">
+													<Label>Action</Label>
+													<Select value={newRuleAction} onValueChange={(v: any) => setNewRuleAction(v)}>
+														<SelectTrigger>
+															<SelectValue />
+														</SelectTrigger>
+														<SelectContent>
+															<SelectItem value="REDACT">REDACT (In-Flight Auto Sanitize)</SelectItem>
+															<SelectItem value="BLOCK">BLOCK (Security Reject)</SelectItem>
+															<SelectItem value="WARN">WARN (Log Alert Only)</SelectItem>
+														</SelectContent>
+													</Select>
+												</div>
+											</div>
+											<div className="space-y-1.5">
+												<Label>Regex Pattern</Label>
+												<Input placeholder="e.g. sk-[a-zA-Z0-9]{32}" value={newRulePattern} onChange={(e) => setNewRulePattern(e.target.value)} />
+											</div>
+											<div className="space-y-1.5">
+												<Label>Description</Label>
+												<Textarea placeholder="Rule context and usage..." value={newRuleDescription} onChange={(e) => setNewRuleDescription(e.target.value)} />
+											</div>
+											<div className="space-y-1.5">
+												<Label>Warning message (shown when blocked)</Label>
+												<Textarea
+													placeholder="Message employees see in the chat when this rule blocks their prompt..."
+													value={newRuleWarningMessage}
+													onChange={(e) => setNewRuleWarningMessage(e.target.value)}
+													rows={4}
+												/>
+												<p className="text-xs text-muted-foreground">
+													Employees see only this text when the rule blocks. Leave blank for no in-chat warning.
+												</p>
+											</div>
+										</div>
+										<DialogFooter>
+											<Button variant="outline" onClick={() => setRuleDialogOpen(false)}>
+												Cancel
+											</Button>
+											<Button onClick={handleCreateRule}>Create Guard Rule</Button>
+										</DialogFooter>
+									</DialogContent>
+								</Dialog>
+							</div>
+
+							<div className="relative mt-3">
+								<Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+								<Input placeholder="Search guard rules..." value={ruleSearch} onChange={(e) => setRuleSearch(e.target.value)} className="pl-9 bg-background border-border" />
+							</div>
+						</CardHeader>
+						<CardContent>
+							<div className="space-y-3">
+								{filteredRules.map((rule) => (
+									<div
+										key={rule.id}
+										className="rounded-xl border border-border bg-background/40 p-4 hover:border-primary/30 transition-colors"
+									>
+										<div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+											<div className="min-w-0 flex-1 space-y-2">
+												<div className="flex flex-wrap items-center gap-2">
+													<h4 className="text-sm font-semibold text-foreground">{rule.name}</h4>
+													<Badge
+														className={
+															rule.severity === "CRITICAL"
+																? "bg-red-950/80 text-red-400 border-red-800"
+																: rule.severity === "HIGH"
+																? "bg-amber-950/80 text-amber-400 border-amber-800"
+																: "bg-blue-950/80 text-blue-300 border-blue-800"
+														}
+													>
+														{rule.severity}
+													</Badge>
+													{rule.action === "REDACT" ? (
+														<Badge className="bg-purple-950/80 text-purple-300 border-purple-700 gap-1 text-[11px]">
+															<ShieldCheck className="h-3 w-3" /> REDACT
+														</Badge>
+													) : rule.action === "BLOCK" ? (
+														<Badge className="bg-red-950/80 text-red-400 border-red-700 gap-1 text-[11px]">
+															<AlertTriangle className="h-3 w-3" /> BLOCK
+														</Badge>
+													) : (
+														<Badge className="bg-amber-950/80 text-amber-300 border-amber-700 gap-1 text-[11px]">
+															<AlertCircle className="h-3 w-3" /> WARN
+														</Badge>
+													)}
+												</div>
+
+												<p className="text-xs text-muted-foreground leading-relaxed break-words">
+													{rule.description || "No description provided."}
+												</p>
+
+												{rule.warning_message ? (
+													<div className="rounded-md border border-amber-800/40 bg-amber-950/20 px-3 py-2">
+														<p className="text-[10px] uppercase tracking-wide text-amber-300/80 mb-1">Warning message</p>
+														<p className="text-xs text-amber-100/90 whitespace-pre-wrap break-words">{rule.warning_message}</p>
+													</div>
+												) : null}
+
+												<div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+													<p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Regex Pattern</p>
+													<code className="block text-xs font-mono text-emerald-400 whitespace-pre-wrap break-all">
+														{rule.pattern}
+													</code>
+												</div>
+											</div>
+
+											<div className="flex items-center justify-between gap-3 lg:flex-col lg:items-end lg:justify-start shrink-0 border-t border-border pt-3 lg:border-t-0 lg:pt-0 lg:pl-4">
+												<div className="flex items-center gap-2">
+													<span className={`text-xs font-medium ${rule.active ? "text-emerald-400" : "text-muted-foreground"}`}>
+														{rule.active ? "Active" : "Disabled"}
+													</span>
+													<Switch
+														checked={rule.active}
+														onCheckedChange={(val) => updateRule({ id: rule.id, updates: { active: val } })}
+													/>
+												</div>
+												<div className="flex items-center gap-1">
+													<Button
+														variant="ghost"
+														size="icon"
+														onClick={() => {
+															setEditRule(rule);
+															setEditRuleName(rule.name);
+															setEditRuleSeverity(rule.severity);
+															setEditRuleAction(rule.action);
+															setEditRulePattern(rule.pattern);
+															setEditRuleDescription(rule.description);
+															setEditRuleWarningMessage(rule.warning_message || "");
+															setEditRuleDialogOpen(true);
+														}}
+														className="h-8 w-8 text-muted-foreground hover:text-foreground"
+														title="Edit Guard Rule"
+													>
+														<Pencil className="h-4 w-4" />
+													</Button>
+													<Button
+														variant="ghost"
+														size="icon"
+														onClick={() => deleteRule(rule.id)}
+														className="h-8 w-8 text-muted-foreground hover:text-destructive"
+														title="Delete Guard Rule"
+													>
+														<Trash2 className="h-4 w-4" />
+													</Button>
+												</div>
+											</div>
+										</div>
+									</div>
+								))}
+
+								{filteredRules.length === 0 && (
+									<div className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
+										No guard rules found matching your search.
+									</div>
+								)}
+							</div>
+						</CardContent>
+					</Card>
+				</TabsContent>
+
+				{/* TAB 4: TARGET WEBSITES */}
+				<TabsContent value="targets" className="space-y-4">
+					<Card className="bg-card border-border">
+						<CardHeader>
+							<div className="flex justify-between items-center">
+								<div>
+									<CardTitle className="text-lg">Target Web AI Platforms ({targets.length} Monitored)</CardTitle>
+									<CardDescription>
+										Add domains to monitor prompts, or turn on <strong>Block entire website</strong> to lock the site completely.
+										proxy.pac includes monitored and locked domains.
+									</CardDescription>
+								</div>
+								<Dialog
+									open={targetDialogOpen}
+									onOpenChange={(open) => {
+										setTargetDialogOpen(open);
+										if (!open) {
+											setCustomRelatedHosts([""]);
+											setTargetError("");
+										}
+									}}
+								>
+									<DialogTrigger asChild>
+										<Button className="gap-2">
+											<Plus className="h-4 w-4" /> Add Target Domain
+										</Button>
+									</DialogTrigger>
+									<DialogContent className="bg-card border-border text-foreground">
+										<DialogHeader>
+											<DialogTitle>Add Target Web Domain</DialogTitle>
+											<DialogDescription>
+												Any domain you add gets the same rules: exact prompt logging, DLP guardrails, and optional upload blocking. Enter hostname only (no https://).
+											</DialogDescription>
+										</DialogHeader>
+
+										{targetError && <div className="p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{targetError}</div>}
+
+										<div className="space-y-4 py-3">
+											<div className="space-y-2">
+												<Label>Domain Name</Label>
+												<Input
+													placeholder="e.g. gemini.google.com"
+													value={newTargetDomain}
+													onChange={(e) => setNewTargetDomain(e.target.value)}
+												/>
+												<p className="text-[11px] text-muted-foreground">Examples: gemini.google.com, copilot.microsoft.com, deepseek.com</p>
+											</div>
+											<div className="space-y-2 rounded-md border border-border p-3">
+												<p className="text-sm font-medium">Add related host</p>
+												<p className="text-[11px] text-muted-foreground">
+													Subdomains of the domain you add already get full Guard access. Add a related host only when it is a different hostname you want nested under this domain. Names below are suggestions — nothing is added until you choose it.
+												</p>
+												{newTargetRelatedGroup ? (
+													<div className="space-y-1.5 rounded-md border border-dashed border-border bg-muted/20 p-2">
+														<p className="text-[11px] font-medium">{newTargetRelatedGroup.label}</p>
+														<p className="text-[10px] text-muted-foreground">{newTargetRelatedGroup.reason}</p>
+														<div className="flex flex-wrap gap-1.5 pt-1">
+															{newTargetRelatedGroup.hosts.map((host) => {
+																const picked = customRelatedHosts.some((v) => normalizeTargetDomain(v) === host);
+																const already = addedTargetDomains.some((d) => normalizeTargetDomain(d) === host);
+																return (
+																	<Button
+																		key={host}
+																		type="button"
+																		size="sm"
+																		variant={picked || already ? "secondary" : "outline"}
+																		className="h-6 px-2 text-[10px] font-mono"
+																		disabled={already}
+																		onClick={() => fillSuggestedRelatedHost(host)}
+																	>
+																		{already ? host : picked ? host : `+ ${host}`}
+																	</Button>
+																);
+															})}
+														</div>
+													</div>
+												) : null}
+												<div className="space-y-2 pt-1">
+													{customRelatedHosts.map((value, idx) => (
+														<div key={idx} className="flex items-center gap-2">
+															<Input
+																placeholder="e.g. api.example.com"
+																className="font-mono text-sm"
+																value={value}
+																onChange={(e) => {
+																	const next = [...customRelatedHosts];
+																	next[idx] = e.target.value;
+																	setCustomRelatedHosts(next);
+																}}
+															/>
+															{customRelatedHosts.length > 1 && (
+																<Button
+																	type="button"
+																	variant="ghost"
+																	size="icon"
+																	onClick={() => setCustomRelatedHosts(customRelatedHosts.filter((_, i) => i !== idx))}
+																>
+																	<X className="h-4 w-4" />
+																</Button>
+															)}
+														</div>
+													))}
+													<Button
+														type="button"
+														variant="outline"
+														size="sm"
+														className="gap-1"
+														onClick={() => setCustomRelatedHosts([...customRelatedHosts, ""])}
+													>
+														<Plus className="h-3.5 w-3.5" /> Add related host
+													</Button>
+												</div>
+											</div>
+											<div className="space-y-2">
+												<Label>Platform Name</Label>
+												<Input placeholder="e.g. Gemini" value={newTargetPlatform} onChange={(e) => setNewTargetPlatform(e.target.value)} />
+											</div>
+											<div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+												<div>
+													<p className="text-sm font-medium">Block entire website</p>
+													<p className="text-xs text-muted-foreground">
+														ON = employees cannot open this domain at all. OFF = only filter/block prompts (current Guard mode).
+													</p>
+												</div>
+												<Switch checked={newTargetBlockSite} onCheckedChange={setNewTargetBlockSite} />
+											</div>
+										</div>
+										<DialogFooter>
+											<Button variant="outline" onClick={() => setTargetDialogOpen(false)}>
+												Cancel
+											</Button>
+											<Button onClick={handleCreateTarget}>Add Domain</Button>
+										</DialogFooter>
+									</DialogContent>
+								</Dialog>
+							</div>
+
+							<div className="relative mt-3">
+								<Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+								<Input
+									placeholder="Search target websites..."
+									value={targetSearch}
+									onChange={(e) => setTargetSearch(e.target.value)}
+									className="pl-9 bg-background border-border"
+								/>
+							</div>
+						</CardHeader>
+						<CardContent>
+							<div className="rounded-md border border-border overflow-x-auto">
+								<Table>
+									<TableHeader>
+										<TableRow className="border-border hover:bg-transparent">
+											<TableHead className="w-[180px]">Domain</TableHead>
+											<TableHead className="w-[120px]">Platform Name</TableHead>
+											<TableHead className="w-[110px]">Intercepted</TableHead>
+											<TableHead className="w-[100px]">Status</TableHead>
+											<TableHead className="w-[110px]">Monitoring</TableHead>
+											<TableHead className="w-[130px]">Block Website</TableHead>
+											<TableHead className="min-w-[200px]">Reply Bot</TableHead>
+											<TableHead className="w-[90px] text-right">Actions</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{visibleTargetRows.map(({ tgt, isChild }) => (
+											<TableRow key={tgt.id} className={`border-border transition-colors ${isChild ? "bg-muted/15" : "hover:bg-accent/50"}`}>
+												<TableCell>
+													<div className={isChild ? "pl-5 space-y-1" : "space-y-1.5"}>
+														<div className="flex items-center gap-1.5 font-semibold text-sm font-mono">
+															{isChild ? (
+																<CornerDownRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+															) : null}
+															<span>{tgt.domain}</span>
+															<ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+														</div>
+														{isChild ? (
+															<p className="text-[10px] text-muted-foreground pl-5">Related host</p>
+														) : (
+														<div className="space-y-1.5 pt-0.5">
+															{(() => {
+																const leftover = relatedHostOptions(tgt.domain, addedTargetDomains);
+																if (leftover.length === 0) return null;
+																return (
+																	<div className="flex flex-wrap gap-1">
+																		{leftover.map((host) => (
+																			<Button
+																				key={host}
+																				type="button"
+																				variant="outline"
+																				size="sm"
+																				className="h-6 px-2 text-[10px] font-mono"
+																				onClick={() => handleAddRelatedHost(tgt, host)}
+																			>
+																				+ {host}
+																			</Button>
+																		))}
+																	</div>
+																);
+															})()}
+														<div className="flex items-center gap-1">
+															<Input
+																placeholder="Add related host"
+																className="h-6 text-[10px] font-mono max-w-[180px]"
+																value={extraHostDrafts[tgt.id] || ""}
+																onChange={(e) => setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: e.target.value }))}
+																onKeyDown={(e) => {
+																	if (e.key === "Enter") {
+																		e.preventDefault();
+																		const host = extraHostDrafts[tgt.id];
+																		if (host?.trim()) {
+																			handleAddRelatedHost(tgt, host);
+																			setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: "" }));
+																		}
+																	}
+																}}
+															/>
+															<Button
+																type="button"
+																variant="outline"
+																size="sm"
+																className="h-6 px-2 text-[10px]"
+																onClick={() => {
+																	const host = extraHostDrafts[tgt.id];
+																	if (host?.trim()) {
+																		handleAddRelatedHost(tgt, host);
+																		setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: "" }));
+																	}
+																}}
+															>
+																<Plus className="h-3 w-3" />
+															</Button>
+														</div>
+														</div>
+														)}
+													</div>
+												</TableCell>
+												<TableCell className="text-sm text-muted-foreground">{tgt.platform_name}</TableCell>
+												<TableCell className="font-mono text-sm">{tgt.intercepted_count} requests</TableCell>
+												<TableCell>
+													<Badge
+														className={
+															tgt.block_site
+																? "bg-red-950/80 text-red-400 border-red-800 text-[11px]"
+																: tgt.monitored
+																	? "bg-emerald-950/80 text-emerald-400 border-emerald-800 text-[11px]"
+																	: "bg-slate-800 text-slate-400 border-slate-700 text-[11px]"
+														}
+													>
+														{tgt.block_site ? "BLOCKED" : tgt.monitored ? "MONITORED" : "PAUSED"}
+													</Badge>
+												</TableCell>
+												<TableCell>
+													<div className="flex items-center gap-2">
+														<Switch
+															checked={tgt.monitored}
+															onCheckedChange={(val) =>
+																updateTarget({
+																	id: tgt.id,
+																	updates: {
+																		monitored: val,
+																		status: tgt.block_site ? "BLOCKED" : val ? "MONITORED" : "PAUSED",
+																	},
+																})
+															}
+														/>
+														<span className="text-xs text-muted-foreground">{tgt.monitored ? "Active" : "Paused"}</span>
+													</div>
+												</TableCell>
+												<TableCell>
+													<div className="flex items-center gap-2">
+														<Switch
+															checked={!!tgt.block_site}
+															onCheckedChange={(val) =>
+																updateTarget({
+																	id: tgt.id,
+																	updates: {
+																		block_site: val,
+																		status: val ? "BLOCKED" : tgt.monitored ? "MONITORED" : "PAUSED",
+																	},
+																})
+															}
+														/>
+														<span className={`text-xs ${tgt.block_site ? "text-red-400" : "text-muted-foreground"}`}>
+															{tgt.block_site ? "Locked" : "Off"}
+														</span>
+													</div>
+												</TableCell>
+												<TableCell>
+													<div className="flex items-center gap-2">
+														<Switch
+															checked={!!tgt.reply_bot_enabled}
+															onCheckedChange={(val) => {
+																if (val && (!tgt.reply_bot_provider || !tgt.reply_bot_model)) {
+																	openReplyBotDialog(tgt);
+																	return;
+																}
+																updateTarget({
+																	id: tgt.id,
+																	updates: { reply_bot_enabled: val },
+																});
+															}}
+														/>
+														<button
+															type="button"
+															onClick={() => openReplyBotDialog(tgt)}
+															className="text-left min-w-0 hover:opacity-80"
+															title="Configure Reply Bot"
+														>
+															{tgt.reply_bot_enabled && tgt.reply_bot_provider && tgt.reply_bot_model ? (
+																<div className="space-y-0.5">
+																	<div className="flex items-center gap-1 text-[11px] text-sky-400 font-medium">
+																		<Bot className="h-3 w-3 shrink-0" />
+																		<span className="truncate max-w-[100px]">{tgt.reply_bot_provider}</span>
+																	</div>
+																	<p className="text-[10px] text-muted-foreground font-mono truncate max-w-[140px]">
+																		{tgt.reply_bot_model}
+																	</p>
+																	<p className="text-[10px] text-sky-400/90">
+																		{tgt.reply_bot_mode === "all" ? "All questions · On" : "Violations only · On"}
+																	</p>
+																</div>
+															) : (
+																<span className="text-[11px] text-muted-foreground flex items-center gap-1">
+																	<Bot className="h-3 w-3" /> Configure
+																</span>
+															)}
+														</button>
+													</div>
+												</TableCell>
+												<TableCell className="text-right">
+													<div className="flex items-center justify-end gap-1">
+														<Button
+															variant="ghost"
+															size="icon"
+															onClick={() => {
+																setEditTarget(tgt);
+																setEditTargetDomain(tgt.domain);
+																setEditTargetPlatform(tgt.platform_name);
+																setEditTargetBlockSite(!!tgt.block_site);
+																setEditTargetDialogOpen(true);
+															}}
+															className="h-8 w-8 text-muted-foreground hover:text-foreground"
+															title="Edit Target Domain"
+														>
+															<Pencil className="h-4 w-4" />
+														</Button>
+														<Button
+															variant="ghost"
+															size="icon"
+															onClick={() => deleteTarget(tgt.id)}
+															className="h-8 w-8 text-muted-foreground hover:text-destructive"
+															title="Delete Target Domain"
+														>
+															<Trash2 className="h-4 w-4" />
+														</Button>
+													</div>
+												</TableCell>
+											</TableRow>
+										))}
+										{visibleTargetRows.length === 0 && (
+											<TableRow>
+												<TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+													{targets.length === 0
+														? "No target web domains configured."
+														: "No target websites found matching your search."}
+												</TableCell>
+											</TableRow>
+										)}
+									</TableBody>
+								</Table>
+							</div>
+						</CardContent>
+					</Card>
+				</TabsContent>
+
+				{/* EDIT TARGET DIALOG */}
+				<Dialog open={editTargetDialogOpen} onOpenChange={setEditTargetDialogOpen}>
+					<DialogContent className="bg-card border-border text-foreground">
+						<DialogHeader>
+							<DialogTitle>Edit Target Web Domain</DialogTitle>
+							<DialogDescription>Modify domain, platform name, or full-site lock.</DialogDescription>
+						</DialogHeader>
+						<div className="space-y-4 py-3">
+							<div className="space-y-2">
+								<Label>Domain Name</Label>
+								<Input value={editTargetDomain} onChange={(e) => setEditTargetDomain(e.target.value)} />
+							</div>
+							<div className="space-y-2">
+								<Label>Platform Name</Label>
+								<Input value={editTargetPlatform} onChange={(e) => setEditTargetPlatform(e.target.value)} />
+							</div>
+							<div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+								<div>
+									<p className="text-sm font-medium">Block entire website</p>
+									<p className="text-xs text-muted-foreground">
+										ON = cannot open this domain. OFF = prompt Guard only.
+									</p>
+								</div>
+								<Switch checked={editTargetBlockSite} onCheckedChange={setEditTargetBlockSite} />
+							</div>
+						</div>
+						<DialogFooter>
+							<Button variant="outline" onClick={() => setEditTargetDialogOpen(false)}>
+								Cancel
+							</Button>
+							<Button onClick={handleEditTarget}>Save Changes</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+
+				{/* PER-TARGET REPLY BOT DIALOG */}
+				<Dialog
+					open={replyBotDialogOpen}
+					onOpenChange={(open) => {
+						setReplyBotDialogOpen(open);
+						if (!open) setReplyBotTarget(null);
+					}}
+				>
+					<DialogContent className="bg-card border-border text-foreground sm:max-w-lg">
+						<DialogHeader>
+							<DialogTitle className="flex items-center gap-2">
+								<Bot className="h-5 w-5 text-sky-400" />
+								Reply Bot — {replyBotTarget?.domain || "Target"}
+							</DialogTitle>
+							<DialogDescription>
+								Turn each reply mode On or Off for this site. Only one mode can be On at a time.
+								Pick provider + model below.
+							</DialogDescription>
+						</DialogHeader>
+						<div className="space-y-4 py-2">
+							<div className="space-y-2">
+								<Label>Reply modes</Label>
+								<div className="space-y-2">
+									<div
+										className={`rounded-lg border px-3 py-2.5 transition-colors ${
+											replyBotEnabled && replyBotMode === "violations"
+												? "border-sky-500/60 bg-sky-500/10"
+												: "border-border bg-background/40"
+										}`}
+									>
+										<div className="flex items-start justify-between gap-3">
+											<div className="min-w-0">
+												<p className="text-sm font-medium">Violations only</p>
+												<p className="text-xs text-muted-foreground mt-0.5">
+													Bot replies only when a Guard Rule blocks the prompt. Safe prompts go to the real AI site.
+												</p>
+											</div>
+											<div className="flex items-center gap-2 shrink-0 pt-0.5">
+												<Switch
+													checked={replyBotEnabled && replyBotMode === "violations"}
+													onCheckedChange={(on) => {
+														if (on) {
+															setReplyBotEnabled(true);
+															setReplyBotMode("violations");
+														} else if (replyBotMode === "violations") {
+															setReplyBotEnabled(false);
+														}
+													}}
+												/>
+												<span
+													className={`text-xs font-semibold ${
+														replyBotEnabled && replyBotMode === "violations"
+															? "text-sky-400"
+															: "text-muted-foreground"
+													}`}
+												>
+													{replyBotEnabled && replyBotMode === "violations" ? "On" : "Off"}
+												</span>
+											</div>
+										</div>
+									</div>
+									<div
+										className={`rounded-lg border px-3 py-2.5 transition-colors ${
+											replyBotEnabled && replyBotMode === "all"
+												? "border-sky-500/60 bg-sky-500/10"
+												: "border-border bg-background/40"
+										}`}
+									>
+										<div className="flex items-start justify-between gap-3">
+											<div className="min-w-0">
+												<p className="text-sm font-medium">All questions</p>
+												<p className="text-xs text-muted-foreground mt-0.5">
+													Bot answers every intercepted prompt (violations get a security reply; normal questions get a bot answer). The site AI is not used.
+												</p>
+											</div>
+											<div className="flex items-center gap-2 shrink-0 pt-0.5">
+												<Switch
+													checked={replyBotEnabled && replyBotMode === "all"}
+													onCheckedChange={(on) => {
+														if (on) {
+															setReplyBotEnabled(true);
+															setReplyBotMode("all");
+														} else if (replyBotMode === "all") {
+															setReplyBotEnabled(false);
+														}
+													}}
+												/>
+												<span
+													className={`text-xs font-semibold ${
+														replyBotEnabled && replyBotMode === "all"
+															? "text-sky-400"
+															: "text-muted-foreground"
+													}`}
+												>
+													{replyBotEnabled && replyBotMode === "all" ? "On" : "Off"}
+												</span>
+											</div>
+										</div>
+									</div>
+								</div>
+							</div>
+							<div className="space-y-2">
+								<Label>Provider</Label>
+								<Select
+									value={replyBotProvider || undefined}
+									onValueChange={(val) => {
+										setReplyBotProvider(val);
+										setReplyBotModel("");
+									}}
+									disabled={!replyBotEnabled}
+								>
+									<SelectTrigger className="bg-background">
+										<SelectValue placeholder="Select provider (e.g. openrouter)" />
+									</SelectTrigger>
+									<SelectContent>
+										{providerOptions.map((name) => (
+											<SelectItem key={name} value={name}>
+												{name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="space-y-2">
+								<Label>Model</Label>
+								<Select
+									value={replyBotModel || undefined}
+									onValueChange={setReplyBotModel}
+									disabled={!replyBotEnabled || !replyBotProvider}
+								>
+									<SelectTrigger className="bg-background">
+										<SelectValue
+											placeholder={
+												replyModelsLoading
+													? "Loading models…"
+													: replyBotProvider
+														? "Select model"
+														: "Pick a provider first"
+											}
+										/>
+									</SelectTrigger>
+									<SelectContent>
+										{modelOptions.map((name) => (
+											<SelectItem key={name} value={name}>
+												{name}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
+						</div>
+						<DialogFooter>
+							<Button variant="outline" onClick={() => setReplyBotDialogOpen(false)}>
+								Cancel
+							</Button>
+							<Button
+								onClick={saveTargetReplyBot}
+								disabled={replyBotSaving || (replyBotEnabled && (!replyBotProvider || !replyBotModel))}
+								className="gap-2"
+							>
+								<Save className="h-4 w-4" />
+								{replyBotSaving ? "Saving…" : "Save Reply Bot"}
+							</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+
+				{/* EDIT RULE DIALOG */}
+				<Dialog open={editRuleDialogOpen} onOpenChange={setEditRuleDialogOpen}>
+					<DialogContent className="bg-card border-border text-foreground sm:max-w-md">
+						<DialogHeader>
+							<DialogTitle>Edit Guard Rule</DialogTitle>
+							<DialogDescription>Modify rule regex pattern and action.</DialogDescription>
+						</DialogHeader>
+						<div className="space-y-4 py-2">
+							<div className="space-y-1.5">
+								<Label>Rule Name</Label>
+								<Input value={editRuleName} onChange={(e) => setEditRuleName(e.target.value)} />
+							</div>
+							<div className="grid grid-cols-2 gap-3">
+								<div className="space-y-1.5">
+									<Label>Severity</Label>
+									<Select value={editRuleSeverity} onValueChange={(v: any) => setEditRuleSeverity(v)}>
+										<SelectTrigger>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="CRITICAL">CRITICAL</SelectItem>
+											<SelectItem value="HIGH">HIGH</SelectItem>
+											<SelectItem value="MEDIUM">MEDIUM</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className="space-y-1.5">
+									<Label>Action</Label>
+									<Select value={editRuleAction} onValueChange={(v: any) => setEditRuleAction(v)}>
+										<SelectTrigger>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="REDACT">REDACT</SelectItem>
+											<SelectItem value="BLOCK">BLOCK</SelectItem>
+											<SelectItem value="WARN">WARN</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+							</div>
+							<div className="space-y-1.5">
+								<Label>Regex Pattern</Label>
+								<Input value={editRulePattern} onChange={(e) => setEditRulePattern(e.target.value)} />
+							</div>
+							<div className="space-y-1.5">
+								<Label>Description</Label>
+								<Textarea value={editRuleDescription} onChange={(e) => setEditRuleDescription(e.target.value)} />
+							</div>
+							<div className="space-y-1.5">
+								<Label>Warning message (shown when blocked)</Label>
+								<Textarea
+									value={editRuleWarningMessage}
+									onChange={(e) => setEditRuleWarningMessage(e.target.value)}
+									placeholder="Message employees see in the chat when this rule blocks their prompt..."
+									rows={4}
+								/>
+								<p className="text-xs text-muted-foreground">
+									Employees see only this text when the rule blocks. Leave blank for no in-chat warning.
+								</p>
+							</div>
+						</div>
+						<DialogFooter>
+							<Button variant="outline" onClick={() => setEditRuleDialogOpen(false)}>
+								Cancel
+							</Button>
+							<Button onClick={handleEditRuleSubmit}>Save Changes</Button>
+						</DialogFooter>
+					</DialogContent>
+				</Dialog>
+
+				{/* TAB 5: GUARD AGENTS */}
+				<TabsContent value="agents" className="space-y-6">
+					<div className="flex flex-col sm:flex-row gap-3 justify-between">
+						<div className="flex flex-1 gap-2">
+							<div className="relative flex-1 max-w-md">
+								<Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+								<Input
+									placeholder="Search hostname, user, IP, MAC, agent id..."
+									className="pl-9"
+									value={agentSearch}
+									onChange={(e) => {
+										setAgentSearch(e.target.value);
+										setAgentPageOffset(0);
+									}}
+								/>
+							</div>
+							<Select
+								value={agentStatusFilter}
+								onValueChange={(v) => {
+									setAgentStatusFilter(v);
+									setAgentPageOffset(0);
+								}}
+							>
+								<SelectTrigger className="w-[160px]">
+									<SelectValue placeholder="Status" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">All statuses</SelectItem>
+									<SelectItem value="active">Active</SelectItem>
+									<SelectItem value="sleep">Inactive (sleep)</SelectItem>
+									<SelectItem value="shutdown">Inactive (shutdown)</SelectItem>
+									<SelectItem value="inactive">Inactive</SelectItem>
+									<SelectItem value="uninstalled">Uninstalled</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+						<Button variant="outline" size="sm" className="gap-1.5" onClick={() => refetchAgents()}>
+							<RefreshCw className={`h-3.5 w-3.5 ${agentsLoading ? "animate-spin" : ""}`} />
+							Refresh
+						</Button>
+					</div>
+
+					<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription>Total registered</CardDescription>
+								<CardTitle className="text-2xl">{totalAgents}</CardTitle>
+							</CardHeader>
+						</Card>
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription>Active (this page)</CardDescription>
+								<CardTitle className="text-2xl text-emerald-400">{activeAgentsCount}</CardTitle>
+							</CardHeader>
+						</Card>
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription>Uninstall key</CardDescription>
+								<CardTitle className="text-lg">
+									{agentSettings?.key_configured ? "Configured" : "Not set"}
+									{agentSettings?.require_uninstall_key ? " · Required" : " · Optional"}
+								</CardTitle>
+							</CardHeader>
+						</Card>
+					</div>
+
+					<Card className="bg-card border-border">
+						<CardHeader>
+							<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
+							<CardDescription>Installed Guard stays Active until sleep, shutdown, or uninstall. Sleep/shutdown are reported by the laptop EXE.</CardDescription>
+						</CardHeader>
+						<CardContent className="p-0">
+							<Table>
+								<TableHeader>
+									<TableRow className="hover:bg-transparent border-border">
+										<TableHead>Laptop</TableHead>
+										<TableHead>User</TableHead>
+										<TableHead>IP</TableHead>
+										<TableHead>Physical address (MAC)</TableHead>
+										<TableHead>Transport name</TableHead>
+										<TableHead>Version</TableHead>
+										<TableHead>Status</TableHead>
+										<TableHead>Last seen</TableHead>
+										<TableHead>Installed</TableHead>
+									</TableRow>
+								</TableHeader>
+								<TableBody>
+									{agents.map((agent) => (
+										<TableRow key={agent.id} className="border-border">
+											<TableCell>
+												<div className="font-medium text-sm">{agent.hostname || "—"}</div>
+												<div className="text-[11px] text-muted-foreground font-mono truncate max-w-[180px]" title={agent.id}>
+													{agent.id}
+												</div>
+											</TableCell>
+											<TableCell className="text-sm">{agent.username || "—"}</TableCell>
+											<TableCell className="text-xs font-mono">{agent.ip_address || "—"}</TableCell>
+											<TableCell className="text-xs font-mono" data-testid="guard-agent-mac-cell" title={agent.mac_address || ""}>
+												{agent.mac_address || "—"}
+											</TableCell>
+											<TableCell className="text-[11px] font-mono text-muted-foreground max-w-[220px] truncate" data-testid="guard-agent-transport-cell" title={nicGuidOnly(agent.transport_name) || ""}>
+												{nicGuidOnly(agent.transport_name) || "—"}
+											</TableCell>
+											<TableCell className="text-xs">{agent.agent_version || "—"}</TableCell>
+											<TableCell>{getAgentStatusBadge(agent.status)}</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
+												{agent.last_seen_at ? new Date(agent.last_seen_at).toLocaleString() : "—"}
+											</TableCell>
+											<TableCell className="text-xs text-muted-foreground">
+												{agent.installed_at ? new Date(agent.installed_at).toLocaleString() : "—"}
+											</TableCell>
+										</TableRow>
+									))}
+									{agents.length === 0 && (
+										<TableRow>
+												<TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
+												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe on employee laptops.
+											</TableCell>
+										</TableRow>
+									)}
+								</TableBody>
+							</Table>
+						</CardContent>
+					</Card>
+
+					{totalAgents > agentPageLimit && (
+						<div className="flex items-center justify-end gap-2">
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={agentPageOffset === 0}
+								onClick={() => setAgentPageOffset(Math.max(0, agentPageOffset - agentPageLimit))}
+							>
+								<ChevronLeft className="h-4 w-4" />
+							</Button>
+							<span className="text-xs text-muted-foreground">
+								{agentPageOffset + 1}–{Math.min(agentPageOffset + agentPageLimit, totalAgents)} of {totalAgents}
+							</span>
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={agentPageOffset + agentPageLimit >= totalAgents}
+								onClick={() => setAgentPageOffset(agentPageOffset + agentPageLimit)}
+							>
+								<ChevronRight className="h-4 w-4" />
+							</Button>
+						</div>
+					)}
+				</TabsContent>
+
+				{/* TAB 6: SETUP */}
+				<TabsContent value="setup" className="space-y-6">
+					<Card className="bg-card border-border">
+						<CardHeader>
+							<div className="flex items-center gap-3">
+								<FileKey className="h-6 w-6 text-amber-400" />
+								<div>
+									<CardTitle className="text-lg">Uninstall Key</CardTitle>
+									<CardDescription>
+										Employees can remove Guard only when this key matches (if required). Key is stored hashed in unifai_new.
+									</CardDescription>
+								</div>
+							</div>
+						</CardHeader>
+						<CardContent className="space-y-4">
+							<div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
+								<div>
+									<p className="text-sm font-medium">Require uninstall key</p>
+									<p className="text-xs text-muted-foreground">When off, Windows uninstall proceeds without a key check.</p>
+								</div>
+								<Switch
+									checked={!!agentSettings?.require_uninstall_key}
+									onAsyncCheckedChange={async (checked) => {
+										await handleToggleRequireUninstallKey(checked);
+									}}
+								/>
+							</div>
+							<div className="space-y-3">
+								{agentSettings?.key_configured && !uninstallKeyEditing ? (
+									<div className="space-y-2 rounded-md border border-border p-3">
+										<div className="flex items-center justify-between gap-2">
+											<Label>Saved uninstall key</Label>
+											<p className="text-xs text-muted-foreground">
+												{agentSettings?.updated_at ? `Updated ${new Date(agentSettings.updated_at).toLocaleString()}` : "Configured"}
+											</p>
+										</div>
+										<div className="flex flex-col sm:flex-row gap-2">
+											<div className="relative min-w-0 flex-1">
+												<Input
+													readOnly
+													type={showUninstallKey && savedUninstallKeyDisplay ? "text" : "password"}
+													value={
+														showUninstallKey && savedUninstallKeyDisplay
+															? savedUninstallKeyDisplay
+															: savedUninstallKeyDisplay || "••••••••••••••••••••"
+													}
+													className="pr-10 font-mono"
+												/>
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon"
+													className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+													onClick={() => {
+														if (!savedUninstallKeyDisplay) {
+															setUninstallKeyMessage(
+																"Full key is not stored in plain text. Click Edit, enter the key again, then Save — eye can show it in this session.",
+															);
+															return;
+														}
+														setShowUninstallKey((v) => !v);
+													}}
+													title={
+														!savedUninstallKeyDisplay
+															? "Key hashed — re-save to view"
+															: showUninstallKey
+																? "Hide key"
+																: "Show key"
+													}
+												>
+													{showUninstallKey && savedUninstallKeyDisplay ? (
+														<EyeOff className="h-4 w-4" />
+													) : (
+														<Eye className="h-4 w-4" />
+													)}
+												</Button>
+											</div>
+											<Button
+												variant="outline"
+												className="gap-2 shrink-0"
+												onClick={() => {
+													setUninstallKeyEditing(true);
+													setUninstallKeyInput("");
+													setUninstallKeyMessage("");
+													setUninstallKeyError("");
+													setShowUninstallKey(false);
+												}}
+											>
+												<Pencil className="h-4 w-4" />
+												Edit
+											</Button>
+										</div>
+										{!savedUninstallKeyDisplay ? (
+											<p className="text-xs text-muted-foreground">
+												Key is stored hashed on the server. Full value is shown only right after you Save in this session — use Edit to rotate.
+											</p>
+										) : null}
+									</div>
+								) : (
+									<div className="space-y-2">
+										<Label>{agentSettings?.key_configured ? "Edit / rotate uninstall key" : "Set uninstall key"}</Label>
+										<div className="flex flex-col sm:flex-row gap-2">
+											<div className="relative min-w-0 flex-1">
+												<Input
+													type={showUninstallKey ? "text" : "password"}
+													placeholder={agentSettings?.key_configured ? "Enter new key to rotate…" : "Enter company uninstall key…"}
+													value={uninstallKeyInput}
+													onChange={(e) => setUninstallKeyInput(e.target.value)}
+													autoComplete="new-password"
+													className="pr-10 font-mono"
+												/>
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon"
+													className="absolute right-1 top-1/2 h-8 w-8 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+													onClick={() => setShowUninstallKey((v) => !v)}
+													title={showUninstallKey ? "Hide key" : "Show key"}
+												>
+													{showUninstallKey ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+												</Button>
+											</div>
+											<Button onClick={handleSaveUninstallKey} disabled={savingUninstallKey || !uninstallKeyInput.trim()} className="gap-2 shrink-0">
+												<Save className="h-4 w-4" />
+												{savingUninstallKey ? "Saving…" : "Save"}
+											</Button>
+											{agentSettings?.key_configured ? (
+												<Button
+													type="button"
+													variant="outline"
+													className="shrink-0"
+													onClick={() => {
+														setUninstallKeyEditing(false);
+														setUninstallKeyInput("");
+														setUninstallKeyError("");
+													}}
+													disabled={savingUninstallKey}
+												>
+													Cancel
+												</Button>
+											) : null}
+										</div>
+									</div>
+								)}
+								{uninstallKeyMessage ? <p className="text-sm text-emerald-400">{uninstallKeyMessage}</p> : null}
+								{uninstallKeyError ? <p className="text-sm text-red-400">{uninstallKeyError}</p> : null}
+							</div>
+						</CardContent>
+					</Card>
+
+					<Card className="bg-card border-border">
+						<CardHeader>
+							<div className="flex justify-between items-center gap-4">
+								<div className="flex items-center gap-3">
+									<CheckCircle2 className="h-6 w-6 text-emerald-400" />
+									<div>
+										<CardTitle className="text-lg">Employee Setup Package</CardTitle>
+										<CardDescription>Download a ZIP that contains the Guard installer, backend config, and employee setup guide.</CardDescription>
+									</div>
+								</div>
+								<div className="flex items-center gap-2">
+									<Badge className="bg-emerald-950 text-emerald-400 border-emerald-700 px-3 py-1 text-xs">Status: Ready</Badge>
+									<Button onClick={handleDownloadSetupPackage} disabled={setupPackageDownloading} className="gap-2">
+										<Download className="h-4 w-4" />
+										{setupPackageDownloading ? "Preparing..." : "Download Setup ZIP"}
+									</Button>
+								</div>
+							</div>
+						</CardHeader>
+						<CardContent className="pt-0">
+							<p className="text-sm text-muted-foreground">
+								Use this ZIP for employee rollout. It bundles the Windows setup EXE with the same backend configuration used by this Browser AI workspace.
+							</p>
+							{setupPackageError ? <p className="mt-3 text-sm text-red-400">{setupPackageError}</p> : null}
+						</CardContent>
+					</Card>
+
+					<Card className="bg-card border-border">
+						<CardHeader>
+							<CardTitle className="text-lg">Install Steps</CardTitle>
+							<CardDescription>Old certificate-only setup has been replaced with a single ZIP download and guided Windows installation.</CardDescription>
+						</CardHeader>
+						<CardContent className="space-y-6">
+							<div className="space-y-4">
+								<div className="flex items-center gap-2 font-semibold">
+									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">1</span>
+									<span>Download the ZIP package</span>
+								</div>
+								<p className="text-xs text-muted-foreground pl-8">
+									Click <strong>Download Setup ZIP</strong> above. The ZIP includes the installer EXE, employee README, and the backend config for this environment.
+								</p>
+							</div>
+
+							<div className="space-y-4">
+								<div className="flex items-center gap-2 font-semibold">
+									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">2</span>
+									<span>Extract and run the installer</span>
+								</div>
+								<p className="text-xs text-muted-foreground pl-8">
+									Extract the ZIP, then run <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code>. Keep the autostart option enabled so Guard runs automatically at Windows login.
+								</p>
+							</div>
+
+							<div className="space-y-4">
+								<div className="flex items-center gap-2 font-semibold">
+									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">3</span>
+									<span>Open monitored AI websites and verify logs</span>
+								</div>
+								<p className="text-xs text-muted-foreground pl-8">
+									Have the employee open ChatGPT, Gemini, Claude, Copilot, or DeepSeek and send a test prompt. Use Prompt Logs above to confirm interception.
+								</p>
+							</div>
+
+							<div className="rounded-md border border-border bg-background p-4 text-xs space-y-2">
+								<p className="font-semibold text-foreground">ZIP contents</p>
+								<ul className="list-disc pl-5 text-muted-foreground space-y-1">
+									<li><code>UnifAI_Guard_Setup.exe</code> for employee installation</li>
+									<li><code>unifai_guard_config.json</code> with backend URL</li>
+									<li><code>EMPLOYEE_README.txt</code> with install/support instructions</li>
+								</ul>
+							</div>
+						</CardContent>
+					</Card>
+				</TabsContent>
+			</Tabs>
+
+			{/* Log Details Side Sheet */}
+			<Sheet open={!!selectedLog} onOpenChange={() => setSelectedLog(null)}>
+				<SheetContent className="bg-card border-border text-foreground sm:max-w-xl overflow-y-auto">
+					<SheetHeader className="pb-4 border-b border-border">
+						<div className="flex items-center justify-between">
+							<SheetTitle className="flex items-center gap-2 text-lg">
+								Prompt Details
+								{selectedLog && getPlatformBadge(selectedLog.platform)}
+							</SheetTitle>
+						</div>
+						<SheetDescription>
+							Captured {selectedLog && new Date(selectedLog.timestamp).toLocaleString()}
+						</SheetDescription>
+					</SheetHeader>
+
+					{selectedLog && (
+						<div className="space-y-5 py-4">
+							<div className="grid grid-cols-2 gap-4">
+								<div className="space-y-1">
+									<Label className="text-xs text-muted-foreground">Action / Status</Label>
+									<div>
+										{selectedLog.action === "Blocked" ? (
+											<Badge className="bg-red-950 text-red-400 border-red-800 gap-1">
+												<AlertTriangle className="h-3.5 w-3.5" />
+												{selectedLog.status}
+											</Badge>
+										) : selectedLog.action === "Bot Answered" ? (
+											<Badge className="bg-sky-950 text-sky-300 border-sky-800 gap-1">
+												<Bot className="h-3.5 w-3.5" />
+												Bot Answered
+											</Badge>
+										) : selectedLog.action === "Redacted" ? (
+											<Badge className="bg-purple-950 text-purple-300 border-purple-800 gap-1">
+												<ShieldCheck className="h-3.5 w-3.5" />
+												{selectedLog.status}
+											</Badge>
+										) : selectedLog.action === "Warned" ? (
+											<Badge className="bg-amber-950 text-amber-300 border-amber-800 gap-1">
+												<AlertCircle className="h-3.5 w-3.5" />
+												{selectedLog.status}
+											</Badge>
+										) : (
+											<Badge className="bg-emerald-950 text-emerald-400 border-emerald-800 gap-1">
+												<CheckCircle2 className="h-3.5 w-3.5" />
+												Allowed
+											</Badge>
+										)}
+									</div>
+								</div>
+								<div className="space-y-1">
+									<Label className="text-xs text-muted-foreground">Guard laptop</Label>
+									<p className="text-sm font-medium">{selectedLog.agent_hostname || "—"}</p>
+									<p className="text-[11px] text-muted-foreground font-mono truncate">{selectedLog.agent_id || selectedLog.client_ip || ""}</p>
+								</div>
+							</div>
+
+							{/* Predictive Risk Scoring */}
+							<div className="p-3.5 bg-background border border-border rounded-md space-y-2">
+								<div className="flex justify-between items-center text-xs font-semibold">
+									<span className="flex items-center gap-1.5 text-purple-300">
+										<BrainCircuit className="h-4 w-4" /> Predictive Risk Score
+									</span>
+									<span className={(selectedLog.risk_score || 0) >= 70 ? "text-red-400 font-bold" : (selectedLog.risk_score || 0) >= 40 ? "text-amber-400" : "text-emerald-400"}>
+										{selectedLog.risk_score || 10}% ({selectedLog.predictive_risk || "LOW"})
+									</span>
+								</div>
+								<div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+									<div
+										className={`h-full rounded-full transition-all ${
+											(selectedLog.risk_score || 0) >= 70 ? "bg-red-500" : (selectedLog.risk_score || 0) >= 40 ? "bg-amber-500" : "bg-emerald-500"
+										}`}
+										style={{ width: `${Math.min(100, Math.max(5, selectedLog.risk_score || 10))}%` }}
+									/>
+								</div>
+								<div className="flex justify-between items-center text-[11px] text-muted-foreground pt-1">
+									<span>Category: <code className="text-foreground">{selectedLog.predicted_category || "SAFE"}</code></span>
+									<span>Threat Level: {selectedLog.predictive_risk || "LOW"}</span>
+								</div>
+							</div>
+
+							<div className="space-y-2">
+								<div className="flex justify-between items-center">
+									<Label className="text-xs text-muted-foreground">
+										{selectedLog.action === "Redacted" ? "Sanitized Intercepted Prompt Text" : "Full Intercepted Prompt Text"}
+									</Label>
+									<Button variant="ghost" size="sm" onClick={() => handleCopyPrompt(selectedLog.user_prompt_full)} className="h-7 text-xs gap-1">
+										{copiedPrompt ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+										{copiedPrompt ? "Copied" : "Copy"}
+									</Button>
+								</div>
+								<div className="p-3 bg-background border border-border rounded-md font-mono text-xs max-h-64 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+									{selectedLog.user_prompt_full}
+								</div>
+							</div>
+
+							<div className="grid grid-cols-2 gap-4">
+								<div className="space-y-1">
+									<Label className="text-xs text-muted-foreground">Estimated Token Usage</Label>
+									<p className="text-sm font-semibold">{selectedLog.est_tokens} tokens</p>
+								</div>
+								<div className="space-y-1">
+									<Label className="text-xs text-muted-foreground">Rule Triggered</Label>
+									<p className={`text-sm font-semibold ${selectedLog.rule_triggered ? "text-purple-300" : "text-muted-foreground"}`}>
+										{selectedLog.rule_triggered || "None"}
+									</p>
+								</div>
+							</div>
+
+							{(selectedLog.reply_bot_text || selectedLog.reply_bot_provider || selectedLog.reply_bot_model) && (
+								<div className="space-y-2">
+									<Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+										<Bot className="h-3.5 w-3.5 text-sky-400" />
+										Reply Bot Output
+									</Label>
+									<div className="flex flex-wrap gap-2">
+										{selectedLog.reply_bot_provider && (
+											<Badge variant="outline" className="font-mono text-[11px]">
+												{selectedLog.reply_bot_provider}
+											</Badge>
+										)}
+										{selectedLog.reply_bot_model && (
+											<Badge variant="outline" className="font-mono text-[11px]">
+												{selectedLog.reply_bot_model}
+											</Badge>
+										)}
+									</div>
+									{selectedLog.reply_bot_text && (
+										<div className="p-3 bg-sky-950/20 border border-sky-800/40 rounded-md text-xs whitespace-pre-wrap leading-relaxed">
+											{selectedLog.reply_bot_text}
+										</div>
+									)}
+								</div>
+							)}
+
+							{selectedLog.metadata && (
+								<div className="space-y-1">
+									<Label className="text-xs text-muted-foreground">Metadata Payload</Label>
+									<pre className="p-3 bg-background border border-border rounded-md font-mono text-[11px] max-h-40 overflow-auto">
+										{JSON.stringify(JSON.parse(selectedLog.metadata || "{}"), null, 2)}
+									</pre>
+								</div>
+							)}
+						</div>
+					)}
+				</SheetContent>
+			</Sheet>
+		</div>
+	);
+}
