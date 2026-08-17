@@ -1,15 +1,17 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CheckCircle, ArrowRight, Eye, EyeOff, ShieldAlert, Cpu } from "lucide-react";
+import { CheckCircle, ArrowRight, Eye, EyeOff, ShieldAlert, Cpu, Clock } from "lucide-react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { getApiBaseUrl } from "@/lib/utils/port";
 
 export default function SignupPage() {
 	const [username, setUsername] = useState("");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [confirmPassword, setConfirmPassword] = useState("");
+	const [role, setRole] = useState<"user" | "admin">("user");
 	const [showPassword, setShowPassword] = useState(false);
 	const [errorMessage, setErrorMessage] = useState("");
 	const [isSubmitted, setIsSubmitted] = useState(false);
@@ -31,12 +33,28 @@ export default function SignupPage() {
 		}
 
 		setIsLoading(true);
-
-		// Simulate setup of admin user
-		setTimeout(() => {
-			setIsLoading(false);
+		try {
+			const res = await fetch(`${getApiBaseUrl()}/session/register`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					username: username.trim(),
+					email: email.trim(),
+					password,
+					role,
+				}),
+			});
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				setErrorMessage(data?.error?.message || data.message || data.error || "Registration failed");
+				return;
+			}
 			setIsSubmitted(true);
-		}, 1200);
+		} catch {
+			setErrorMessage("Could not reach the server. Please try again.");
+		} finally {
+			setIsLoading(false);
+		}
 	};
 
 	return (
@@ -46,8 +64,7 @@ export default function SignupPage() {
 			<div className="absolute -bottom-40 -right-40 w-[500px] h-[500px] bg-[#45f3ff]/5 rounded-full blur-[130px] pointer-events-none" />
 
 			<div className="w-full max-w-4xl bg-[#12141c]/40 border border-[#1f2833]/60 rounded-xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.5)] grid grid-cols-1 md:grid-cols-12 backdrop-blur-md relative z-10">
-
-				{/* Info Panel (Left on large screens, hidden/reordered) */}
+				{/* Info Panel */}
 				<div className="md:col-span-5 bg-gradient-to-br from-[#12141c] to-[#0b0c10] p-8 md:p-12 flex flex-col justify-between border-r border-[#1f2833]/60">
 					<div className="space-y-8">
 						<div className="flex items-center gap-3">
@@ -58,11 +75,10 @@ export default function SignupPage() {
 						</div>
 
 						<div className="space-y-6">
-							<h2 className="text-2xl font-extrabold text-white leading-tight">
-								Deploy Your Unified AI Gateway
-							</h2>
+							<h2 className="text-2xl font-extrabold text-white leading-tight">Deploy Your Unified AI Gateway</h2>
 							<p className="text-sm text-[#8b949e] leading-relaxed">
-								Get started with UnifAI to manage keys, fallback routing rules, semantic caching, and Model Context Protocol servers in minutes.
+								Get started with UnifAI to manage keys, fallback routing rules, semantic caching, and Model Context Protocol
+								servers in minutes.
 							</p>
 						</div>
 
@@ -70,7 +86,7 @@ export default function SignupPage() {
 							{[
 								"Unified OpenAI-compatible API endpoint",
 								"Zero-telemetry local database deployment",
-								"Connect Brave Search, Filesystem, or DB to LLMs"
+								"Connect Brave Search, Filesystem, or DB to LLMs",
 							].map((item, idx) => (
 								<div key={idx} className="flex items-start gap-2.5 text-xs text-white">
 									<CheckCircle className="h-4 w-4 text-[#45f3ff] flex-shrink-0 mt-0.5" />
@@ -90,9 +106,9 @@ export default function SignupPage() {
 					{!isSubmitted ? (
 						<div className="space-y-6">
 							<div className="space-y-2">
-								<h1 className="text-2xl font-bold text-white">Create Admin Account</h1>
+								<h1 className="text-2xl font-bold text-white">Create Account</h1>
 								<p className="text-sm text-[#8b949e]">
-									Set up credentials to access the gateway admin panel.
+									Request access as a user or admin. An existing admin must approve before you can sign in.
 								</p>
 							</div>
 
@@ -132,6 +148,34 @@ export default function SignupPage() {
 										required
 										className="bg-[#0b0c10]/80 border-[#1f2833]/80 focus:border-[#45f3ff] text-sm text-white"
 									/>
+								</div>
+
+								<div className="space-y-2">
+									<Label className="text-xs font-semibold text-white uppercase tracking-wider">Role</Label>
+									<div className="grid grid-cols-2 gap-2">
+										<button
+											type="button"
+											onClick={() => setRole("user")}
+											className={`h-10 rounded-lg border text-sm font-medium transition-colors ${
+												role === "user"
+													? "border-[#45f3ff] bg-[#45f3ff]/10 text-[#45f3ff]"
+													: "border-[#1f2833]/80 bg-[#0b0c10]/80 text-[#8b949e] hover:border-[#45f3ff]/40"
+											}`}
+										>
+											User
+										</button>
+										<button
+											type="button"
+											onClick={() => setRole("admin")}
+											className={`h-10 rounded-lg border text-sm font-medium transition-colors ${
+												role === "admin"
+													? "border-[#45f3ff] bg-[#45f3ff]/10 text-[#45f3ff]"
+													: "border-[#1f2833]/80 bg-[#0b0c10]/80 text-[#8b949e] hover:border-[#45f3ff]/40"
+											}`}
+										>
+											Admin
+										</button>
+									</div>
 								</div>
 
 								<div className="space-y-2">
@@ -178,7 +222,7 @@ export default function SignupPage() {
 									className="w-full bg-[#45f3ff] text-[#0b0c10] hover:bg-[#45f3ff]/90 font-bold h-10 mt-2 shadow-[0_0_15px_rgba(69,243,255,0.15)]"
 									disabled={isLoading}
 								>
-									{isLoading ? "Setting up..." : "Configure Credentials"}
+									{isLoading ? "Submitting..." : "Request Access"}
 								</Button>
 							</form>
 
@@ -193,28 +237,23 @@ export default function SignupPage() {
 						</div>
 					) : (
 						<div className="text-center space-y-6 animate-in fade-in duration-300">
-							<div className="h-16 w-16 bg-[#45f3ff]/10 rounded-full flex items-center justify-center text-[#45f3ff] mx-auto shadow-[0_0_20px_rgba(69,243,255,0.1)]">
-								<CheckCircle className="h-8 w-8" />
+							<div className="h-16 w-16 bg-amber-500/10 rounded-full flex items-center justify-center text-amber-300 mx-auto shadow-[0_0_20px_rgba(245,158,11,0.1)]">
+								<Clock className="h-8 w-8" />
 							</div>
 
 							<div className="space-y-2">
-								<h2 className="text-2xl font-bold text-white">Setup Successful!</h2>
+								<h2 className="text-2xl font-bold text-white">Sent to the admin waiting for approval</h2>
 								<p className="text-sm text-[#8b949e] max-w-sm mx-auto leading-relaxed">
-									Your admin credentials have been configured. To finalize changes in local dev, make sure to write them to your <code className="bg-[#0b0c10] border border-[#1f2833] rounded px-1.5 py-0.5 text-xs text-[#45f3ff] font-mono">config.json</code>.
+									Your {role} account request for <span className="text-white font-medium">{username}</span> was submitted.
+									An admin must Accept it on the Users page before you can sign in.
 								</p>
-							</div>
-
-							<div className="bg-[#0b0c10] border border-[#1f2833] rounded-lg p-4 text-left font-mono text-xs text-white max-w-sm mx-auto leading-normal">
-								<span className="text-gray-500">// config.json update</span><br />
-								"admin_username": "{username}",<br />
-								"admin_password": "hashed_pass_value"
 							</div>
 
 							<Button
 								onClick={() => navigate({ to: "/login" })}
 								className="bg-[#45f3ff] text-[#0b0c10] hover:bg-[#45f3ff]/90 font-bold h-10 px-6 inline-flex items-center gap-2"
 							>
-								Proceed to Login
+								Back to Sign In
 								<ArrowRight className="h-4 w-4" />
 							</Button>
 						</div>

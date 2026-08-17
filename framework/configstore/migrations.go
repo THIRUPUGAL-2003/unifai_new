@@ -438,6 +438,8 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"add_virtual_key_expires_at_column"}, run: migrationAddVirtualKeyExpiresAtColumn},
 	{IDs: []string{"add_users_table"}, run: migrationAddUsersTable},
 	{IDs: []string{"add_allowed_prompt_repos_to_users"}, run: migrationAddAllowedPromptReposToUsers},
+	{IDs: []string{"add_user_registration_status"}, run: migrationAddUserRegistrationStatus},
+	{IDs: []string{"ensure_user_registration_columns"}, run: migrationEnsureUserRegistrationColumns},
 	{IDs: []string{"add_oauth_resource_indicator"}, run: migrationAddOAuthResourceIndicator},
 	{IDs: []string{"add_workspace_feature_tables"}, run: migrationAddWorkspaceFeatureTables},
 	{IDs: []string{"rename_oauth2_bf_columns_to_uf"}, run: migrationRenameOAuth2BfColumnsToUf},
@@ -10454,6 +10456,82 @@ func migrationAddAllowedPromptReposToUsers(ctx context.Context, db *gorm.DB, log
 		Rollback: func(tx *gorm.DB) error {
 			tx = tx.WithContext(ctx)
 			return dropColumnIfExists(tx, logger, &tables.TableUser{}, "allowed_prompt_repos")
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+func migrationAddUserRegistrationStatus(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_user_registration_status"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, "email"); err != nil {
+				return fmt.Errorf("add email to users: %w", err)
+			}
+			if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, "status"); err != nil {
+				return fmt.Errorf("add status to users: %w", err)
+			}
+			if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, "reviewed_at"); err != nil {
+				return fmt.Errorf("add reviewed_at to users: %w", err)
+			}
+			// Existing users were created by admins — treat as approved.
+			if err := tx.Exec(
+				"UPDATE governance_users SET status = ? WHERE status IS NULL OR status = ''",
+				tables.UserStatusApproved,
+			).Error; err != nil {
+				return fmt.Errorf("backfill user status: %w", err)
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			_ = dropColumnIfExists(tx, logger, &tables.TableUser{}, "reviewed_at")
+			_ = dropColumnIfExists(tx, logger, &tables.TableUser{}, "status")
+			return dropColumnIfExists(tx, logger, &tables.TableUser{}, "email")
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+// migrationEnsureUserRegistrationColumns re-applies email/status/reviewed_at if a
+// prior migration ID was recorded without the columns (shared DBs / partial runs).
+func migrationEnsureUserRegistrationColumns(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "ensure_user_registration_columns"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, "email"); err != nil {
+				return fmt.Errorf("add email to users: %w", err)
+			}
+			if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, "status"); err != nil {
+				return fmt.Errorf("add status to users: %w", err)
+			}
+			if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, "reviewed_at"); err != nil {
+				return fmt.Errorf("add reviewed_at to users: %w", err)
+			}
+			if err := tx.Exec(
+				"UPDATE governance_users SET status = ? WHERE status IS NULL OR status = ''",
+				tables.UserStatusApproved,
+			).Error; err != nil {
+				return fmt.Errorf("backfill user status: %w", err)
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return nil
 		},
 	}})
 	if err := m.Migrate(); err != nil {

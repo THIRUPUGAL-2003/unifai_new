@@ -323,12 +323,24 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Validate MCP library catalog URL override (only when set and non-default)
+	// Validate MCP library catalog URL override (only when set and non-default).
+	// If the stored URL is already unreachable (stale local catalog), reset to
+	// the default instead of blocking unrelated settings saves (e.g. Logs).
 	if payload.FrameworkConfig.MCPLibraryURL != nil && *payload.FrameworkConfig.MCPLibraryURL != "" && *payload.FrameworkConfig.MCPLibraryURL != modelcatalog.DefaultMCPLibraryURL {
-		if err := checkURLAccessibility(*payload.FrameworkConfig.MCPLibraryURL); err != nil {
-			logger.Warn("failed to check the accessibility of the MCP library URL: %v", err)
-			SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("failed to check the accessibility of the MCP library URL: %v", err))
-			return
+		storedMCPLibraryURL := ""
+		if stored, ferr := h.store.ConfigStore.GetFrameworkConfig(ctx); ferr == nil && stored != nil && stored.MCPLibraryURL != nil {
+			storedMCPLibraryURL = *stored.MCPLibraryURL
+		}
+		incomingMCPLibraryURL := *payload.FrameworkConfig.MCPLibraryURL
+		if err := checkURLAccessibility(incomingMCPLibraryURL); err != nil {
+			if incomingMCPLibraryURL == storedMCPLibraryURL {
+				logger.Warn("stored MCP library URL is unreachable (%v); resetting to default catalog", err)
+				payload.FrameworkConfig.MCPLibraryURL = unifai.Ptr("")
+			} else {
+				logger.Warn("failed to check the accessibility of the MCP library URL: %v", err)
+				SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("failed to check the accessibility of the MCP library URL: %v", err))
+				return
+			}
 		}
 	}
 	// Checking the MCP library sync interval

@@ -2,29 +2,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getErrorMessage, useLoginMutation } from "@/lib/store/apis";
-import { BooksIcon, DiscordLogoIcon, GithubLogoIcon } from "@phosphor-icons/react";
-import { Link } from "@tanstack/react-router";
-import { Eye, EyeOff, ShieldAlert, Cpu } from "lucide-react";
+import { Activity, Cpu, Eye, EyeOff, Globe, Lock, Shield, ShieldAlert, Upload } from "lucide-react";
 import { useState } from "react";
-
-const externalLinks = [
-	{
-		title: "Discord Server",
-		url: "https://discord.gg/exN5KAydbU",
-		icon: DiscordLogoIcon,
-	},
-	{
-		title: "GitHub Repository",
-		url: "",
-		icon: GithubLogoIcon,
-	},
-	{
-		title: "Full Documentation",
-		url: "",
-		icon: BooksIcon,
-		strokeWidth: 1,
-	},
-];
 
 export default function LoginView() {
 	const [username, setUsername] = useState("");
@@ -40,142 +19,198 @@ export default function LoginView() {
 		setErrorMessage("");
 		try {
 			await login({ username, password }).unwrap();
-			// Full navigation so RTK cache cannot keep a pre-login /api/config 401
-			// (which surfaces as the misleading "Config store setup is missing" banner).
 			const params = new URLSearchParams(window.location.search);
 			const goto = params.get("goto") || "/workspace";
 			window.location.assign(goto.startsWith("/") ? goto : "/workspace");
 		} catch (error) {
-			const message = getErrorMessage(error);
-			setErrorMessage(message);
+			setErrorMessage(getErrorMessage(error));
 		} finally {
 			setIsLoading(false);
 		}
 	};
 
 	return (
-		<div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[#0b0c10] p-6 font-sans text-[#c5c6c7]">
-			{/* Background decoration */}
-			<div className="pointer-events-none absolute -top-40 -left-40 h-[600px] w-[600px] rounded-full bg-[#1f2833]/20 blur-[150px]" />
-			<div className="pointer-events-none absolute -right-40 -bottom-40 h-[500px] w-[500px] rounded-full bg-[#45f3ff]/5 blur-[130px]" />
+		<div className="relative min-h-screen overflow-hidden bg-[#07080c] font-sans text-[#c5c6c7]">
+			<div className="ug-login-grid pointer-events-none absolute inset-0" />
+			<div className="pointer-events-none absolute -top-32 left-[-8%] h-[520px] w-[520px] rounded-full bg-[#45f3ff]/12 blur-[140px]" />
+			<div className="pointer-events-none absolute right-[-10%] bottom-[-18%] h-[480px] w-[480px] rounded-full bg-[#3b82f6]/16 blur-[150px]" />
 
-			<div className="relative z-10 grid w-full max-w-4xl grid-cols-1 overflow-hidden rounded-xl border border-[#1f2833]/60 bg-[#12141c]/40 shadow-[0_20px_50px_rgba(0,0,0,0.5)] backdrop-blur-md md:grid-cols-12">
-				{/* Info Panel (Left on large screens, matches signup) */}
-				<div className="flex flex-col justify-between border-r border-[#1f2833]/60 bg-gradient-to-br from-[#12141c] to-[#0b0c10] p-8 md:col-span-5 md:p-12">
-					<div className="space-y-8">
-						<div className="flex items-center gap-3">
-							<div className="flex h-8 w-8 items-center justify-center rounded bg-[#45f3ff]/10 text-[#45f3ff] shadow-[0_0_10px_rgba(69,243,255,0.1)]">
-								<Cpu className="h-4.5 w-4.5" />
-							</div>
-							<span className="text-lg font-bold tracking-tight text-white">UnifAI.ai</span>
+			<div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[1440px] flex-col px-5 py-6 lg:px-10 lg:py-8">
+				<header className="flex items-center justify-between">
+					<div className="flex items-center gap-3">
+						<div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#45f3ff]/20 bg-[#45f3ff]/10 text-[#45f3ff] shadow-[0_0_24px_rgba(69,243,255,0.18)]">
+							<Cpu className="h-5 w-5" />
 						</div>
+						<div>
+							<p className="text-lg font-bold tracking-tight text-white">UnifAI Guard</p>
+							<p className="text-[11px] tracking-[0.18em] text-[#7d8896] uppercase">Enterprise control plane</p>
+						</div>
+					</div>
+					<div className="hidden items-center gap-2 rounded-full border border-[#1f2833] bg-[#12141c]/70 px-3 py-1.5 text-xs text-[#8b949e] sm:flex">
+						<span className="h-1.5 w-1.5 rounded-full bg-[#45f3ff] shadow-[0_0_8px_#45f3ff]" />
+						Live policy sync
+					</div>
+				</header>
 
-						<div className="space-y-4">
-							<h2 className="text-2xl leading-tight font-extrabold text-white">Welcome Back</h2>
-							<p className="text-sm leading-relaxed text-[#8b949e]">
-								Sign in to your UnifAI dashboard to configure provider routing rules, trace logs, or register tools.
+				<main className="grid flex-1 items-center gap-10 pt-8 lg:grid-cols-12 lg:gap-8 lg:pt-4">
+					<section className="lg:col-span-7">
+						<div className="mb-8 max-w-xl space-y-4">
+							<div className="inline-flex items-center rounded-full border border-[#45f3ff]/20 bg-[#45f3ff]/10 px-3 py-1 text-[11px] font-semibold tracking-[0.16em] text-[#89f7ff] uppercase">
+								Browser AI security
+							</div>
+							<h1 className="text-4xl leading-[1.08] font-extrabold text-white sm:text-5xl lg:text-[56px]">
+								See every risk.
+								<br />
+								<span className="bg-gradient-to-r from-[#45f3ff] to-[#7dd3fc] bg-clip-text text-transparent">
+									Block it in real time.
+								</span>
+							</h1>
+							<p className="max-w-lg text-sm leading-7 text-[#8b949e] sm:text-base">
+								One dashboard for employee AI chats, website locks, upload policy, and Guard agents — no restart, no extra
+								tools.
 							</p>
 						</div>
-					</div>
 
-					{/* External community Links */}
-					<div className="space-y-4 pt-6">
-						<div className="text-xs font-semibold tracking-wider text-gray-500 uppercase">Resources</div>
-						<div className="flex flex-col gap-2">
-							{externalLinks.map((item, index) => (
-								<a
-									key={index}
-									href={item.url}
-									target="_blank"
-									rel="noopener noreferrer"
-									className="flex items-center gap-2.5 text-xs text-[#8b949e] transition-colors hover:text-[#45f3ff]"
-								>
-									<item.icon className="h-4 w-4" size={16} />
-									<span>{item.title}</span>
-								</a>
-							))}
-						</div>
-					</div>
-				</div>
+						<div className="ug-login-stage relative mx-auto h-[360px] w-full max-w-[640px] sm:h-[420px] lg:mx-0">
+							<div className="ug-login-glow pointer-events-none absolute inset-x-10 bottom-6 h-24 rounded-full bg-[#45f3ff]/20 blur-3xl" />
 
-				{/* Form Panel */}
-				<div className="flex flex-col justify-center p-8 md:col-span-7 md:p-12">
-					<div className="space-y-6">
-						<div className="space-y-2">
-							<h1 className="text-2xl font-bold text-white">Sign In</h1>
-							<p className="text-sm text-[#8b949e]">Enter your admin credentials to access the gateway.</p>
-						</div>
+							<div className="ug-login-plane relative h-full w-full">
+								<div className="ug-login-glass absolute inset-x-6 top-10 overflow-hidden rounded-3xl sm:inset-x-10">
+									<div className="flex items-center gap-2 border-b border-white/5 px-4 py-3">
+										<span className="h-2.5 w-2.5 rounded-full bg-[#ff5f57]" />
+										<span className="h-2.5 w-2.5 rounded-full bg-[#febc2e]" />
+										<span className="h-2.5 w-2.5 rounded-full bg-[#28c840]" />
+										<span className="ml-3 text-xs font-medium text-white/80">Browser AI Control</span>
+									</div>
+									<div className="grid grid-cols-3 gap-3 p-4">
+										<div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+											<p className="text-[10px] tracking-wider text-[#8b949e] uppercase">Targets</p>
+											<p className="mt-1 text-xl font-bold text-white">Any domain</p>
+										</div>
+										<div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-3">
+											<p className="text-[10px] tracking-wider text-rose-300 uppercase">Locks</p>
+											<p className="mt-1 text-xl font-bold text-white">Full site</p>
+										</div>
+										<div className="rounded-2xl border border-[#45f3ff]/20 bg-[#45f3ff]/10 p-3">
+											<p className="text-[10px] tracking-wider text-[#89f7ff] uppercase">Uploads</p>
+											<p className="mt-1 text-xl font-bold text-white">Policy on</p>
+										</div>
+									</div>
+									<div className="space-y-2 px-4 pb-5">
+										<div className="flex items-center justify-between rounded-xl border border-white/10 bg-[#0b0c10]/70 px-3 py-2.5">
+											<div className="flex items-center gap-2 text-sm text-white">
+												<Globe className="h-3.5 w-3.5 text-[#45f3ff]" />
+												chatgpt.com
+											</div>
+											<span className="text-[10px] font-semibold tracking-wider text-emerald-400 uppercase">Monitored</span>
+										</div>
+										<div className="flex items-center justify-between rounded-xl border border-rose-500/20 bg-rose-950/40 px-3 py-2.5">
+											<div className="flex items-center gap-2 text-sm text-white">
+												<Lock className="h-3.5 w-3.5 text-rose-400" />
+												facebook.com
+											</div>
+											<span className="text-[10px] font-semibold tracking-wider text-rose-300 uppercase">Blocked</span>
+										</div>
+										<div className="flex items-center justify-between rounded-xl border border-amber-500/20 bg-amber-950/30 px-3 py-2.5">
+											<div className="flex items-center gap-2 text-sm text-white">
+												<Upload className="h-3.5 w-3.5 text-amber-300" />
+												file.pdf
+											</div>
+											<span className="text-[10px] font-semibold tracking-wider text-amber-200 uppercase">Upload block</span>
+										</div>
+									</div>
+								</div>
 
-						{errorMessage && (
-							<div className="bg-destructive/10 border-destructive/20 text-destructive flex items-center gap-2.5 rounded-lg border p-3 text-sm">
-								<ShieldAlert className="h-4 w-4 flex-shrink-0" />
-								<span>{errorMessage}</span>
+								<div className="ug-login-chip absolute top-4 left-0 rounded-2xl border border-[#45f3ff]/25 bg-[#0b0c10]/80 px-3 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md">
+									<div className="flex items-center gap-2">
+										<Shield className="h-3.5 w-3.5 text-[#45f3ff]" />
+										<div>
+											<p className="text-[11px] font-semibold text-white">Prompt Guard</p>
+											<p className="text-[10px] text-[#8b949e]">Secrets blocked live</p>
+										</div>
+									</div>
+								</div>
+
+								<div className="ug-login-chip ug-login-chip-delay absolute top-16 right-0 rounded-2xl border border-white/10 bg-[#0b0c10]/80 px-3 py-2 shadow-[0_12px_40px_rgba(0,0,0,0.45)] backdrop-blur-md">
+									<div className="flex items-center gap-2">
+										<Activity className="h-3.5 w-3.5 text-[#45f3ff]" />
+										<div>
+											<p className="text-[11px] font-semibold text-white">12 agents online</p>
+											<p className="text-[10px] text-[#8b949e]">No restart required</p>
+										</div>
+									</div>
+								</div>
 							</div>
-						)}
+						</div>
+					</section>
 
-						<form onSubmit={handleSubmit} className="space-y-4">
-							<div className="space-y-2">
-								<Label htmlFor="username" className="text-xs font-semibold tracking-wider text-white uppercase">
-									Username
-								</Label>
-								<Input
-									id="username"
-									type="text"
-									placeholder="Enter your username"
-									value={username}
-									onChange={(e) => setUsername(e.target.value)}
-									required
-									className="border-[#1f2833]/80 bg-[#0b0c10]/80 text-sm text-white focus:border-[#45f3ff]"
-									autoComplete="username"
-								/>
+					<section className="flex items-center justify-center lg:col-span-5">
+						<div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#10131c]/80 p-8 shadow-[0_30px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
+							<div className="mb-6 space-y-2">
+								<h2 className="text-3xl font-bold text-white">Sign In</h2>
+								<p className="text-sm leading-6 text-[#8b949e]">Access the Guard control plane for your organization.</p>
 							</div>
 
-							<div className="space-y-2">
-								<div className="flex items-center justify-between">
+							{errorMessage && (
+								<div className="bg-destructive/10 border-destructive/20 text-destructive mb-4 flex items-center gap-2.5 rounded-lg border p-3 text-sm">
+									<ShieldAlert className="h-4 w-4 shrink-0" />
+									<span>{errorMessage}</span>
+								</div>
+							)}
+
+							<form onSubmit={handleSubmit} className="space-y-4">
+								<div className="space-y-2">
+									<Label htmlFor="username" className="text-xs font-semibold tracking-wider text-white uppercase">
+										Username
+									</Label>
+									<Input
+										id="username"
+										type="text"
+										placeholder="Enter your username"
+										value={username}
+										onChange={(e) => setUsername(e.target.value)}
+										required
+										className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 text-sm text-white focus:border-[#45f3ff]"
+										autoComplete="username"
+									/>
+								</div>
+
+								<div className="space-y-2">
 									<Label htmlFor="password" className="text-xs font-semibold tracking-wider text-white uppercase">
 										Password
 									</Label>
+									<div className="relative">
+										<Input
+											id="password"
+											type={showPassword ? "text" : "password"}
+											placeholder="Enter your password"
+											value={password}
+											onChange={(e) => setPassword(e.target.value)}
+											required
+											className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 pr-10 text-sm text-white focus:border-[#45f3ff]"
+											autoComplete="current-password"
+										/>
+										<button
+											type="button"
+											onClick={() => setShowPassword(!showPassword)}
+											className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500 hover:text-white"
+										>
+											{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+										</button>
+									</div>
 								</div>
-								<div className="relative">
-									<Input
-										id="password"
-										type={showPassword ? "text" : "password"}
-										placeholder="Enter your password"
-										value={password}
-										onChange={(e) => setPassword(e.target.value)}
-										required
-										className="border-[#1f2833]/80 bg-[#0b0c10]/80 pr-10 text-sm text-white focus:border-[#45f3ff]"
-										autoComplete="current-password"
-									/>
-									<button
-										type="button"
-										onClick={() => setShowPassword(!showPassword)}
-										className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500 hover:text-white"
-									>
-										{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-									</button>
-								</div>
-							</div>
 
-							<Button
-								type="submit"
-								className="mt-2 h-10 w-full bg-[#45f3ff] font-bold text-[#0b0c10] shadow-[0_0_15px_rgba(69,243,255,0.15)] hover:bg-[#45f3ff]/90"
-								disabled={isLoading || isLoggingIn}
-							>
-								{isLoading || isLoggingIn ? "Signing in..." : "Sign In"}
-							</Button>
-						</form>
-
-						<div className="pt-2 text-center">
-							<span className="text-xs text-[#8b949e]">
-								New deployment?{" "}
-								<Link to="/signup" className="font-medium text-[#45f3ff] hover:underline">
-									Configure Admin Account
-								</Link>
-							</span>
+								<Button
+									type="submit"
+									className="mt-2 h-11 w-full bg-[#45f3ff] font-bold text-[#0b0c10] shadow-[0_0_24px_rgba(69,243,255,0.28)] hover:bg-[#45f3ff]/90"
+									disabled={isLoading || isLoggingIn}
+								>
+									{isLoading || isLoggingIn ? "Signing in..." : "Sign In"}
+								</Button>
+							</form>
 						</div>
-					</div>
-				</div>
+					</section>
+				</main>
 			</div>
 		</div>
 	);

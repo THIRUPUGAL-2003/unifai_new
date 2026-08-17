@@ -37,10 +37,13 @@ func (h *SessionHandler) RegisterRoutes(r *router.Router, middlewares ...schemas
 	r.POST("/api/session/logout", lib.ChainMiddlewares(h.logout, middlewares...))
 	r.GET("/api/session/is-auth-enabled", lib.ChainMiddlewares(h.isAuthEnabled, middlewares...))
 	r.POST("/api/session/ws-ticket", lib.ChainMiddlewares(h.issueWSTicket, middlewares...))
+	r.POST("/api/session/register", lib.ChainMiddlewares(h.register, middlewares...))
 	r.GET("/api/session/users", lib.ChainMiddlewares(h.getUsers, middlewares...))
 	r.POST("/api/session/users", lib.ChainMiddlewares(h.createUser, middlewares...))
 	r.PUT("/api/session/users/{id}", lib.ChainMiddlewares(h.updateUser, middlewares...))
 	r.DELETE("/api/session/users/{id}", lib.ChainMiddlewares(h.deleteUser, middlewares...))
+	r.POST("/api/session/users/{id}/approve", lib.ChainMiddlewares(h.approveUser, middlewares...))
+	r.POST("/api/session/users/{id}/reject", lib.ChainMiddlewares(h.rejectUser, middlewares...))
 }
 
 // isAuthEnabled handles GET /api/session/is-auth-enabled - Check if auth is enabled
@@ -146,6 +149,17 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 
 	dbUser, err := h.configStore.GetUserByUsername(ctx, payload.Username)
 	if err == nil && dbUser != nil {
+		if !dbUser.IsApproved() {
+			switch dbUser.Status {
+			case tables.UserStatusPending:
+				SendError(ctx, fasthttp.StatusForbidden, "Your registration is waiting for admin approval")
+			case tables.UserStatusRejected:
+				SendError(ctx, fasthttp.StatusForbidden, "Admin has not accepted your request")
+			default:
+				SendError(ctx, fasthttp.StatusForbidden, "Your account is not active")
+			}
+			return
+		}
 		compare, err := encrypt.CompareHash(dbUser.Password, payload.Password)
 		if err != nil || !compare {
 			SendError(ctx, fasthttp.StatusUnauthorized, "Invalid username or password")
@@ -288,6 +302,17 @@ func (h *SessionHandler) extractParam(ctx *fasthttp.RequestCtx, name string) (st
 	return s, true
 }
 
+func alreadyRegisteredMessage(existing *tables.TableUser) string {
+	switch existing.Status {
+	case tables.UserStatusPending:
+		return "This username already has a registration waiting for admin approval"
+	case tables.UserStatusRejected:
+		return "Admin has not accepted this registration"
+	default:
+		return "Username is already registered"
+	}
+}
+
 // isAdmin checks if the current request session belongs to an admin.
 // When dashboard auth is disabled (or not configured), user-management APIs
 // stay usable in open mode — otherwise create/list users always 403 with no
@@ -332,11 +357,19 @@ func (h *SessionHandler) getUsers(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
 	}
-	// Redact passwords
+	visible := make([]*tables.TableUser, 0, len(users))
 	for _, u := range users {
+		if u == nil {
+			continue
+		}
+		// Denied rows stay in DB for login messaging, but are not listed as users.
+		if u.Status == tables.UserStatusRejected {
+			continue
+		}
 		u.Password = ""
+		visible = append(visible, u)
 	}
-	SendJSON(ctx, users)
+	SendJSON(ctx, visible)
 }
 
 // createUser handles POST /api/session/users - Create a new user (Admin only)
@@ -357,6 +390,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
 		return
 	}
+	payload.Username = strings.TrimSpace(payload.Username)
 	if payload.Username == "" || payload.Password == "" {
 		SendError(ctx, fasthttp.StatusBadRequest, "Username and password are required")
 		return
@@ -371,20 +405,55 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	now := time.Now()
+	if existing, err := h.configStore.GetUserByUsername(ctx, payload.Username); err == nil && existing != nil {
+		if existing.IsApproved() {
+			SendError(ctx, fasthttp.StatusConflict, "Username is already registered")
+			return
+		}
+		// Admin create bypasses pending/denied — activate immediately.
+		existing.Password = hashedPassword
+		existing.Role = payload.Role
+		existing.Status = tables.UserStatusApproved
+		existing.Budget = payload.Budget
+		existing.RateLimit = payload.RateLimit
+		existing.AllowedPromptRepos = payload.AllowedPromptRepos
+		existing.ReviewedAt = &now
+		existing.UpdatedAt = now
+		if err := h.configStore.UpdateUser(ctx, existing); err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
+			return
+		}
+		existing.Password = ""
+		SendJSON(ctx, existing)
+		return
+	}
+
 	user := &tables.TableUser{
 		ID:                 uuid.New().String(),
 		Username:           payload.Username,
 		Password:           hashedPassword,
 		Role:               payload.Role,
+		Status:             tables.UserStatusApproved,
 		Budget:             payload.Budget,
 		RateLimit:          payload.RateLimit,
 		AllowedPromptRepos: payload.AllowedPromptRepos,
-		CreatedAt:          time.Now(),
-		UpdatedAt:          time.Now(),
+		CreatedAt:          now,
+		UpdatedAt:          now,
 	}
 
 	if err := h.configStore.CreateUser(ctx, user); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user: "+err.Error())
+		logger.Error("failed to create governance user username=%s: %v", payload.Username, err)
+		errLower := strings.ToLower(err.Error())
+		if strings.Contains(errLower, "duplicate") || strings.Contains(errLower, "unique") {
+			SendError(ctx, fasthttp.StatusConflict, "Username is already registered")
+			return
+		}
+		if strings.Contains(errLower, "column") && (strings.Contains(errLower, "status") || strings.Contains(errLower, "email") || strings.Contains(errLower, "reviewed_at")) {
+			SendError(ctx, fasthttp.StatusInternalServerError, "Database is missing user registration columns; restart the server to apply migrations")
+			return
+		}
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
 		return
 	}
 
@@ -470,5 +539,157 @@ func (h *SessionHandler) deleteUser(ctx *fasthttp.RequestCtx) {
 
 	SendJSON(ctx, map[string]any{
 		"message": "User deleted successfully",
+	})
+}
+
+// register handles POST /api/session/register - public self-registration (pending approval).
+func (h *SessionHandler) register(ctx *fasthttp.RequestCtx) {
+	if h.configStore == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "User registration is not available")
+		return
+	}
+	var payload struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Role     string `json:"role"`
+	}
+	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	payload.Username = strings.TrimSpace(payload.Username)
+	payload.Email = strings.TrimSpace(strings.ToLower(payload.Email))
+	if payload.Username == "" || payload.Password == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "Username and password are required")
+		return
+	}
+	if len(payload.Password) < 8 {
+		SendError(ctx, fasthttp.StatusBadRequest, "Password must be at least 8 characters long")
+		return
+	}
+	if payload.Role != "admin" && payload.Role != "user" {
+		payload.Role = "user"
+	}
+
+	hashedPassword, err := encrypt.Hash(payload.Password)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to hash password")
+		return
+	}
+
+	now := time.Now()
+	if existing, err := h.configStore.GetUserByUsername(ctx, payload.Username); err == nil && existing != nil {
+		if existing.IsApproved() || existing.Status == tables.UserStatusPending {
+			SendError(ctx, fasthttp.StatusConflict, alreadyRegisteredMessage(existing))
+			return
+		}
+		// Denied users may request access again — send back to pending.
+		existing.Email = payload.Email
+		existing.Password = hashedPassword
+		existing.Role = payload.Role
+		existing.Status = tables.UserStatusPending
+		existing.ReviewedAt = nil
+		existing.UpdatedAt = now
+		if err := h.configStore.UpdateUser(ctx, existing); err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to submit registration")
+			return
+		}
+		SendJSON(ctx, map[string]any{
+			"message": "Sent to the admin waiting for approval",
+			"id":      existing.ID,
+			"status":  existing.Status,
+			"role":    existing.Role,
+		})
+		return
+	}
+
+	user := &tables.TableUser{
+		ID:        uuid.New().String(),
+		Username:  payload.Username,
+		Email:     payload.Email,
+		Password:  hashedPassword,
+		Role:      payload.Role,
+		Status:    tables.UserStatusPending,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	if err := h.configStore.CreateUser(ctx, user); err != nil {
+		logger.Error("failed to register user username=%s: %v", payload.Username, err)
+		errLower := strings.ToLower(err.Error())
+		if strings.Contains(errLower, "duplicate") || strings.Contains(errLower, "unique") {
+			SendError(ctx, fasthttp.StatusConflict, "Username is already registered")
+			return
+		}
+		if strings.Contains(errLower, "column") && (strings.Contains(errLower, "status") || strings.Contains(errLower, "email") || strings.Contains(errLower, "reviewed_at")) {
+			SendError(ctx, fasthttp.StatusInternalServerError, "Database is missing user registration columns; restart the server to apply migrations")
+			return
+		}
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to submit registration")
+		return
+	}
+
+	SendJSON(ctx, map[string]any{
+		"message": "Sent to the admin waiting for approval",
+		"id":      user.ID,
+		"status":  user.Status,
+		"role":    user.Role,
+	})
+}
+
+// approveUser handles POST /api/session/users/{id}/approve
+func (h *SessionHandler) approveUser(ctx *fasthttp.RequestCtx) {
+	if !h.isAdmin(ctx) {
+		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
+		return
+	}
+	id, ok := h.extractParam(ctx, "id")
+	if !ok {
+		return
+	}
+	user, err := h.configStore.GetUserByID(ctx, id)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusNotFound, "User not found")
+		return
+	}
+	now := time.Now()
+	user.Status = tables.UserStatusApproved
+	user.ReviewedAt = &now
+	user.UpdatedAt = now
+	if err := h.configStore.UpdateUser(ctx, user); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to approve user: "+err.Error())
+		return
+	}
+	user.Password = ""
+	SendJSON(ctx, user)
+}
+
+// rejectUser handles POST /api/session/users/{id}/reject
+func (h *SessionHandler) rejectUser(ctx *fasthttp.RequestCtx) {
+	if !h.isAdmin(ctx) {
+		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
+		return
+	}
+	id, ok := h.extractParam(ctx, "id")
+	if !ok {
+		return
+	}
+	user, err := h.configStore.GetUserByID(ctx, id)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusNotFound, "User not found")
+		return
+	}
+	now := time.Now()
+	user.Status = tables.UserStatusRejected
+	user.ReviewedAt = &now
+	user.UpdatedAt = now
+	if err := h.configStore.UpdateUser(ctx, user); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to reject user: "+err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{
+		"message": "Registration denied",
+		"id":      user.ID,
+		"status":  user.Status,
 	})
 }

@@ -911,6 +911,7 @@ func (m *AuthMiddleware) APIMiddleware() schemas.UnifAIHTTPMiddleware {
 	systemWhitelistedRoutes := []string{
 		"/api/session/is-auth-enabled",
 		"/api/session/login",
+		"/api/session/register",
 		"/api/oauth/callback",
 		"/health",
 		"/login",

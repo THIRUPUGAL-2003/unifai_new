@@ -37,7 +37,7 @@ from mitmproxy.tools.main import mitmdump
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifai.dev-yp.com"
-AGENT_VERSION = "1.2.2"
+AGENT_VERSION = "1.2.3"
 HEARTBEAT_SECONDS = 30
 PAC_HTTP_HOST = "127.0.0.1"
 PAC_HTTP_PORT = 18085
@@ -96,7 +96,7 @@ def load_runtime_config() -> dict:
     backend = pick("UNIFAI_BACKEND_URL", "backend_url", DEFAULT_BACKEND).rstrip("/")
     proxy_addr = pick("UNIFAI_PROXY_ADDR", "proxy_addr", "127.0.0.1:8085")
     pac_url = pick("UNIFAI_PAC_URL", "pac_url", f"{backend}/api/browser-ai/pac")
-    sync_secs = pick("UNIFAI_PAC_SYNC_SECONDS", "pac_sync_seconds", "8")
+    sync_secs = pick("UNIFAI_PAC_SYNC_SECONDS", "pac_sync_seconds", "1")
 
     os.environ["UNIFAI_BACKEND_URL"] = backend
     os.environ["UNIFAI_PROXY_ADDR"] = proxy_addr

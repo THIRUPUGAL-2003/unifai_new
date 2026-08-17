@@ -423,3 +423,82 @@ div.content-container:has(.no-border-parent) #trial-notification-banner {
 	right: 0 !important;
 	transform: translate(35%, -35%) !important;
 }
+
+/* UnifAI Guard login landing — CSS 3D stage */
+.ug-login-grid {
+	background-image:
+		linear-gradient(rgba(69, 243, 255, 0.05) 1px, transparent 1px),
+		linear-gradient(90deg, rgba(69, 243, 255, 0.05) 1px, transparent 1px);
+	background-size: 56px 56px;
+	mask-image: radial-gradient(ellipse 80% 70% at 35% 45%, black 20%, transparent 75%);
+}
+
+.ug-login-stage {
+	perspective: 1600px;
+	perspective-origin: 42% 38%;
+}
+
+.ug-login-plane {
+	transform: rotateX(16deg) rotateY(-22deg) rotateZ(3deg);
+	transform-style: preserve-3d;
+	animation: ug-login-float 7s ease-in-out infinite;
+}
+
+.ug-login-glass {
+	background: linear-gradient(180deg, rgba(22, 28, 40, 0.92), rgba(11, 12, 16, 0.88));
+	box-shadow:
+		0 40px 80px rgba(0, 0, 0, 0.55),
+		0 0 0 1px rgba(69, 243, 255, 0.14),
+		0 18px 60px rgba(69, 243, 255, 0.12);
+}
+
+.ug-login-chip {
+	transform-style: preserve-3d;
+	animation: ug-login-chip 5.5s ease-in-out infinite;
+}
+
+.ug-login-chip-delay {
+	animation-delay: -2.4s;
+}
+
+.ug-login-glow {
+	animation: ug-login-pulse 4.5s ease-in-out infinite;
+}
+
+@keyframes ug-login-float {
+	0%,
+	100% {
+		transform: rotateX(16deg) rotateY(-22deg) rotateZ(3deg) translateY(0);
+	}
+	50% {
+		transform: rotateX(14deg) rotateY(-18deg) rotateZ(2deg) translateY(-10px);
+	}
+}
+
+@keyframes ug-login-chip {
+	0%,
+	100% {
+		transform: translateY(0);
+	}
+	50% {
+		transform: translateY(-12px);
+	}
+}
+
+@keyframes ug-login-pulse {
+	0%,
+	100% {
+		opacity: 0.45;
+	}
+	50% {
+		opacity: 0.9;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.ug-login-plane,
+	.ug-login-chip,
+	.ug-login-glow {
+		animation: none;
+	}
+}

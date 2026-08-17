@@ -68,7 +68,6 @@ import {
 	BrowserControlSettings,
 	BrowserTargetWebsite,
 } from "@/lib/store/apis/browserAiApi";
-import { useGetProvidersQuery, useGetModelsQuery } from "@/lib/store/apis/providersApi";
 import { getApiBaseUrl } from "@/lib/utils/port";
 
 export default function BrowserAiPage() {
@@ -213,32 +212,6 @@ export default function BrowserAiPage() {
 	const activeAgentsCount = agents.filter((a) => a.status === "active").length;
 	const agentSettings = agentSettingsData?.settings;
 
-	// Per-target Reply Bot editor
-	const [replyBotTarget, setReplyBotTarget] = useState<BrowserTargetWebsite | null>(null);
-	const [replyBotDialogOpen, setReplyBotDialogOpen] = useState(false);
-	const [replyBotEnabled, setReplyBotEnabled] = useState(false);
-	const [replyBotProvider, setReplyBotProvider] = useState("");
-	const [replyBotModel, setReplyBotModel] = useState("");
-	const [replyBotMode, setReplyBotMode] = useState<"violations" | "all">("violations");
-	const [replyBotSaving, setReplyBotSaving] = useState(false);
-
-	const { data: providersData } = useGetProvidersQuery();
-	const { data: replyModelsData, isFetching: replyModelsLoading } = useGetModelsQuery(
-		{ provider: replyBotProvider || undefined, limit: 80, unfiltered: true },
-		{ skip: !replyBotProvider || !replyBotDialogOpen }
-	);
-	const providerOptions: string[] = (providersData || []).map((p) => String(p.name)).sort();
-	const modelOptions: string[] = (replyModelsData?.models || []).map((m) => m.name);
-
-	const openReplyBotDialog = (tgt: BrowserTargetWebsite) => {
-		setReplyBotTarget(tgt);
-		setReplyBotEnabled(!!tgt.reply_bot_enabled);
-		setReplyBotProvider(tgt.reply_bot_provider || "");
-		setReplyBotModel(tgt.reply_bot_model || "");
-		setReplyBotMode(tgt.reply_bot_mode === "all" ? "all" : "violations");
-		setReplyBotDialogOpen(true);
-	};
-
 	// --- Detect new blocked violations and fire notifications ---
 	useEffect(() => {
 		if (!logsData?.logs) return;
@@ -307,29 +280,6 @@ export default function BrowserAiPage() {
 		}
 		setUploadWarningDraft(text);
 		setUploadWarningEditing(false);
-	};
-
-	const saveTargetReplyBot = async () => {
-		if (!replyBotTarget) return;
-		if (replyBotEnabled && (!replyBotProvider || !replyBotModel)) return;
-		setReplyBotSaving(true);
-		try {
-			await updateTarget({
-				id: replyBotTarget.id,
-				updates: {
-					reply_bot_enabled: replyBotEnabled,
-					reply_bot_provider: replyBotProvider,
-					reply_bot_model: replyBotModel,
-					reply_bot_mode: replyBotMode,
-				},
-			}).unwrap();
-			setReplyBotDialogOpen(false);
-			setReplyBotTarget(null);
-		} catch {
-			// next poll refreshes
-		} finally {
-			setReplyBotSaving(false);
-		}
 	};
 
 	const handleEditTarget = async () => {
@@ -668,10 +618,11 @@ export default function BrowserAiPage() {
 							refetchLogs();
 							refetchRules();
 							refetchTargets();
+							refetchAgents();
 						}}
 						className="gap-2 border-border hover:bg-accent h-8 text-xs"
 					>
-						<RefreshCw className={`h-3.5 w-3.5 ${logsLoading ? "animate-spin" : ""}`} />
+						<RefreshCw className={`h-3.5 w-3.5 ${logsLoading || agentsLoading ? "animate-spin" : ""}`} />
 						Refresh
 					</Button>
 				</div>
@@ -759,17 +710,16 @@ export default function BrowserAiPage() {
 						</CardHeader>
 						<CardContent>
 							<div className="rounded-md border border-border overflow-x-auto">
-								<Table>
+								<Table className="table-fixed min-w-[980px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[170px]">Timestamp</TableHead>
-											<TableHead className="w-[120px]">Platform</TableHead>
-											<TableHead className="w-[130px]">Guard</TableHead>
-											<TableHead>User Prompt Preview</TableHead>
-											<TableHead className="w-[100px] text-right">Est. Tokens</TableHead>
-											<TableHead className="w-[110px]">Action</TableHead>
-											<TableHead className="w-[160px]">Reply Bot</TableHead>
-											<TableHead className="w-[90px] text-right">Details</TableHead>
+											<TableHead className="w-[160px]">Timestamp</TableHead>
+											<TableHead className="w-[110px]">Platform</TableHead>
+											<TableHead className="w-[120px]">Guard</TableHead>
+											<TableHead className="w-[280px]">User Prompt Preview</TableHead>
+											<TableHead className="w-[90px] text-right">Est. Tokens</TableHead>
+											<TableHead className="w-[120px]">Action</TableHead>
+											<TableHead className="w-[70px] text-right">Details</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>
@@ -779,16 +729,18 @@ export default function BrowserAiPage() {
 												onClick={() => setSelectedLog(log)}
 												className="cursor-pointer border-border hover:bg-accent/50 transition-colors"
 											>
-												<TableCell className="text-xs text-muted-foreground font-mono">
+												<TableCell className="text-xs text-muted-foreground font-mono truncate" title={new Date(log.timestamp).toLocaleString()}>
 													{new Date(log.timestamp).toLocaleString()}
 												</TableCell>
-												<TableCell>{getPlatformBadge(log.platform)}</TableCell>
-												<TableCell className="text-xs text-muted-foreground max-w-[130px] truncate" title={log.agent_hostname || log.agent_id || ""}>
+												<TableCell className="overflow-hidden">{getPlatformBadge(log.platform)}</TableCell>
+												<TableCell className="text-xs text-muted-foreground truncate" title={log.agent_hostname || log.agent_id || ""}>
 													{log.agent_hostname || log.agent_id || "—"}
 												</TableCell>
-												<TableCell className="font-mono text-xs max-w-xs truncate">{log.user_prompt_preview}</TableCell>
-												<TableCell className="text-right text-xs font-mono">{log.est_tokens}</TableCell>
-												<TableCell>
+												<TableCell className="font-mono text-xs truncate" title={log.user_prompt_preview || ""}>
+													{log.user_prompt_preview}
+												</TableCell>
+												<TableCell className="text-right text-xs font-mono truncate">{log.est_tokens}</TableCell>
+												<TableCell className="overflow-hidden">
 													{log.action === "Blocked" ? (
 														<Badge className="bg-red-950/80 text-red-400 border-red-700/60 gap-1 text-[11px]">
 															<AlertTriangle className="h-3 w-3" /> Blocked
@@ -811,21 +763,6 @@ export default function BrowserAiPage() {
 														</Badge>
 													)}
 												</TableCell>
-												<TableCell>
-													{log.reply_bot_provider || log.reply_bot_model ? (
-														<div className="space-y-0.5">
-															<div className="flex items-center gap-1 text-[11px] text-sky-400 font-medium">
-																<Bot className="h-3 w-3 shrink-0" />
-																<span className="truncate max-w-[130px]">{log.reply_bot_provider || "—"}</span>
-															</div>
-															<p className="text-[10px] text-muted-foreground font-mono truncate max-w-[140px]">
-																{log.reply_bot_model || "—"}
-															</p>
-														</div>
-													) : (
-														<span className="text-[11px] text-muted-foreground">—</span>
-													)}
-												</TableCell>
 												<TableCell className="text-right">
 													<Button
 														variant="ghost"
@@ -843,7 +780,7 @@ export default function BrowserAiPage() {
 										))}
 										{logs.length === 0 && (
 											<TableRow>
-												<TableCell colSpan={8} className="text-center py-6 text-muted-foreground">
+												<TableCell colSpan={7} className="text-center py-6 text-muted-foreground">
 													No prompts intercepted yet. Start browsing AI platforms via proxy.
 												</TableCell>
 											</TableRow>
@@ -927,17 +864,16 @@ export default function BrowserAiPage() {
 
 						<CardContent>
 							<div className="rounded-md border border-border overflow-x-auto">
-								<Table>
+								<Table className="table-fixed min-w-[980px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[170px]">Timestamp</TableHead>
-											<TableHead className="w-[120px]">Platform</TableHead>
-											<TableHead className="w-[130px]">Guard</TableHead>
-											<TableHead>User Prompt Preview</TableHead>
-											<TableHead className="w-[100px] text-right">Est. Tokens</TableHead>
-											<TableHead className="w-[110px]">Action</TableHead>
-											<TableHead className="w-[160px]">Reply Bot</TableHead>
-											<TableHead className="w-[90px] text-right">Details</TableHead>
+											<TableHead className="w-[160px]">Timestamp</TableHead>
+											<TableHead className="w-[110px]">Platform</TableHead>
+											<TableHead className="w-[120px]">Guard</TableHead>
+											<TableHead className="w-[280px]">User Prompt Preview</TableHead>
+											<TableHead className="w-[90px] text-right">Est. Tokens</TableHead>
+											<TableHead className="w-[120px]">Action</TableHead>
+											<TableHead className="w-[70px] text-right">Details</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>
@@ -947,16 +883,18 @@ export default function BrowserAiPage() {
 												onClick={() => setSelectedLog(log)}
 												className="cursor-pointer border-border hover:bg-accent/50 transition-colors"
 											>
-												<TableCell className="text-xs text-muted-foreground font-mono">
+												<TableCell className="text-xs text-muted-foreground font-mono truncate" title={new Date(log.timestamp).toLocaleString()}>
 													{new Date(log.timestamp).toLocaleString()}
 												</TableCell>
-												<TableCell>{getPlatformBadge(log.platform)}</TableCell>
-												<TableCell className="text-xs text-muted-foreground max-w-[130px] truncate" title={log.agent_hostname || log.agent_id || ""}>
+												<TableCell className="overflow-hidden">{getPlatformBadge(log.platform)}</TableCell>
+												<TableCell className="text-xs text-muted-foreground truncate" title={log.agent_hostname || log.agent_id || ""}>
 													{log.agent_hostname || log.agent_id || "—"}
 												</TableCell>
-												<TableCell className="font-mono text-xs max-w-xs truncate">{log.user_prompt_preview}</TableCell>
-												<TableCell className="text-right text-xs font-mono">{log.est_tokens}</TableCell>
-												<TableCell>
+												<TableCell className="font-mono text-xs truncate" title={log.user_prompt_preview || ""}>
+													{log.user_prompt_preview}
+												</TableCell>
+												<TableCell className="text-right text-xs font-mono truncate">{log.est_tokens}</TableCell>
+												<TableCell className="overflow-hidden">
 													{log.action === "Blocked" ? (
 														<Badge className="bg-red-950/80 text-red-400 border-red-700/60 gap-1 text-[11px]">
 															<AlertTriangle className="h-3 w-3" /> Blocked
@@ -979,21 +917,6 @@ export default function BrowserAiPage() {
 														</Badge>
 													)}
 												</TableCell>
-												<TableCell>
-													{log.reply_bot_provider || log.reply_bot_model ? (
-														<div className="space-y-0.5">
-															<div className="flex items-center gap-1 text-[11px] text-sky-400 font-medium">
-																<Bot className="h-3 w-3 shrink-0" />
-																<span className="truncate max-w-[130px]">{log.reply_bot_provider || "—"}</span>
-															</div>
-															<p className="text-[10px] text-muted-foreground font-mono truncate max-w-[140px]">
-																{log.reply_bot_model || "—"}
-															</p>
-														</div>
-													) : (
-														<span className="text-[11px] text-muted-foreground">—</span>
-													)}
-												</TableCell>
 												<TableCell className="text-right">
 													<Button
 														variant="ghost"
@@ -1011,7 +934,7 @@ export default function BrowserAiPage() {
 										))}
 										{logs.length === 0 && (
 											<TableRow>
-												<TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+												<TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
 													No prompt logs match your filter criteria.
 												</TableCell>
 											</TableRow>
@@ -1195,14 +1118,14 @@ export default function BrowserAiPage() {
 									{uploadWarningEditing || !(controls.upload_warning || "").trim() ? (
 										<>
 											<Textarea
-												placeholder="Message employees see when this upload policy blocks a file..."
+												placeholder="e.g. UPLOAD BLOCK — shown in Prompt Logs and to employees..."
 												value={uploadWarningDraft}
 												onChange={(e) => setUploadWarningDraft(e.target.value)}
 												rows={3}
 											/>
 											<div className="flex items-center justify-between gap-2">
 												<p className="text-xs text-muted-foreground">
-													Shown when Block all uploads stops a file. Guard Rule hits inside a file use that rule&apos;s warning instead. Leave blank for no message.
+													Block all uploads → this text in Prompt Logs. A Guard Rule hit inside a file → this text (or that rule&apos;s warning) plus &quot; -- policy name&quot;. Leave blank to use &quot;Upload block&quot;.
 												</p>
 												<div className="flex items-center gap-2 shrink-0">
 													{uploadWarningEditing && (controls.upload_warning || "").trim() ? (
@@ -1598,30 +1521,29 @@ export default function BrowserAiPage() {
 						</CardHeader>
 						<CardContent>
 							<div className="rounded-md border border-border overflow-x-auto">
-								<Table>
+								<Table className="table-fixed min-w-[980px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[180px]">Domain</TableHead>
+											<TableHead className="w-[260px]">Domain</TableHead>
 											<TableHead className="w-[120px]">Platform Name</TableHead>
 											<TableHead className="w-[110px]">Intercepted</TableHead>
 											<TableHead className="w-[100px]">Status</TableHead>
-											<TableHead className="w-[110px]">Monitoring</TableHead>
+											<TableHead className="w-[120px]">Monitoring</TableHead>
 											<TableHead className="w-[130px]">Block Website</TableHead>
-											<TableHead className="min-w-[200px]">Reply Bot</TableHead>
 											<TableHead className="w-[90px] text-right">Actions</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>
 										{visibleTargetRows.map(({ tgt, isChild }) => (
 											<TableRow key={tgt.id} className={`border-border transition-colors ${isChild ? "bg-muted/15" : "hover:bg-accent/50"}`}>
-												<TableCell>
+												<TableCell className="align-top whitespace-normal">
 													<div className={isChild ? "pl-5 space-y-1" : "space-y-1.5"}>
-														<div className="flex items-center gap-1.5 font-semibold text-sm font-mono">
+														<div className="flex items-center gap-1.5 font-semibold text-sm font-mono min-w-0">
 															{isChild ? (
 																<CornerDownRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 															) : null}
-															<span>{tgt.domain}</span>
-															<ExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
+															<span className="truncate" title={tgt.domain}>{tgt.domain}</span>
+															<ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 														</div>
 														{isChild ? (
 															<p className="text-[10px] text-muted-foreground pl-5">Related host</p>
@@ -1684,9 +1606,9 @@ export default function BrowserAiPage() {
 														)}
 													</div>
 												</TableCell>
-												<TableCell className="text-sm text-muted-foreground">{tgt.platform_name}</TableCell>
-												<TableCell className="font-mono text-sm">{tgt.intercepted_count} requests</TableCell>
-												<TableCell>
+												<TableCell className="text-sm text-muted-foreground truncate" title={tgt.platform_name || ""}>{tgt.platform_name}</TableCell>
+												<TableCell className="font-mono text-sm truncate">{tgt.intercepted_count} requests</TableCell>
+												<TableCell className="overflow-hidden">
 													<Badge
 														className={
 															tgt.block_site
@@ -1699,8 +1621,8 @@ export default function BrowserAiPage() {
 														{tgt.block_site ? "BLOCKED" : tgt.monitored ? "MONITORED" : "PAUSED"}
 													</Badge>
 												</TableCell>
-												<TableCell>
-													<div className="flex items-center gap-2">
+												<TableCell className="overflow-hidden">
+													<div className="flex items-center gap-2 min-w-0">
 														<Switch
 															checked={tgt.monitored}
 															onCheckedChange={(val) =>
@@ -1713,11 +1635,11 @@ export default function BrowserAiPage() {
 																})
 															}
 														/>
-														<span className="text-xs text-muted-foreground">{tgt.monitored ? "Active" : "Paused"}</span>
+														<span className="text-xs text-muted-foreground truncate">{tgt.monitored ? "Active" : "Paused"}</span>
 													</div>
 												</TableCell>
-												<TableCell>
-													<div className="flex items-center gap-2">
+												<TableCell className="overflow-hidden">
+													<div className="flex items-center gap-2 min-w-0">
 														<Switch
 															checked={!!tgt.block_site}
 															onCheckedChange={(val) =>
@@ -1730,51 +1652,9 @@ export default function BrowserAiPage() {
 																})
 															}
 														/>
-														<span className={`text-xs ${tgt.block_site ? "text-red-400" : "text-muted-foreground"}`}>
+														<span className={`text-xs truncate ${tgt.block_site ? "text-red-400" : "text-muted-foreground"}`}>
 															{tgt.block_site ? "Locked" : "Off"}
 														</span>
-													</div>
-												</TableCell>
-												<TableCell>
-													<div className="flex items-center gap-2">
-														<Switch
-															checked={!!tgt.reply_bot_enabled}
-															onCheckedChange={(val) => {
-																if (val && (!tgt.reply_bot_provider || !tgt.reply_bot_model)) {
-																	openReplyBotDialog(tgt);
-																	return;
-																}
-																updateTarget({
-																	id: tgt.id,
-																	updates: { reply_bot_enabled: val },
-																});
-															}}
-														/>
-														<button
-															type="button"
-															onClick={() => openReplyBotDialog(tgt)}
-															className="text-left min-w-0 hover:opacity-80"
-															title="Configure Reply Bot"
-														>
-															{tgt.reply_bot_enabled && tgt.reply_bot_provider && tgt.reply_bot_model ? (
-																<div className="space-y-0.5">
-																	<div className="flex items-center gap-1 text-[11px] text-sky-400 font-medium">
-																		<Bot className="h-3 w-3 shrink-0" />
-																		<span className="truncate max-w-[100px]">{tgt.reply_bot_provider}</span>
-																	</div>
-																	<p className="text-[10px] text-muted-foreground font-mono truncate max-w-[140px]">
-																		{tgt.reply_bot_model}
-																	</p>
-																	<p className="text-[10px] text-sky-400/90">
-																		{tgt.reply_bot_mode === "all" ? "All questions · On" : "Violations only · On"}
-																	</p>
-																</div>
-															) : (
-																<span className="text-[11px] text-muted-foreground flex items-center gap-1">
-																	<Bot className="h-3 w-3" /> Configure
-																</span>
-															)}
-														</button>
 													</div>
 												</TableCell>
 												<TableCell className="text-right">
@@ -1809,7 +1689,7 @@ export default function BrowserAiPage() {
 										))}
 										{visibleTargetRows.length === 0 && (
 											<TableRow>
-												<TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+												<TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
 													{targets.length === 0
 														? "No target web domains configured."
 														: "No target websites found matching your search."}
@@ -1854,173 +1734,6 @@ export default function BrowserAiPage() {
 								Cancel
 							</Button>
 							<Button onClick={handleEditTarget}>Save Changes</Button>
-						</DialogFooter>
-					</DialogContent>
-				</Dialog>
-
-				{/* PER-TARGET REPLY BOT DIALOG */}
-				<Dialog
-					open={replyBotDialogOpen}
-					onOpenChange={(open) => {
-						setReplyBotDialogOpen(open);
-						if (!open) setReplyBotTarget(null);
-					}}
-				>
-					<DialogContent className="bg-card border-border text-foreground sm:max-w-lg">
-						<DialogHeader>
-							<DialogTitle className="flex items-center gap-2">
-								<Bot className="h-5 w-5 text-sky-400" />
-								Reply Bot — {replyBotTarget?.domain || "Target"}
-							</DialogTitle>
-							<DialogDescription>
-								Turn each reply mode On or Off for this site. Only one mode can be On at a time.
-								Pick provider + model below.
-							</DialogDescription>
-						</DialogHeader>
-						<div className="space-y-4 py-2">
-							<div className="space-y-2">
-								<Label>Reply modes</Label>
-								<div className="space-y-2">
-									<div
-										className={`rounded-lg border px-3 py-2.5 transition-colors ${
-											replyBotEnabled && replyBotMode === "violations"
-												? "border-sky-500/60 bg-sky-500/10"
-												: "border-border bg-background/40"
-										}`}
-									>
-										<div className="flex items-start justify-between gap-3">
-											<div className="min-w-0">
-												<p className="text-sm font-medium">Violations only</p>
-												<p className="text-xs text-muted-foreground mt-0.5">
-													Bot replies only when a Guard Rule blocks the prompt. Safe prompts go to the real AI site.
-												</p>
-											</div>
-											<div className="flex items-center gap-2 shrink-0 pt-0.5">
-												<Switch
-													checked={replyBotEnabled && replyBotMode === "violations"}
-													onCheckedChange={(on) => {
-														if (on) {
-															setReplyBotEnabled(true);
-															setReplyBotMode("violations");
-														} else if (replyBotMode === "violations") {
-															setReplyBotEnabled(false);
-														}
-													}}
-												/>
-												<span
-													className={`text-xs font-semibold ${
-														replyBotEnabled && replyBotMode === "violations"
-															? "text-sky-400"
-															: "text-muted-foreground"
-													}`}
-												>
-													{replyBotEnabled && replyBotMode === "violations" ? "On" : "Off"}
-												</span>
-											</div>
-										</div>
-									</div>
-									<div
-										className={`rounded-lg border px-3 py-2.5 transition-colors ${
-											replyBotEnabled && replyBotMode === "all"
-												? "border-sky-500/60 bg-sky-500/10"
-												: "border-border bg-background/40"
-										}`}
-									>
-										<div className="flex items-start justify-between gap-3">
-											<div className="min-w-0">
-												<p className="text-sm font-medium">All questions</p>
-												<p className="text-xs text-muted-foreground mt-0.5">
-													Bot answers every intercepted prompt (violations get a security reply; normal questions get a bot answer). The site AI is not used.
-												</p>
-											</div>
-											<div className="flex items-center gap-2 shrink-0 pt-0.5">
-												<Switch
-													checked={replyBotEnabled && replyBotMode === "all"}
-													onCheckedChange={(on) => {
-														if (on) {
-															setReplyBotEnabled(true);
-															setReplyBotMode("all");
-														} else if (replyBotMode === "all") {
-															setReplyBotEnabled(false);
-														}
-													}}
-												/>
-												<span
-													className={`text-xs font-semibold ${
-														replyBotEnabled && replyBotMode === "all"
-															? "text-sky-400"
-															: "text-muted-foreground"
-													}`}
-												>
-													{replyBotEnabled && replyBotMode === "all" ? "On" : "Off"}
-												</span>
-											</div>
-										</div>
-									</div>
-								</div>
-							</div>
-							<div className="space-y-2">
-								<Label>Provider</Label>
-								<Select
-									value={replyBotProvider || undefined}
-									onValueChange={(val) => {
-										setReplyBotProvider(val);
-										setReplyBotModel("");
-									}}
-									disabled={!replyBotEnabled}
-								>
-									<SelectTrigger className="bg-background">
-										<SelectValue placeholder="Select provider (e.g. openrouter)" />
-									</SelectTrigger>
-									<SelectContent>
-										{providerOptions.map((name) => (
-											<SelectItem key={name} value={name}>
-												{name}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-							<div className="space-y-2">
-								<Label>Model</Label>
-								<Select
-									value={replyBotModel || undefined}
-									onValueChange={setReplyBotModel}
-									disabled={!replyBotEnabled || !replyBotProvider}
-								>
-									<SelectTrigger className="bg-background">
-										<SelectValue
-											placeholder={
-												replyModelsLoading
-													? "Loading models…"
-													: replyBotProvider
-														? "Select model"
-														: "Pick a provider first"
-											}
-										/>
-									</SelectTrigger>
-									<SelectContent>
-										{modelOptions.map((name) => (
-											<SelectItem key={name} value={name}>
-												{name}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-						</div>
-						<DialogFooter>
-							<Button variant="outline" onClick={() => setReplyBotDialogOpen(false)}>
-								Cancel
-							</Button>
-							<Button
-								onClick={saveTargetReplyBot}
-								disabled={replyBotSaving || (replyBotEnabled && (!replyBotProvider || !replyBotModel))}
-								className="gap-2"
-							>
-								<Save className="h-4 w-4" />
-								{replyBotSaving ? "Saving…" : "Save Reply Bot"}
-							</Button>
 						</DialogFooter>
 					</DialogContent>
 				</Dialog>
@@ -2097,41 +1810,35 @@ export default function BrowserAiPage() {
 
 				{/* TAB 5: GUARD AGENTS */}
 				<TabsContent value="agents" className="space-y-6">
-					<div className="flex flex-col sm:flex-row gap-3 justify-between">
-						<div className="flex flex-1 gap-2">
-							<div className="relative flex-1 max-w-md">
-								<Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-								<Input
-									placeholder="Search hostname, user, IP, MAC, agent id..."
-									className="pl-9"
-									value={agentSearch}
-									onChange={(e) => {
-										setAgentSearch(e.target.value);
-										setAgentPageOffset(0);
-									}}
-								/>
-							</div>
-							<Select
-								value={agentStatusFilter}
-								onValueChange={(v) => {
-									setAgentStatusFilter(v);
+					<div className="flex flex-col sm:flex-row gap-3">
+						<div className="relative flex-1 max-w-md">
+							<Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+							<Input
+								placeholder="Search hostname, user, IP, MAC, agent id..."
+								className="pl-9"
+								value={agentSearch}
+								onChange={(e) => {
+									setAgentSearch(e.target.value);
 									setAgentPageOffset(0);
 								}}
-							>
-								<SelectTrigger className="w-[160px]">
-									<SelectValue placeholder="Status" />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="all">All statuses</SelectItem>
-									<SelectItem value="active">Active</SelectItem>
-									<SelectItem value="uninstalled">Uninstalled</SelectItem>
-								</SelectContent>
-							</Select>
+							/>
 						</div>
-						<Button variant="outline" size="sm" className="gap-1.5" onClick={() => refetchAgents()}>
-							<RefreshCw className={`h-3.5 w-3.5 ${agentsLoading ? "animate-spin" : ""}`} />
-							Refresh
-						</Button>
+						<Select
+							value={agentStatusFilter}
+							onValueChange={(v) => {
+								setAgentStatusFilter(v);
+								setAgentPageOffset(0);
+							}}
+						>
+							<SelectTrigger className="w-[160px]">
+								<SelectValue placeholder="Status" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All statuses</SelectItem>
+								<SelectItem value="active">Active</SelectItem>
+								<SelectItem value="uninstalled">Uninstalled</SelectItem>
+							</SelectContent>
+						</Select>
 					</div>
 
 					<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -2164,43 +1871,45 @@ export default function BrowserAiPage() {
 							<CardDescription>Installed Guard stays Active and keeps intercepting until uninstall. Sleep and shutdown do not stop Guard.</CardDescription>
 						</CardHeader>
 						<CardContent className="p-0">
-							<Table>
+							<Table className="table-fixed min-w-[1080px]">
 								<TableHeader>
 									<TableRow className="hover:bg-transparent border-border">
-										<TableHead>Laptop</TableHead>
-										<TableHead>User</TableHead>
-										<TableHead>IP</TableHead>
-										<TableHead>Physical address (MAC)</TableHead>
-										<TableHead>Transport name</TableHead>
-										<TableHead>Version</TableHead>
-										<TableHead>Status</TableHead>
-										<TableHead>Last seen</TableHead>
-										<TableHead>Installed</TableHead>
+										<TableHead className="w-[160px]">Laptop</TableHead>
+										<TableHead className="w-[100px]">User</TableHead>
+										<TableHead className="w-[130px]">IP</TableHead>
+										<TableHead className="w-[160px]">Physical address (MAC)</TableHead>
+										<TableHead className="w-[180px]">Transport name</TableHead>
+										<TableHead className="w-[80px]">Version</TableHead>
+										<TableHead className="w-[110px]">Status</TableHead>
+										<TableHead className="w-[160px]">Last seen</TableHead>
+										<TableHead className="w-[160px]">Installed</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{agents.map((agent) => (
 										<TableRow key={agent.id} className="border-border">
-											<TableCell>
-												<div className="font-medium text-sm">{agent.hostname || "—"}</div>
-												<div className="text-[11px] text-muted-foreground font-mono truncate max-w-[180px]" title={agent.id}>
+											<TableCell className="align-top whitespace-normal">
+												<div className="font-medium text-sm truncate" title={agent.hostname || ""}>
+													{agent.hostname || "—"}
+												</div>
+												<div className="text-[11px] text-muted-foreground font-mono truncate" title={agent.id}>
 													{agent.id}
 												</div>
 											</TableCell>
-											<TableCell className="text-sm">{agent.username || "—"}</TableCell>
-											<TableCell className="text-xs font-mono">{agent.ip_address || "—"}</TableCell>
-											<TableCell className="text-xs font-mono" data-testid="guard-agent-mac-cell" title={agent.mac_address || ""}>
+											<TableCell className="text-sm truncate">{agent.username || "—"}</TableCell>
+											<TableCell className="text-xs font-mono truncate">{agent.ip_address || "—"}</TableCell>
+											<TableCell className="text-xs font-mono truncate" data-testid="guard-agent-mac-cell" title={agent.mac_address || ""}>
 												{agent.mac_address || "—"}
 											</TableCell>
-											<TableCell className="text-[11px] font-mono text-muted-foreground max-w-[220px] truncate" data-testid="guard-agent-transport-cell" title={nicGuidOnly(agent.transport_name) || ""}>
+											<TableCell className="text-[11px] font-mono text-muted-foreground truncate" data-testid="guard-agent-transport-cell" title={nicGuidOnly(agent.transport_name) || ""}>
 												{nicGuidOnly(agent.transport_name) || "—"}
 											</TableCell>
-											<TableCell className="text-xs">{agent.agent_version || "—"}</TableCell>
+											<TableCell className="text-xs truncate">{agent.agent_version || "—"}</TableCell>
 											<TableCell>{getAgentStatusBadge(agent.status)}</TableCell>
-											<TableCell className="text-xs text-muted-foreground">
+											<TableCell className="text-xs text-muted-foreground truncate">
 												{agent.last_seen_at ? new Date(agent.last_seen_at).toLocaleString() : "—"}
 											</TableCell>
-											<TableCell className="text-xs text-muted-foreground">
+											<TableCell className="text-xs text-muted-foreground truncate">
 												{agent.installed_at ? new Date(agent.installed_at).toLocaleString() : "—"}
 											</TableCell>
 										</TableRow>
@@ -2575,32 +2284,6 @@ export default function BrowserAiPage() {
 									</p>
 								</div>
 							</div>
-
-							{(selectedLog.reply_bot_text || selectedLog.reply_bot_provider || selectedLog.reply_bot_model) && (
-								<div className="space-y-2">
-									<Label className="text-xs text-muted-foreground flex items-center gap-1.5">
-										<Bot className="h-3.5 w-3.5 text-sky-400" />
-										Reply Bot Output
-									</Label>
-									<div className="flex flex-wrap gap-2">
-										{selectedLog.reply_bot_provider && (
-											<Badge variant="outline" className="font-mono text-[11px]">
-												{selectedLog.reply_bot_provider}
-											</Badge>
-										)}
-										{selectedLog.reply_bot_model && (
-											<Badge variant="outline" className="font-mono text-[11px]">
-												{selectedLog.reply_bot_model}
-											</Badge>
-										)}
-									</div>
-									{selectedLog.reply_bot_text && (
-										<div className="p-3 bg-sky-950/20 border border-sky-800/40 rounded-md text-xs whitespace-pre-wrap leading-relaxed">
-											{selectedLog.reply_bot_text}
-										</div>
-									)}
-								</div>
-							)}
 
 							{selectedLog.metadata && (
 								<div className="space-y-1">

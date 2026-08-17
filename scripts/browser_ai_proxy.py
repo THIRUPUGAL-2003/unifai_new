@@ -29,8 +29,8 @@ UNIFAI_BACKEND_URL = os.getenv("UNIFAI_BACKEND_URL", "https://unifai.dev-yp.com"
 UNIFAI_AGENT_ID = os.getenv("UNIFAI_AGENT_ID", "")
 UNIFAI_AGENT_HOSTNAME = os.getenv("UNIFAI_AGENT_HOSTNAME", "")
 
-# Cache refresh interval in seconds
-CACHE_TTL = 5
+# Cache refresh interval in seconds (targets / rules / controls)
+CACHE_TTL = 1
 
 # Default fallback domains if backend is temporarily unreachable
 # Default fallback is EMPTY — only admin-added Target Websites are monitored.
@@ -118,8 +118,10 @@ NOISE_EXTENSIONS = re.compile(
     re.IGNORECASE
 )
 
-# Deduplicate identical events per domain within this window (seconds)
-DEDUPE_TTL = 8
+# Deduplicate identical events per domain within this window (seconds).
+# Keep short so intentional same-text resends (~1s later) still predict;
+# only collapses near-simultaneous browser double-submits.
+DEDUPE_TTL = 0.5
 # Longer window for upload/download blocks (ChatGPT fires many file API calls)
 BLOCK_DEDUPE_TTL = 30
 
@@ -372,7 +374,7 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
     if t.startswith("{") or t.startswith("[") or t.startswith("gAAAA"):
         return False
-    if t.startswith("[FILE UPLOAD BLOCKED]") or t.startswith("[FILE DOWNLOAD BLOCKED]"):
+    if t.startswith("[FILE UPLOAD BLOCKED]") or t.startswith("[FILE DOWNLOAD BLOCKED]") or t.startswith("[FILE CONTENT BLOCKED]"):
         return True
     if re.match(r"^(sk-|sk-ant-|ghp_|gho_|AKIA|AIzaSy|pcsk_)", t, re.I):
         return True
@@ -1704,14 +1706,17 @@ class BrowserAIInterceptor:
         if block_all_uploads or block_for_rule:
             reason = upload_reason
             blocked_reason = "Block Upload"
-            prompt_log = f"[FILE UPLOAD BLOCKED] {upload_reason}"
+            upload_warn = (get_control_settings().get("upload_warning") or "").strip()
+            base_upload_msg = upload_warn or "Upload block"
+            # Prompt Logs: admin warning text; rule hits append " -- {policy name}"
+            prompt_log = base_upload_msg
             if block_for_rule:
                 reason = f"Guard Rule in file: {file_rule_name}"
                 blocked_reason = file_rule_name or "Guard Rule (file content)"
-                prompt_log = (
-                    f"[FILE CONTENT BLOCKED] Rule '{file_rule_name}' matched inside uploaded file "
-                    f"({upload_reason})"
-                )
+                rule_warn = _warning_for_rule_name(file_rule_name)
+                # Prefer rule's own warning as the left side when set; else upload policy warning
+                left = (rule_warn or base_upload_msg).strip() or "Upload block"
+                prompt_log = f"{left} -- {file_rule_name}" if file_rule_name else left
 
             should_log = not is_duplicate_event(
                 domain,
@@ -1748,11 +1753,8 @@ class BrowserAIInterceptor:
                 except Exception:
                     pass
 
-            msg = ""
-            if block_for_rule:
-                msg = _security_reply_text(file_rule_name, _warning_for_rule_name(file_rule_name))
-            elif block_all_uploads:
-                msg = (get_control_settings().get("upload_warning") or "").strip()
+            # Same text employees / chat replies see
+            msg = prompt_log if (block_for_rule or block_all_uploads) else ""
             if is_chat_path(path) and msg:
                 make_blocked_response(flow, blocked_reason, host, reply_text=msg)
                 return
