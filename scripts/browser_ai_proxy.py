@@ -882,12 +882,11 @@ def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
 
 def extract_gemini_prompt(content: str) -> str:
     """
-    Extract the user-typed prompt from Gemini/Bard f.req bodies.
+    Extract ONLY the user-typed prompt from Gemini/Bard requests.
 
-    Real chat submits go to BardFrontendService/StreamGenerate:
+    Real chat submits go to BardFrontendService/StreamGenerate or chat RPCs:
       f.req=[null,"[[\\"what is python\\\\n\\",0,null,...], ...]"]
-    batchexecute is mostly telemetry (L5adhe / ESY5D / generic) — return "" there
-    unless a real human string is nested inside a payload.
+    Background/telemetry batchexecute RPCs (otAQ7b, ESY5D, L5adhe, etc.) are ignored.
     """
     decoded = urllib.parse.unquote(content)
     req_str = decoded
@@ -906,7 +905,7 @@ def extract_gemini_prompt(content: str) -> str:
         return ""
 
     def _normalize_prompt(s: str) -> str:
-        """Collapse whitespace; only unescape when still JSON-escaped (regex path)."""
+        """Collapse whitespace and unescape JSON escapes."""
         if not s:
             return ""
         if "\\n" in s or "\\t" in s or '\\"' in s or "\\\\" in s:
@@ -925,69 +924,41 @@ def extract_gemini_prompt(content: str) -> str:
         s = _normalize_prompt(s)
         if not looks_like_user_prompt(s):
             return False
-        # Reject Gemini internal RPC ids (e.g. L5adhe, aPya6c)
-        if " " not in s and re.fullmatch(r"[A-Za-z][A-Za-z0-9]{3,10}", s):
+        # Reject Gemini internal RPC ids, conversation tokens, or system markers
+        if s.startswith(("c_", "r_", "v_", "rc_")):
+            return False
+        if " " not in s and re.fullmatch(r"[A-Za-z][A-Za-z0-9_\-]{3,20}", s):
             has_mixed = any(ch.isupper() for ch in s[1:]) and any(ch.islower() for ch in s)
             if has_mixed:
                 return False
+        low = s.lower()
+        if any(bad in low for bad in (
+            "bard activity", "generic", "batchexecute", "wrb.fr",
+            "assistant.lamda", "bardfrontendservice", "google account",
+            "model_metadata", "conversation_turn", "workspace_id"
+        )):
+            return False
         return len(s) >= 1
-
-    def _score(s: str) -> int:
-        return s.count(" ") * 100 + len(s)
 
     def _from_stream_inner(inner) -> str:
         """StreamGenerate payload: [[prompt, 0, null, ...], [locale], ...]"""
         if not isinstance(inner, list) or not inner:
             return ""
-        first = inner[0]
-        if isinstance(first, list) and first and isinstance(first[0], str):
-            cand = _normalize_prompt(first[0])
-            # Trust StreamGenerate slot 0 — only drop clear non-prompts
-            if cand and looks_like_user_prompt(cand):
+        # Primary Gemini chat structure: inner[0] is [prompt, 0, ...]
+        if len(inner) > 0 and isinstance(inner[0], list) and len(inner[0]) > 0 and isinstance(inner[0][0], str):
+            cand = _normalize_prompt(inner[0][0])
+            if _is_candidate(cand):
                 return cand
+        # Secondary Gemini chat structure: search inner lists with message slot
+        for item in inner:
+            if isinstance(item, list) and len(item) > 0 and isinstance(item[0], str):
+                if len(item) > 1 and (item[1] == 0 or item[1] is None or isinstance(item[1], int)):
+                    cand = _normalize_prompt(item[0])
+                    if _is_candidate(cand):
+                        return cand
         return ""
 
-    def _best_human_string(node, depth=0) -> str:
-        if depth > 14:
-            return ""
-        if isinstance(node, str):
-            s = node.strip()
-            # Nested JSON string (common in Gemini envelopes)
-            if len(s) >= 4 and s[0] in "[{" :
-                try:
-                    nested = json.loads(s)
-                    got = _from_stream_inner(nested)
-                    if got:
-                        return got
-                    return _best_human_string(nested, depth + 1)
-                except Exception:
-                    pass
-            return s if _is_candidate(s) else ""
-        if isinstance(node, list):
-            # Prefer StreamGenerate layout when present
-            got = _from_stream_inner(node)
-            if got:
-                return got
-            best, best_sc = "", -1
-            for item in node:
-                cand = _best_human_string(item, depth + 1)
-                if cand:
-                    sc = _score(cand)
-                    if sc > best_sc:
-                        best, best_sc = cand, sc
-            return best
-        if isinstance(node, dict):
-            best, best_sc = "", -1
-            for v in node.values():
-                cand = _best_human_string(v, depth + 1)
-                if cand:
-                    sc = _score(cand)
-                    if sc > best_sc:
-                        best, best_sc = cand, sc
-            return best
-        return ""
-
-    # Fast path: StreamGenerate outer shape [null, "<inner json>", ...]
+    # 1. Parse outer JSON structure [null, "<inner json string>", ...]
     try:
         data = json.loads(req_str)
         if isinstance(data, list) and len(data) >= 2 and isinstance(data[1], str):
@@ -996,15 +967,11 @@ def extract_gemini_prompt(content: str) -> str:
                 got = _from_stream_inner(inner)
                 if got:
                     return got
-                got = _best_human_string(inner)
-                if got:
-                    return got
             except Exception:
                 pass
 
-        # batchexecute: [[["RpcId", "<payload json>", null, "generic"]], ...]
+        # 2. batchexecute chat RPCs: [[["RpcId", "<payload json>", null, "generic"]], ...]
         if isinstance(data, list):
-            best, best_sc = "", -1
             for rpc in data:
                 item = None
                 if isinstance(rpc, list) and rpc and isinstance(rpc[0], list):
@@ -1018,34 +985,34 @@ def extract_gemini_prompt(content: str) -> str:
                     continue
                 try:
                     payload = json.loads(payload_str)
+                    if isinstance(payload, list):
+                        got = _from_stream_inner(payload)
+                        if got:
+                            return got
+                        if len(payload) >= 2 and isinstance(payload[1], str):
+                            try:
+                                sub = json.loads(payload[1])
+                                got = _from_stream_inner(sub)
+                                if got:
+                                    return got
+                            except Exception:
+                                pass
                 except Exception:
                     continue
-                got = _best_human_string(payload)
-                if got:
-                    sc = _score(got)
-                    if sc > best_sc:
-                        best, best_sc = got, sc
-            if best:
-                return best
-
-        got = _best_human_string(data)
-        if got:
-            return got
     except Exception:
         pass
 
-    # Truncated / partially URL-decoded bodies: pull first [[ "prompt" …
+    # 3. Targeted Regex extraction for the exact Gemini user-message slot [[ "prompt", 0
     for pat in (
-        r'\[\s*\[\s*"((?:[^"\\]|\\.)+)"\s*,',
+        r'\[\s*\[\s*"((?:[^"\\]|\\.)+?)"\s*,\s*(?:0|null)',
+        r'\\"((?:[^"\\]|\\.)+?)\\"\s*,\s*0\s*,',
         r'\[\["((?:[^"\\]|\\.)+?)"\s*,',
-        r'\\"((?:[^"\\]|\\.)+?)\\n\\"',
     ):
         m = re.search(pat, req_str)
-        if not m:
-            continue
-        cand = _normalize_prompt(m.group(1))
-        if _is_candidate(cand):
-            return cand
+        if m:
+            cand = _normalize_prompt(m.group(1))
+            if _is_candidate(cand):
+                return cand
 
     return ""
 

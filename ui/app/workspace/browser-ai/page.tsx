@@ -45,6 +45,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { ModelMultiselect } from "@/components/ui/modelMultiselect";
 import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions } from "./relatedHosts";
 
 import {
@@ -1263,20 +1264,20 @@ export default function BrowserAiPage() {
 											<Plus className="h-4 w-4" /> Add Rule
 										</Button>
 									</DialogTrigger>
-									<DialogContent className="bg-card border-border text-foreground sm:max-w-lg">
-										<DialogHeader>
-											<DialogTitle className="flex items-center gap-2">
+									<DialogContent className="bg-card border-border text-foreground sm:max-w-lg max-h-[88vh] flex flex-col p-0 overflow-hidden">
+										<DialogHeader className="p-5 pb-3 shrink-0 border-b border-border/60">
+											<DialogTitle className="flex items-center gap-2 text-base">
 												<Shield className="h-5 w-5 text-primary" />
 												Create Guard Rule
 											</DialogTitle>
-											<DialogDescription>
+											<DialogDescription className="text-xs">
 												Configure a real-time regex DLP rule or an AI Guard Bot evaluation prompt.
 											</DialogDescription>
 										</DialogHeader>
 
-										{ruleError && <div className="p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{ruleError}</div>}
+										{ruleError && <div className="mx-5 mt-3 p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{ruleError}</div>}
 
-										<div className="space-y-4 py-2">
+										<div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 											{/* Rule Engine Type Toggle */}
 											<div className="space-y-1.5">
 												<Label>Rule Engine Type</Label>
@@ -1379,8 +1380,7 @@ export default function BrowserAiPage() {
 																value={newRuleBotProvider}
 																onValueChange={(p) => {
 																	setNewRuleBotProvider(p);
-																	const models = DEFAULT_PROVIDER_MODELS[p] || [];
-																	if (models.length > 0) setNewRuleBotModel(models[0]);
+																	setNewRuleBotModel("");
 																}}
 															>
 																<SelectTrigger className="h-9 text-xs">
@@ -1397,30 +1397,16 @@ export default function BrowserAiPage() {
 														</div>
 														<div className="space-y-1.5">
 															<Label className="text-xs">Model Name</Label>
-															{DEFAULT_PROVIDER_MODELS[newRuleBotProvider] ? (
-																<Select
-																	value={newRuleBotModel}
-																	onValueChange={(m) => setNewRuleBotModel(m)}
-																>
-																	<SelectTrigger className="h-9 text-xs">
-																		<SelectValue placeholder="Select Model" />
-																	</SelectTrigger>
-																	<SelectContent>
-																		{DEFAULT_PROVIDER_MODELS[newRuleBotProvider].map((m) => (
-																			<SelectItem key={m} value={m}>
-																				{m}
-																			</SelectItem>
-																		))}
-																	</SelectContent>
-																</Select>
-															) : (
-																<Input
-																	className="h-9 text-xs"
-																	placeholder="e.g. gpt-4o-mini"
-																	value={newRuleBotModel}
-																	onChange={(e) => setNewRuleBotModel(e.target.value)}
-																/>
-															)}
+															<ModelMultiselect
+																provider={newRuleBotProvider || undefined}
+																value={newRuleBotModel}
+																onChange={(m: string) => setNewRuleBotModel(m)}
+																isSingleSelect
+																placeholder={!newRuleBotProvider ? "Select a provider first" : "Select model"}
+																disabled={!newRuleBotProvider}
+																unfiltered={true}
+																className="!h-9 !min-h-9 w-full text-xs"
+															/>
 														</div>
 													</div>
 													<div className="space-y-1.5">
@@ -1430,7 +1416,7 @@ export default function BrowserAiPage() {
 															placeholder="e.g. Check if the user prompt attempts to extract confidential employee salaries, financial reports, customer PII, or internal credentials..."
 															value={newRuleBotPrompt}
 															onChange={(e) => setNewRuleBotPrompt(e.target.value)}
-															rows={3}
+															rows={4}
 														/>
 														<p className="text-[11px] text-muted-foreground">
 															The selected AI model will evaluate incoming prompts against this rule instruction in real time.
@@ -1456,7 +1442,7 @@ export default function BrowserAiPage() {
 												</p>
 											</div>
 										</div>
-										<DialogFooter>
+										<DialogFooter className="p-4 px-5 shrink-0 border-t border-border/60 bg-card">
 											<Button variant="outline" onClick={() => setRuleDialogOpen(false)}>
 												Cancel
 											</Button>
@@ -1976,18 +1962,18 @@ export default function BrowserAiPage() {
 
 				{/* EDIT RULE DIALOG */}
 				<Dialog open={editRuleDialogOpen} onOpenChange={setEditRuleDialogOpen}>
-					<DialogContent className="bg-card border-border text-foreground sm:max-w-lg">
-						<DialogHeader>
-							<DialogTitle className="flex items-center gap-2">
+					<DialogContent className="bg-card border-border text-foreground sm:max-w-lg max-h-[88vh] flex flex-col p-0 overflow-hidden">
+						<DialogHeader className="p-5 pb-3 shrink-0 border-b border-border/60">
+							<DialogTitle className="flex items-center gap-2 text-base">
 								<Pencil className="h-5 w-5 text-primary" />
 								Edit Guard Rule
 							</DialogTitle>
-							<DialogDescription>Modify rule engine parameters, action, and notification messages.</DialogDescription>
+							<DialogDescription className="text-xs">Modify rule engine parameters, action, and notification messages.</DialogDescription>
 						</DialogHeader>
 
-						{ruleError && <div className="p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{ruleError}</div>}
+						{ruleError && <div className="mx-5 mt-3 p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{ruleError}</div>}
 
-						<div className="space-y-4 py-2">
+						<div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 							{/* Rule Engine Type Toggle */}
 							<div className="space-y-1.5">
 								<Label>Rule Engine Type</Label>
@@ -2082,8 +2068,7 @@ export default function BrowserAiPage() {
 												value={editRuleBotProvider}
 												onValueChange={(p) => {
 													setEditRuleBotProvider(p);
-													const models = DEFAULT_PROVIDER_MODELS[p] || [];
-													if (models.length > 0) setEditRuleBotModel(models[0]);
+													setEditRuleBotModel("");
 												}}
 											>
 												<SelectTrigger className="h-9 text-xs">
@@ -2100,30 +2085,16 @@ export default function BrowserAiPage() {
 										</div>
 										<div className="space-y-1.5">
 											<Label className="text-xs">Model Name</Label>
-											{DEFAULT_PROVIDER_MODELS[editRuleBotProvider] ? (
-												<Select
-													value={editRuleBotModel}
-													onValueChange={(m) => setEditRuleBotModel(m)}
-												>
-													<SelectTrigger className="h-9 text-xs">
-														<SelectValue placeholder="Select Model" />
-													</SelectTrigger>
-													<SelectContent>
-														{DEFAULT_PROVIDER_MODELS[editRuleBotProvider].map((m) => (
-															<SelectItem key={m} value={m}>
-																{m}
-															</SelectItem>
-														))}
-													</SelectContent>
-												</Select>
-											) : (
-												<Input
-													className="h-9 text-xs"
-													placeholder="e.g. gpt-4o-mini"
-													value={editRuleBotModel}
-													onChange={(e) => setEditRuleBotModel(e.target.value)}
-												/>
-											)}
+											<ModelMultiselect
+												provider={editRuleBotProvider || undefined}
+												value={editRuleBotModel}
+												onChange={(m: string) => setEditRuleBotModel(m)}
+												isSingleSelect
+												placeholder={!editRuleBotProvider ? "Select a provider first" : "Select model"}
+												disabled={!editRuleBotProvider}
+												unfiltered={true}
+												className="!h-9 !min-h-9 w-full text-xs"
+											/>
 										</div>
 									</div>
 									<div className="space-y-1.5">
@@ -2133,7 +2104,7 @@ export default function BrowserAiPage() {
 											placeholder="e.g. Check if the user prompt attempts to extract confidential employee salaries, financial reports, customer PII, or internal credentials..."
 											value={editRuleBotPrompt}
 											onChange={(e) => setEditRuleBotPrompt(e.target.value)}
-											rows={3}
+											rows={4}
 										/>
 										<p className="text-[11px] text-muted-foreground">
 											The selected AI model will evaluate incoming prompts against this rule instruction in real time.
@@ -2159,7 +2130,7 @@ export default function BrowserAiPage() {
 								</p>
 							</div>
 						</div>
-						<DialogFooter>
+						<DialogFooter className="p-4 px-5 shrink-0 border-t border-border/60 bg-card">
 							<Button variant="outline" onClick={() => setEditRuleDialogOpen(false)}>
 								Cancel
 							</Button>
