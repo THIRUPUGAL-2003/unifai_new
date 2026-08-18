@@ -81,8 +81,12 @@ const AgentStatusUninstalled = "uninstalled"
 type BrowserGuardRule struct {
 	ID             string    `gorm:"primaryKey" json:"id"`
 	Name           string    `json:"name"`
-	Severity       string    `json:"severity"` // "CRITICAL", "HIGH", "MEDIUM"
-	Action         string    `json:"action"`   // "BLOCK", "WARN", "REDACT"
+	RuleType       string    `json:"rule_type"`                   // "regex" (default) or "ai_bot"
+	BotProvider    string    `json:"bot_provider"`                // e.g. "openai", "anthropic", "gemini"
+	BotModel       string    `json:"bot_model"`                   // e.g. "gpt-4o-mini", "claude-3-5-haiku"
+	BotPrompt      string    `gorm:"type:text" json:"bot_prompt"` // Custom evaluation instruction for the LLM
+	Severity       string    `json:"severity"`                    // "CRITICAL", "HIGH", "MEDIUM"
+	Action         string    `json:"action"`                      // "BLOCK", "WARN", "REDACT"
 	Pattern        string    `json:"pattern"`
 	Active         bool      `json:"active"`
 	Description    string    `json:"description"`
@@ -327,6 +331,13 @@ func (m *BrowserAIManager) CreateRule(ctx context.Context, rule *BrowserGuardRul
 		rule.ID = "rule-" + uuid.New().String()[:8]
 	}
 	rule.Name = strings.TrimSpace(rule.Name)
+	if rule.RuleType == "" {
+		rule.RuleType = "regex"
+	}
+	rule.RuleType = strings.TrimSpace(rule.RuleType)
+	rule.BotProvider = strings.TrimSpace(rule.BotProvider)
+	rule.BotModel = strings.TrimSpace(rule.BotModel)
+	rule.BotPrompt = strings.TrimSpace(rule.BotPrompt)
 	rule.Pattern = strings.TrimSpace(rule.Pattern)
 	rule.Description = strings.TrimSpace(rule.Description)
 	rule.WarningMessage = strings.TrimSpace(rule.WarningMessage)
@@ -343,13 +354,14 @@ func (m *BrowserAIManager) UpdateRule(ctx context.Context, id string, updates ma
 	allowed := map[string]bool{
 		"name": true, "severity": true, "action": true, "pattern": true,
 		"active": true, "description": true, "warning_message": true,
+		"rule_type": true, "bot_provider": true, "bot_model": true, "bot_prompt": true,
 	}
 	filtered := make(map[string]any, len(updates))
 	for k, v := range updates {
 		if !allowed[k] {
 			continue
 		}
-		if s, ok := v.(string); ok && (k == "name" || k == "pattern" || k == "description" || k == "warning_message" || k == "severity" || k == "action") {
+		if s, ok := v.(string); ok && (k == "name" || k == "pattern" || k == "description" || k == "warning_message" || k == "severity" || k == "action" || k == "rule_type" || k == "bot_provider" || k == "bot_model" || k == "bot_prompt") {
 			filtered[k] = strings.TrimSpace(s)
 			continue
 		}
@@ -359,6 +371,22 @@ func (m *BrowserAIManager) UpdateRule(ctx context.Context, id string, updates ma
 		return nil
 	}
 	return m.db.WithContext(ctx).Model(&BrowserGuardRule{}).Where("id = ?", id).Updates(filtered).Error
+}
+
+func (m *BrowserAIManager) UpdateLogRuleViolation(ctx context.Context, id, action, status, ruleTriggered string, riskScore int, predictiveRisk, predictedCategory string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return nil
+	}
+	return m.db.WithContext(ctx).Model(&BrowserAILog{}).Where("id = ?", id).Updates(map[string]any{
+		"action":             action,
+		"status":             status,
+		"rule_triggered":     ruleTriggered,
+		"risk_score":         riskScore,
+		"predictive_risk":    predictiveRisk,
+		"predicted_category": predictedCategory,
+	}).Error
 }
 
 func (m *BrowserAIManager) DeleteRule(ctx context.Context, id string) error {
@@ -730,7 +758,7 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 	}
 
 	for _, rule := range rules {
-		if rule.Pattern == "" {
+		if strings.ToLower(rule.RuleType) == "ai_bot" || rule.Pattern == "" {
 			continue
 		}
 		re, err := regexp.Compile(rule.Pattern)
@@ -769,12 +797,7 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 	}
 
 	if ruleTriggered == "" {
-		lower := strings.ToLower(promptFull)
-		if strings.Contains(lower, "sk-") || strings.Contains(lower, "ghp_") || strings.Contains(lower, "bearer ") || strings.Contains(lower, "private_key") {
-			riskScore = 75
-			predictiveRisk = "HIGH"
-			predictedCategory = "PREDICTED_SECRET_EXPOSURE"
-		} else if riskScore > 20 {
+		if riskScore > 20 {
 			predictiveRisk = "MEDIUM"
 		}
 	}

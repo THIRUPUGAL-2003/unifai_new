@@ -68,7 +68,20 @@ import {
 	BrowserControlSettings,
 	BrowserTargetWebsite,
 } from "@/lib/store/apis/browserAiApi";
+import { useGetProvidersQuery } from "@/lib/store/apis/providersApi";
 import { getApiBaseUrl } from "@/lib/utils/port";
+
+const DEFAULT_PROVIDER_MODELS: Record<string, string[]> = {
+	openai: ["gpt-4o-mini", "gpt-4o", "o3-mini", "gpt-4-turbo"],
+	anthropic: ["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
+	gemini: ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"],
+	groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
+	bedrock: ["anthropic.claude-3-haiku-20240307-v1:0", "anthropic.claude-3-5-sonnet-20240620-v1:0"],
+	deepseek: ["deepseek-chat", "deepseek-reasoner"],
+	cohere: ["command-r", "command-r-plus"],
+	mistral: ["mistral-small-latest", "mistral-large-latest", "codestral-latest"],
+	ollama: ["llama3.2", "qwen2.5", "mistral"],
+};
 
 export default function BrowserAiPage() {
 	const [activeTab, setActiveTab] = useState("overview");
@@ -109,8 +122,12 @@ export default function BrowserAiPage() {
 
 	// New Rule Form
 	const [newRuleName, setNewRuleName] = useState("");
+	const [newRuleType, setNewRuleType] = useState<"regex" | "ai_bot">("regex");
+	const [newRuleBotProvider, setNewRuleBotProvider] = useState("openai");
+	const [newRuleBotModel, setNewRuleBotModel] = useState("gpt-4o-mini");
+	const [newRuleBotPrompt, setNewRuleBotPrompt] = useState("");
 	const [newRuleSeverity, setNewRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
-	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("REDACT");
+	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("BLOCK");
 	const [newRulePattern, setNewRulePattern] = useState("");
 	const [newRuleDescription, setNewRuleDescription] = useState("");
 	const [newRuleWarningMessage, setNewRuleWarningMessage] = useState("");
@@ -132,8 +149,12 @@ export default function BrowserAiPage() {
 	// Edit Rule Form
 	const [editRule, setEditRule] = useState<BrowserGuardRule | null>(null);
 	const [editRuleName, setEditRuleName] = useState("");
+	const [editRuleType, setEditRuleType] = useState<"regex" | "ai_bot">("regex");
+	const [editRuleBotProvider, setEditRuleBotProvider] = useState("openai");
+	const [editRuleBotModel, setEditRuleBotModel] = useState("gpt-4o-mini");
+	const [editRuleBotPrompt, setEditRuleBotPrompt] = useState("");
 	const [editRuleSeverity, setEditRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
-	const [editRuleAction, setEditRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("REDACT");
+	const [editRuleAction, setEditRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("BLOCK");
 	const [editRulePattern, setEditRulePattern] = useState("");
 	const [editRuleDescription, setEditRuleDescription] = useState("");
 	const [editRuleWarningMessage, setEditRuleWarningMessage] = useState("");
@@ -176,6 +197,14 @@ export default function BrowserAiPage() {
 	const { data: rulesData, refetch: refetchRules } = useGetBrowserAiRulesQuery(undefined, { pollingInterval: activePolling });
 	const { data: targetsData, refetch: refetchTargets } = useGetBrowserAiTargetsQuery(undefined, { pollingInterval: activePolling });
 	const { data: controlsData } = useGetBrowserAiControlsQuery(undefined, { pollingInterval: activePolling });
+	const { data: savedProviders = [] } = useGetProvidersQuery();
+	const availableProviderKeys = Object.keys(DEFAULT_PROVIDER_MODELS);
+	const allProviderNames = Array.from(
+		new Set([
+			...(Array.isArray(savedProviders) ? savedProviders.map((p: any) => p?.name || p) : []),
+			...availableProviderKeys,
+		])
+	).filter(Boolean);
 	const {
 		data: agentsData,
 		refetch: refetchAgents,
@@ -301,24 +330,99 @@ export default function BrowserAiPage() {
 		}
 	};
 
-	const handleEditRuleSubmit = async () => {
-		if (!editRule || !editRuleName.trim() || !editRulePattern.trim()) return;
+	const handleCreateRule = async () => {
+		setRuleError("");
+		if (!newRuleName.trim()) {
+			setRuleError("Rule name is required.");
+			return;
+		}
+		if (newRuleType === "ai_bot") {
+			if (!newRuleBotPrompt.trim()) {
+				setRuleError("Evaluation instruction/prompt is required for AI Guard Bot.");
+				return;
+			}
+			if (!newRuleBotProvider.trim() || !newRuleBotModel.trim()) {
+				setRuleError("Provider and Model are required for AI Guard Bot.");
+				return;
+			}
+		} else {
+			if (!newRulePattern.trim()) {
+				setRuleError("Regex pattern is required for Regex rule.");
+				return;
+			}
+		}
 		try {
+			await createRule({
+				name: newRuleName.trim(),
+				rule_type: newRuleType,
+				pattern: newRuleType === "regex" ? newRulePattern.trim() : "",
+				bot_provider: newRuleType === "ai_bot" ? newRuleBotProvider.trim() : "",
+				bot_model: newRuleType === "ai_bot" ? newRuleBotModel.trim() : "",
+				bot_prompt: newRuleType === "ai_bot" ? newRuleBotPrompt.trim() : "",
+				severity: newRuleSeverity,
+				action: newRuleAction,
+				description: newRuleDescription.trim(),
+				warning_message: newRuleWarningMessage.trim(),
+				active: true,
+			}).unwrap();
+			setRuleDialogOpen(false);
+			setNewRuleName("");
+			setNewRulePattern("");
+			setNewRuleBotPrompt("");
+			setNewRuleDescription("");
+			setNewRuleWarningMessage("");
+			setNewRuleType("regex");
+		} catch (e: any) {
+			setRuleError(e?.data?.message || "Failed to create rule");
+		}
+	};
+
+	const handleEditRuleSubmit = async () => {
+		if (!editRule || !editRuleName.trim()) return;
+		setRuleError("");
+		if (editRuleType === "ai_bot") {
+			if (!editRuleBotPrompt.trim()) {
+				setRuleError("Evaluation instruction/prompt is required for AI Guard Bot.");
+				return;
+			}
+			if (!editRuleBotProvider.trim() || !editRuleBotModel.trim()) {
+				setRuleError("Provider and Model are required for AI Guard Bot.");
+				return;
+			}
+		} else {
+			if (!editRulePattern.trim()) {
+				setRuleError("Regex pattern is required for Regex rule.");
+				return;
+			}
+		}
+		try {
+			const updates: Record<string, any> = {
+				name: editRuleName.trim(),
+				rule_type: editRuleType,
+				severity: editRuleSeverity,
+				action: editRuleAction,
+				description: editRuleDescription.trim(),
+				warning_message: editRuleWarningMessage.trim(),
+			};
+			if (editRuleType === "ai_bot") {
+				updates.bot_provider = editRuleBotProvider.trim();
+				updates.bot_model = editRuleBotModel.trim();
+				updates.bot_prompt = editRuleBotPrompt.trim();
+				updates.pattern = "";
+			} else {
+				updates.pattern = editRulePattern.trim();
+				updates.bot_provider = "";
+				updates.bot_model = "";
+				updates.bot_prompt = "";
+			}
 			await updateRule({
 				id: editRule.id,
-				updates: {
-					name: editRuleName.trim(),
-					severity: editRuleSeverity,
-					action: editRuleAction,
-					pattern: editRulePattern.trim(),
-					description: editRuleDescription.trim(),
-					warning_message: editRuleWarningMessage.trim(),
-				},
+				updates,
 			}).unwrap();
 			setEditRuleDialogOpen(false);
 			setEditRule(null);
-		} catch (e) {
-			// error
+		} catch (e: any) {
+			setRuleError(e?.data?.message || "Failed to update rule");
 		}
 	};
 
@@ -406,36 +510,6 @@ export default function BrowserAiPage() {
 			refetchAgentSettings();
 		} catch (error) {
 			setUninstallKeyError(error instanceof Error ? error.message : "Failed to update uninstall policy");
-		}
-	};
-
-	const handleCreateRule = async () => {
-		if (!newRuleName.trim()) {
-			setRuleError("Please enter a Rule Name.");
-			return;
-		}
-		if (!newRulePattern.trim()) {
-			setRuleError("Please enter a Regex Pattern (e.g. sk-[a-zA-Z0-9]{32}).");
-			return;
-		}
-		setRuleError("");
-		try {
-			await createRule({
-				name: newRuleName.trim(),
-				severity: newRuleSeverity,
-				action: newRuleAction,
-				pattern: newRulePattern.trim(),
-				description: newRuleDescription.trim(),
-				warning_message: newRuleWarningMessage.trim(),
-				active: true,
-			}).unwrap();
-			setNewRuleName("");
-			setNewRulePattern("");
-			setNewRuleDescription("");
-			setNewRuleWarningMessage("");
-			setRuleDialogOpen(false);
-		} catch (err: any) {
-			setRuleError(err?.data?.message || err?.message || "Failed to create rule");
 		}
 	};
 
@@ -556,7 +630,11 @@ export default function BrowserAiPage() {
 	};
 
 	const filteredRules = rules.filter(
-		(r) => r.name.toLowerCase().includes(ruleSearch.toLowerCase()) || r.pattern.toLowerCase().includes(ruleSearch.toLowerCase())
+		(r) =>
+			r.name.toLowerCase().includes(ruleSearch.toLowerCase()) ||
+			(r.pattern || "").toLowerCase().includes(ruleSearch.toLowerCase()) ||
+			(r.bot_prompt || "").toLowerCase().includes(ruleSearch.toLowerCase()) ||
+			(r.description || "").toLowerCase().includes(ruleSearch.toLowerCase())
 	);
 
 	const targetSearchLower = targetSearch.toLowerCase().trim();
@@ -1185,19 +1263,66 @@ export default function BrowserAiPage() {
 											<Plus className="h-4 w-4" /> Add Rule
 										</Button>
 									</DialogTrigger>
-									<DialogContent className="bg-card border-border text-foreground sm:max-w-md">
+									<DialogContent className="bg-card border-border text-foreground sm:max-w-lg">
 										<DialogHeader>
-											<DialogTitle>Create Guard Rule</DialogTitle>
-											<DialogDescription>Define a new DLP regex rule for real-time prompt inspection.</DialogDescription>
+											<DialogTitle className="flex items-center gap-2">
+												<Shield className="h-5 w-5 text-primary" />
+												Create Guard Rule
+											</DialogTitle>
+											<DialogDescription>
+												Configure a real-time regex DLP rule or an AI Guard Bot evaluation prompt.
+											</DialogDescription>
 										</DialogHeader>
 
 										{ruleError && <div className="p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{ruleError}</div>}
 
 										<div className="space-y-4 py-2">
+											{/* Rule Engine Type Toggle */}
+											<div className="space-y-1.5">
+												<Label>Rule Engine Type</Label>
+												<div className="grid grid-cols-2 gap-2 p-1 bg-muted/40 rounded-lg border border-border">
+													<button
+														type="button"
+														onClick={() => {
+															setNewRuleType("regex");
+															if (newRuleAction === "REDACT") setNewRuleAction("BLOCK");
+														}}
+														className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+															newRuleType === "regex"
+																? "bg-primary text-primary-foreground shadow-sm"
+																: "text-muted-foreground hover:text-foreground"
+														}`}
+													>
+														<Zap className="h-3.5 w-3.5" />
+														Regex Pattern Rule
+													</button>
+													<button
+														type="button"
+														onClick={() => {
+															setNewRuleType("ai_bot");
+															if (newRuleAction === "REDACT") setNewRuleAction("BLOCK");
+														}}
+														className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+															newRuleType === "ai_bot"
+																? "bg-purple-600 text-white shadow-sm"
+																: "text-muted-foreground hover:text-foreground"
+														}`}
+													>
+														<Bot className="h-3.5 w-3.5" />
+														AI Guard Bot (Prompt Rule)
+													</button>
+												</div>
+											</div>
+
 											<div className="space-y-1.5">
 												<Label>Rule Name</Label>
-												<Input placeholder="e.g. OpenAI API Key" value={newRuleName} onChange={(e) => setNewRuleName(e.target.value)} />
+												<Input
+													placeholder={newRuleType === "ai_bot" ? "e.g. Detect Salary & Financial Queries" : "e.g. OpenAI API Key"}
+													value={newRuleName}
+													onChange={(e) => setNewRuleName(e.target.value)}
+												/>
 											</div>
+
 											<div className="grid grid-cols-2 gap-3">
 												<div className="space-y-1.5">
 													<Label>Severity</Label>
@@ -1219,17 +1344,101 @@ export default function BrowserAiPage() {
 															<SelectValue />
 														</SelectTrigger>
 														<SelectContent>
-															<SelectItem value="REDACT">REDACT (In-Flight Auto Sanitize)</SelectItem>
 															<SelectItem value="BLOCK">BLOCK (Security Reject)</SelectItem>
+															{newRuleType === "regex" && (
+																<SelectItem value="REDACT">REDACT (In-Flight Auto Sanitize)</SelectItem>
+															)}
 															<SelectItem value="WARN">WARN (Log Alert Only)</SelectItem>
 														</SelectContent>
 													</Select>
 												</div>
 											</div>
-											<div className="space-y-1.5">
-												<Label>Regex Pattern</Label>
-												<Input placeholder="e.g. sk-[a-zA-Z0-9]{32}" value={newRulePattern} onChange={(e) => setNewRulePattern(e.target.value)} />
-											</div>
+
+											{newRuleType === "regex" ? (
+												<div className="space-y-1.5">
+													<Label>Regex Pattern</Label>
+													<Input
+														placeholder="e.g. sk-[a-zA-Z0-9]{32} or \b\d{10,12}\b"
+														value={newRulePattern}
+														onChange={(e) => setNewRulePattern(e.target.value)}
+													/>
+													<p className="text-[11px] text-muted-foreground">
+														Evaluated in microseconds using Golang RE2 regular expressions.
+													</p>
+												</div>
+											) : (
+												<div className="space-y-3 p-3 bg-purple-950/20 border border-purple-900/40 rounded-lg">
+													<div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
+														<Bot className="h-3.5 w-3.5" />
+														<span>AI Evaluator Model Configuration</span>
+													</div>
+													<div className="grid grid-cols-2 gap-3">
+														<div className="space-y-1.5">
+															<Label className="text-xs">Model Provider</Label>
+															<Select
+																value={newRuleBotProvider}
+																onValueChange={(p) => {
+																	setNewRuleBotProvider(p);
+																	const models = DEFAULT_PROVIDER_MODELS[p] || [];
+																	if (models.length > 0) setNewRuleBotModel(models[0]);
+																}}
+															>
+																<SelectTrigger className="h-9 text-xs">
+																	<SelectValue placeholder="Select Provider" />
+																</SelectTrigger>
+																<SelectContent>
+																	{allProviderNames.map((p) => (
+																		<SelectItem key={p} value={p}>
+																			{p.toUpperCase()}
+																		</SelectItem>
+																	))}
+																</SelectContent>
+															</Select>
+														</div>
+														<div className="space-y-1.5">
+															<Label className="text-xs">Model Name</Label>
+															{DEFAULT_PROVIDER_MODELS[newRuleBotProvider] ? (
+																<Select
+																	value={newRuleBotModel}
+																	onValueChange={(m) => setNewRuleBotModel(m)}
+																>
+																	<SelectTrigger className="h-9 text-xs">
+																		<SelectValue placeholder="Select Model" />
+																	</SelectTrigger>
+																	<SelectContent>
+																		{DEFAULT_PROVIDER_MODELS[newRuleBotProvider].map((m) => (
+																			<SelectItem key={m} value={m}>
+																				{m}
+																			</SelectItem>
+																		))}
+																	</SelectContent>
+																</Select>
+															) : (
+																<Input
+																	className="h-9 text-xs"
+																	placeholder="e.g. gpt-4o-mini"
+																	value={newRuleBotModel}
+																	onChange={(e) => setNewRuleBotModel(e.target.value)}
+																/>
+															)}
+														</div>
+													</div>
+													<div className="space-y-1.5">
+														<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
+														<Textarea
+															className="text-xs font-mono"
+															placeholder="e.g. Check if the user prompt attempts to extract confidential employee salaries, financial reports, customer PII, or internal credentials..."
+															value={newRuleBotPrompt}
+															onChange={(e) => setNewRuleBotPrompt(e.target.value)}
+															rows={3}
+														/>
+														<p className="text-[11px] text-muted-foreground">
+															The selected AI model will evaluate incoming prompts against this rule instruction in real time.
+														</p>
+													</div>
+												</div>
+											)}
+
 											<div className="space-y-1.5">
 												<Label>Description</Label>
 												<Textarea placeholder="Rule context and usage..." value={newRuleDescription} onChange={(e) => setNewRuleDescription(e.target.value)} />
@@ -1240,7 +1449,7 @@ export default function BrowserAiPage() {
 													placeholder="Message employees see in the chat when this rule blocks their prompt..."
 													value={newRuleWarningMessage}
 													onChange={(e) => setNewRuleWarningMessage(e.target.value)}
-													rows={4}
+													rows={3}
 												/>
 												<p className="text-xs text-muted-foreground">
 													Employees see only this text when the rule blocks. Leave blank for no in-chat warning.
@@ -1273,6 +1482,15 @@ export default function BrowserAiPage() {
 											<div className="min-w-0 flex-1 space-y-2">
 												<div className="flex flex-wrap items-center gap-2">
 													<h4 className="text-sm font-semibold text-foreground">{rule.name}</h4>
+													{rule.rule_type === "ai_bot" ? (
+														<Badge className="bg-purple-950/90 text-purple-300 border-purple-700 gap-1 text-[11px] font-semibold">
+															<Bot className="h-3 w-3 text-purple-400" /> AI GUARD BOT
+														</Badge>
+													) : (
+														<Badge className="bg-cyan-950/90 text-cyan-300 border-cyan-700 gap-1 text-[11px] font-semibold">
+															<Zap className="h-3 w-3 text-cyan-400" /> REGEX RULE
+														</Badge>
+													)}
 													<Badge
 														className={
 															rule.severity === "CRITICAL"
@@ -1310,12 +1528,26 @@ export default function BrowserAiPage() {
 													</div>
 												) : null}
 
-												<div className="rounded-md border border-border bg-muted/30 px-3 py-2">
-													<p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Regex Pattern</p>
-													<code className="block text-xs font-mono text-emerald-400 whitespace-pre-wrap break-all">
-														{rule.pattern}
-													</code>
-												</div>
+												{rule.rule_type === "ai_bot" ? (
+													<div className="rounded-md border border-purple-900/40 bg-purple-950/20 px-3 py-2 space-y-1">
+														<div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-purple-300/80">
+															<span>AI Security Policy (Prompt)</span>
+															<Badge variant="outline" className="text-[10px] py-0 px-1.5 text-purple-300 border-purple-800">
+																{rule.bot_provider} / {rule.bot_model}
+															</Badge>
+														</div>
+														<p className="text-xs text-purple-100/90 whitespace-pre-wrap break-words font-mono">
+															{rule.bot_prompt}
+														</p>
+													</div>
+												) : (
+													<div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+														<p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Regex Pattern</p>
+														<code className="block text-xs font-mono text-emerald-400 whitespace-pre-wrap break-all">
+															{rule.pattern}
+														</code>
+													</div>
+												)}
 											</div>
 
 											<div className="flex items-center justify-between gap-3 lg:flex-col lg:items-end lg:justify-start shrink-0 border-t border-border pt-3 lg:border-t-0 lg:pt-0 lg:pl-4">
@@ -1335,10 +1567,14 @@ export default function BrowserAiPage() {
 														onClick={() => {
 															setEditRule(rule);
 															setEditRuleName(rule.name);
+															setEditRuleType(rule.rule_type === "ai_bot" ? "ai_bot" : "regex");
+															setEditRuleBotProvider(rule.bot_provider || "openai");
+															setEditRuleBotModel(rule.bot_model || "gpt-4o-mini");
+															setEditRuleBotPrompt(rule.bot_prompt || "");
 															setEditRuleSeverity(rule.severity);
 															setEditRuleAction(rule.action);
-															setEditRulePattern(rule.pattern);
-															setEditRuleDescription(rule.description);
+															setEditRulePattern(rule.pattern || "");
+															setEditRuleDescription(rule.description || "");
 															setEditRuleWarningMessage(rule.warning_message || "");
 															setEditRuleDialogOpen(true);
 														}}
@@ -1740,16 +1976,60 @@ export default function BrowserAiPage() {
 
 				{/* EDIT RULE DIALOG */}
 				<Dialog open={editRuleDialogOpen} onOpenChange={setEditRuleDialogOpen}>
-					<DialogContent className="bg-card border-border text-foreground sm:max-w-md">
+					<DialogContent className="bg-card border-border text-foreground sm:max-w-lg">
 						<DialogHeader>
-							<DialogTitle>Edit Guard Rule</DialogTitle>
-							<DialogDescription>Modify rule regex pattern and action.</DialogDescription>
+							<DialogTitle className="flex items-center gap-2">
+								<Pencil className="h-5 w-5 text-primary" />
+								Edit Guard Rule
+							</DialogTitle>
+							<DialogDescription>Modify rule engine parameters, action, and notification messages.</DialogDescription>
 						</DialogHeader>
+
+						{ruleError && <div className="p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{ruleError}</div>}
+
 						<div className="space-y-4 py-2">
+							{/* Rule Engine Type Toggle */}
+							<div className="space-y-1.5">
+								<Label>Rule Engine Type</Label>
+								<div className="grid grid-cols-2 gap-2 p-1 bg-muted/40 rounded-lg border border-border">
+									<button
+										type="button"
+										onClick={() => {
+											setEditRuleType("regex");
+											if (editRuleAction === "REDACT") setEditRuleAction("BLOCK");
+										}}
+										className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+											editRuleType === "regex"
+												? "bg-primary text-primary-foreground shadow-sm"
+												: "text-muted-foreground hover:text-foreground"
+										}`}
+									>
+										<Zap className="h-3.5 w-3.5" />
+										Regex Pattern Rule
+									</button>
+									<button
+										type="button"
+										onClick={() => {
+											setEditRuleType("ai_bot");
+											if (editRuleAction === "REDACT") setEditRuleAction("BLOCK");
+										}}
+										className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
+											editRuleType === "ai_bot"
+												? "bg-purple-600 text-white shadow-sm"
+												: "text-muted-foreground hover:text-foreground"
+										}`}
+									>
+										<Bot className="h-3.5 w-3.5" />
+										AI Guard Bot (Prompt Rule)
+									</button>
+								</div>
+							</div>
+
 							<div className="space-y-1.5">
 								<Label>Rule Name</Label>
 								<Input value={editRuleName} onChange={(e) => setEditRuleName(e.target.value)} />
 							</div>
+
 							<div className="grid grid-cols-2 gap-3">
 								<div className="space-y-1.5">
 									<Label>Severity</Label>
@@ -1771,17 +2051,97 @@ export default function BrowserAiPage() {
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>
-											<SelectItem value="REDACT">REDACT</SelectItem>
-											<SelectItem value="BLOCK">BLOCK</SelectItem>
-											<SelectItem value="WARN">WARN</SelectItem>
+											<SelectItem value="BLOCK">BLOCK (Security Reject)</SelectItem>
+											{editRuleType === "regex" && (
+												<SelectItem value="REDACT">REDACT (In-Flight Auto Sanitize)</SelectItem>
+											)}
+											<SelectItem value="WARN">WARN (Log Alert Only)</SelectItem>
 										</SelectContent>
 									</Select>
 								</div>
 							</div>
-							<div className="space-y-1.5">
-								<Label>Regex Pattern</Label>
-								<Input value={editRulePattern} onChange={(e) => setEditRulePattern(e.target.value)} />
-							</div>
+
+							{editRuleType === "regex" ? (
+								<div className="space-y-1.5">
+									<Label>Regex Pattern</Label>
+									<Input value={editRulePattern} onChange={(e) => setEditRulePattern(e.target.value)} />
+									<p className="text-[11px] text-muted-foreground">
+										Evaluated in microseconds using Golang RE2 regular expressions.
+									</p>
+								</div>
+							) : (
+								<div className="space-y-3 p-3 bg-purple-950/20 border border-purple-900/40 rounded-lg">
+									<div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
+										<Bot className="h-3.5 w-3.5" />
+										<span>AI Evaluator Model Configuration</span>
+									</div>
+									<div className="grid grid-cols-2 gap-3">
+										<div className="space-y-1.5">
+											<Label className="text-xs">Model Provider</Label>
+											<Select
+												value={editRuleBotProvider}
+												onValueChange={(p) => {
+													setEditRuleBotProvider(p);
+													const models = DEFAULT_PROVIDER_MODELS[p] || [];
+													if (models.length > 0) setEditRuleBotModel(models[0]);
+												}}
+											>
+												<SelectTrigger className="h-9 text-xs">
+													<SelectValue placeholder="Select Provider" />
+												</SelectTrigger>
+												<SelectContent>
+													{allProviderNames.map((p) => (
+														<SelectItem key={p} value={p}>
+															{p.toUpperCase()}
+														</SelectItem>
+													))}
+												</SelectContent>
+											</Select>
+										</div>
+										<div className="space-y-1.5">
+											<Label className="text-xs">Model Name</Label>
+											{DEFAULT_PROVIDER_MODELS[editRuleBotProvider] ? (
+												<Select
+													value={editRuleBotModel}
+													onValueChange={(m) => setEditRuleBotModel(m)}
+												>
+													<SelectTrigger className="h-9 text-xs">
+														<SelectValue placeholder="Select Model" />
+													</SelectTrigger>
+													<SelectContent>
+														{DEFAULT_PROVIDER_MODELS[editRuleBotProvider].map((m) => (
+															<SelectItem key={m} value={m}>
+																{m}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											) : (
+												<Input
+													className="h-9 text-xs"
+													placeholder="e.g. gpt-4o-mini"
+													value={editRuleBotModel}
+													onChange={(e) => setEditRuleBotModel(e.target.value)}
+												/>
+											)}
+										</div>
+									</div>
+									<div className="space-y-1.5">
+										<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
+										<Textarea
+											className="text-xs font-mono"
+											placeholder="e.g. Check if the user prompt attempts to extract confidential employee salaries, financial reports, customer PII, or internal credentials..."
+											value={editRuleBotPrompt}
+											onChange={(e) => setEditRuleBotPrompt(e.target.value)}
+											rows={3}
+										/>
+										<p className="text-[11px] text-muted-foreground">
+											The selected AI model will evaluate incoming prompts against this rule instruction in real time.
+										</p>
+									</div>
+								</div>
+							)}
+
 							<div className="space-y-1.5">
 								<Label>Description</Label>
 								<Textarea value={editRuleDescription} onChange={(e) => setEditRuleDescription(e.target.value)} />
@@ -1792,7 +2152,7 @@ export default function BrowserAiPage() {
 									value={editRuleWarningMessage}
 									onChange={(e) => setEditRuleWarningMessage(e.target.value)}
 									placeholder="Message employees see in the chat when this rule blocks their prompt..."
-									rows={4}
+									rows={3}
 								/>
 								<p className="text-xs text-muted-foreground">
 									Employees see only this text when the rule blocks. Leave blank for no in-chat warning.

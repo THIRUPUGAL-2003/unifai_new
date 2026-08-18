@@ -51,9 +51,13 @@ export interface BrowserAIAgentSettings {
 export interface BrowserGuardRule {
 	id: string;
 	name: string;
+	rule_type?: "regex" | "ai_bot";
+	bot_provider?: string;
+	bot_model?: string;
+	bot_prompt?: string;
 	severity: "CRITICAL" | "HIGH" | "MEDIUM";
 	action: "BLOCK" | "WARN" | "REDACT";
-	pattern: string;
+	pattern?: string;
 	active: boolean;
 	description: string;
 	warning_message?: string;

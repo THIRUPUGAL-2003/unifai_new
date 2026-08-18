@@ -353,80 +353,46 @@ def is_noise_host(host: str) -> bool:
 
 
 def is_chat_path(path: str) -> bool:
-    """True when URL path looks like an actual chat/prompt submit endpoint."""
+    """True when URL path looks like an actual chat/prompt submit endpoint or general API on any target website."""
     p = (path or "").lower().split("?", 1)[0]
     if not p:
-        return False
+        return True
     if any(n in p for n in IGNORE_PATH_PATTERNS):
         return False
-    return any(m in p for m in CHAT_PATH_MARKERS)
+    if NOISE_EXTENSIONS.search(p):
+        return False
+    return True
 
 
 def looks_like_user_prompt(text: str) -> bool:
     """
-    Reject Cloudflare blobs / base64 / high-entropy tokens / Gemini RPC ids.
-    Keep normal human prompts (and short secrets like sk-...).
+    Validate user prompt for ANY monitored target website.
+    Accepts ANY legitimate user prompt (numbers, symbols, 1-char, code, math, any language, long text).
+    Only rejects empty strings, Cloudflare encrypted challenge blobs, or literal framework placeholders.
     """
-    if not text:
+    if not text or not isinstance(text, str):
         return False
     t = text.strip()
     if len(t) < 1:
         return False
-    if t.startswith("{") or t.startswith("[") or t.startswith("gAAAA"):
+    if t.startswith("gAAAA") or '"p":"gAAAA' in t:
         return False
-    if t.startswith("[FILE UPLOAD BLOCKED]") or t.startswith("[FILE DOWNLOAD BLOCKED]") or t.startswith("[FILE CONTENT BLOCKED]"):
-        return True
-    if re.match(r"^(sk-|sk-ant-|ghp_|gho_|AKIA|AIzaSy|pcsk_)", t, re.I):
+    if t.startswith("[FILE UPLOAD") or t.startswith("[FILE DOWNLOAD") or t.startswith("[FILE CONTENT") or t.startswith("[SITE BLOCKED"):
         return True
 
-    # Reject JSON / array fragments (common Gemini false positives)
-    if any(ch in t for ch in "[]{}"):
-        return False
-    if t.startswith(",") or t.endswith(","):
-        return False
-    if re.search(r"\bnull\b", t, re.I):
-        return False
-
-    # Reject Gemini feature flags / snake_case RPC metadata
-    if " " not in t and "_" in t and re.fullmatch(r"[A-Za-z0-9_]+", t):
-        return False
-    # Reject Gemini ids: c_44a8…, c.4d77…, v_7f45…
-    if re.fullmatch(r"[cv][_\.][0-9a-fA-F]{6,}", t):
-        return False
-    if re.fullmatch(r"[a-z]?_?[0-9a-f]{8,}", t, re.I) and not re.search(r"[g-zG-Z]", t):
-        return False
-
-    # Reject Gemini/Bard RPC ids (e.g. L5adhe, aPya6c)
-    if " " not in t and re.fullmatch(r"[A-Za-z][A-Za-z0-9]{2,14}", t):
-        has_digit = any(ch.isdigit() for ch in t)
-        has_mixed = any(ch.isupper() for ch in t[1:]) and any(ch.islower() for ch in t)
-        if has_digit or has_mixed:
-            return False
-    if re.fullmatch(r"[a-z]{2}", t) and t not in {"hi", "ok", "yo", "no"}:
-        return False
-    if re.fullmatch(r"[a-z]{2}-[A-Z]{2}", t):
-        return False
-
-    low = re.sub(r"[\s_]+", " ", t.lower()).strip()
+    low = t.lower()
     if low in {
-        "generic", "null", "undefined", "true", "false", "assistant", "model",
-        "user", "system", "bot", "rpc", "batchexecute", "wrb.fr",
+        "null", "undefined", "generic", "batchexecute", "wrb.fr",
         "bard activity enabled", "activity enabled",
     }:
         return False
-    if "bard activity" in low:
+    if "bard activity" in low and len(t) < 30:
         return False
 
-    space_ratio = t.count(" ") / max(len(t), 1)
-    if len(t) >= 40 and space_ratio < 0.02:
+    # Gemini RPC metadata: c_44a8..., v_7f45...
+    if re.fullmatch(r"[cv][_\.][0-9a-fA-F]{8,}", t):
         return False
-    if len(t) >= 24 and space_ratio == 0 and ("+" in t or "$" in t or "/" in t or "_" in t):
-        if not re.search(r"[a-zA-Z]{3,}\s+[a-zA-Z]{2,}", t):
-            return False
-    if sum(ch.isalpha() for ch in t) < 2:
-        return False
-    if re.fullmatch(r"[0-9a-fA-F-]{16,}", t):
-        return False
+
     return True
 
 
@@ -487,26 +453,22 @@ def is_noise(path: str, content: str = "") -> bool:
             return False
         # Cloudflare challenge bodies (non-JSON)
         if not cl.startswith(("{", "[")) and not looks_like_user_prompt(content[:200]):
-            # only treat as noise when it clearly isn't structured chat JSON
-            if len(content) > 40 and content.count(" ") < 2:
+            if len(content) > 40 and content.count(" ") < 2 and not any(ch.isdigit() for ch in content):
                 return True
 
     return False
 
 
 def _clean_prompt_text(text: str) -> str | None:
-    """Normalize extracted text; reject empty / metadata / JSON blobs."""
+    """Normalize extracted text; reject empty / challenge blobs."""
     if not text or not isinstance(text, str):
         return None
-    cleaned = re.sub(r"\s+", " ", text).strip()
+    cleaned = text.strip()
     if len(cleaned) < 1:
         return None
-    # Reject raw JSON / control payloads that slipped through
-    if cleaned.startswith("{") or cleaned.startswith("["):
+    if cleaned.startswith("gAAAA") or '"p":"gAAAA' in cleaned:
         return None
-    if cleaned.startswith("gAAAA"):
-        return None
-    if cleaned in ("null", "undefined", "true", "false", "{}", "[]"):
+    if cleaned.lower() in ("null", "undefined"):
         return None
     if not looks_like_user_prompt(cleaned):
         return None
@@ -537,72 +499,76 @@ def _parts_to_text(parts) -> str | None:
     """Join ChatGPT/Claude-style content parts into plain user text."""
     if parts is None:
         return None
-    if isinstance(parts, str):
-        return _clean_prompt_text(parts)
+    if isinstance(parts, (str, int, float)):
+        return _clean_prompt_text(str(parts))
     if not isinstance(parts, list):
         return None
     chunks = []
     for part in parts:
-        if isinstance(part, str):
-            chunks.append(part)
+        if isinstance(part, (str, int, float)):
+            chunks.append(str(part))
         elif isinstance(part, dict):
-            if isinstance(part.get("text"), str):
-                chunks.append(part["text"])
-            elif part.get("type") in ("text", "input_text") and isinstance(part.get("text"), str):
-                chunks.append(part["text"])
+            if isinstance(part.get("text"), (str, int, float)):
+                chunks.append(str(part["text"]))
+            elif part.get("type") in ("text", "input_text") and isinstance(part.get("text"), (str, int, float)):
+                chunks.append(str(part["text"]))
     return _clean_prompt_text(" ".join(chunks)) if chunks else None
 
 
 def _extract_from_message_obj(msg: dict) -> str | None:
-    """Pull user text from a single message object (OpenAI / ChatGPT / Claude / Copilot shapes)."""
+    """Pull user text from a single message object (OpenAI / ChatGPT / Claude / Copilot / generic shapes)."""
     if not isinstance(msg, dict):
         return None
 
     role = msg.get("role")
     if role is None and isinstance(msg.get("author"), dict):
         role = msg["author"].get("role")
-    if role and str(role).lower() not in ("user", "human"):
+    if role and str(role).lower() not in ("user", "human", "customer", "client", "sender"):
         return None
 
     content = msg.get("content")
-    if isinstance(content, str):
-        return _clean_prompt_text(content)
+    if isinstance(content, (str, int, float)):
+        return _clean_prompt_text(str(content))
     if isinstance(content, dict):
         # ChatGPT web: {"content_type":"text","parts":["hello"]}
         if "parts" in content:
             return _parts_to_text(content.get("parts"))
-        if isinstance(content.get("text"), str):
-            return _clean_prompt_text(content["text"])
+        if isinstance(content.get("text"), (str, int, float)):
+            return _clean_prompt_text(str(content["text"]))
     if isinstance(content, list):
         return _parts_to_text(content)
 
-    # Copilot / Graph / Bing: {"text":"..."} or {"rawUserQuery":"..."}
+    # Copilot / Graph / Bing / generic fields
     for key in (
         "text", "prompt", "query", "query_str", "rawUserQuery",
-        "utterance", "userMessage", "input", "question",
+        "utterance", "userMessage", "input", "question", "user_input", "inputs",
     ):
         val = msg.get(key)
-        if isinstance(val, str):
-            got = _clean_prompt_text(val)
+        if isinstance(val, (str, int, float)):
+            got = _clean_prompt_text(str(val))
             if got:
                 return got
     return None
 
 
 def _extract_from_json(data) -> str | None:
-    """Walk known chat API shapes and return only the submitted user prompt."""
+    """Walk known and custom chat API shapes across ANY domain to extract the submitted user prompt."""
     if isinstance(data, list):
         # Prefer last user message in an array of messages
         for item in reversed(data):
             got = _extract_from_message_obj(item) if isinstance(item, dict) else None
             if got:
                 return got
+            if isinstance(item, (str, int, float)):
+                got = _clean_prompt_text(str(item))
+                if got:
+                    return got
         return None
 
     if not isinstance(data, dict):
         return None
 
-    # ChatGPT web conversation: messages[{author.role=user, content.parts}]
+    # ChatGPT / OpenAI / DeepSeek / Mistral / Ollama / SGL / vLLM: messages[{author.role=user, content.parts}]
     if isinstance(data.get("messages"), list):
         for msg in reversed(data["messages"]):
             got = _extract_from_message_obj(msg)
@@ -610,8 +576,8 @@ def _extract_from_json(data) -> str | None:
                 return got
 
     # Claude / Anthropic: messages or prompt
-    if isinstance(data.get("prompt"), str):
-        got = _clean_prompt_text(data["prompt"])
+    if isinstance(data.get("prompt"), (str, int, float)):
+        got = _clean_prompt_text(str(data["prompt"]))
         if got:
             return got
 
@@ -625,19 +591,19 @@ def _extract_from_json(data) -> str | None:
                 if got:
                     return got
 
-    # Perplexity / Copilot / Bing / generic query fields
+    # Perplexity / Copilot / Bing / generic query fields across ANY Target Website
     for key in (
-        "query", "query_str", "prompt", "input", "input_text", "text",
+        "query", "query_str", "prompt", "input", "input_text", "inputs", "text",
         "message", "question", "user_input", "last_query", "user_query",
-        "rawUserQuery", "utterance", "userMessage", "content",
+        "rawUserQuery", "utterance", "userMessage", "content", "instruction",
+        "search_query", "q",
     ):
         val = data.get(key)
-        if isinstance(val, str):
-            got = _clean_prompt_text(val)
+        if isinstance(val, (str, int, float)):
+            got = _clean_prompt_text(str(val))
             if got:
                 return got
         elif isinstance(val, list):
-            # Copilot WS: "content":[{"type":"text","text":"sk-..."}]
             got = _parts_to_text(val)
             if got:
                 return got
@@ -645,15 +611,15 @@ def _extract_from_json(data) -> str | None:
             got = _extract_from_message_obj(val)
             if got:
                 return got
-            for nk in ("query", "text", "prompt", "question", "rawUserQuery", "content"):
-                if isinstance(val.get(nk), str):
-                    got = _clean_prompt_text(val[nk])
+            for nk in ("query", "text", "prompt", "question", "rawUserQuery", "content", "input", "message"):
+                if isinstance(val.get(nk), (str, int, float)):
+                    got = _clean_prompt_text(str(val[nk]))
                     if got:
                         return got
 
     # Copilot / Sydney send events
     if str(data.get("event", "")).lower() in ("send", "message", "chat"):
-        for key in ("content", "message", "parts", "attachments"):
+        for key in ("content", "message", "parts", "attachments", "input"):
             val = data.get(key)
             if isinstance(val, list):
                 got = _parts_to_text(val)
@@ -663,13 +629,13 @@ def _extract_from_json(data) -> str | None:
                 got = _extract_from_message_obj(val)
                 if got:
                     return got
-            if isinstance(val, str):
-                got = _clean_prompt_text(val)
+            if isinstance(val, (str, int, float)):
+                got = _clean_prompt_text(str(val))
                 if got:
                     return got
 
-    # Nested: { "params": { "query": "..." } } etc.
-    for nest_key in ("params", "data", "payload", "body", "request", "arguments"):
+    # Nested: { "params": { "query": "..." } }, { "payload": { ... } }, etc.
+    for nest_key in ("params", "data", "payload", "body", "request", "arguments", "input", "options"):
         nested = data.get(nest_key)
         if isinstance(nested, (dict, list)):
             got = _extract_from_json(nested)
@@ -677,36 +643,6 @@ def _extract_from_json(data) -> str | None:
                 return got
 
     return None
-
-
-_SECRET_FALLBACK_RE = re.compile(
-    r"(sk-(?:proj-|admin-)?[A-Za-z0-9_-]{8,}"
-    r"|sk-ant-[A-Za-z0-9_-]{8,}"
-    r"|AKIA[0-9A-Z]{16}"
-    r"|AIzaSy[A-Za-z0-9_-]{20,}"
-    r"|pcsk_[A-Za-z0-9_-]{20,}"
-    r"|ghp_[A-Za-z0-9]{20,}"
-    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----)",
-    re.IGNORECASE,
-)
-
-
-def extract_secret_fallback(text: str) -> str | None:
-    """Last-resort: pull an obvious secret token from a raw body when structured extract fails."""
-    if not text:
-        return None
-    # Prefer decoded form bodies
-    sample = text
-    if "%" in text[:200] or "f.req=" in text:
-        try:
-            sample = urllib.parse.unquote(text)
-        except Exception:
-            sample = text
-    m = _SECRET_FALLBACK_RE.search(sample)
-    if not m:
-        return None
-    got = _clean_prompt_text(m.group(1))
-    return got
 
 
 def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str]:
@@ -761,6 +697,45 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
             return True, "Multipart-like file attachment payload"
 
     return False, ""
+
+
+def extract_filename_from_upload(flow: http.HTTPFlow, raw_text: str = "") -> str:
+    """Extract uploaded file name from headers, JSON body, multipart body, or URL path."""
+    headers = flow.request.headers
+
+    # 1. Content-Disposition header
+    cd = headers.get("content-disposition", "")
+    if "filename" in cd:
+        m = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';\r\n]+)["\']?', cd, re.I)
+        if m:
+            return m.group(1).strip().strip('"\'')
+
+    # 2. X-File-Name or upload headers
+    for hk in ("x-file-name", "x-goog-upload-file-name", "x-filename", "x-upload-filename"):
+        val = headers.get(hk)
+        if val:
+            return str(val).strip().strip('"\'')
+
+    # 3. JSON body fields (e.g. {"file_name": "data.pdf"} or {"fileName": "..."})
+    if raw_text:
+        m = re.search(r'["\'](?:file_name|fileName|name|title|filename)["\']\s*:\s*["\']([^"\']+\.[a-zA-Z0-9]{2,6})["\']', raw_text)
+        if m:
+            return m.group(1).strip()
+        # Multipart filename inside raw_text body
+        m = re.search(r'filename\s*=\s*["\']([^"\';\r\n]+\.[a-zA-Z0-9]{2,6})["\']', raw_text[:8000], re.I)
+        if m:
+            return m.group(1).strip()
+
+    # 4. Path parameter if it ends with a file extension
+    path_clean = (flow.request.path or "").split("?", 1)[0]
+    last_seg = path_clean.rsplit("/", 1)[-1]
+    if "." in last_seg and any(last_seg.lower().endswith(ext) for ext in (
+        ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".csv", ".json",
+        ".png", ".jpg", ".jpeg", ".zip", ".tar", ".gz", ".py", ".js",
+    )):
+        return urllib.parse.unquote(last_seg)
+
+    return ""
 
 
 def _extract_pdf_text(data: bytes) -> str:
@@ -950,19 +925,14 @@ def extract_gemini_prompt(content: str) -> str:
         s = _normalize_prompt(s)
         if not looks_like_user_prompt(s):
             return False
-        if re.match(r"^(sk-|sk-ant-|ghp_|gho_|AKIA|AIzaSy|pcsk_)", s, re.I):
-            return True
-        if " " in s and len(s) >= 2:
-            return True
-        if re.fullmatch(r"[a-zA-Z]{2,24}", s):
-            if len(s) == 2 and s.lower() not in {"hi", "ok", "yo", "no"}:
+        # Reject Gemini internal RPC ids (e.g. L5adhe, aPya6c)
+        if " " not in s and re.fullmatch(r"[A-Za-z][A-Za-z0-9]{3,10}", s):
+            has_mixed = any(ch.isupper() for ch in s[1:]) and any(ch.islower() for ch in s)
+            if has_mixed:
                 return False
-            return True
-        return False
+        return len(s) >= 1
 
     def _score(s: str) -> int:
-        if re.match(r"^(sk-|sk-ant-|ghp_|gho_|AKIA|AIzaSy|pcsk_)", s, re.I):
-            return 10_000 + len(s)
         return s.count(" ") * 100 + len(s)
 
     def _from_stream_inner(inner) -> str:
@@ -1108,7 +1078,8 @@ def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
                 form = urllib.parse.parse_qs(urllib.parse.unquote(text), keep_blank_values=False)
                 for key in (
                     "prompt", "query", "query_str", "text", "message",
-                    "rawUserQuery", "input", "q", "user_query",
+                    "rawUserQuery", "input", "q", "user_query", "instruction",
+                    "inputs", "utterance", "content", "user_input", "question",
                 ):
                     vals = form.get(key) or form.get(key.lower())
                     if vals and isinstance(vals[0], str):
@@ -1122,7 +1093,7 @@ def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
                 pass
             text = urllib.parse.unquote(text)
 
-        # Structured JSON chat payloads only — never dump plain challenge blobs
+        # Structured JSON chat payloads (any platform or custom website)
         if "json" in ct or text.lstrip().startswith(("{", "[")):
             try:
                 data = json.loads(text)
@@ -1130,7 +1101,11 @@ def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
                 return None
             return _extract_from_json(data)
 
-        # Non-JSON bodies are almost never real prompts on AI sites
+        # Plain text payloads (if body itself is the direct prompt text)
+        cl = text.strip()
+        if cl and not cl.startswith(("{", "[")) and looks_like_user_prompt(cl):
+            return _clean_prompt_text(cl)
+
         return None
 
     except Exception:
@@ -1777,6 +1752,44 @@ class BrowserAIInterceptor:
                 }
             )
             return
+        elif is_upload:
+            # Clean file upload allowed: Log audit event to backend
+            fname = extract_filename_from_upload(flow, raw_text)
+            clean_log = f"[FILE UPLOAD] {fname}" if fname else f"[FILE UPLOAD] {upload_reason or 'File attachment'}"
+            should_log = not is_duplicate_event(
+                domain,
+                f"upload-allowed|{fname or upload_reason}",
+                ttl=BLOCK_DEDUPE_TTL,
+            )
+            if should_log:
+                print(f"[UnifAI Proxy] FILE UPLOAD ALLOWED | {client_ip} → {host} | {clean_log}")
+                try:
+                    payload = json.dumps({
+                        "platform": platform,
+                        "prompt": clean_log,
+                        "client_ip": client_ip,
+                        "agent_id": UNIFAI_AGENT_ID,
+                        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+                        "metadata": {
+                            "domain": domain,
+                            "url": flow.request.url,
+                            "method": flow.request.method,
+                            "is_blocked": False,
+                            "upload_scan": True,
+                            "file_name": fname or "attachment",
+                            "agent_id": UNIFAI_AGENT_ID,
+                            "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+                        },
+                    }).encode("utf-8")
+                    req = urllib.request.Request(
+                        f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept",
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                        method="POST"
+                    )
+                    urllib.request.urlopen(req, timeout=2)
+                except Exception:
+                    pass
 
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
         if not is_chat_path(path):
@@ -1790,8 +1803,6 @@ class BrowserAIInterceptor:
             return
 
         prompt = extract_prompt(raw_bytes, content_type)
-        if not prompt:
-            prompt = extract_secret_fallback(raw_text)
         if not prompt or len(prompt.strip()) < 1:
             # Help debug Gemini/Copilot misses without flooding logs
             if any(x in (domain or "") for x in ("gemini", "copilot", "bing")) and len(raw_text) > 20:
@@ -1800,11 +1811,10 @@ class BrowserAIInterceptor:
         if not looks_like_user_prompt(prompt):
             return
 
-        # Gemini batchexecute is almost always telemetry — only keep real chat text / secrets
+        # Gemini batchexecute is telemetry unless a valid prompt was extracted
         path_l = (path or "").lower()
         if "batchexecute" in path_l and "streamgenerate" not in path_l:
-            is_secret = bool(re.match(r"^(sk-|sk-ant-|ghp_|gho_|AKIA|AIzaSy|pcsk_)", prompt, re.I))
-            if not is_secret and " " not in prompt.strip():
+            if not looks_like_user_prompt(prompt):
                 return
 
         # Skip duplicate / typing-repeat submissions
@@ -1872,8 +1882,6 @@ class BrowserAIInterceptor:
             return
 
         prompt = extract_prompt(content.encode("utf-8"), "application/json")
-        if not prompt:
-            prompt = extract_secret_fallback(content)
         if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
             return
         if not looks_like_user_prompt(prompt):

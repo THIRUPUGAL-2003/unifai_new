@@ -140,9 +140,25 @@ func (h *BrowserAIHandler) createRule(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid JSON payload")
 		return
 	}
-	if strings.TrimSpace(rule.Name) == "" || strings.TrimSpace(rule.Pattern) == "" {
-		SendError(ctx, fasthttp.StatusBadRequest, "Rule name and regex pattern are required")
+	if strings.TrimSpace(rule.Name) == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "Rule name is required")
 		return
+	}
+	if strings.ToLower(rule.RuleType) == "ai_bot" {
+		if strings.TrimSpace(rule.BotPrompt) == "" {
+			SendError(ctx, fasthttp.StatusBadRequest, "Evaluation prompt is required for AI Guard Bot rule")
+			return
+		}
+		if strings.TrimSpace(rule.BotProvider) == "" || strings.TrimSpace(rule.BotModel) == "" {
+			SendError(ctx, fasthttp.StatusBadRequest, "Provider and model are required for AI Guard Bot rule")
+			return
+		}
+	} else {
+		rule.RuleType = "regex"
+		if strings.TrimSpace(rule.Pattern) == "" {
+			SendError(ctx, fasthttp.StatusBadRequest, "Regex pattern is required for Regex rule")
+			return
+		}
 	}
 	if err := h.manager.CreateRule(ctx, &rule); err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
@@ -538,6 +554,48 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	allowed := logEntry.Action == "Allowed" || logEntry.Action == "Redacted" || logEntry.Action == "Warned"
 	isViolationBlock := !allowed
 
+	// If no regex rule blocked the prompt, evaluate active AI Guard Bot rules
+	if allowed && logEntry.Action == "Allowed" {
+		rules, _ := h.manager.GetRules(ctx)
+		for _, rule := range rules {
+			if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" || strings.TrimSpace(rule.BotPrompt) == "" {
+				continue
+			}
+			violated, reason, evalErr := h.evaluateAIBotRule(ctx, rule, payload.Prompt)
+			if evalErr == nil && violated {
+				ruleAction := strings.ToUpper(strings.TrimSpace(rule.Action))
+				if ruleAction == "" {
+					ruleAction = "BLOCK"
+				}
+				if ruleAction == "BLOCK" {
+					logEntry.Action = "Blocked"
+					logEntry.Status = fmt.Sprintf("Blocked (%s)", rule.Name)
+					logEntry.RiskScore = 95
+					logEntry.PredictiveRisk = "CRITICAL"
+					logEntry.PredictedCategory = "AI_GUARD_BOT_VIOLATION"
+					logEntry.RuleTriggered = rule.Name
+					ruleWarning = strings.TrimSpace(rule.WarningMessage)
+					if ruleWarning == "" && reason != "" {
+						ruleWarning = reason
+					}
+					allowed = false
+					isViolationBlock = true
+					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+					break
+				} else if ruleAction == "WARN" {
+					logEntry.Action = "Warned"
+					logEntry.Status = fmt.Sprintf("Warned (%s)", rule.Name)
+					logEntry.RiskScore = 55
+					logEntry.PredictiveRisk = "MEDIUM"
+					logEntry.PredictedCategory = "AI_GUARD_BOT_WARNING"
+					logEntry.RuleTriggered = rule.Name
+					ruleWarning = strings.TrimSpace(rule.WarningMessage)
+					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+				}
+			}
+		}
+	}
+
 	replyText := ""
 	replyProvider := ""
 	replyModel := ""
@@ -604,6 +662,106 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		"reply_bot_model":    replyModel,
 		"log":                logEntry,
 	})
+}
+
+type aiBotEvalResult struct {
+	Violation   bool   `json:"violation"`
+	Reason      string `json:"reason"`
+	Explanation string `json:"explanation"`
+}
+
+func (h *BrowserAIHandler) evaluateAIBotRule(ctx *fasthttp.RequestCtx, rule logstore.BrowserGuardRule, userPrompt string) (bool, string, error) {
+	if h.client == nil {
+		return false, "", fmt.Errorf("unifai client not available")
+	}
+
+	provider := strings.TrimSpace(rule.BotProvider)
+	model := strings.TrimSpace(rule.BotModel)
+	if provider == "" || model == "" {
+		return false, "", fmt.Errorf("missing provider or model for AI bot rule")
+	}
+
+	providerName := schemas.ModelProvider(provider)
+	modelName := model
+	if strings.Contains(provider, "/") {
+		providerName, modelName = schemas.ParseModelString(provider+"/"+model, "")
+	}
+
+	systemPrompt := `You are an enterprise AI security and DLP evaluator.
+Your job is to analyze the user's prompt against a defined enterprise security policy.
+Evaluate if the USER_PROMPT violates the SECURITY_POLICY.
+
+Respond ONLY with a valid JSON object in this exact schema:
+{"violation": true, "reason": "brief reason why it violates the policy"}
+OR
+{"violation": false, "reason": "safe"}
+
+Do NOT output markdown headings, backticks, or other text outside the JSON object.`
+
+	userMsg := fmt.Sprintf("SECURITY_POLICY:\n%s\n\nUSER_PROMPT TO EVALUATE:\n%s", strings.TrimSpace(rule.BotPrompt), truncateRunes(userPrompt, 3000))
+
+	maxTokens := 120
+	temp := 0.0
+	unifaiReq := &schemas.UnifAIChatRequest{
+		Provider: providerName,
+		Model:    modelName,
+		Input: []schemas.ChatMessage{
+			{
+				Role: schemas.ChatMessageRoleSystem,
+				Content: &schemas.ChatMessageContent{
+					ContentStr: schemas.Ptr(systemPrompt),
+				},
+			},
+			{
+				Role: schemas.ChatMessageRoleUser,
+				Content: &schemas.ChatMessageContent{
+					ContentStr: schemas.Ptr(userMsg),
+				},
+			},
+		},
+		Params: &schemas.ChatParameters{
+			MaxCompletionTokens: &maxTokens,
+			Temperature:         &temp,
+		},
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
+
+	resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
+	if unifaiErr != nil {
+		return false, "", fmt.Errorf("ai bot evaluation failed: %v", unifaiErr)
+	}
+
+	if resp == nil || len(resp.Choices) == 0 || resp.Choices[0].Message.Content == nil {
+		return false, "", fmt.Errorf("empty response from evaluator model")
+	}
+
+	rawText := strings.TrimSpace(*resp.Choices[0].Message.Content.ContentStr)
+	// Strip markdown code fences if present
+	if strings.HasPrefix(rawText, "```json") {
+		rawText = strings.TrimPrefix(rawText, "```json")
+		rawText = strings.TrimSuffix(rawText, "```")
+	} else if strings.HasPrefix(rawText, "```") {
+		rawText = strings.TrimPrefix(rawText, "```")
+		rawText = strings.TrimSuffix(rawText, "```")
+	}
+	rawText = strings.TrimSpace(rawText)
+
+	var res aiBotEvalResult
+	if err := sonic.Unmarshal([]byte(rawText), &res); err != nil {
+		lower := strings.ToLower(rawText)
+		if strings.Contains(lower, `"violation": true`) || strings.Contains(lower, `"violation":true`) {
+			return true, "AI policy violation detected", nil
+		}
+		return false, "", nil
+	}
+
+	reason := res.Reason
+	if reason == "" {
+		reason = res.Explanation
+	}
+	return res.Violation, reason, nil
 }
 
 func (h *BrowserAIHandler) generateReplyBotText(ctx *fasthttp.RequestCtx, provider, model, platform, ruleTriggered, userPrompt, kind string) (string, error) {
