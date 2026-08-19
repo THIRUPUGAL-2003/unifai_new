@@ -32,7 +32,8 @@ export interface BrowserAIAgent {
 	transport_name?: string;
 	os_version: string;
 	agent_version: string;
-	status: "active" | "uninstalled" | string;
+	status: "active" | "uninstalled" | "uninstall_pending" | string;
+	uninstall_requested?: boolean;
 	last_seen_at: string;
 	installed_at: string;
 	uninstalled_at?: string;
@@ -215,6 +216,14 @@ export const browserAiApi = baseApi.injectEndpoints({
 			}),
 			invalidatesTags: ["BrowserAiAgentSettings" as any],
 		}),
+
+		remoteUninstallBrowserAiAgent: builder.mutation<{ status: string; agent: BrowserAIAgent }, string>({
+			query: (id) => ({
+				url: `/browser-ai/agents/${encodeURIComponent(id)}/remote-uninstall`,
+				method: "POST",
+			}),
+			invalidatesTags: ["BrowserAiAgents" as any],
+		}),
 	}),
 });
 
@@ -234,4 +243,5 @@ export const {
 	useGetBrowserAiAgentsQuery,
 	useGetBrowserAiAgentSettingsQuery,
 	useSaveBrowserAiUninstallKeyMutation,
+	useRemoteUninstallBrowserAiAgentMutation,
 } = browserAiApi;

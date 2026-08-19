@@ -37,7 +37,7 @@ from mitmproxy.tools.main import mitmdump
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifai.dev-yp.com"
-AGENT_VERSION = "1.2.5"
+AGENT_VERSION = "1.2.7"
 HEARTBEAT_SECONDS = 30
 PAC_HTTP_HOST = "127.0.0.1"
 PAC_HTTP_PORT = 18085
@@ -264,19 +264,44 @@ def _http_json(method: str, url: str, payload: dict | None = None, timeout: int 
         return 0, None
 
 
-def send_heartbeat(agent_id: str, status: str = "active") -> bool:
+def send_heartbeat(agent_id: str, status: str = "active") -> dict | None:
     info = collect_agent_info(agent_id, status=status)
     code, data = _http_json("POST", f"{UNIFAI_BACKEND_URL}/api/browser-ai/agents/heartbeat", info)
     if code == 200:
         print(f"[UnifAI Guard] Heartbeat OK ({info.get('hostname')} / {info.get('ip_address')} / {info.get('mac_address')} / {status})")
-        return True
+        return data if isinstance(data, dict) else {}
     print(f"[UnifAI Guard WARNING] Heartbeat failed status={code} body={data}")
-    return False
+    return None
+
+
+def heartbeat_wants_uninstall(data: dict | None) -> bool:
+    if not isinstance(data, dict):
+        return False
+    if str(data.get("command") or "").strip().lower() == "uninstall":
+        return True
+    agent = data.get("agent") if isinstance(data.get("agent"), dict) else {}
+    status = str(agent.get("status") or "").strip().lower()
+    return bool(agent.get("uninstall_requested")) or status == "uninstall_pending"
+
+
+def apply_admin_uninstall(agent_id: str) -> None:
+    """Admin requested uninstall from Browser AI. No employee key required."""
+    print("[UnifAI Guard] Admin remote uninstall received — stopping Guard.")
+    _http_json(
+        "POST",
+        f"{UNIFAI_BACKEND_URL}/api/browser-ai/agents/uninstall-ack",
+        {"agent_id": agent_id},
+    )
+    clear_guard_runtime()
+    os._exit(0)
 
 
 def heartbeat_loop(agent_id: str, stop_event: threading.Event) -> None:
     while not stop_event.is_set():
-        send_heartbeat(agent_id, status="active")
+        data = send_heartbeat(agent_id, status="active")
+        if heartbeat_wants_uninstall(data):
+            apply_admin_uninstall(agent_id)
+            return
         # Sleep/wake must not drop PAC. Re-assert on every beat until uninstall.
         set_windows_proxy_pac(enable=True, pac_url=pac_http_url(), silent=True)
         set_browser_quic(enable_quic=False)
@@ -880,7 +905,10 @@ def main() -> None:
     print(f"[UnifAI Guard] Local proxy: {PROXY_ADDR}")
 
     check_backend()
-    send_heartbeat(agent_id)
+    hb = send_heartbeat(agent_id)
+    if heartbeat_wants_uninstall(hb):
+        apply_admin_uninstall(agent_id)
+        return
 
     pac = fetch_proxy_pac()
     if pac:

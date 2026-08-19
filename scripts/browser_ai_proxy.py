@@ -499,6 +499,13 @@ def _is_google_wire_blob(text: str) -> bool:
         return True
     if " " in t or "\n" in t:
         return False
+    # Opaque mixed-case ids: bxlsenAh8ow1YRs9NnsA
+    if 8 <= len(t) <= 48 and re.fullmatch(r"[A-Za-z0-9_-]+", t):
+        has_u = any(c.isupper() for c in t)
+        has_l = any(c.islower() for c in t)
+        has_d = any(c.isdigit() for c in t)
+        if has_u and has_l and has_d:
+            return True
     if len(t) >= 24 and re.fullmatch(r"[A-Za-z0-9_\-+/=]+", t):
         if any(c.isupper() for c in t) and any(c.islower() for c in t) and ("-" in t or "_" in t):
             return True
@@ -507,10 +514,8 @@ def _is_google_wire_blob(text: str) -> bool:
 
 def looks_like_user_prompt(text: str) -> bool:
     """
-    Validate user prompt for ANY monitored target website.
-    Accepts ANY legitimate user prompt (words, phrases, questions, code, math, any language).
-    Strictly rejects URL-encoded wire blobs, internal Google RPC IDs (ESY5D, L5adhe, etc.),
-    session tokens, and framework placeholders.
+    Save any user-typed prompt: any language, numbers, symbols, code, one word or long text.
+    Do not save protocol junk (Gemini request ids, RPC tokens, f.req blobs).
     """
     if not text or not isinstance(text, str):
         return False
@@ -537,16 +542,14 @@ def looks_like_user_prompt(text: str) -> bool:
     if "bard activity" in low and len(t) < 30:
         return False
 
-    # Filter tokens and RPC IDs when text has no spaces
+    # Filter tokens and RPC IDs when text has no spaces.
+    # Digit-only text is a valid user prompt (phone, IDs, math). Do not drop it.
     if " " not in t:
-        # Standalone numbers like "1", "2" (often batchexecute count / indices)
-        if t.isdigit() and len(t) <= 3:
-            return False
         # Google conversation/response tokens: r_653a..., c_44a8..., v_7f45..., rc_...
         if re.fullmatch(r"[rcv][_\.][0-9a-fA-F]{6,}", t, re.IGNORECASE):
             return False
-        # Hex session tokens or hashes: e.g. 56fdd186312815e2
-        if len(t) >= 12 and re.fullmatch(r"[0-9a-fA-F]{12,64}", t):
+        # Hex hashes that contain a-f (not digit-only numbers the user typed)
+        if len(t) >= 12 and re.fullmatch(r"[0-9a-fA-F]{12,64}", t) and re.search(r"[a-fA-F]", t):
             return False
         # Google batchexecute RPC IDs (4-8 mixed case alphanumeric, e.g. ESY5D, L5adhe, VxUbXb, qpEbW, aPya6c)
         if 4 <= len(t) <= 8 and re.fullmatch(r"[A-Za-z0-9]+", t):
@@ -726,13 +729,24 @@ def _extract_from_message_obj(msg: dict) -> str | None:
 def _extract_from_json(data) -> str | None:
     """Walk known and custom chat API shapes across ANY domain to extract the submitted user prompt."""
     if isinstance(data, list):
+        # Gemini StreamGenerate is [null, "<nested json>", requestId, ...].
+        # Never treat trailing numeric / token slots as the user prompt.
+        if data and (data[0] is None or (len(data) >= 2 and isinstance(data[1], str) and data[1][:1] in ("[", "{"))):
+            dumped = json.dumps(data, ensure_ascii=False)
+            got = extract_gemini_prompt(dumped)
+            if got:
+                return _clean_prompt_text(got)
+            return None
         # Prefer last user message in an array of messages
         for item in reversed(data):
             got = _extract_from_message_obj(item) if isinstance(item, dict) else None
             if got:
                 return got
-            if isinstance(item, (str, int, float)):
-                got = _clean_prompt_text(str(item))
+            if isinstance(item, str):
+                # Raw array slots are often request ids; never save mixed-case RPC tokens.
+                if _is_google_wire_blob(item):
+                    continue
+                got = _clean_prompt_text(item)
                 if got:
                     return got
         return None
@@ -1099,17 +1113,14 @@ def extract_gemini_prompt(content: str) -> str:
         s = _normalize_prompt(s)
         if not looks_like_user_prompt(s):
             return False
-        # Reject language/locale codes: en-IN, en-US, ta-IN, hi-IN, zh-CN, etc.
-        if re.fullmatch(r"[a-z]{2}(-[A-Z]{2,3})?", s):
+        # Reject language/locale codes: en-IN, en-US (not bare words like "hi")
+        if re.fullmatch(r"[a-z]{2}-[A-Z]{2,3}", s):
             return False
-        # Reject numbers/counters: "1", "2", "3", etc.
-        if s.isdigit():
-            return False
-        # Reject dot-tokens like "z.fdeb774424ec3df1", "c.123...", "f.req"
+        # Reject dot-tokens like "z.fdeb774424ec3df1"
         if re.match(r"^[a-z]\.[a-f0-9]{8,}", s, re.IGNORECASE):
             return False
-        # Reject raw hex hashes or uuid-like hashes without spaces
-        if " " not in s and re.fullmatch(r"[0-9a-fA-F]{10,64}", s):
+        # Hex hashes with letters — not digit-only user input
+        if " " not in s and re.fullmatch(r"[0-9a-fA-F]{10,64}", s) and re.search(r"[a-fA-F]", s):
             return False
         # Reject tokens starting with c_, r_, v_, rc_, f_, z_
         if s.startswith(("c_", "r_", "v_", "rc_", "f_", "z_", "req0_")):
@@ -1270,6 +1281,10 @@ def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
                 data = json.loads(text)
             except Exception:
                 return None
+            if isinstance(data, list):
+                gemini_prompt = extract_gemini_prompt(text)
+                if gemini_prompt:
+                    return _clean_prompt_text(gemini_prompt)
             return _extract_from_json(data)
 
         # Plain text payloads (only if body itself is a direct user sentence/code)
@@ -2058,8 +2073,6 @@ class BrowserAIInterceptor:
         compact = path_l.replace("_", "")
         if "batchexecute" in path_l and "streamgenerate" not in compact:
             if not any(rpc in raw_text for rpc in GEMINI_CHAT_RPCS):
-                return
-            if " " not in prompt.strip() and len(prompt.strip()) > 24:
                 return
 
         # Skip duplicate / typing-repeat submissions

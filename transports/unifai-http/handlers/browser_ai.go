@@ -80,6 +80,8 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.PUT("/api/browser-ai/agents/uninstall-key", lib.ChainMiddlewares(h.saveUninstallKey, middlewares...))
 	r.POST("/api/browser-ai/agents/uninstall-verify", lib.ChainMiddlewares(h.verifyUninstall, middlewares...))
 	r.POST("/api/browser-ai/agents/uninstall", lib.ChainMiddlewares(h.uninstallAgent, middlewares...))
+	r.POST("/api/browser-ai/agents/uninstall-ack", lib.ChainMiddlewares(h.ackRemoteUninstall, middlewares...))
+	r.POST("/api/browser-ai/agents/{id}/remote-uninstall", lib.ChainMiddlewares(h.remoteUninstallAgent, middlewares...))
 
 	r.POST("/api/browser-ai/intercept", lib.ChainMiddlewares(h.intercept, middlewares...))
 }
@@ -374,10 +376,15 @@ func (h *BrowserAIHandler) agentHeartbeat(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	settings, _ := h.manager.GetAgentSettings(ctx)
+	command := ""
+	if agent != nil && agent.UninstallRequested && agent.Status != logstore.AgentStatusUninstalled {
+		command = "uninstall"
+	}
 	SendJSON(ctx, map[string]any{
 		"status":   "success",
 		"agent":    agent,
 		"settings": settings,
+		"command":  command,
 	})
 }
 
@@ -463,6 +470,42 @@ func (h *BrowserAIHandler) uninstallAgent(ctx *fasthttp.RequestCtx) {
 		"agent":    agent,
 		"settings": settings,
 	})
+}
+
+func (h *BrowserAIHandler) remoteUninstallAgent(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+	id, ok := ctx.UserValue("id").(string)
+	if !ok || id == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "Missing agent ID")
+		return
+	}
+	agent, err := h.manager.RequestRemoteUninstall(ctx, id)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{"status": "success", "agent": agent, "command": "uninstall"})
+}
+
+func (h *BrowserAIHandler) ackRemoteUninstall(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+	var req struct {
+		AgentID string `json:"agent_id"`
+	}
+	if err := sonic.Unmarshal(ctx.PostBody(), &req); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid JSON payload")
+		return
+	}
+	agent, err := h.manager.AckRemoteUninstall(ctx, req.AgentID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not requested") || strings.Contains(err.Error(), "not found") {
+			SendError(ctx, fasthttp.StatusForbidden, err.Error())
+			return
+		}
+		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{"status": "success", "agent": agent})
 }
 
 func (h *BrowserAIHandler) createTarget(ctx *fasthttp.RequestCtx) {

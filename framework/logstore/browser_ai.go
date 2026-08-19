@@ -68,10 +68,11 @@ type BrowserAIAgent struct {
 	TransportName string     `json:"transport_name"`
 	OSVersion     string     `json:"os_version"`
 	AgentVersion  string     `json:"agent_version"`
-	Status        string     `gorm:"index" json:"status"` // active | uninstalled
-	LastSeenAt    time.Time  `gorm:"index" json:"last_seen_at"`
-	InstalledAt   time.Time  `json:"installed_at"`
-	UninstalledAt *time.Time `json:"uninstalled_at,omitempty"`
+	Status             string     `gorm:"index" json:"status"` // active | uninstall_pending | uninstalled
+	UninstallRequested bool       `json:"uninstall_requested"`
+	LastSeenAt         time.Time  `gorm:"index" json:"last_seen_at"`
+	InstalledAt        time.Time  `json:"installed_at"`
+	UninstalledAt      *time.Time `json:"uninstalled_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
 }
@@ -92,6 +93,7 @@ const AgentStatusInactive = "inactive"
 const AgentStatusSleep = "sleep"
 const AgentStatusShutdown = "shutdown"
 const AgentStatusUninstalled = "uninstalled"
+const AgentStatusUninstallPending = "uninstall_pending"
 
 type BrowserGuardRule struct {
 	ID             string    `gorm:"primaryKey" json:"id"`
@@ -1090,10 +1092,15 @@ func (m *BrowserAIManager) UpsertAgentHeartbeat(ctx context.Context, incoming *B
 	}
 	existing.OSVersion = firstNonEmpty(strings.TrimSpace(incoming.OSVersion), existing.OSVersion)
 	existing.AgentVersion = firstNonEmpty(strings.TrimSpace(incoming.AgentVersion), existing.AgentVersion)
-	existing.Status = AgentStatusActive
 	existing.LastSeenAt = now
 	existing.UpdatedAt = now
-	existing.UninstalledAt = nil
+	if existing.UninstallRequested || existing.Status == AgentStatusUninstallPending {
+		existing.Status = AgentStatusUninstallPending
+		existing.UninstallRequested = true
+	} else {
+		existing.Status = AgentStatusActive
+		existing.UninstalledAt = nil
+	}
 	if err := m.db.WithContext(ctx).Save(&existing).Error; err != nil {
 		return nil, err
 	}
@@ -1167,13 +1174,14 @@ func (m *BrowserAIManager) MarkAgentUninstalled(ctx context.Context, agentID str
 	if err != nil {
 		// Never registered / heartbeat never landed — still record uninstall so Windows setup can finish.
 		agent = BrowserAIAgent{
-			ID:            agentID,
-			Status:        AgentStatusUninstalled,
-			LastSeenAt:    now,
-			InstalledAt:   now,
-			UninstalledAt: &now,
-			CreatedAt:     now,
-			UpdatedAt:     now,
+			ID:                 agentID,
+			Status:             AgentStatusUninstalled,
+			UninstallRequested: false,
+			LastSeenAt:         now,
+			InstalledAt:        now,
+			UninstalledAt:      &now,
+			CreatedAt:          now,
+			UpdatedAt:          now,
 		}
 		if createErr := m.db.WithContext(ctx).Create(&agent).Error; createErr != nil {
 			return nil, createErr
@@ -1181,6 +1189,62 @@ func (m *BrowserAIManager) MarkAgentUninstalled(ctx context.Context, agentID str
 		return &agent, nil
 	}
 	agent.Status = AgentStatusUninstalled
+	agent.UninstallRequested = false
+	agent.UninstalledAt = &now
+	agent.UpdatedAt = now
+	if err := m.db.WithContext(ctx).Save(&agent).Error; err != nil {
+		return nil, err
+	}
+	return &agent, nil
+}
+
+func (m *BrowserAIManager) RequestRemoteUninstall(ctx context.Context, agentID string) (*BrowserAIAgent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil, fmt.Errorf("agent id is required")
+	}
+	var agent BrowserAIAgent
+	if err := m.db.WithContext(ctx).Where("id = ?", agentID).First(&agent).Error; err != nil {
+		return nil, fmt.Errorf("agent not found")
+	}
+	if agent.Status == AgentStatusUninstalled {
+		return &agent, nil
+	}
+	now := time.Now()
+	agent.UninstallRequested = true
+	agent.Status = AgentStatusUninstallPending
+	agent.UpdatedAt = now
+	if err := m.db.WithContext(ctx).Save(&agent).Error; err != nil {
+		return nil, err
+	}
+	return &agent, nil
+}
+
+func (m *BrowserAIManager) AckRemoteUninstall(ctx context.Context, agentID string) (*BrowserAIAgent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return nil, fmt.Errorf("agent id is required")
+	}
+	var agent BrowserAIAgent
+	if err := m.db.WithContext(ctx).Where("id = ?", agentID).First(&agent).Error; err != nil {
+		return nil, fmt.Errorf("agent not found")
+	}
+	if !agent.UninstallRequested && agent.Status != AgentStatusUninstallPending {
+		return nil, fmt.Errorf("remote uninstall was not requested")
+	}
+	now := time.Now()
+	agent.Status = AgentStatusUninstalled
+	agent.UninstallRequested = false
 	agent.UninstalledAt = &now
 	agent.UpdatedAt = now
 	if err := m.db.WithContext(ctx).Save(&agent).Error; err != nil {

@@ -32,6 +32,7 @@ import {
 	Upload,
 	Bot,
 	Save,
+	MoreHorizontal,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,17 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdownMenu";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alertDialog";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions } from "./relatedHosts";
 
@@ -63,13 +75,16 @@ import {
 	useGetBrowserAiAgentsQuery,
 	useGetBrowserAiAgentSettingsQuery,
 	useSaveBrowserAiUninstallKeyMutation,
+	useRemoteUninstallBrowserAiAgentMutation,
 	BrowserAILogEntry,
 	BrowserGuardRule,
 	BrowserControlSettings,
 	BrowserTargetWebsite,
+	BrowserAIAgent,
 } from "@/lib/store/apis/browserAiApi";
 import { useGetProvidersQuery, useGetModelsQuery } from "@/lib/store/apis/providersApi";
 import { getApiBaseUrl } from "@/lib/utils/port";
+import { getErrorMessage } from "@/lib/store/apis/baseApi";
 
 const DEFAULT_PROVIDER_MODELS: Record<string, string[]> = {
 	openai: ["gpt-4o-mini", "gpt-4o", "o3-mini", "gpt-4-turbo"],
@@ -126,6 +141,47 @@ function GuardBotModelPicker({
 				data-testid="browser-ai-guard-bot-model-custom"
 			/>
 		</div>
+	);
+}
+
+function GuardAgentRowMenu({
+	agent,
+	onUninstall,
+}: {
+	agent: BrowserAIAgent;
+	onUninstall: (agent: BrowserAIAgent) => void;
+}) {
+	const status = (agent.status || "").toLowerCase();
+	const alreadyGone = status === "uninstalled";
+	const pending = status === "uninstall_pending" || !!agent.uninstall_requested;
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					variant="ghost"
+					size="icon"
+					className="h-8 w-8"
+					data-testid={`guard-agent-menu-${agent.id}`}
+					aria-label="Agent actions"
+				>
+					<MoreHorizontal className="h-4 w-4" />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end">
+				<DropdownMenuItem
+					className="text-destructive focus:text-destructive cursor-pointer"
+					disabled={alreadyGone || pending}
+					data-testid={`guard-agent-uninstall-${agent.id}`}
+					onSelect={(e) => {
+						e.preventDefault();
+						onUninstall(agent);
+					}}
+				>
+					<Trash2 className="h-4 w-4" />
+					{alreadyGone ? "Already uninstalled" : pending ? "Uninstall pending…" : "Uninstall"}
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
 	);
 }
 
@@ -266,6 +322,9 @@ export default function BrowserAiPage() {
 	);
 	const { data: agentSettingsData, refetch: refetchAgentSettings } = useGetBrowserAiAgentSettingsQuery();
 	const [saveUninstallKey, { isLoading: savingUninstallKey }] = useSaveBrowserAiUninstallKeyMutation();
+	const [remoteUninstallAgent, { isLoading: remoteUninstalling }] = useRemoteUninstallBrowserAiAgentMutation();
+	const [uninstallTarget, setUninstallTarget] = useState<BrowserAIAgent | null>(null);
+	const [remoteUninstallError, setRemoteUninstallError] = useState("");
 
 	const controls: BrowserControlSettings = controlsData?.controls || {
 		id: "browser-controls-default",
@@ -559,6 +618,18 @@ export default function BrowserAiPage() {
 		}
 	};
 
+	const handleConfirmRemoteUninstall = async () => {
+		if (!uninstallTarget?.id) return;
+		setRemoteUninstallError("");
+		try {
+			await remoteUninstallAgent(uninstallTarget.id).unwrap();
+			setUninstallTarget(null);
+			refetchAgents();
+		} catch (error) {
+			setRemoteUninstallError(getErrorMessage(error));
+		}
+	};
+
 	const handleCreateTarget = async () => {
 		const domain = normalizeTargetDomain(newTargetDomain);
 		if (!domain) {
@@ -663,10 +734,13 @@ export default function BrowserAiPage() {
 		return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">{platform || "AI Platform"}</Badge>;
 	};
 
-	const getAgentStatusBadge = (status: string) => {
+	const getAgentStatusBadge = (status: string, uninstallRequested?: boolean) => {
 		const s = (status || "").toLowerCase();
 		if (s === "uninstalled") return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">Uninstalled</Badge>;
-		return <Badge className="bg-emerald-950 text-emerald-400 border border-emerald-800">Active</Badge>;
+		if (s === "uninstall_pending" || uninstallRequested) {
+			return <Badge className="bg-amber-950 text-amber-300 border border-amber-800">Uninstall pending</Badge>;
+		}
+		if (s === "active") return <Badge className="bg-emerald-950 text-emerald-400 border border-emerald-800">Active</Badge>;
 		return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">{status || "unknown"}</Badge>;
 	};
 
@@ -2206,6 +2280,7 @@ export default function BrowserAiPage() {
 							<SelectContent>
 								<SelectItem value="all">All statuses</SelectItem>
 								<SelectItem value="active">Active</SelectItem>
+								<SelectItem value="uninstall_pending">Uninstall pending</SelectItem>
 								<SelectItem value="uninstalled">Uninstalled</SelectItem>
 							</SelectContent>
 						</Select>
@@ -2238,10 +2313,10 @@ export default function BrowserAiPage() {
 					<Card className="bg-card border-border">
 						<CardHeader>
 							<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
-							<CardDescription>Installed Guard stays Active and keeps intercepting until uninstall. Sleep and shutdown do not stop Guard.</CardDescription>
+							<CardDescription>Installed Guard stays Active and keeps intercepting until uninstall. Admin Uninstall from this table tells the laptop to stop on the next heartbeat (up to 30s).</CardDescription>
 						</CardHeader>
 						<CardContent className="p-0">
-							<Table className="table-fixed min-w-[1080px]">
+							<Table className="table-fixed min-w-[1140px]">
 								<TableHeader>
 									<TableRow className="hover:bg-transparent border-border">
 										<TableHead className="w-[160px]">Laptop</TableHead>
@@ -2250,9 +2325,10 @@ export default function BrowserAiPage() {
 										<TableHead className="w-[160px]">Physical address (MAC)</TableHead>
 										<TableHead className="w-[180px]">Transport name</TableHead>
 										<TableHead className="w-[80px]">Version</TableHead>
-										<TableHead className="w-[110px]">Status</TableHead>
+										<TableHead className="w-[130px]">Status</TableHead>
 										<TableHead className="w-[160px]">Last seen</TableHead>
 										<TableHead className="w-[160px]">Installed</TableHead>
+										<TableHead className="w-[52px] text-right"> </TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -2275,18 +2351,21 @@ export default function BrowserAiPage() {
 												{nicGuidOnly(agent.transport_name) || "—"}
 											</TableCell>
 											<TableCell className="text-xs truncate">{agent.agent_version || "—"}</TableCell>
-											<TableCell>{getAgentStatusBadge(agent.status)}</TableCell>
+											<TableCell>{getAgentStatusBadge(agent.status, agent.uninstall_requested)}</TableCell>
 											<TableCell className="text-xs text-muted-foreground truncate">
 												{agent.last_seen_at ? new Date(agent.last_seen_at).toLocaleString() : "—"}
 											</TableCell>
 											<TableCell className="text-xs text-muted-foreground truncate">
 												{agent.installed_at ? new Date(agent.installed_at).toLocaleString() : "—"}
 											</TableCell>
+											<TableCell className="text-right">
+												<GuardAgentRowMenu agent={agent} onUninstall={(a) => { setRemoteUninstallError(""); setUninstallTarget(a); }} />
+											</TableCell>
 										</TableRow>
 									))}
 									{agents.length === 0 && (
 										<TableRow>
-												<TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
+												<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
 												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe on employee laptops.
 											</TableCell>
 										</TableRow>
@@ -2295,6 +2374,34 @@ export default function BrowserAiPage() {
 							</Table>
 						</CardContent>
 					</Card>
+
+					<AlertDialog open={!!uninstallTarget} onOpenChange={(open) => { if (!open) setUninstallTarget(null); }}>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Uninstall Guard on this laptop?</AlertDialogTitle>
+								<AlertDialogDescription>
+									{uninstallTarget
+										? `This sends a remote uninstall to ${uninstallTarget.hostname || "this laptop"} (${uninstallTarget.username || "unknown user"}). Guard v1.2.6+ will stop intercepting on the next heartbeat (within ~30 seconds). Older Guard versions stay running until that laptop is upgraded.`
+										: ""}
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							{remoteUninstallError ? <p className="text-sm text-red-400">{remoteUninstallError}</p> : null}
+							<AlertDialogFooter>
+								<AlertDialogCancel data-testid="guard-agent-uninstall-cancel">Cancel</AlertDialogCancel>
+								<AlertDialogAction
+									onClick={(e) => {
+										e.preventDefault();
+										void handleConfirmRemoteUninstall();
+									}}
+									disabled={remoteUninstalling}
+									className="bg-destructive hover:bg-destructive/90"
+									data-testid="guard-agent-uninstall-confirm"
+								>
+									{remoteUninstalling ? "Sending…" : "Uninstall"}
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
 
 					{totalAgents > agentPageLimit && (
 						<div className="flex items-center justify-end gap-2">

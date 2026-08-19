@@ -978,7 +978,8 @@ func isPublicBrowserAIRoute(method, path string) bool {
 		return method == fasthttp.MethodGet
 	case "/api/browser-ai/agents/heartbeat",
 		"/api/browser-ai/agents/uninstall-verify",
-		"/api/browser-ai/agents/uninstall":
+		"/api/browser-ai/agents/uninstall",
+		"/api/browser-ai/agents/uninstall-ack":
 		return method == fasthttp.MethodPost
 	default:
 		return false
