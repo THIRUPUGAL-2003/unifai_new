@@ -37,7 +37,7 @@ from mitmproxy.tools.main import mitmdump
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifai.dev-yp.com"
-AGENT_VERSION = "1.2.3"
+AGENT_VERSION = "1.2.5"
 HEARTBEAT_SECONDS = 30
 PAC_HTTP_HOST = "127.0.0.1"
 PAC_HTTP_PORT = 18085
@@ -359,7 +359,7 @@ def run_uninstall(key: str) -> int:
     """Verify company uninstall key, mark agent uninstalled, clear local proxy.
 
     Exit codes: 0=ok, 2=bad key, 3=cancelled (prompt), 1=other.
-    Backend unreachable / 5xx → still clear local settings so employees are not locked.
+    Backend unreachable / 5xx does not clear PAC — company key must be verified.
     """
     agent_id = get_or_create_agent_id()
     status, data = _http_json(
@@ -375,14 +375,9 @@ def run_uninstall(key: str) -> int:
         print("[UnifAI Guard ERROR] Invalid uninstall key.")
         return 2
     if status == 0:
-        print("[UnifAI Guard WARNING] Backend unreachable — clearing local Guard settings only.")
-        clear_guard_runtime()
-        return 0
+        print("[UnifAI Guard ERROR] Backend unreachable — uninstall key not verified. PAC left on.")
+        return 1
     print(f"[UnifAI Guard ERROR] Uninstall rejected status={status} body={data}")
-    if status >= 500:
-        print("[UnifAI Guard WARNING] Backend error — clearing local Guard settings.")
-        clear_guard_runtime()
-        return 0
     return 1
 
 
@@ -911,6 +906,7 @@ def main() -> None:
     def cleanup_and_exit(signum=None, frame=None):
         print("\n[UnifAI Guard] Shutting down agent...")
         stop_event.set()
+        clear_guard_runtime()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, cleanup_and_exit)
@@ -928,6 +924,7 @@ def main() -> None:
             stop_event.wait(2)
     finally:
         stop_event.set()
+        clear_guard_runtime()
 
 
 if __name__ == "__main__":

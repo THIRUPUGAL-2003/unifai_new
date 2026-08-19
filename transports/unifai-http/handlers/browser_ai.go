@@ -562,9 +562,18 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 				continue
 			}
 			violated, reason, evalErr := h.evaluateAIBotRule(ctx, rule, payload.Prompt)
-			if evalErr == nil && violated {
+			if evalErr != nil {
+				violated = true
+				if strings.TrimSpace(reason) == "" {
+					reason = "AI policy evaluation failed"
+				}
+			}
+			if violated {
 				ruleAction := strings.ToUpper(strings.TrimSpace(rule.Action))
 				if ruleAction == "" {
+					ruleAction = "BLOCK"
+				}
+				if evalErr != nil {
 					ruleAction = "BLOCK"
 				}
 				if ruleAction == "BLOCK" {
@@ -670,6 +679,23 @@ type aiBotEvalResult struct {
 	Explanation string `json:"explanation"`
 }
 
+func evaluatorChoiceText(resp *schemas.UnifAIChatResponse) string {
+	if resp == nil || len(resp.Choices) == 0 || resp.Choices[0].Message.Content == nil {
+		return ""
+	}
+	c := resp.Choices[0].Message.Content
+	if c.ContentStr != nil {
+		return strings.TrimSpace(*c.ContentStr)
+	}
+	var b strings.Builder
+	for _, block := range c.ContentBlocks {
+		if block.Text != nil {
+			b.WriteString(*block.Text)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func (h *BrowserAIHandler) evaluateAIBotRule(ctx *fasthttp.RequestCtx, rule logstore.BrowserGuardRule, userPrompt string) (bool, string, error) {
 	if h.client == nil {
 		return false, "", fmt.Errorf("unifai client not available")
@@ -733,11 +759,10 @@ Do NOT output markdown headings, backticks, or other text outside the JSON objec
 		return false, "", fmt.Errorf("ai bot evaluation failed: %v", unifaiErr)
 	}
 
-	if resp == nil || len(resp.Choices) == 0 || resp.Choices[0].Message.Content == nil {
+	rawText := evaluatorChoiceText(resp)
+	if rawText == "" {
 		return false, "", fmt.Errorf("empty response from evaluator model")
 	}
-
-	rawText := strings.TrimSpace(*resp.Choices[0].Message.Content.ContentStr)
 	// Strip markdown code fences if present
 	if strings.HasPrefix(rawText, "```json") {
 		rawText = strings.TrimPrefix(rawText, "```json")
@@ -754,7 +779,10 @@ Do NOT output markdown headings, backticks, or other text outside the JSON objec
 		if strings.Contains(lower, `"violation": true`) || strings.Contains(lower, `"violation":true`) {
 			return true, "AI policy violation detected", nil
 		}
-		return false, "", nil
+		if strings.Contains(lower, `"violation": false`) || strings.Contains(lower, `"violation":false`) {
+			return false, "", nil
+		}
+		return false, "", fmt.Errorf("evaluator returned non-json")
 	}
 
 	reason := res.Reason

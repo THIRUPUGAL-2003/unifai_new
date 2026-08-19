@@ -45,7 +45,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { ModelMultiselect } from "@/components/ui/modelMultiselect";
 import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions } from "./relatedHosts";
 
 import {
@@ -69,7 +68,7 @@ import {
 	BrowserControlSettings,
 	BrowserTargetWebsite,
 } from "@/lib/store/apis/browserAiApi";
-import { useGetProvidersQuery } from "@/lib/store/apis/providersApi";
+import { useGetProvidersQuery, useGetModelsQuery } from "@/lib/store/apis/providersApi";
 import { getApiBaseUrl } from "@/lib/utils/port";
 
 const DEFAULT_PROVIDER_MODELS: Record<string, string[]> = {
@@ -83,6 +82,52 @@ const DEFAULT_PROVIDER_MODELS: Record<string, string[]> = {
 	mistral: ["mistral-small-latest", "mistral-large-latest", "codestral-latest"],
 	ollama: ["llama3.2", "qwen2.5", "mistral"],
 };
+
+function GuardBotModelPicker({
+	provider,
+	value,
+	onChange,
+	disabled,
+}: {
+	provider: string;
+	value: string;
+	onChange: (model: string) => void;
+	disabled?: boolean;
+}) {
+	const providerKey = (provider || "").toLowerCase();
+	const { data, isFetching } = useGetModelsQuery(
+		{ provider: providerKey, limit: 1000, unfiltered: true },
+		{ skip: !providerKey },
+	);
+	const catalogNames = (data?.models || []).map((m) => m.name).filter((n): n is string => Boolean(n));
+	const fallback = DEFAULT_PROVIDER_MODELS[providerKey] || [];
+	const names = Array.from(new Set([...fallback, ...catalogNames, value].filter((n) => String(n).trim())));
+
+	return (
+		<div className="space-y-1.5">
+			<Select value={value || undefined} onValueChange={onChange} disabled={disabled || !providerKey}>
+				<SelectTrigger className="h-9 text-xs" data-testid="browser-ai-guard-bot-model">
+					<SelectValue placeholder={!providerKey ? "Select a provider first" : isFetching ? "Loading models..." : "Select model"} />
+				</SelectTrigger>
+				<SelectContent position="popper" className="z-[200] max-h-60">
+					{names.map((m) => (
+						<SelectItem key={m} value={m} className="text-xs">
+							{m}
+						</SelectItem>
+					))}
+				</SelectContent>
+			</Select>
+			<Input
+				className="h-8 text-xs"
+				placeholder="Or type a custom model name"
+				value={value}
+				onChange={(e) => onChange(e.target.value)}
+				disabled={disabled || !providerKey}
+				data-testid="browser-ai-guard-bot-model-custom"
+			/>
+		</div>
+	);
+}
 
 export default function BrowserAiPage() {
 	const [activeTab, setActiveTab] = useState("overview");
@@ -202,7 +247,7 @@ export default function BrowserAiPage() {
 	const availableProviderKeys = Object.keys(DEFAULT_PROVIDER_MODELS);
 	const allProviderNames = Array.from(
 		new Set([
-			...(Array.isArray(savedProviders) ? savedProviders.map((p: any) => p?.name || p) : []),
+			...(Array.isArray(savedProviders) ? savedProviders.map((p: any) => String(p?.name || p).toLowerCase()) : []),
 			...availableProviderKeys,
 		])
 	).filter(Boolean);
@@ -1379,14 +1424,16 @@ export default function BrowserAiPage() {
 															<Select
 																value={newRuleBotProvider}
 																onValueChange={(p) => {
-																	setNewRuleBotProvider(p);
-																	setNewRuleBotModel("");
+																	const key = String(p).toLowerCase();
+																	setNewRuleBotProvider(key);
+																	const first = (DEFAULT_PROVIDER_MODELS[key] || [])[0] || "";
+																	setNewRuleBotModel(first);
 																}}
 															>
 																<SelectTrigger className="h-9 text-xs">
 																	<SelectValue placeholder="Select Provider" />
 																</SelectTrigger>
-																<SelectContent>
+																<SelectContent className="z-[200]">
 																	{allProviderNames.map((p) => (
 																		<SelectItem key={p} value={p}>
 																			{p.toUpperCase()}
@@ -1397,18 +1444,10 @@ export default function BrowserAiPage() {
 														</div>
 														<div className="space-y-1.5">
 															<Label className="text-xs">Model Name</Label>
-															<ModelMultiselect
-																provider={newRuleBotProvider || undefined}
+															<GuardBotModelPicker
+																provider={newRuleBotProvider}
 																value={newRuleBotModel}
-																onChange={(m: string) => setNewRuleBotModel(m)}
-																isSingleSelect
-																placeholder={!newRuleBotProvider ? "Select a provider first" : "Search or type model name..."}
-																disabled={!newRuleBotProvider}
-																unfiltered={true}
-																className="!h-9 !min-h-9 w-full text-xs"
-																menuPosition="fixed"
-																menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
-																clearable
+																onChange={setNewRuleBotModel}
 															/>
 														</div>
 													</div>
@@ -2070,14 +2109,16 @@ export default function BrowserAiPage() {
 											<Select
 												value={editRuleBotProvider}
 												onValueChange={(p) => {
-													setEditRuleBotProvider(p);
-													setEditRuleBotModel("");
+													const key = String(p).toLowerCase();
+													setEditRuleBotProvider(key);
+													const first = (DEFAULT_PROVIDER_MODELS[key] || [])[0] || "";
+													setEditRuleBotModel(first);
 												}}
 											>
 												<SelectTrigger className="h-9 text-xs">
 													<SelectValue placeholder="Select Provider" />
 												</SelectTrigger>
-												<SelectContent>
+												<SelectContent className="z-[200]">
 													{allProviderNames.map((p) => (
 														<SelectItem key={p} value={p}>
 															{p.toUpperCase()}
@@ -2088,18 +2129,10 @@ export default function BrowserAiPage() {
 										</div>
 										<div className="space-y-1.5">
 											<Label className="text-xs">Model Name</Label>
-											<ModelMultiselect
-												provider={editRuleBotProvider || undefined}
+											<GuardBotModelPicker
+												provider={editRuleBotProvider}
 												value={editRuleBotModel}
-												onChange={(m: string) => setEditRuleBotModel(m)}
-												isSingleSelect
-												placeholder={!editRuleBotProvider ? "Select a provider first" : "Search or type model name..."}
-												disabled={!editRuleBotProvider}
-												unfiltered={true}
-												className="!h-9 !min-h-9 w-full text-xs"
-												menuPosition="fixed"
-												menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
-												clearable
+												onChange={setEditRuleBotModel}
 											/>
 										</div>
 									</div>

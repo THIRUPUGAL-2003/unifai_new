@@ -19,6 +19,21 @@ import (
 var pacHostSafe = regexp.MustCompile(`^[a-z0-9.-]+$`)
 var pacProxyAddrSafe = regexp.MustCompile(`^[A-Za-z0-9.:\[\]-]+$`)
 var nicGUID = regexp.MustCompile(`(?i)\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}`)
+var secretTokenPrefix = regexp.MustCompile(`(?i)^(sk-|sk-ant-|sk-proj-|sk-admin-|ghp_|gho_|github_pat_|akia|aizasy|pcsk_)`)
+
+func looksLikeSecretToken(s string) bool {
+	return secretTokenPrefix.MatchString(strings.TrimSpace(s))
+}
+
+func isPhoneLikeRule(name, pattern string) bool {
+	n := strings.ToLower(name)
+	p := strings.ToLower(pattern)
+	if strings.Contains(n, "phone") || strings.Contains(n, "mobile") || strings.Contains(n, "cell") {
+		return true
+	}
+	return strings.Contains(p, `\d{8`) || strings.Contains(p, `\d{9`) || strings.Contains(p, `\d{10`) ||
+		strings.Contains(p, `\d{11`) || strings.Contains(p, `[0-9]{10`)
+}
 
 type BrowserAILog struct {
 	ID                string    `gorm:"primaryKey" json:"id"`
@@ -608,6 +623,8 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 	if target.ID == "" {
 		target.ID = "tgt-" + uuid.New().String()[:8]
 	}
+	parentMonitored := true
+	parentBlockSite := false
 	target.ParentID = strings.TrimSpace(target.ParentID)
 	if target.ParentID != "" {
 		if target.ParentID == target.ID {
@@ -618,15 +635,27 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 				target.ParentID = ""
 			} else if strings.TrimSpace(parent.ParentID) != "" {
 				target.ParentID = parent.ParentID
+				parentMonitored = parent.Monitored
+				parentBlockSite = parent.BlockSite
 			} else {
 				target.ParentID = parent.ID
+				parentMonitored = parent.Monitored
+				parentBlockSite = parent.BlockSite
 			}
 		}
 	}
-	// Always enable PAC routing for new targets; block_site optionally locks the whole site.
-	target.Monitored = true
+	if target.ParentID != "" {
+		target.Monitored = parentMonitored
+		if parentBlockSite {
+			target.BlockSite = true
+		}
+	} else {
+		target.Monitored = true
+	}
 	if target.BlockSite {
 		target.Status = "BLOCKED"
+	} else if !target.Monitored {
+		target.Status = "PAUSED"
 	} else {
 		target.Status = "MONITORED"
 	}
@@ -696,7 +725,32 @@ func (m *BrowserAIManager) UpdateTarget(ctx context.Context, id string, updates 
 			}
 		}
 	}
-	return m.db.WithContext(ctx).Model(&BrowserTargetWebsite{}).Where("id = ?", id).Updates(filtered).Error
+	if err := m.db.WithContext(ctx).Model(&BrowserTargetWebsite{}).Where("id = ?", id).Updates(filtered).Error; err != nil {
+		return err
+	}
+	child := map[string]any{}
+	if mon, ok := filtered["monitored"].(bool); ok {
+		child["monitored"] = mon
+		if st, ok := filtered["status"].(string); ok && st != "" {
+			child["status"] = st
+		} else if mon {
+			child["status"] = "MONITORED"
+		} else {
+			child["status"] = "PAUSED"
+		}
+	}
+	if bs, ok := filtered["block_site"].(bool); ok {
+		child["block_site"] = bs
+		if _, hasStatus := child["status"]; !hasStatus {
+			if bs {
+				child["status"] = "BLOCKED"
+			}
+		}
+	}
+	if len(child) > 0 {
+		_ = m.db.WithContext(ctx).Model(&BrowserTargetWebsite{}).Where("parent_id = ?", id).Updates(child).Error
+	}
+	return nil
 }
 
 func (m *BrowserAIManager) DeleteTarget(ctx context.Context, id string) error {
@@ -757,40 +811,74 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		riskScore += 15
 	}
 
+	sort.SliceStable(rules, func(i, j int) bool {
+		pi := isPhoneLikeRule(rules[i].Name, rules[i].Pattern)
+		pj := isPhoneLikeRule(rules[j].Name, rules[j].Pattern)
+		return pi != pj && !pi && pj
+	})
+
 	for _, rule := range rules {
 		if strings.ToLower(rule.RuleType) == "ai_bot" || rule.Pattern == "" {
 			continue
 		}
-		re, err := regexp.Compile(rule.Pattern)
-		if err == nil && re.MatchString(promptFull) {
-			ruleTriggered = rule.Name
-			matchedWarning = strings.TrimSpace(rule.WarningMessage)
-			ruleAction := strings.ToUpper(strings.TrimSpace(rule.Action))
-			if ruleAction == "" {
-				ruleAction = "BLOCK"
+		re, err := regexp.Compile("(?i)" + rule.Pattern)
+		if err != nil || !re.MatchString(promptFull) {
+			continue
+		}
+		if isPhoneLikeRule(rule.Name, rule.Pattern) && looksLikeSecretToken(promptFull) {
+			continue
+		}
+		if loc := re.FindStringIndex(promptFull); loc != nil && loc[0] >= 3 {
+			if strings.EqualFold(promptFull[loc[0]-3:loc[0]], "sk-") {
+				continue
 			}
+		}
+		ruleTriggered = rule.Name
+		matchedWarning = strings.TrimSpace(rule.WarningMessage)
+		ruleAction := strings.ToUpper(strings.TrimSpace(rule.Action))
+		if ruleAction == "" {
+			ruleAction = "BLOCK"
+		}
 
-			if ruleAction == "BLOCK" {
+		if ruleAction == "BLOCK" {
+			action = "Blocked"
+			status = fmt.Sprintf("Blocked (%s)", rule.Name)
+			riskScore = 95
+			predictiveRisk = "CRITICAL"
+			predictedCategory = "SECURITY_POLICY_VIOLATION"
+			break
+		} else if ruleAction == "REDACT" {
+			action = "Redacted"
+			status = fmt.Sprintf("Redacted (%s)", rule.Name)
+			riskScore = 80
+			predictiveRisk = "HIGH"
+			predictedCategory = "SECRET_LEAK_REDACTED"
+			promptFull = re.ReplaceAllString(promptFull, "[REDACTED_BY_UNIFAI]")
+			break
+		} else if ruleAction == "WARN" {
+			action = "Warned"
+			status = fmt.Sprintf("Warned (%s)", rule.Name)
+			riskScore = 55
+			predictiveRisk = "MEDIUM"
+			predictedCategory = "SUSPICIOUS_CONTENT"
+			break
+		}
+	}
+
+	if action == "Allowed" && looksLikeSecretToken(promptFull) {
+		for _, rule := range rules {
+			n := strings.ToLower(rule.Name)
+			if strings.Contains(n, "phone") || strings.Contains(n, "mobile") {
+				continue
+			}
+			if strings.Contains(n, "api") || strings.Contains(n, "key") || strings.Contains(n, "secret") || strings.Contains(n, "token") || strings.Contains(n, "openai") {
+				ruleTriggered = rule.Name
+				matchedWarning = strings.TrimSpace(rule.WarningMessage)
 				action = "Blocked"
 				status = fmt.Sprintf("Blocked (%s)", rule.Name)
 				riskScore = 95
 				predictiveRisk = "CRITICAL"
 				predictedCategory = "SECURITY_POLICY_VIOLATION"
-				break
-			} else if ruleAction == "REDACT" {
-				action = "Redacted"
-				status = fmt.Sprintf("Redacted (%s)", rule.Name)
-				riskScore = 80
-				predictiveRisk = "HIGH"
-				predictedCategory = "SECRET_LEAK_REDACTED"
-				promptFull = re.ReplaceAllString(promptFull, "[REDACTED_BY_UNIFAI]")
-				break
-			} else if ruleAction == "WARN" {
-				action = "Warned"
-				status = fmt.Sprintf("Warned (%s)", rule.Name)
-				riskScore = 55
-				predictiveRisk = "MEDIUM"
-				predictedCategory = "SUSPICIOUS_CONTENT"
 				break
 			}
 		}

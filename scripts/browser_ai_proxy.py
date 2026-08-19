@@ -15,6 +15,7 @@ Features:
 import json
 import os
 import re
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -69,7 +70,7 @@ UPLOAD_CONTENT_TYPES = (
 # Paths to ignore (telemetry, analytics, pings, ChatGPT control-plane noise)
 IGNORE_PATH_PATTERNS = [
     "/ces/v1/t", "/ces/", "/telemetry", "/analytics", "/segment",
-    "/log", "/ping", "/event", "/tracking", "/monitoring",
+    "/log", "/ping", "/tracking", "/monitoring",
     "/metrics", "/web-reports", "/title", "/rgstr", "/beacon", "/health",
     # ChatGPT / OpenAI non-prompt API calls
     "/sentinel/", "/conversation/init", "/generate_autocompletions",
@@ -132,6 +133,7 @@ BLOCK_DEDUPE_TTL = 30
 _cached_domains: dict = DEFAULT_TARGET_DOMAINS.copy()
 _cached_blocked: dict = {}  # domain -> platform_name (full site lock)
 _cached_rules: list = []   # list of {"name": str, "pattern": str, "action": str, "active": bool}
+_cached_has_ai_bot = False
 _domains_fetched_at: float = 0
 _rules_fetched_at: float = 0
 _recent_prompts: dict = {}  # key -> timestamp
@@ -141,6 +143,7 @@ _cached_controls: dict = {
     "upload_warning": "",
 }
 _controls_fetched_at: float = 0
+_controls_from_backend = False
 
 
 # ─────────────────────────────────────────────
@@ -270,7 +273,7 @@ def get_guard_rules() -> list:
     Returns only admin-created rules. Empty list means nothing is matched.
     Never falls back to hardcoded patterns.
     """
-    global _cached_rules, _rules_fetched_at
+    global _cached_rules, _cached_has_ai_bot, _rules_fetched_at
     now = time.time()
     if now - _rules_fetched_at < CACHE_TTL:
         return _cached_rules
@@ -279,15 +282,19 @@ def get_guard_rules() -> list:
     if data is not None:
         rules = data.get("rules", [])
         compiled = []
+        has_ai_bot = False
         for r in rules:
             if not r.get("active", False):
                 continue
+            if str(r.get("rule_type") or "").strip().lower() == "ai_bot" and str(r.get("bot_prompt") or "").strip():
+                has_ai_bot = True
             pattern = r.get("pattern", "").strip()
             if not pattern:
                 continue
             try:
                 compiled.append({
                     "name": r.get("name", "Unknown Rule"),
+                    "pattern": pattern,
                     "regex": re.compile(pattern, re.IGNORECASE),
                     "action": r.get("action", "BLOCK"),  # BLOCK, WARN, or REDACT
                     "severity": r.get("severity", "HIGH"),
@@ -296,6 +303,7 @@ def get_guard_rules() -> list:
             except re.error:
                 pass
         _cached_rules = compiled
+        _cached_has_ai_bot = has_ai_bot
         _rules_fetched_at = now
         print(f"[UnifAI Proxy] Refreshed {len(compiled)} guard rules from backend.")
         return _cached_rules
@@ -304,9 +312,27 @@ def get_guard_rules() -> list:
     return _cached_rules
 
 
+def has_ai_bot_rules() -> bool:
+    get_guard_rules()
+    return bool(_cached_has_ai_bot)
+
+
+def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str) -> tuple[bool, str, str, str, str]:
+    """Regex rules decide locally. AI Guard Bot rules must wait for backend LLM eval."""
+    if has_ai_bot_rules():
+        return send_to_backend(platform, domain, prompt, client_ip, url, method)
+    allowed, rule_triggered, action, redacted_prompt, reply_text = decide_prompt_locally(prompt)
+    log_prompt_async(platform, domain, prompt, client_ip, url, method)
+    return allowed, rule_triggered, action, redacted_prompt, reply_text
+
+
+def _fail_open() -> bool:
+    return os.getenv("UNIFAI_FAIL_OPEN", "").strip() in ("1", "true", "TRUE", "yes", "YES")
+
+
 def get_control_settings() -> dict:
     """Fetch browser interaction controls from backend every CACHE_TTL seconds."""
-    global _cached_controls, _controls_fetched_at
+    global _cached_controls, _controls_fetched_at, _controls_from_backend
     now = time.time()
     if now - _controls_fetched_at < CACHE_TTL and _cached_controls:
         return _cached_controls
@@ -320,6 +346,7 @@ def get_control_settings() -> dict:
             "upload_warning": (c.get("upload_warning") or "").strip(),
         }
         _controls_fetched_at = now
+        _controls_from_backend = True
         print(
             "[UnifAI Proxy] Controls refreshed | "
             f"enabled={_cached_controls['enabled']} "
@@ -329,14 +356,83 @@ def get_control_settings() -> dict:
 
 
 def controls_active(key: str) -> bool:
-    """True when master enable is on and the named control is enabled."""
+    """True when master enable is on and the named control is enabled.
+
+    If controls were never loaded from the backend, fail-closed (same as prompts)
+    unless UNIFAI_FAIL_OPEN=1.
+    """
     c = get_control_settings()
-    return bool(c.get("enabled")) and bool(c.get(key))
+    if _controls_from_backend:
+        return bool(c.get("enabled")) and bool(c.get(key))
+    return not _fail_open()
 
 
 # ─────────────────────────────────────────────
 # Helper Functions
 # ─────────────────────────────────────────────
+
+def looks_like_secret_token(text: str) -> bool:
+    t = (text or "").strip()
+    return bool(re.match(r"^(sk-|sk-ant-|sk-proj-|sk-admin-|ghp_|gho_|github_pat_|AKIA|AIzaSy|pcsk_)", t, re.I))
+
+
+def is_phone_like_rule(name: str, pattern: str = "") -> bool:
+    n = (name or "").lower()
+    p = (pattern or "").lower()
+    if any(x in n for x in ("phone", "mobile", "cell")):
+        return True
+    return any(x in p for x in (r"\d{8", r"\d{9", r"\d{10", r"\d{11", "[0-9]{10"))
+
+
+def rule_matches_prompt(rule: dict, prompt: str) -> bool:
+    regex = rule.get("regex")
+    if regex is None or not prompt:
+        return False
+    m = regex.search(prompt)
+    if not m:
+        return False
+    if is_phone_like_rule(rule.get("name", ""), rule.get("pattern", "")) and looks_like_secret_token(prompt):
+        return False
+    if m.start() >= 3 and prompt[m.start() - 3 : m.start()].lower() == "sk-":
+        return False
+    return True
+
+
+def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
+    rules = sorted(
+        get_guard_rules(),
+        key=lambda r: 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0,
+    )
+    for r in rules:
+        if not rule_matches_prompt(r, prompt):
+            continue
+        rule_action = (r.get("action") or "BLOCK").upper()
+        if rule_action == "REDACT":
+            redacted = r["regex"].sub("[REDACTED_BY_UNIFAI]", prompt)
+            return True, r["name"], "Redacted", redacted, ""
+        if rule_action == "BLOCK":
+            return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
+        if rule_action == "WARN":
+            return True, r["name"], "Warned", prompt, ""
+    if looks_like_secret_token(prompt):
+        for r in rules:
+            n = (r.get("name") or "").lower()
+            if any(x in n for x in ("phone", "mobile")):
+                continue
+            if any(x in n for x in ("api", "key", "secret", "token", "openai")):
+                return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
+    return True, "", "Allowed", prompt, ""
+
+
+def log_prompt_async(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str) -> None:
+    def _run() -> None:
+        try:
+            send_to_backend(platform, domain, prompt, client_ip, url, method)
+        except Exception:
+            pass
+
+    threading.Thread(target=_run, daemon=True).start()
+
 
 def is_noise_host(host: str) -> bool:
     """Skip analytics / CDN / challenge hosts that share a parent AI domain."""
@@ -352,16 +448,61 @@ def is_noise_host(host: str) -> bool:
     return False
 
 
+def _path_has_ignore_pattern(path: str) -> bool:
+    """Match ignore tokens as path segments, not substrings (/event must not match /event-stream)."""
+    p = (path or "").lower().split("?", 1)[0]
+    if not p:
+        return False
+    for n in IGNORE_PATH_PATTERNS:
+        n = (n or "").lower()
+        if not n:
+            continue
+        if n.endswith("/"):
+            if n in p:
+                return True
+            continue
+        idx = 0
+        while True:
+            idx = p.find(n, idx)
+            if idx < 0:
+                break
+            before_ok = idx == 0 or p[idx - 1] == "/"
+            after_idx = idx + len(n)
+            after_ok = after_idx >= len(p) or p[after_idx] in "/?"
+            if before_ok and after_ok:
+                return True
+            idx += 1
+    return False
+
+
 def is_chat_path(path: str) -> bool:
     """True when URL path looks like an actual chat/prompt submit endpoint or general API on any target website."""
     p = (path or "").lower().split("?", 1)[0]
     if not p:
         return True
-    if any(n in p for n in IGNORE_PATH_PATTERNS):
+    if _path_has_ignore_pattern(p):
         return False
     if NOISE_EXTENSIONS.search(p):
         return False
     return True
+
+
+def _is_google_wire_blob(text: str) -> bool:
+    """True for Gemini/Bard encoded tokens (CAM..., CAES..., base64url) — not user-typed text."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if t.startswith("gAAAA") or '"p":"gAAAA' in t:
+        return True
+    # CAMShQ8... / CAES... protobuf-ish conversation blobs (screenshot noise)
+    if re.match(r"^CA[A-Z][A-Za-z0-9_-]{10,}", t):
+        return True
+    if " " in t or "\n" in t:
+        return False
+    if len(t) >= 24 and re.fullmatch(r"[A-Za-z0-9_\-+/=]+", t):
+        if any(c.isupper() for c in t) and any(c.islower() for c in t) and ("-" in t or "_" in t):
+            return True
+    return False
 
 
 def looks_like_user_prompt(text: str) -> bool:
@@ -375,6 +516,8 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
     t = text.strip()
     if len(t) < 1:
+        return False
+    if _is_google_wire_blob(t):
         return False
     if t.startswith("gAAAA") or '"p":"gAAAA' in t:
         return False
@@ -444,7 +587,7 @@ def is_noise(path: str, content: str = "") -> bool:
     if NOISE_EXTENSIONS.search(path_lower):
         return True
 
-    if any(p in path_lower for p in IGNORE_PATH_PATTERNS):
+    if _path_has_ignore_pattern(path_lower):
         return True
 
     # Partial typing / autocomplete — not a submitted prompt
@@ -980,22 +1123,32 @@ def extract_gemini_prompt(content: str) -> str:
             return False
         return len(s) >= 1
 
+    def _pick_user_prompt(cands: list[str]) -> str:
+        good = []
+        for raw in cands:
+            cand = _normalize_prompt(raw)
+            if _is_valid_user_prompt(cand) and not _is_google_wire_blob(cand):
+                good.append(cand)
+        if not good:
+            return ""
+        # Prefer real sentences over a leftover token in the same payload.
+        good.sort(key=lambda s: (1 if (" " in s or "\n" in s) else 0, len(s)), reverse=True)
+        return good[0]
+
     def _from_stream_inner(inner) -> str:
         """StreamGenerate structure: [[[prompt, 0, null, ...], [locale], ...]] or [[prompt, 0, ...]]"""
         if not isinstance(inner, list) or not inner:
             return ""
 
+        cands: list[str] = []
+
         # Primary Gemini chat format: inner[0] is list where inner[0][0] is [prompt, 0, ...]
         if len(inner) > 0 and isinstance(inner[0], list):
             first = inner[0]
             if len(first) > 0 and isinstance(first[0], list) and len(first[0]) > 0 and isinstance(first[0][0], str):
-                cand = _normalize_prompt(first[0][0])
-                if _is_valid_user_prompt(cand):
-                    return cand
+                cands.append(first[0][0])
             if len(first) > 0 and isinstance(first[0], str) and len(first) > 1 and (first[1] == 0 or first[1] is None):
-                cand = _normalize_prompt(first[0])
-                if _is_valid_user_prompt(cand):
-                    return cand
+                cands.append(first[0])
 
         # Iterate only to find prompt slot with exact [str, 0, ...] signature
         for item in inner:
@@ -1003,10 +1156,8 @@ def extract_gemini_prompt(content: str) -> str:
                 sub = item[0]
                 if isinstance(sub, list) and len(sub) > 0 and isinstance(sub[0], str):
                     if len(sub) > 1 and sub[1] == 0:
-                        cand = _normalize_prompt(sub[0])
-                        if _is_valid_user_prompt(cand):
-                            return cand
-        return ""
+                        cands.append(sub[0])
+        return _pick_user_prompt(cands)
 
     try:
         data = json.loads(req_str)
@@ -1055,16 +1206,17 @@ def extract_gemini_prompt(content: str) -> str:
     except Exception:
         pass
 
-    # 3. Targeted Regex extraction for the exact Gemini user-message slot [[ "prompt", 0
-    for pat in (
-        r'\[\s*\[\s*"((?:[^"\\]|\\.)+?)"\s*,\s*0\s*,',
-        r'\\"((?:[^"\\]|\\.)+?)\\"\s*,\s*0\s*,',
-    ):
-        m = re.search(pat, req_str)
-        if m:
-            cand = _normalize_prompt(m.group(1))
-            if _is_valid_user_prompt(cand):
-                return cand
+    # 3. Slot regex only when a known chat RPC id is present (skip telemetry batchexecute).
+    if any(rpc in req_str for rpc in GEMINI_CHAT_RPCS):
+        for pat in (
+            r'\[\s*\[\s*"((?:[^"\\]|\\.)+?)"\s*,\s*0\s*,',
+            r'\\"((?:[^"\\]|\\.)+?)\\"\s*,\s*0\s*,',
+        ):
+            m = re.search(pat, req_str)
+            if m:
+                cand = _normalize_prompt(m.group(1))
+                if _is_valid_user_prompt(cand):
+                    return cand
 
     return ""
 
@@ -1136,9 +1288,12 @@ def check_guard_rules(content: str) -> tuple[bool, str, str]:
     Check content against all active DLP guard rules fetched from backend.
     Returns (is_blocked, rule_name, action)
     """
-    rules = get_guard_rules()
+    rules = sorted(
+        get_guard_rules(),
+        key=lambda r: 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0,
+    )
     for rule in rules:
-        if rule["regex"].search(content):
+        if rule_matches_prompt(rule, content):
             return True, rule["name"], rule["action"]
     return False, "", ""
 
@@ -1179,8 +1334,8 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             method="POST"
         )
 
-        # Reply Bot may call an LLM — allow up to 25s
-        with urllib.request.urlopen(req, timeout=25) as response:
+        # Reply Bot may call an LLM — keep a bound so chat UIs do not hang forever
+        with urllib.request.urlopen(req, timeout=8) as response:
             if response.status == 200:
                 res_data = json.loads(response.read().decode("utf-8"))
                 allowed = res_data.get("allowed", True)
@@ -1193,9 +1348,13 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
         pass
 
     # Fallback: apply guard rules locally if backend is down
-    rules = get_guard_rules()
+    rules = sorted(
+        get_guard_rules(),
+        key=lambda r: 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0,
+    )
     for r in rules:
-        if r["regex"].search(prompt):
+        if not rule_matches_prompt(r, prompt):
+            continue
             rule_action = r.get("action", "BLOCK").upper()
             if rule_action == "REDACT":
                 redacted = r["regex"].sub("[REDACTED_BY_UNIFAI]", prompt)
@@ -1207,8 +1366,7 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
 
     # Fail-closed when backend is unreachable (enterprise safe default).
     # Set UNIFAI_FAIL_OPEN=1 to allow prompts when backend + local rules miss.
-    fail_open = os.getenv("UNIFAI_FAIL_OPEN", "").strip() in ("1", "true", "TRUE", "yes", "YES")
-    if fail_open:
+    if _fail_open():
         return True, "", "Allowed", prompt, ""
     return (
         False,
@@ -1374,7 +1532,7 @@ def inject_websocket_reply(flow: http.HTTPFlow, host: str, reply_text: str) -> N
 
     host_l = (host or "").lower()
 
-    if "copilot.microsoft.com" in host_l or "bing.com" in host_l or "sydney" in host_l:
+    if "copilot" in host_l or "bing.com" in host_l or "sydney" in host_l:
         frames = _ws_frames_copilot(reply)
     elif "claude.ai" in host_l or "anthropic.com" in host_l:
         frames = _ws_frames_claude(reply)
@@ -1424,21 +1582,42 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         "Cache-Control": "no-cache",
     }
 
-    # Host-first routing (never use loose path matches that cross platforms)
-    # ── ChatGPT ──
-    if "chatgpt.com" in host_l or "chat.openai.com" in host_l:
+    # Wire-format routing for in-chat replies. Any admin-added host can hit these
+    # when the request looks like that product's API (not a default target list).
+    chatgpt_body = None
+    try:
+        parsed = json.loads((flow.request.content or b"").decode("utf-8", errors="ignore") or "")
+        if isinstance(parsed, dict) and isinstance(parsed.get("messages"), list):
+            if "conversation_id" in parsed or "parent_message_id" in parsed:
+                chatgpt_body = parsed
+            elif any(isinstance(m, dict) and isinstance(m.get("author"), dict) for m in parsed["messages"]):
+                chatgpt_body = parsed
+    except Exception:
+        chatgpt_body = None
+
+    # ── ChatGPT-shaped conversation APIs ──
+    if chatgpt_body is not None or "chatgpt.com" in host_l or "chat.openai.com" in host_l:
         user_msg_id = ""
         conv_id = None
-        try:
-            req_data = json.loads(flow.request.content.decode("utf-8", errors="ignore"))
-            conv_id = req_data.get("conversation_id")
-            msgs = req_data.get("messages") or []
-            if msgs and isinstance(msgs, list) and isinstance(msgs[0], dict):
-                user_msg_id = msgs[0].get("id", "")
-            if not user_msg_id:
-                user_msg_id = req_data.get("parent_message_id", "")
-        except Exception:
-            pass
+        req_data = chatgpt_body if isinstance(chatgpt_body, dict) else {}
+        if not req_data:
+            try:
+                req_data = json.loads(flow.request.content.decode("utf-8", errors="ignore"))
+            except Exception:
+                req_data = {}
+        if not isinstance(req_data, dict):
+            req_data = {}
+        conv_id = req_data.get("conversation_id")
+        user_msg_id = req_data.get("parent_message_id") or ""
+        msgs = req_data.get("messages") or []
+        if isinstance(msgs, list):
+            for m in reversed(msgs):
+                if not isinstance(m, dict):
+                    continue
+                author = m.get("author") if isinstance(m.get("author"), dict) else {}
+                if (author.get("role") or "").lower() == "user" and m.get("id"):
+                    user_msg_id = m.get("id")
+                    break
 
         import uuid
         reply_msg_id = str(uuid.uuid4())
@@ -1474,8 +1653,25 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         return
 
     # ── Claude.ai ──
-    if "claude.ai" in host_l or "anthropic.com" in host_l:
-        # Dual format: Anthropic Messages SSE + legacy Claude web "completion" events
+    if "claude.ai" in host_l:
+        claude_sse = (
+            "event: completion\n"
+            f"data: {json.dumps({'completion': msg, 'stop_reason': None, 'model': 'unifai-guard', 'stop': None, 'log_id': 'unifai_block'})}\n\n"
+            "event: completion\n"
+            f"data: {json.dumps({'completion': '', 'stop_reason': 'stop_sequence', 'model': 'unifai-guard', 'stop': '', 'log_id': 'unifai_block'})}\n\n"
+        )
+        flow.response = http.Response.make(
+            200,
+            claude_sse.encode("utf-8"),
+            {
+                **common_headers,
+                "Content-Type": "text/event-stream; charset=utf-8",
+                "X-Accel-Buffering": "no",
+            },
+        )
+        return
+
+    if "anthropic.com" in host_l:
         claude_sse = (
             'event: message_start\n'
             'data: {"type":"message_start","message":{"id":"msg_unifai_block","type":"message",'
@@ -1490,10 +1686,6 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
             'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}\n\n'
             'event: message_stop\n'
             'data: {"type":"message_stop"}\n\n'
-            'event: completion\n'
-            f'data: {{"completion":{msg_json},"stop_reason":null,"model":"unifai-guard","stop":null,"log_id":"unifai_block"}}\n\n'
-            'event: completion\n'
-            'data: {"completion":"","stop_reason":"stop_sequence","model":"unifai-guard","stop":"","log_id":"unifai_block"}\n\n'
         )
         flow.response = http.Response.make(
             200,
@@ -1506,12 +1698,8 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         )
         return
 
-    # ── Microsoft Copilot ──
-    if (
-        "copilot.microsoft.com" in host_l
-        or "bing.com" in host_l
-        or ("microsoft.com" in host_l and "copilot" in path)
-    ):
+    # ── Microsoft Copilot / Bing (any host with copilot or bing in the name) ──
+    if "copilot" in host_l or "bing.com" in host_l or "sydney" in host_l:
         copilot_sse = (
             "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":"
             f"{msg_json}"
@@ -1862,11 +2050,16 @@ class BrowserAIInterceptor:
             return
         if not looks_like_user_prompt(prompt):
             return
+        if _is_google_wire_blob(prompt):
+            return
 
-        # Gemini batchexecute is telemetry unless a valid prompt was extracted
+        # Gemini batchexecute background RPCs: only StreamGenerate / known chat RPCs.
         path_l = (path or "").lower()
-        if "batchexecute" in path_l and "streamgenerate" not in path_l:
-            if not looks_like_user_prompt(prompt):
+        compact = path_l.replace("_", "")
+        if "batchexecute" in path_l and "streamgenerate" not in compact:
+            if not any(rpc in raw_text for rpc in GEMINI_CHAT_RPCS):
+                return
+            if " " not in prompt.strip() and len(prompt.strip()) > 24:
                 return
 
         # Skip duplicate / typing-repeat submissions
@@ -1875,8 +2068,7 @@ class BrowserAIInterceptor:
 
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
 
-        # ── Send to Backend & Get Decision ──
-        allowed, rule_triggered, action, redacted_prompt, reply_text = send_to_backend(
+        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
             platform=platform,
             domain=domain,
             prompt=prompt,
@@ -1945,7 +2137,7 @@ class BrowserAIInterceptor:
         client_ip = get_client_ip(flow)
         print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
 
-        allowed, rule_triggered, action, redacted_prompt, reply_text = send_to_backend(
+        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
             platform=platform,
             domain=domain,
             prompt=prompt,
