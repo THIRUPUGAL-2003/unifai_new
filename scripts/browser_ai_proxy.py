@@ -909,13 +909,16 @@ def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
     return False, "", ""
 
 
+GEMINI_CHAT_RPCS = {"hR32Ce", "vyAQhe", "wXbdQc", "BardFrontendService", "StreamGenerate"}
+
+
 def extract_gemini_prompt(content: str) -> str:
     """
     Extract ONLY the user-typed prompt from Gemini/Bard requests.
 
     Real chat submits go to BardFrontendService/StreamGenerate or chat RPCs:
       f.req=[null,"[[\\"what is python\\\\n\\",0,null,...], ...]"]
-    Background/telemetry batchexecute RPCs (otAQ7b, ESY5D, L5adhe, etc.) are ignored.
+    Background/telemetry batchexecute RPCs (ESY5D, L5adhe, VxUbXb, aPya6c, etc.) are ignored.
     """
     decoded = urllib.parse.unquote(content)
     req_str = decoded
@@ -947,49 +950,67 @@ def extract_gemini_prompt(content: str) -> str:
             )
         return re.sub(r"\s+", " ", s).strip()
 
-    def _is_candidate(s: str) -> bool:
+    def _is_valid_user_prompt(s: str) -> bool:
         if not s:
             return False
         s = _normalize_prompt(s)
         if not looks_like_user_prompt(s):
             return False
-        # Reject Gemini internal RPC ids, conversation tokens, or system markers
-        if s.startswith(("c_", "r_", "v_", "rc_")):
+        # Reject language/locale codes: en-IN, en-US, ta-IN, hi-IN, zh-CN, etc.
+        if re.fullmatch(r"[a-z]{2}(-[A-Z]{2,3})?", s):
             return False
-        if " " not in s and re.fullmatch(r"[A-Za-z][A-Za-z0-9_\-]{3,20}", s):
-            has_mixed = any(ch.isupper() for ch in s[1:]) and any(ch.islower() for ch in s)
-            if has_mixed:
-                return False
+        # Reject numbers/counters: "1", "2", "3", etc.
+        if s.isdigit():
+            return False
+        # Reject dot-tokens like "z.fdeb774424ec3df1", "c.123...", "f.req"
+        if re.match(r"^[a-z]\.[a-f0-9]{8,}", s, re.IGNORECASE):
+            return False
+        # Reject raw hex hashes or uuid-like hashes without spaces
+        if " " not in s and re.fullmatch(r"[0-9a-fA-F]{10,64}", s):
+            return False
+        # Reject tokens starting with c_, r_, v_, rc_, f_, z_
+        if s.startswith(("c_", "r_", "v_", "rc_", "f_", "z_", "req0_")):
+            return False
         low = s.lower()
         if any(bad in low for bad in (
             "bard activity", "generic", "batchexecute", "wrb.fr",
             "assistant.lamda", "bardfrontendservice", "google account",
-            "model_metadata", "conversation_turn", "workspace_id"
+            "model_metadata", "conversation_turn", "workspace_id", "count=", "&ofs="
         )):
             return False
         return len(s) >= 1
 
     def _from_stream_inner(inner) -> str:
-        """StreamGenerate payload: [[prompt, 0, null, ...], [locale], ...]"""
+        """StreamGenerate structure: [[[prompt, 0, null, ...], [locale], ...]] or [[prompt, 0, ...]]"""
         if not isinstance(inner, list) or not inner:
             return ""
-        # Primary Gemini chat structure: inner[0] is [prompt, 0, ...]
-        if len(inner) > 0 and isinstance(inner[0], list) and len(inner[0]) > 0 and isinstance(inner[0][0], str):
-            cand = _normalize_prompt(inner[0][0])
-            if _is_candidate(cand):
-                return cand
-        # Secondary Gemini chat structure: search inner lists with message slot
+
+        # Primary Gemini chat format: inner[0] is list where inner[0][0] is [prompt, 0, ...]
+        if len(inner) > 0 and isinstance(inner[0], list):
+            first = inner[0]
+            if len(first) > 0 and isinstance(first[0], list) and len(first[0]) > 0 and isinstance(first[0][0], str):
+                cand = _normalize_prompt(first[0][0])
+                if _is_valid_user_prompt(cand):
+                    return cand
+            if len(first) > 0 and isinstance(first[0], str) and len(first) > 1 and (first[1] == 0 or first[1] is None):
+                cand = _normalize_prompt(first[0])
+                if _is_valid_user_prompt(cand):
+                    return cand
+
+        # Iterate only to find prompt slot with exact [str, 0, ...] signature
         for item in inner:
-            if isinstance(item, list) and len(item) > 0 and isinstance(item[0], str):
-                if len(item) > 1 and (item[1] == 0 or item[1] is None or isinstance(item[1], int)):
-                    cand = _normalize_prompt(item[0])
-                    if _is_candidate(cand):
-                        return cand
+            if isinstance(item, list) and len(item) > 0:
+                sub = item[0]
+                if isinstance(sub, list) and len(sub) > 0 and isinstance(sub[0], str):
+                    if len(sub) > 1 and sub[1] == 0:
+                        cand = _normalize_prompt(sub[0])
+                        if _is_valid_user_prompt(cand):
+                            return cand
         return ""
 
-    # 1. Parse outer JSON structure [null, "<inner json string>", ...]
     try:
         data = json.loads(req_str)
+        # 1. StreamGenerate payload: [null, "<json_string>", ...]
         if isinstance(data, list) and len(data) >= 2 and isinstance(data[1], str):
             try:
                 inner = json.loads(data[1])
@@ -999,7 +1020,7 @@ def extract_gemini_prompt(content: str) -> str:
             except Exception:
                 pass
 
-        # 2. batchexecute chat RPCs: [[["RpcId", "<payload json>", null, "generic"]], ...]
+        # 2. batchexecute: ONLY check recognized chat RPCs
         if isinstance(data, list):
             for rpc in data:
                 item = None
@@ -1008,6 +1029,9 @@ def extract_gemini_prompt(content: str) -> str:
                 elif isinstance(rpc, list) and len(rpc) > 1 and isinstance(rpc[1], str):
                     item = rpc
                 if not item or len(item) < 2:
+                    continue
+                rpc_id = str(item[0])
+                if rpc_id not in GEMINI_CHAT_RPCS:
                     continue
                 payload_str = item[1]
                 if not isinstance(payload_str, str) or payload_str in ("", "[]", "[[]]"):
@@ -1033,14 +1057,13 @@ def extract_gemini_prompt(content: str) -> str:
 
     # 3. Targeted Regex extraction for the exact Gemini user-message slot [[ "prompt", 0
     for pat in (
-        r'\[\s*\[\s*"((?:[^"\\]|\\.)+?)"\s*,\s*(?:0|null)',
+        r'\[\s*\[\s*"((?:[^"\\]|\\.)+?)"\s*,\s*0\s*,',
         r'\\"((?:[^"\\]|\\.)+?)\\"\s*,\s*0\s*,',
-        r'\[\["((?:[^"\\]|\\.)+?)"\s*,',
     ):
         m = re.search(pat, req_str)
         if m:
             cand = _normalize_prompt(m.group(1))
-            if _is_candidate(cand):
+            if _is_valid_user_prompt(cand):
                 return cand
 
     return ""
@@ -1404,12 +1427,45 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
     # Host-first routing (never use loose path matches that cross platforms)
     # ── ChatGPT ──
     if "chatgpt.com" in host_l or "chat.openai.com" in host_l:
-        sse_payload = (
-            'data: {"message": {"id": "sec-block-msg", "author": {"role": "assistant"}, '
-            f'"content": {{"content_type": "text", "parts": [{msg_json}]}}, '
-            '"status": "finished_successfully"}, "error": null}\n\n'
-            "data: [DONE]\n\n"
-        )
+        user_msg_id = ""
+        conv_id = None
+        try:
+            req_data = json.loads(flow.request.content.decode("utf-8", errors="ignore"))
+            conv_id = req_data.get("conversation_id")
+            msgs = req_data.get("messages") or []
+            if msgs and isinstance(msgs, list) and isinstance(msgs[0], dict):
+                user_msg_id = msgs[0].get("id", "")
+            if not user_msg_id:
+                user_msg_id = req_data.get("parent_message_id", "")
+        except Exception:
+            pass
+
+        import uuid
+        reply_msg_id = str(uuid.uuid4())
+        now_ts = time.time()
+
+        chatgpt_resp_obj = {
+            "message": {
+                "id": reply_msg_id,
+                "author": {"role": "assistant", "name": None, "metadata": {}},
+                "create_time": now_ts,
+                "update_time": None,
+                "content": {"content_type": "text", "parts": [msg]},
+                "status": "finished_successfully",
+                "end_turn": True,
+                "weight": 1.0,
+                "metadata": {
+                    "finish_details": {"type": "stop"},
+                    "is_complete": True,
+                    "model_slug": "gpt-4o",
+                    "parent_id": user_msg_id or None,
+                },
+                "recipient": "all",
+            },
+            "conversation_id": conv_id,
+            "error": None,
+        }
+        sse_payload = f"data: {json.dumps(chatgpt_resp_obj)}\n\ndata: [DONE]\n\n"
         flow.response = http.Response.make(
             200,
             sse_payload.encode("utf-8"),
