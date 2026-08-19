@@ -124,8 +124,8 @@ export default function BrowserAiPage() {
 	// New Rule Form
 	const [newRuleName, setNewRuleName] = useState("");
 	const [newRuleType, setNewRuleType] = useState<"regex" | "ai_bot">("regex");
-	const [newRuleBotProvider, setNewRuleBotProvider] = useState("openai");
-	const [newRuleBotModel, setNewRuleBotModel] = useState("gpt-4o-mini");
+	const [newRuleBotProvider, setNewRuleBotProvider] = useState("");
+	const [newRuleBotModel, setNewRuleBotModel] = useState("");
 	const [newRuleBotPrompt, setNewRuleBotPrompt] = useState("");
 	const [newRuleSeverity, setNewRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
 	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("BLOCK");
@@ -151,8 +151,8 @@ export default function BrowserAiPage() {
 	const [editRule, setEditRule] = useState<BrowserGuardRule | null>(null);
 	const [editRuleName, setEditRuleName] = useState("");
 	const [editRuleType, setEditRuleType] = useState<"regex" | "ai_bot">("regex");
-	const [editRuleBotProvider, setEditRuleBotProvider] = useState("openai");
-	const [editRuleBotModel, setEditRuleBotModel] = useState("gpt-4o-mini");
+	const [editRuleBotProvider, setEditRuleBotProvider] = useState("");
+	const [editRuleBotModel, setEditRuleBotModel] = useState("");
 	const [editRuleBotPrompt, setEditRuleBotPrompt] = useState("");
 	const [editRuleSeverity, setEditRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
 	const [editRuleAction, setEditRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("BLOCK");
@@ -1402,10 +1402,13 @@ export default function BrowserAiPage() {
 																value={newRuleBotModel}
 																onChange={(m: string) => setNewRuleBotModel(m)}
 																isSingleSelect
-																placeholder={!newRuleBotProvider ? "Select a provider first" : "Select model"}
+																placeholder={!newRuleBotProvider ? "Select a provider first" : "Search or type model name..."}
 																disabled={!newRuleBotProvider}
 																unfiltered={true}
 																className="!h-9 !min-h-9 w-full text-xs"
+																menuPosition="fixed"
+																menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+																clearable
 															/>
 														</div>
 													</div>
@@ -1554,8 +1557,8 @@ export default function BrowserAiPage() {
 															setEditRule(rule);
 															setEditRuleName(rule.name);
 															setEditRuleType(rule.rule_type === "ai_bot" ? "ai_bot" : "regex");
-															setEditRuleBotProvider(rule.bot_provider || "openai");
-															setEditRuleBotModel(rule.bot_model || "gpt-4o-mini");
+															setEditRuleBotProvider(rule.bot_provider || "");
+															setEditRuleBotModel(rule.bot_model || "");
 															setEditRuleBotPrompt(rule.bot_prompt || "");
 															setEditRuleSeverity(rule.severity);
 															setEditRuleAction(rule.action);
@@ -2090,10 +2093,13 @@ export default function BrowserAiPage() {
 												value={editRuleBotModel}
 												onChange={(m: string) => setEditRuleBotModel(m)}
 												isSingleSelect
-												placeholder={!editRuleBotProvider ? "Select a provider first" : "Select model"}
+												placeholder={!editRuleBotProvider ? "Select a provider first" : "Search or type model name..."}
 												disabled={!editRuleBotProvider}
 												unfiltered={true}
 												className="!h-9 !min-h-9 w-full text-xs"
+												menuPosition="fixed"
+												menuPortalTarget={typeof document !== 'undefined' ? document.body : null}
+												clearable
 											/>
 										</div>
 									</div>

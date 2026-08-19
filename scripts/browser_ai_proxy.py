@@ -367,8 +367,9 @@ def is_chat_path(path: str) -> bool:
 def looks_like_user_prompt(text: str) -> bool:
     """
     Validate user prompt for ANY monitored target website.
-    Accepts ANY legitimate user prompt (numbers, symbols, 1-char, code, math, any language, long text).
-    Only rejects empty strings, Cloudflare encrypted challenge blobs, or literal framework placeholders.
+    Accepts ANY legitimate user prompt (words, phrases, questions, code, math, any language).
+    Strictly rejects URL-encoded wire blobs, internal Google RPC IDs (ESY5D, L5adhe, etc.),
+    session tokens, and framework placeholders.
     """
     if not text or not isinstance(text, str):
         return False
@@ -380,18 +381,46 @@ def looks_like_user_prompt(text: str) -> bool:
     if t.startswith("[FILE UPLOAD") or t.startswith("[FILE DOWNLOAD") or t.startswith("[FILE CONTENT") or t.startswith("[SITE BLOCKED"):
         return True
 
+    # Reject raw urlencoded wire parameters or batch execute bodies
+    if any(wire in t for wire in ("count=", "&ofs=", "req0___data__", "f.req=", "soc-app=", "soc-platform=", "___data__=")):
+        return False
+
     low = t.lower()
     if low in {
         "null", "undefined", "generic", "batchexecute", "wrb.fr",
-        "bard activity enabled", "activity enabled",
+        "bard activity enabled", "activity enabled", "streamgenerate",
     }:
         return False
     if "bard activity" in low and len(t) < 30:
         return False
 
-    # Gemini RPC metadata: c_44a8..., v_7f45...
-    if re.fullmatch(r"[cv][_\.][0-9a-fA-F]{8,}", t):
-        return False
+    # Filter tokens and RPC IDs when text has no spaces
+    if " " not in t:
+        # Standalone numbers like "1", "2" (often batchexecute count / indices)
+        if t.isdigit() and len(t) <= 3:
+            return False
+        # Google conversation/response tokens: r_653a..., c_44a8..., v_7f45..., rc_...
+        if re.fullmatch(r"[rcv][_\.][0-9a-fA-F]{6,}", t, re.IGNORECASE):
+            return False
+        # Hex session tokens or hashes: e.g. 56fdd186312815e2
+        if len(t) >= 12 and re.fullmatch(r"[0-9a-fA-F]{12,64}", t):
+            return False
+        # Google batchexecute RPC IDs (4-8 mixed case alphanumeric, e.g. ESY5D, L5adhe, VxUbXb, qpEbW, aPya6c)
+        if 4 <= len(t) <= 8 and re.fullmatch(r"[A-Za-z0-9]+", t):
+            common_words = {
+                "test", "help", "hello", "code", "python", "java", "math", "what",
+                "how", "why", "who", "when", "where", "list", "show", "tell", "make",
+                "draw", "find", "read", "edit", "save", "load", "open", "exit", "quit",
+                "start", "stop", "play", "game", "book", "song", "food", "city", "news",
+                "info", "time", "date", "name", "work", "home", "call", "write", "send",
+                "view", "look", "chat", "talk", "hi", "hey", "ok", "yes", "no", "bye",
+            }
+            if low not in common_words:
+                # Mixed-case RPC id e.g. ESY5D, VxUbXb, qpEbW, aPya6c
+                if any(ch.isupper() for ch in t) and any(ch.islower() for ch in t):
+                    return False
+                if sum(1 for ch in t if ch.isupper()) >= 2 and any(ch.isdigit() for ch in t):
+                    return False
 
     return True
 
@@ -1032,15 +1061,15 @@ def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
 
         ct = (content_type or "").lower()
 
-        # Gemini web form body (f.req=...)
-        if "f.req=" in text or text.startswith("f.req="):
+        # Gemini web form body (f.req=... or batchexecute with req0___data__)
+        if "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
             gemini_prompt = extract_gemini_prompt(text)
             return _clean_prompt_text(gemini_prompt) if gemini_prompt else None
 
         # URL-encoded form bodies (Copilot / Gemini / misc)
         if "application/x-www-form-urlencoded" in ct or (
             "%" in text and not text.lstrip().startswith(("{", "["))
-        ):
+        ) or text.startswith(("count=", "at=", "soc-app=", "req0_", "req1_")):
             try:
                 form = urllib.parse.parse_qs(urllib.parse.unquote(text), keep_blank_values=False)
                 for key in (
@@ -1058,7 +1087,7 @@ def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
                     return _clean_prompt_text(gemini_prompt) if gemini_prompt else None
             except Exception:
                 pass
-            text = urllib.parse.unquote(text)
+            return None  # Form data must never fall through to plain text!
 
         # Structured JSON chat payloads (any platform or custom website)
         if "json" in ct or text.lstrip().startswith(("{", "[")):
@@ -1068,7 +1097,7 @@ def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
                 return None
             return _extract_from_json(data)
 
-        # Plain text payloads (if body itself is the direct prompt text)
+        # Plain text payloads (only if body itself is a direct user sentence/code)
         cl = text.strip()
         if cl and not cl.startswith(("{", "[")) and looks_like_user_prompt(cl):
             return _clean_prompt_text(cl)
