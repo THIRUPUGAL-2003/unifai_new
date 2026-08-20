@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getErrorMessage } from "@/lib/store";
+import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import { useGetSCIMConfigQuery, useUpdateSCIMConfigMutation } from "@enterprise/lib/store/apis/scimApi";
 import { SCIMConfig } from "@enterprise/lib/types/workspace";
 import { Save, UserRoundCog } from "lucide-react";
@@ -39,6 +40,7 @@ export default function SCIMView() {
 
 	return (
 		<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
+			<RuntimeLimitBanner description="SCIM settings save here. Live IdP sync (Okta/Entra/Keycloak) requires the Enterprise provisioning runtime." />
 			<div>
 				<h1 className="flex items-center gap-2 text-2xl font-semibold">
 					<UserRoundCog className="h-6 w-6" />

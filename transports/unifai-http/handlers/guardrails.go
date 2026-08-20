@@ -5,6 +5,7 @@ import (
 
 	"github.com/fasthttp/router"
 	"github.com/unifai/unifai/core/schemas"
+	"github.com/unifai/unifai/plugins/guardrails"
 	"github.com/unifai/unifai/transports/unifai-http/lib"
 	"github.com/valyala/fasthttp"
 )
@@ -41,7 +42,8 @@ func (h *GuardrailsHandler) getConfig(ctx *fasthttp.RequestCtx) {
 	SendJSON(ctx, h.store.GuardrailsConfig)
 }
 
-// updateConfig handles PUT /api/guardrails/config - Updates the guardrails configuration in-memory
+// updateConfig handles PUT /api/guardrails/config - Updates the guardrails configuration
+// and reloads the guardrails plugin so rules take effect immediately.
 func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	var payload lib.GuardrailsConfig
 
@@ -54,8 +56,13 @@ func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	h.store.GuardrailsConfig = &payload
 	h.store.Mu.Unlock()
 
-	// In a real MVP, you might also trigger a reload of the guardrails plugin so the rules take effect immediately.
-	// We'll leave that as a TODO if needed, but for now we just update the in-memory configuration struct.
+	// InstantiatePlugin(guardrails) reads unifaiConfig.GuardrailsConfig — reload so CEL/providers apply now.
+	if h.configManager != nil {
+		if err := h.configManager.ReloadPlugin(ctx, guardrails.PluginName, nil, nil, nil, nil); err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "Guardrails config saved but plugin reload failed: "+err.Error())
+			return
+		}
+	}
 
-	SendJSON(ctx, map[string]any{"success": true})
+	SendJSON(ctx, map[string]any{"success": true, "reloaded": true})
 }

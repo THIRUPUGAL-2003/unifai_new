@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getErrorMessage, useGetMCPClientsQuery } from "@/lib/store";
+import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import {
 	useCreateMCPToolGroupMutation,
 	useDeleteMCPToolGroupMutation,
@@ -79,6 +80,7 @@ export default function MCPToolGroups() {
 
 	return (
 		<div className="flex w-full flex-col gap-6 p-1">
+			<RuntimeLimitBanner description="Tool groups CRUD works. Attaching groups to keys/teams and filtering tools at request time needs the Enterprise MCP enforcement path." />
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="flex items-center gap-2 text-2xl font-semibold">

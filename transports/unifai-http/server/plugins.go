@@ -277,7 +277,11 @@ func (s *UnifAIHTTPServer) loadBuiltinPlugins(ctx context.Context) error {
 	}
 	s.Config.SetPluginOrderInfo(maxim.PluginName, builtinPlacement, schemas.Ptr(8))
 
-	// 9. ModelCatalogResolver (last routing layer — fills req.Provider from catalog only when
+	// 9. Guardrails (always register; config may be empty until UI/API updates it)
+	s.registerPluginWithStatus(ctx, guardrails.PluginName, nil, nil, false)
+	s.Config.SetPluginOrderInfo(guardrails.PluginName, builtinPlacement, schemas.Ptr(9))
+
+	// 10. ModelCatalogResolver (last routing layer — fills req.Provider from catalog only when
 	// no earlier routing plugin (governance routing rules, governance VK LB, enterprise LB)
 	// already set one. CEL rules can still match on provider == "" because this runs last.
 	// Requires a model catalog; only register when one is configured.

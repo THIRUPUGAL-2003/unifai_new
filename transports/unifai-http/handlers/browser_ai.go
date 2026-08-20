@@ -615,10 +615,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 				continue
 			}
 			if violated {
-				ruleAction := strings.ToUpper(strings.TrimSpace(rule.Action))
-				if ruleAction == "" {
-					ruleAction = "BLOCK"
-				}
+				ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
 				if ruleAction == "BLOCK" {
 					logEntry.Action = "Blocked"
 					logEntry.Status = fmt.Sprintf("Blocked (%s)", rule.Name)
@@ -651,6 +648,12 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 				}
 			}
 		}
+	}
+
+	// What the browser AI receives on WARN: full prompt + warning. Logs keep the original only.
+	forwardPrompt := payload.Prompt
+	if logEntry.Action == "Warned" || logEntry.Action == "Redacted" {
+		forwardPrompt = logstore.FormatWarnedForwardPrompt(payload.Prompt, ruleWarning)
 	}
 
 	replyText := ""
@@ -710,7 +713,8 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		"action":             logEntry.Action,
 		"rule_triggered":     logEntry.RuleTriggered,
 		"warning_message":    ruleWarning,
-		"redacted_prompt":    logEntry.UserPromptFull,
+		"redacted_prompt":    forwardPrompt, // proxy injects this into the chat request body
+		"forward_prompt":     forwardPrompt,
 		"risk_score":         logEntry.RiskScore,
 		"predictive_risk":    logEntry.PredictiveRisk,
 		"predicted_category": logEntry.PredictedCategory,

@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getErrorMessage } from "@/lib/store";
+import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import { useGetClusterConfigQuery, useUpdateClusterConfigMutation } from "@enterprise/lib/store/apis/clusterApi";
 import { ClusterConfig } from "@enterprise/lib/types/workspace";
 import { Network, Save } from "lucide-react";
@@ -48,6 +49,7 @@ export default function ClusterPage() {
 
 	return (
 		<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
+			<RuntimeLimitBanner description="Peer settings save here. Multi-node HA mesh/broker clustering requires the Enterprise cluster runtime." />
 			<div className="flex items-center gap-3">
 				<Network className="text-muted-foreground h-8 w-8" strokeWidth={1.5} />
 				<div>

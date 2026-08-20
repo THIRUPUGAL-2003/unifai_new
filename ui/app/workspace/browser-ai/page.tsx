@@ -219,7 +219,7 @@ export default function BrowserAiPage() {
 	const [newRuleBotModel, setNewRuleBotModel] = useState("");
 	const [newRuleBotPrompt, setNewRuleBotPrompt] = useState("");
 	const [newRuleSeverity, setNewRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
-	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("BLOCK");
+	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "WARN">("BLOCK");
 	const [newRulePattern, setNewRulePattern] = useState("");
 	const [newRuleDescription, setNewRuleDescription] = useState("");
 	const [newRuleWarningMessage, setNewRuleWarningMessage] = useState("");
@@ -246,7 +246,7 @@ export default function BrowserAiPage() {
 	const [editRuleBotModel, setEditRuleBotModel] = useState("");
 	const [editRuleBotPrompt, setEditRuleBotPrompt] = useState("");
 	const [editRuleSeverity, setEditRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
-	const [editRuleAction, setEditRuleAction] = useState<"BLOCK" | "WARN" | "REDACT">("BLOCK");
+	const [editRuleAction, setEditRuleAction] = useState<"BLOCK" | "WARN">("BLOCK");
 	const [editRulePattern, setEditRulePattern] = useState("");
 	const [editRuleDescription, setEditRuleDescription] = useState("");
 	const [editRuleWarningMessage, setEditRuleWarningMessage] = useState("");
@@ -548,8 +548,7 @@ export default function BrowserAiPage() {
 	const activeRulesCount = rules.filter((r) => r.active).length;
 	const monitoredTargetsCount = targets.filter((t) => t.monitored).length;
 	const blockedCount = logs.filter((l) => l.action === "Blocked").length;
-	const redactedCount = logs.filter((l) => l.action === "Redacted").length;
-	const warnedCount = logs.filter((l) => l.action === "Warned").length;
+	const warnedCount = logs.filter((l) => l.action === "Warned" || l.action === "Redacted").length;
 	const highRiskCount = logs.filter((l) => (l.risk_score || 0) >= 70 || l.predictive_risk === "HIGH" || l.predictive_risk === "CRITICAL").length;
 	const avgRiskScore = logs.length > 0 ? Math.round(logs.reduce((acc, curr) => acc + (curr.risk_score || 10), 0) / logs.length) : 0;
 
@@ -801,7 +800,7 @@ export default function BrowserAiPage() {
 						<h1 className="text-2xl font-bold tracking-tight">Browser AI Observability</h1>
 					</div>
 					<p className="text-muted-foreground text-sm mt-1">
-						Monitor browser AI prompts, predict security threat levels, auto-redact secrets in-flight, and control DLP guardrails.
+						Monitor browser AI prompts, predict security threat levels, warn or block policy hits, and control DLP guardrails.
 					</p>
 				</div>
 				<div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
@@ -874,12 +873,12 @@ export default function BrowserAiPage() {
 						<Card className="bg-card border-border">
 							<CardHeader className="pb-2">
 								<CardDescription className="flex items-center gap-1.5">
-									<ShieldCheck className="h-3.5 w-3.5 text-purple-400" /> In-Flight Redactions
+									<AlertCircle className="h-3.5 w-3.5 text-amber-400" /> Warnings
 								</CardDescription>
-								<CardTitle className="text-3xl font-bold text-purple-400">{redactedCount}</CardTitle>
+								<CardTitle className="text-3xl font-bold text-amber-400">{warnedCount}</CardTitle>
 							</CardHeader>
 							<CardContent>
-								<p className="text-xs text-muted-foreground">Secrets sanitized before AI model</p>
+								<p className="text-xs text-muted-foreground">Prompt forwarded with warning attached</p>
 							</CardContent>
 						</Card>
 
@@ -954,11 +953,7 @@ export default function BrowserAiPage() {
 														<Badge className="bg-sky-950/80 text-sky-300 border-sky-700/60 gap-1 text-[11px]">
 															<Bot className="h-3 w-3" /> Bot Answered
 														</Badge>
-													) : log.action === "Redacted" ? (
-														<Badge className="bg-purple-950/80 text-purple-300 border-purple-700/60 gap-1 text-[11px]">
-															<ShieldCheck className="h-3 w-3" /> Redacted
-														</Badge>
-													) : log.action === "Warned" ? (
+													) : log.action === "Redacted" || log.action === "Warned" ? (
 														<Badge className="bg-amber-950/80 text-amber-300 border-amber-700/60 gap-1 text-[11px]">
 															<AlertCircle className="h-3 w-3" /> Warned
 														</Badge>
@@ -1060,6 +1055,7 @@ export default function BrowserAiPage() {
 									<SelectContent>
 										<SelectItem value="all">All Status</SelectItem>
 										<SelectItem value="Allowed">Allowed</SelectItem>
+										<SelectItem value="Warned">Warned</SelectItem>
 										<SelectItem value="Blocked">Blocked</SelectItem>
 										<SelectItem value="Bot Answered">Bot Answered</SelectItem>
 									</SelectContent>
@@ -1108,11 +1104,7 @@ export default function BrowserAiPage() {
 														<Badge className="bg-sky-950/80 text-sky-300 border-sky-700/60 gap-1 text-[11px]">
 															<Bot className="h-3 w-3" /> Bot Answered
 														</Badge>
-													) : log.action === "Redacted" ? (
-														<Badge className="bg-purple-950/80 text-purple-300 border-purple-700/60 gap-1 text-[11px]">
-															<ShieldCheck className="h-3 w-3" /> Redacted
-														</Badge>
-													) : log.action === "Warned" ? (
+													) : log.action === "Redacted" || log.action === "Warned" ? (
 														<Badge className="bg-amber-950/80 text-amber-300 border-amber-700/60 gap-1 text-[11px]">
 															<AlertCircle className="h-3 w-3" /> Warned
 														</Badge>
@@ -1412,7 +1404,6 @@ export default function BrowserAiPage() {
 														type="button"
 														onClick={() => {
 															setNewRuleType("regex");
-															if (newRuleAction === "REDACT") setNewRuleAction("BLOCK");
 														}}
 														className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
 															newRuleType === "regex"
@@ -1427,7 +1418,6 @@ export default function BrowserAiPage() {
 														type="button"
 														onClick={() => {
 															setNewRuleType("ai_bot");
-															if (newRuleAction === "REDACT") setNewRuleAction("BLOCK");
 														}}
 														className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
 															newRuleType === "ai_bot"
@@ -1472,10 +1462,7 @@ export default function BrowserAiPage() {
 														</SelectTrigger>
 														<SelectContent>
 															<SelectItem value="BLOCK">BLOCK (Security Reject)</SelectItem>
-															{newRuleType === "regex" && (
-																<SelectItem value="REDACT">REDACT (In-Flight Auto Sanitize)</SelectItem>
-															)}
-															<SelectItem value="WARN">WARN (Log Alert Only)</SelectItem>
+															<SelectItem value="WARN">WARN (Prompt + warning in chat)</SelectItem>
 														</SelectContent>
 													</Select>
 												</div>
@@ -1607,11 +1594,7 @@ export default function BrowserAiPage() {
 													>
 														{rule.severity}
 													</Badge>
-													{rule.action === "REDACT" ? (
-														<Badge className="bg-purple-950/80 text-purple-300 border-purple-700 gap-1 text-[11px]">
-															<ShieldCheck className="h-3 w-3" /> REDACT
-														</Badge>
-													) : rule.action === "BLOCK" ? (
+													{rule.action === "BLOCK" ? (
 														<Badge className="bg-red-950/80 text-red-400 border-red-700 gap-1 text-[11px]">
 															<AlertTriangle className="h-3 w-3" /> BLOCK
 														</Badge>
@@ -1677,7 +1660,7 @@ export default function BrowserAiPage() {
 															setEditRuleBotModel(rule.bot_model || "");
 															setEditRuleBotPrompt(rule.bot_prompt || "");
 															setEditRuleSeverity(rule.severity);
-															setEditRuleAction(rule.action);
+															setEditRuleAction(rule.action === "REDACT" || rule.action === "WARN" ? "WARN" : "BLOCK");
 															setEditRulePattern(rule.pattern || "");
 															setEditRuleDescription(rule.description || "");
 															setEditRuleWarningMessage(rule.warning_message || "");
@@ -2101,7 +2084,6 @@ export default function BrowserAiPage() {
 										type="button"
 										onClick={() => {
 											setEditRuleType("regex");
-											if (editRuleAction === "REDACT") setEditRuleAction("BLOCK");
 										}}
 										className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
 											editRuleType === "regex"
@@ -2116,7 +2098,6 @@ export default function BrowserAiPage() {
 										type="button"
 										onClick={() => {
 											setEditRuleType("ai_bot");
-											if (editRuleAction === "REDACT") setEditRuleAction("BLOCK");
 										}}
 										className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
 											editRuleType === "ai_bot"
@@ -2157,10 +2138,7 @@ export default function BrowserAiPage() {
 										</SelectTrigger>
 										<SelectContent>
 											<SelectItem value="BLOCK">BLOCK (Security Reject)</SelectItem>
-											{editRuleType === "regex" && (
-												<SelectItem value="REDACT">REDACT (In-Flight Auto Sanitize)</SelectItem>
-											)}
-											<SelectItem value="WARN">WARN (Log Alert Only)</SelectItem>
+											<SelectItem value="WARN">WARN (Prompt + warning in chat)</SelectItem>
 										</SelectContent>
 									</Select>
 								</div>
@@ -2684,12 +2662,7 @@ export default function BrowserAiPage() {
 												<Bot className="h-3.5 w-3.5" />
 												Bot Answered
 											</Badge>
-										) : selectedLog.action === "Redacted" ? (
-											<Badge className="bg-purple-950 text-purple-300 border-purple-800 gap-1">
-												<ShieldCheck className="h-3.5 w-3.5" />
-												{selectedLog.status}
-											</Badge>
-										) : selectedLog.action === "Warned" ? (
+										) : selectedLog.action === "Redacted" || selectedLog.action === "Warned" ? (
 											<Badge className="bg-amber-950 text-amber-300 border-amber-800 gap-1">
 												<AlertCircle className="h-3.5 w-3.5" />
 												{selectedLog.status}
@@ -2736,7 +2709,7 @@ export default function BrowserAiPage() {
 							<div className="space-y-2">
 								<div className="flex justify-between items-center">
 									<Label className="text-xs text-muted-foreground">
-										{selectedLog.action === "Redacted" ? "Sanitized Intercepted Prompt Text" : "Full Intercepted Prompt Text"}
+										"Full Intercepted Prompt Text"
 									</Label>
 									<Button variant="ghost" size="sm" onClick={() => handleCopyPrompt(selectedLog.user_prompt_full)} className="h-7 text-xs gap-1">
 										{copiedPrompt ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}

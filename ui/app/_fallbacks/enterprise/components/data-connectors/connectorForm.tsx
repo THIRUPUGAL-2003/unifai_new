@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getErrorMessage } from "@/lib/store";
+import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import { useGetConnectorQuery, useUpdateConnectorMutation } from "@enterprise/lib/store/apis/connectorsApi";
 import { Save } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -40,6 +41,10 @@ export function ConnectorForm({ name, title, description, fields, onDelete, isDe
 
 	return (
 		<div className="flex w-full flex-col gap-4">
+			<RuntimeLimitBanner
+				title="Settings save only"
+				description="This connector stores credentials in the workspace DB. Live export for Datadog/Kafka/BigQuery/PubSub is not started from this form in the OSS build — use OpenTelemetry, Prometheus, or Maxim for working exports."
+			/>
 			<div>
 				<h2 className="text-lg font-semibold">{title}</h2>
 				<p className="text-muted-foreground text-sm">{description}</p>

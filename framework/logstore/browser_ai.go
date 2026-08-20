@@ -103,7 +103,7 @@ type BrowserGuardRule struct {
 	BotModel       string    `json:"bot_model"`                   // e.g. "gpt-4o-mini", "claude-3-5-haiku"
 	BotPrompt      string    `gorm:"type:text" json:"bot_prompt"` // Custom evaluation instruction for the LLM
 	Severity       string    `json:"severity"`                    // "CRITICAL", "HIGH", "MEDIUM"
-	Action         string    `json:"action"`                      // "BLOCK", "WARN", "REDACT"
+	Action         string    `json:"action"`                      // "BLOCK" or "WARN" (legacy "REDACT" is normalized to "WARN")
 	Pattern        string    `json:"pattern"`
 	Active         bool      `json:"active"`
 	Description    string    `json:"description"`
@@ -328,14 +328,24 @@ func (m *BrowserAIManager) ClearLogs(ctx context.Context) error {
 }
 
 func (m *BrowserAIManager) GetRules(ctx context.Context) ([]BrowserGuardRule, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var rules []BrowserGuardRule
 	if m.db == nil {
 		return rules, nil
 	}
 	err := m.db.WithContext(ctx).Order("created_at ASC").Find(&rules).Error
-	return rules, err
+	if err != nil {
+		return rules, err
+	}
+	// Legacy REDACT → WARN (persist so UI no longer shows REDACT).
+	for i := range rules {
+		if strings.EqualFold(strings.TrimSpace(rules[i].Action), "REDACT") {
+			_ = m.db.WithContext(ctx).Model(&BrowserGuardRule{}).Where("id = ?", rules[i].ID).Update("action", "WARN").Error
+			rules[i].Action = "WARN"
+		}
+	}
+	return rules, nil
 }
 
 func (m *BrowserAIManager) CreateRule(ctx context.Context, rule *BrowserGuardRule) error {
@@ -358,6 +368,7 @@ func (m *BrowserAIManager) CreateRule(ctx context.Context, rule *BrowserGuardRul
 	rule.Pattern = strings.TrimSpace(rule.Pattern)
 	rule.Description = strings.TrimSpace(rule.Description)
 	rule.WarningMessage = strings.TrimSpace(rule.WarningMessage)
+	rule.Action = NormalizeGuardRuleAction(rule.Action)
 	rule.CreatedAt = time.Now()
 	return m.db.WithContext(ctx).Create(rule).Error
 }
@@ -379,7 +390,11 @@ func (m *BrowserAIManager) UpdateRule(ctx context.Context, id string, updates ma
 			continue
 		}
 		if s, ok := v.(string); ok && (k == "name" || k == "pattern" || k == "description" || k == "warning_message" || k == "severity" || k == "action" || k == "rule_type" || k == "bot_provider" || k == "bot_model" || k == "bot_prompt") {
-			filtered[k] = strings.TrimSpace(s)
+			if k == "action" {
+				filtered[k] = NormalizeGuardRuleAction(s)
+			} else {
+				filtered[k] = strings.TrimSpace(s)
+			}
 			continue
 		}
 		filtered[k] = v
@@ -837,10 +852,7 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		}
 		ruleTriggered = rule.Name
 		matchedWarning = strings.TrimSpace(rule.WarningMessage)
-		ruleAction := strings.ToUpper(strings.TrimSpace(rule.Action))
-		if ruleAction == "" {
-			ruleAction = "BLOCK"
-		}
+		ruleAction := NormalizeGuardRuleAction(rule.Action)
 
 		if ruleAction == "BLOCK" {
 			action = "Blocked"
@@ -849,15 +861,8 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 			predictiveRisk = "CRITICAL"
 			predictedCategory = "SECURITY_POLICY_VIOLATION"
 			break
-		} else if ruleAction == "REDACT" {
-			action = "Redacted"
-			status = fmt.Sprintf("Redacted (%s)", rule.Name)
-			riskScore = 80
-			predictiveRisk = "HIGH"
-			predictedCategory = "SECRET_LEAK_REDACTED"
-			promptFull = re.ReplaceAllString(promptFull, "[REDACTED_BY_UNIFAI]")
-			break
 		} else if ruleAction == "WARN" {
+			// Log keeps the real prompt; ChatGPT gets prompt+warning via forward_prompt on the API.
 			action = "Warned"
 			status = fmt.Sprintf("Warned (%s)", rule.Name)
 			riskScore = 55
@@ -971,6 +976,33 @@ func (m *BrowserAIManager) UpdateLogActionStatus(ctx context.Context, logID, act
 		return nil
 	}
 	return m.db.WithContext(ctx).Model(&BrowserAILog{}).Where("id = ?", logID).Updates(updates).Error
+}
+
+// NormalizeGuardRuleAction maps legacy REDACT to WARN. Only BLOCK and WARN are supported.
+func NormalizeGuardRuleAction(action string) string {
+	a := strings.ToUpper(strings.TrimSpace(action))
+	switch a {
+	case "WARN", "ALERT":
+		return "WARN"
+	case "REDACT":
+		return "WARN"
+	case "BLOCK":
+		return "BLOCK"
+	case "":
+		return "BLOCK"
+	default:
+		return "BLOCK"
+	}
+}
+
+// FormatWarnedForwardPrompt is what ChatGPT/browser receives on WARN: full original prompt + warning.
+// Prompt Logs still store the original prompt only.
+func FormatWarnedForwardPrompt(original, warningMessage string) string {
+	w := strings.TrimSpace(warningMessage)
+	if w == "" {
+		w = "This prompt triggered a UnifAI Guard warning."
+	}
+	return strings.TrimRight(original, " \t\r\n") + "\n\n[UNIFAI WARNING] " + w
 }
 
 // SecurityReplyForRule returns only the admin-authored warning. Empty if none was set.

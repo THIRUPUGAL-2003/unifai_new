@@ -20,11 +20,12 @@ export default function GuardrailsConfigurationView() {
 	if (isLoading) return <div className="p-4">Loading guardrails configuration...</div>;
 
 	const rules = config?.guardrail_rules || [];
-	const isEnabled = rules.length > 0; // Using length as a placeholder for a global toggle if not present on backend
+	const isEnabled = rules.length > 0 && rules.some((r) => r.enabled);
 
 	const handleToggleGuardrails = async (checked: boolean) => {
 		if (!config) return;
-		// Not updating global enabled as backend doesn't have it on root level
+		const updatedRules = rules.map((r) => ({ ...r, enabled: checked }));
+		await updateConfig({ ...config, guardrail_rules: updatedRules });
 	};
 
 	const handleDeleteRule = async (ruleId: number) => {

@@ -449,6 +449,12 @@ def rule_matches_prompt(rule: dict, prompt: str) -> bool:
     return True
 
 
+def _warned_forward(prompt: str, warning_message: str = "") -> str:
+    """ChatGPT receives full original prompt + warning. Logs keep original only (server-side)."""
+    w = (warning_message or "").strip() or "This prompt triggered a UnifAI Guard warning."
+    return f"{(prompt or '').rstrip()}\n\n[UNIFAI WARNING] {w}"
+
+
 def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
     rules = sorted(
         get_guard_rules(),
@@ -459,12 +465,11 @@ def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
             continue
         rule_action = (r.get("action") or "BLOCK").upper()
         if rule_action == "REDACT":
-            redacted = r["regex"].sub("[REDACTED_BY_UNIFAI]", prompt)
-            return True, r["name"], "Redacted", redacted, ""
+            rule_action = "WARN"
         if rule_action == "BLOCK":
             return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
         if rule_action == "WARN":
-            return True, r["name"], "Warned", prompt, ""
+            return True, r["name"], "Warned", _warned_forward(prompt, r.get("warning_message", "")), ""
     if looks_like_secret_token(prompt):
         for r in rules:
             n = (r.get("name") or "").lower()
@@ -1567,7 +1572,10 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
                 allowed = res_data.get("allowed", True)
                 rule_triggered = res_data.get("rule_triggered", "")
                 action = res_data.get("action", "Allowed")
-                redacted_prompt = res_data.get("redacted_prompt", prompt)
+                redacted_prompt = res_data.get("forward_prompt") or res_data.get("redacted_prompt", prompt)
+                # If backend says Warned but returned the raw prompt, append warning locally.
+                if (action or "") == "Warned" and redacted_prompt == prompt:
+                    redacted_prompt = _warned_forward(prompt, res_data.get("warning_message", ""))
                 reply_text = (res_data.get("reply_text") or "").strip()
                 eval_error = (res_data.get("eval_error") or "").strip()
                 if eval_error:
@@ -1586,12 +1594,11 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             continue
         rule_action = (r.get("action") or "BLOCK").upper()
         if rule_action == "REDACT":
-            redacted = r["regex"].sub("[REDACTED_BY_UNIFAI]", prompt)
-            return True, r["name"], "Redacted", redacted, ""
+            rule_action = "WARN"
         if rule_action == "BLOCK":
             return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
         if rule_action == "WARN":
-            return True, r["name"], "Warned", prompt, ""
+            return True, r["name"], "Warned", _warned_forward(prompt, r.get("warning_message", "")), ""
 
     # Backend / evaluator miss: never block chat as "evaluation failed".
     if _fail_open() or has_ai_bot_rules():
@@ -2147,7 +2154,7 @@ class BrowserAIInterceptor:
                 )
 
         block_all_uploads = is_upload and controls_active("block_upload")
-        # For file uploads: REDACT is treated as BLOCK (cannot redact binary safely)
+        # For file uploads: legacy REDACT treated as BLOCK; WARN also blocks attachments (safer)
         block_for_rule = bool(
             is_upload and file_rule_hit and file_rule_action in ("BLOCK", "REDACT", "WARN")
         )
@@ -2323,14 +2330,13 @@ class BrowserAIInterceptor:
             else:
                 print(f"[UnifAI Proxy] BLOCKED prompt to {domain} → Rule: {rule_triggered}")
             make_blocked_response(flow, rule_triggered, host, reply_text=reply_text)
-        elif action == "Redacted" and redacted_prompt and redacted_prompt != prompt:
-            print(f"[UnifAI Proxy] REDACTED sensitive prompt to {domain} → Rule: {rule_triggered}")
+        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+            print(f"[UnifAI Proxy] WARNED prompt to {domain} → Rule: {rule_triggered} (prompt+warning forwarded)")
             try:
-                # Sanitize body content in-flight
                 new_content = raw_text.replace(prompt, redacted_prompt)
                 flow.request.content = new_content.encode("utf-8")
             except Exception as e:
-                print(f"[UnifAI Proxy Warning] Failed to replace redacted content: {e}")
+                print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
 
     def response(self, flow: http.HTTPFlow) -> None:
         # Download / copy-paste controls removed — only upload is blocked on request().
@@ -2410,8 +2416,8 @@ class BrowserAIInterceptor:
                 except Exception:
                     pass
             inject_websocket_reply(flow, host, block_msg)
-        elif action == "Redacted" and redacted_prompt and redacted_prompt != prompt:
-            print(f"[UnifAI Proxy] REDACTED WebSocket prompt to {domain} → Rule: {rule_triggered}")
+        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+            print(f"[UnifAI Proxy] WARNED WebSocket prompt to {domain} → Rule: {rule_triggered}")
             msg.text = msg.text.replace(prompt, redacted_prompt)
 
 
