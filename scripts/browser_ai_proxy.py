@@ -111,6 +111,14 @@ CHAT_PATH_MARKERS = [
 
 GEMINI_CHAT_RPCS = {"hR32Ce", "vyAQhe", "wXbdQc", "BardFrontendService", "StreamGenerate"}
 
+GEMINI_LOCALE_JUNK = {
+    "en", "en-in", "en-us", "en-gb", "en-au", "ta-in", "hi-in",
+    "es", "fr", "de", "it", "pt", "ja", "ko", "zh", "ru", "ar",
+    "nl", "sv", "pl", "uk", "cs", "da", "fi", "el", "he", "th",
+    "vi", "id", "ms", "bn", "te", "ml", "kn", "mr", "gu", "pa",
+    "flash",
+}
+
 # Subdomains that are never chat UIs (analytics / CDN / challenges)
 NOISE_HOST_PREFIXES = (
     "count.", "cdn.", "static.", "assets.", "telemetry.", "analytics.",
@@ -582,6 +590,8 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
 
     low = t.lower()
+    if low in GEMINI_LOCALE_JUNK or re.fullmatch(r"[a-z]{2}-[a-z]{2,3}", low):
+        return False
     if low in {
         "null", "undefined", "generic", "batchexecute", "wrb.fr",
         "bard activity enabled", "activity enabled", "streamgenerate",
@@ -1208,8 +1218,12 @@ def extract_gemini_prompt(content: str) -> str:
         s = _normalize_prompt(s)
         if not looks_like_user_prompt(s):
             return False
-        # Reject language/locale codes: en-IN, en-US (not bare words like "hi")
+        # Locale / UI language crumbs from Gemini (hl=en-IN → "en"). Keep greetings like "hi".
+        if s.lower() in GEMINI_LOCALE_JUNK or re.fullmatch(r"[a-z]{2}-[A-Za-z]{2,3}", s):
+            return False
         if re.fullmatch(r"[a-z]{2}-[A-Z]{2,3}", s):
+            return False
+        if re.fullmatch(r"en", s, re.IGNORECASE):
             return False
         # Reject dot-tokens like "z.fdeb774424ec3df1"
         if re.match(r"^[a-z]\.[a-f0-9]{8,}", s, re.IGNORECASE):
@@ -1242,13 +1256,11 @@ def extract_gemini_prompt(content: str) -> str:
         return good[0]
 
     def _from_stream_inner(inner) -> str:
-        """StreamGenerate structure: [[[prompt, 0, null, ...], [locale], ...]] or [[prompt, 0, ...]]"""
+        """StreamGenerate: typed prompt is ONLY the first [prompt, 0, ...] slot — not locale."""
         if not isinstance(inner, list) or not inner:
             return ""
 
         cands: list[str] = []
-
-        # Primary Gemini chat format: only the typed prompt slot [prompt, 0, ...]
         if len(inner) > 0 and isinstance(inner[0], list):
             first = inner[0]
             if (
@@ -1259,16 +1271,8 @@ def extract_gemini_prompt(content: str) -> str:
                 and first[0][1] == 0
             ):
                 cands.append(first[0][0])
-            if len(first) > 1 and isinstance(first[0], str) and first[1] == 0:
+            elif len(first) > 1 and isinstance(first[0], str) and first[1] == 0:
                 cands.append(first[0])
-
-        for item in inner:
-            if isinstance(item, list) and len(item) > 1 and isinstance(item[0], str) and item[1] == 0:
-                cands.append(item[0])
-            if isinstance(item, list) and len(item) > 0:
-                sub = item[0]
-                if isinstance(sub, list) and len(sub) > 1 and isinstance(sub[0], str) and sub[1] == 0:
-                    cands.append(sub[0])
         return _pick_user_prompt(cands)
 
     try:

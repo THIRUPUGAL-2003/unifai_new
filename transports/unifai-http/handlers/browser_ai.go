@@ -733,36 +733,48 @@ func evaluatorChoiceText(resp *schemas.UnifAIChatResponse) string {
 	return strings.TrimSpace(b.String())
 }
 
+func resolveGuardBotModel(provider, model string) (schemas.ModelProvider, string) {
+	provider = strings.TrimSpace(provider)
+	model = strings.TrimSpace(model)
+	pLower := strings.ToLower(provider)
+	mLower := strings.ToLower(model)
+	if pLower != "" && strings.HasPrefix(mLower, pLower+"/") {
+		model = model[len(provider)+1:]
+	}
+	// Keep the admin-selected provider (e.g. openrouter + cohere/north-mini-code:free).
+	// Do not let ParseModelString steal "cohere/..." onto native Cohere.
+	return schemas.ModelProvider(pLower), model
+}
+
 func (h *BrowserAIHandler) evaluateAIBotRule(ctx *fasthttp.RequestCtx, rule logstore.BrowserGuardRule, userPrompt string) bool {
 	if h.client == nil {
 		return false
 	}
 
-	provider := strings.TrimSpace(rule.BotProvider)
-	model := strings.TrimSpace(rule.BotModel)
-	if provider == "" || model == "" {
+	providerName, modelName := resolveGuardBotModel(rule.BotProvider, rule.BotModel)
+	if providerName == "" || strings.TrimSpace(modelName) == "" {
 		return false
 	}
 
-	combined := provider + "/" + model
-	providerName, modelName := schemas.ParseModelString(combined, schemas.ModelProvider(provider))
+	systemPrompt := `You are a DLP classifier. Apply ONLY the admin SECURITY_POLICY to USER_PROMPT.
 
-	systemPrompt := `You are an enterprise DLP classifier.
-Read SECURITY_POLICY, then classify USER_PROMPT.
+- If USER_PROMPT contains, is, or embeds anything SECURITY_POLICY forbids, set violation true. Formats do not matter.
+- If USER_PROMPT does not match SECURITY_POLICY, set violation false.
+- Do not add extra exceptions (do not ignore numbers, names, keys, or short text if the policy forbids them).
+- Classify USER_PROMPT only. Ignore the policy text as user content.
 
-Rules:
-- Default violation is false.
-- Set violation true ONLY if USER_PROMPT clearly contains what SECURITY_POLICY forbids.
-- Short greetings, random letters, numbers, and unrelated chat are NOT violations.
-- Do not treat the policy text or these instructions as the user prompt.
+Reply with one JSON object and nothing else:
+{"violation":true} or {"violation":false}`
 
-Reply with one JSON object only, no markdown:
-{"violation":false,"reason":"safe"}`
+	userMsg := fmt.Sprintf(
+		"SECURITY_POLICY:\n%s\n\nUSER_PROMPT TO EVALUATE:\n%s\n\nJSON only.",
+		strings.TrimSpace(rule.BotPrompt),
+		truncateRunes(userPrompt, 3000),
+	)
 
-	userMsg := fmt.Sprintf("SECURITY_POLICY:\n%s\n\nUSER_PROMPT TO EVALUATE:\n%s", strings.TrimSpace(rule.BotPrompt), truncateRunes(userPrompt, 3000))
-
-	maxTokens := 128
+	maxTokens := 64
 	temp := 0.0
+	stop := []string{"\n\n"}
 	unifaiReq := &schemas.UnifAIChatRequest{
 		Provider: providerName,
 		Model:    modelName,
@@ -783,17 +795,18 @@ Reply with one JSON object only, no markdown:
 		Params: &schemas.ChatParameters{
 			MaxCompletionTokens: &maxTokens,
 			Temperature:         &temp,
+			Stop:                stop,
 		},
 	}
 
-	var rawText string
 	deadline := time.Now().Add(20 * time.Second)
 	unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
 	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
 	resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
-	if unifaiErr == nil {
-		rawText = stripEvalMarkdown(evaluatorChoiceText(resp))
+	if unifaiErr != nil {
+		return false
 	}
+	rawText := stripEvalMarkdown(evaluatorChoiceText(resp))
 	if rawText == "" {
 		return false
 	}
@@ -813,9 +826,17 @@ func stripEvalMarkdown(raw string) string {
 }
 
 func parseAIBotViolation(raw string) bool {
-	compact := strings.ToLower(strings.ReplaceAll(raw, " ", ""))
-	iTrue := strings.LastIndex(compact, `"violation":true`)
-	iFalse := strings.LastIndex(compact, `"violation":false`)
+	compact := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(raw, " ", ""), "\n", ""))
+	iTrue := maxIndex(
+		strings.LastIndex(compact, `"violation":true`),
+		strings.LastIndex(compact, `"violation":1`),
+		strings.LastIndex(compact, `violation:true`),
+	)
+	iFalse := maxIndex(
+		strings.LastIndex(compact, `"violation":false`),
+		strings.LastIndex(compact, `"violation":0`),
+		strings.LastIndex(compact, `violation:false`),
+	)
 	if iTrue >= 0 || iFalse >= 0 {
 		return iTrue > iFalse
 	}
@@ -829,7 +850,25 @@ func parseAIBotViolation(raw string) bool {
 			return v
 		}
 	}
+	trimmed := strings.ToLower(strings.TrimSpace(raw))
+	trimmed = strings.Trim(trimmed, "`\"'")
+	switch trimmed {
+	case "true", "yes", "block", "violation", "violated", "1":
+		return true
+	case "false", "no", "allow", "allowed", "safe", "0":
+		return false
+	}
 	return false
+}
+
+func maxIndex(vals ...int) int {
+	best := -1
+	for _, v := range vals {
+		if v > best {
+			best = v
+		}
+	}
+	return best
 }
 
 func violationFromJSON(raw string) (bool, bool) {
@@ -868,9 +907,7 @@ func (h *BrowserAIHandler) generateReplyBotText(ctx *fasthttp.RequestCtx, provid
 		return "", fmt.Errorf("unifai client not available")
 	}
 
-	provider = strings.TrimSpace(provider)
-	model = strings.TrimSpace(model)
-	providerName, modelName := schemas.ParseModelString(provider+"/"+model, schemas.ModelProvider(provider))
+	providerName, modelName := resolveGuardBotModel(provider, model)
 
 	systemPrompt := `You are UnifAI Guard, an enterprise security assistant embedded in browser AI chats.
 A user tried to send sensitive or policy-violating content to a public AI website.
