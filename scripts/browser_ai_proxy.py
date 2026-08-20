@@ -483,17 +483,24 @@ def _path_has_ignore_pattern(path: str) -> bool:
 def is_chat_path(path: str, host: str = "") -> bool:
     """True when URL path looks like an actual chat/prompt submit endpoint."""
     p = (path or "").lower().split("?", 1)[0]
-    if not p:
-        return True
+    h = (host or "").lower()
     if _path_has_ignore_pattern(p):
         return False
-    if NOISE_EXTENSIONS.search(p):
+    if p and NOISE_EXTENSIONS.search(p):
         return False
-    h = (host or "").lower()
     if "chatgpt.com" in h or "chat.openai.com" in h:
+        if not p:
+            return True
         if "prepare" in p or "autocomplet" in p or "implicit" in p:
             return False
         return "/conversation" in p or "/messages" in p or "/chat/completions" in p
+    # Gemini: only the real chat submit URL — never analytics / batchexecute noise
+    if is_gemini_host(h):
+        if not p:
+            return False
+        return is_gemini_chat_submit(p, "")
+    if not p:
+        return True
     return True
 
 
@@ -510,33 +517,38 @@ def is_gemini_host(host: str) -> bool:
 
 
 def is_gemini_chat_submit(path: str, body: str = "") -> bool:
-    """True only for the HTTP call that carries the user's typed Gemini prompt."""
+    """True only for the HTTP call that carries the user's typed Gemini prompt.
+
+    Only StreamGenerate / GenerateContent / BardFrontendService paths.
+    batchexecute alone leaks wire junk (co.in, session ids) — never treat as chat.
+    """
+    _ = body  # kept for call-site compatibility
     path_l = (path or "").lower()
     compact = path_l.replace("_", "")
     if "streamgenerate" in compact or "generatecontent" in compact:
         return True
     if "bardfrontendservice" in path_l:
         return True
-    return any(rpc in (body or "") for rpc in GEMINI_CHAT_RPCS)
+    return False
 
 
 def _is_google_wire_blob(text: str) -> bool:
-    """True for Gemini/Bard encoded tokens (CAM..., CAES..., base64url) — not user-typed text."""
+    """True for Gemini/Bard encoded tokens — not normal user-typed text."""
     t = (text or "").strip()
     if not t:
         return False
     if t.startswith("gAAAA") or '"p":"gAAAA' in t:
         return True
-    # CAMShQ8... / CAES... protobuf-ish conversation blobs (screenshot noise)
+    # CAMShQ8... / CAES... protobuf-ish conversation blobs
     if re.match(r"^CA[A-Z][A-Za-z0-9_-]{10,}", t):
         return True
     if " " in t or "\n" in t:
         return False
-    # Opaque session / RPC ids, including punctuation: br1sernAK9ow)YRx8NnaA
-    if 8 <= len(t) <= 64 and re.search(r"[A-Za-z]", t) and re.search(r"\d", t):
-        if any(c.isupper() for c in t) and any(c.islower() for c in t):
-            return True
-    if 8 <= len(t) <= 48 and re.fullmatch(r"[A-Za-z0-9_-]+", t):
+    # Opaque tokens with punctuation (session ids), not Hello123 / passwords
+    if re.search(r"[)(\]\[{}|;]", t) and len(t) >= 8:
+        return True
+    # Long mixed-case alnum session ids only (keep short typed tokens like Hello123)
+    if len(t) >= 16 and re.fullmatch(r"[A-Za-z0-9_-]+", t):
         has_u = any(c.isupper() for c in t)
         has_l = any(c.islower() for c in t)
         has_d = any(c.isdigit() for c in t)
@@ -573,9 +585,13 @@ def looks_like_user_prompt(text: str) -> bool:
     if low in {
         "null", "undefined", "generic", "batchexecute", "wrb.fr",
         "bard activity enabled", "activity enabled", "streamgenerate",
+        "co.in", "com.au", "co.uk", "com.br", "co.jp", "co.kr",
     }:
         return False
     if "bard activity" in low and len(t) < 30:
+        return False
+    # Domain / public-suffix crumbs that Gemini embeds in wire payloads (not typed chat)
+    if re.fullmatch(r"[a-z0-9]{1,8}\.(?:co\.)?[a-z]{2,3}", low):
         return False
 
     # Filter tokens and RPC IDs when text has no spaces.
@@ -589,20 +605,11 @@ def looks_like_user_prompt(text: str) -> bool:
             return False
         # Google batchexecute RPC IDs (4-8 mixed case alphanumeric, e.g. ESY5D, L5adhe, VxUbXb, qpEbW, aPya6c)
         if 4 <= len(t) <= 8 and re.fullmatch(r"[A-Za-z0-9]+", t):
-            common_words = {
-                "test", "help", "hello", "code", "python", "java", "math", "what",
-                "how", "why", "who", "when", "where", "list", "show", "tell", "make",
-                "draw", "find", "read", "edit", "save", "load", "open", "exit", "quit",
-                "start", "stop", "play", "game", "book", "song", "food", "city", "news",
-                "info", "time", "date", "name", "work", "home", "call", "write", "send",
-                "view", "look", "chat", "talk", "hi", "hey", "ok", "yes", "no", "bye",
-            }
-            if low not in common_words:
-                # Mixed-case RPC id e.g. ESY5D, VxUbXb, qpEbW, aPya6c
-                if any(ch.isupper() for ch in t) and any(ch.islower() for ch in t):
-                    return False
-                if sum(1 for ch in t if ch.isupper()) >= 2 and any(ch.isdigit() for ch in t):
-                    return False
+            # Mixed-case RPC id e.g. ESY5D, VxUbXb — keep all-lower words (hi, hello, tamil…)
+            if any(ch.isupper() for ch in t) and any(ch.islower() for ch in t):
+                return False
+            if sum(1 for ch in t if ch.isupper()) >= 2 and any(ch.isdigit() for ch in t):
+                return False
 
     return True
 
@@ -1241,21 +1248,27 @@ def extract_gemini_prompt(content: str) -> str:
 
         cands: list[str] = []
 
-        # Primary Gemini chat format: inner[0] is list where inner[0][0] is [prompt, 0, ...]
+        # Primary Gemini chat format: only the typed prompt slot [prompt, 0, ...]
         if len(inner) > 0 and isinstance(inner[0], list):
             first = inner[0]
-            if len(first) > 0 and isinstance(first[0], list) and len(first[0]) > 0 and isinstance(first[0][0], str):
+            if (
+                len(first) > 0
+                and isinstance(first[0], list)
+                and len(first[0]) > 1
+                and isinstance(first[0][0], str)
+                and first[0][1] == 0
+            ):
                 cands.append(first[0][0])
-            if len(first) > 0 and isinstance(first[0], str) and len(first) > 1 and (first[1] == 0 or first[1] is None):
+            if len(first) > 1 and isinstance(first[0], str) and first[1] == 0:
                 cands.append(first[0])
 
-        # Iterate only to find prompt slot with exact [str, 0, ...] signature
         for item in inner:
+            if isinstance(item, list) and len(item) > 1 and isinstance(item[0], str) and item[1] == 0:
+                cands.append(item[0])
             if isinstance(item, list) and len(item) > 0:
                 sub = item[0]
-                if isinstance(sub, list) and len(sub) > 0 and isinstance(sub[0], str):
-                    if len(sub) > 1 and sub[1] == 0:
-                        cands.append(sub[0])
+                if isinstance(sub, list) and len(sub) > 1 and isinstance(sub[0], str) and sub[1] == 0:
+                    cands.append(sub[0])
         return _pick_user_prompt(cands)
 
     try:
@@ -2229,6 +2242,12 @@ class BrowserAIInterceptor:
         content = msg.text or ""
         if not content or len(content.strip()) < 1:
             return
+
+        if is_gemini_host(host):
+            # HTTP path must be StreamGenerate; empty WS path relies on extract_gemini_prompt
+            ws_path = flow.request.path or ""
+            if ws_path and not is_gemini_chat_submit(ws_path, content):
+                return
 
         if is_noise(flow.request.path, content):
             return
