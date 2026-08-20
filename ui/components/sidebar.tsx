@@ -1367,7 +1367,15 @@ export default function AppSidebar() {
 					<Search className="text-muted-foreground absolute top-1/2 left-2.5 h-3.5 w-3.5 -translate-y-1/2" />
 					<input
 						ref={searchInputRef}
-						type="text"
+						type="search"
+						name="unifai-sidebar-nav-search"
+						autoComplete="off"
+						autoCorrect="off"
+						autoCapitalize="off"
+						spellCheck={false}
+						data-1p-ignore="true"
+						data-lpignore="true"
+						data-form-type="other"
 						aria-label="Search sidebar navigation"
 						placeholder="Search..."
 						value={searchQuery}

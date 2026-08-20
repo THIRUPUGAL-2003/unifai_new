@@ -299,7 +299,12 @@ def get_guard_rules() -> list:
         for r in rules:
             if not r.get("active", False):
                 continue
-            if str(r.get("rule_type") or "").strip().lower() == "ai_bot" and str(r.get("bot_prompt") or "").strip():
+            if (
+                str(r.get("rule_type") or "").strip().lower() == "ai_bot"
+                and str(r.get("bot_prompt") or "").strip()
+                and str(r.get("bot_provider") or "").strip()
+                and str(r.get("bot_model") or "").strip()
+            ):
                 has_ai_bot = True
             pattern = r.get("pattern", "").strip()
             if not pattern:
@@ -1565,8 +1570,8 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             method="POST"
         )
 
-        # Reply Bot / AI Guard Bot may call an LLM — bound tightly so Gemini/ChatGPT do not spin
-        with urllib.request.urlopen(req, timeout=12) as response:
+        # AI Guard Bot may call an LLM — allow enough time for provider round-trip
+        with urllib.request.urlopen(req, timeout=22) as response:
             if response.status == 200:
                 res_data = json.loads(response.read().decode("utf-8"))
                 allowed = res_data.get("allowed", True)
@@ -1600,9 +1605,18 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
         if rule_action == "WARN":
             return True, r["name"], "Warned", _warned_forward(prompt, r.get("warning_message", "")), ""
 
-    # Backend / evaluator miss: never block chat as "evaluation failed".
-    if _fail_open() or has_ai_bot_rules():
+    # Backend / evaluator miss. With AI Guard Bot rules configured, fail-closed
+    # so DLP cannot be silently bypassed when the backend is down/slow.
+    if _fail_open():
         return True, "", "Allowed", prompt, ""
+    if has_ai_bot_rules():
+        return (
+            False,
+            "AI Guard Bot",
+            "Blocked",
+            prompt,
+            "UnifAI Guard could not reach the security backend to evaluate this prompt. Blocked for safety.",
+        )
     return (
         False,
         "Backend Unreachable",

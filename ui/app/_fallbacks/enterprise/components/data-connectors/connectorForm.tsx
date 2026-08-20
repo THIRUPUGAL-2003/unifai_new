@@ -3,7 +3,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getErrorMessage } from "@/lib/store";
-import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import { useGetConnectorQuery, useUpdateConnectorMutation } from "@enterprise/lib/store/apis/connectorsApi";
 import { Save } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -41,10 +40,6 @@ export function ConnectorForm({ name, title, description, fields, onDelete, isDe
 
 	return (
 		<div className="flex w-full flex-col gap-4">
-			<RuntimeLimitBanner
-				title="Settings save only"
-				description="This connector stores credentials in the workspace DB. Live export for Datadog/Kafka/BigQuery/PubSub is not started from this form in the OSS build — use OpenTelemetry, Prometheus, or Maxim for working exports."
-			/>
 			<div>
 				<h2 className="text-lg font-semibold">{title}</h2>
 				<p className="text-muted-foreground text-sm">{description}</p>
@@ -55,11 +50,16 @@ export function ConnectorForm({ name, title, description, fields, onDelete, isDe
 			</div>
 			{fields.map((field) => (
 				<div key={field.key} className="space-y-1">
-					<Label>{field.label}</Label>
+					<Label htmlFor={`${name}-${field.key}`}>{field.label}</Label>
 					<Input
+						id={`${name}-${field.key}`}
+						name={`${name}-${field.key}`}
 						type={field.type || "text"}
 						placeholder={field.placeholder}
 						value={config[field.key] || ""}
+						autoComplete={field.type === "password" ? "new-password" : "off"}
+						data-1p-ignore="true"
+						data-lpignore="true"
 						onChange={(e) => setConfig((current) => ({ ...current, [field.key]: e.target.value }))}
 					/>
 				</div>

@@ -1618,14 +1618,19 @@ export default function BrowserAiPage() {
 
 												{rule.rule_type === "ai_bot" ? (
 													<div className="rounded-md border border-purple-900/40 bg-purple-950/20 px-3 py-2 space-y-1">
+														{!(rule.bot_provider && rule.bot_model && rule.bot_prompt) ? (
+															<p className="text-xs text-red-300 font-medium">
+																Incomplete — set Provider, Model, and Security Policy prompt, then Save. Bot will not evaluate until configured.
+															</p>
+														) : null}
 														<div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-purple-300/80">
 															<span>AI Security Policy (Prompt)</span>
 															<Badge variant="outline" className="text-[10px] py-0 px-1.5 text-purple-300 border-purple-800">
-																{rule.bot_provider} / {rule.bot_model}
+																{rule.bot_provider || "—"} / {rule.bot_model || "—"}
 															</Badge>
 														</div>
 														<p className="text-xs text-purple-100/90 whitespace-pre-wrap break-words font-mono">
-															{rule.bot_prompt}
+															{rule.bot_prompt || "(empty)"}
 														</p>
 													</div>
 												) : (

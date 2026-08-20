@@ -181,6 +181,26 @@ func (h *BrowserAIHandler) updateRule(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid JSON payload")
 		return
 	}
+
+	// Validate AI Guard Bot fields when switching to / updating an ai_bot rule.
+	ruleType := ""
+	if v, ok := updates["rule_type"].(string); ok {
+		ruleType = strings.ToLower(strings.TrimSpace(v))
+	}
+	if ruleType == "ai_bot" {
+		botPrompt, _ := updates["bot_prompt"].(string)
+		botProvider, _ := updates["bot_provider"].(string)
+		botModel, _ := updates["bot_model"].(string)
+		if strings.TrimSpace(botPrompt) == "" {
+			SendError(ctx, fasthttp.StatusBadRequest, "Evaluation prompt is required for AI Guard Bot rule")
+			return
+		}
+		if strings.TrimSpace(botProvider) == "" || strings.TrimSpace(botModel) == "" {
+			SendError(ctx, fasthttp.StatusBadRequest, "Provider and model are required for AI Guard Bot rule")
+			return
+		}
+	}
+
 	if err := h.manager.UpdateRule(ctx, id, updates); err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
@@ -602,12 +622,51 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	if allowed && logEntry.Action == "Allowed" {
 		rules, _ := h.manager.GetRules(ctx)
 		for _, rule := range rules {
-			if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" || strings.TrimSpace(rule.BotPrompt) == "" {
+			if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
+				continue
+			}
+			if strings.TrimSpace(rule.BotPrompt) == "" || strings.TrimSpace(rule.BotProvider) == "" || strings.TrimSpace(rule.BotModel) == "" {
+				// Misconfigured bot rule — do not silently skip BLOCK policies.
+				if logstore.NormalizeGuardRuleAction(rule.Action) == "BLOCK" {
+					logEntry.Action = "Blocked"
+					logEntry.Status = fmt.Sprintf("Blocked (%s — AI Guard Bot misconfigured)", rule.Name)
+					logEntry.RiskScore = 95
+					logEntry.PredictiveRisk = "CRITICAL"
+					logEntry.PredictedCategory = "AI_GUARD_BOT_MISCONFIGURED"
+					logEntry.RuleTriggered = rule.Name
+					ruleWarning = strings.TrimSpace(rule.WarningMessage)
+					if ruleWarning == "" {
+						ruleWarning = "AI Guard Bot rule is incomplete (provider/model/prompt required)."
+					}
+					allowed = false
+					isViolationBlock = true
+					evalError = "ai guard bot misconfigured: provider, model, and prompt are required"
+					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+					break
+				}
 				continue
 			}
 			violated, evalErr := h.evaluateAIBotRule(rule, payload.Prompt)
 			if evalErr != "" {
 				evalError = evalErr
+				ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
+				// BLOCK rules fail-closed so DLP cannot be bypassed when the evaluator errors.
+				if ruleAction == "BLOCK" {
+					logEntry.Action = "Blocked"
+					logEntry.Status = fmt.Sprintf("Blocked (%s — AI Guard Bot eval failed)", rule.Name)
+					logEntry.RiskScore = 95
+					logEntry.PredictiveRisk = "CRITICAL"
+					logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
+					logEntry.RuleTriggered = rule.Name
+					ruleWarning = strings.TrimSpace(rule.WarningMessage)
+					if ruleWarning == "" {
+						ruleWarning = "UnifAI Guard could not evaluate this prompt. Blocked for safety."
+					}
+					allowed = false
+					isViolationBlock = true
+					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+					break
+				}
 				logEntry.Status = "Allowed (AI Guard Bot eval failed)"
 				logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
 				logEntry.RuleTriggered = rule.Name
@@ -790,6 +849,7 @@ Reply with one JSON object and nothing else:
 
 	maxTokens := 128
 	temp := 0.0
+	responseFormat := any(map[string]any{"type": "json_object"})
 	unifaiReq := &schemas.UnifAIChatRequest{
 		Provider: providerName,
 		Model:    modelName,
@@ -810,28 +870,43 @@ Reply with one JSON object and nothing else:
 		Params: &schemas.ChatParameters{
 			MaxCompletionTokens: &maxTokens,
 			Temperature:         &temp,
+			ResponseFormat:      &responseFormat,
 		},
 	}
 
-	deadline := time.Now().Add(12 * time.Second)
-	unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
-	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
-	// Guard eval is an internal call using configured provider keys. Skip the plugin
-	// pipeline so mandatory virtual-key / session auth cannot fail-open the DLP check.
-	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
-	resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
-	if unifaiErr != nil {
-		return false, truncateRunes(unifaiErrorMessage(unifaiErr), 180)
+	runOnce := func() (bool, string) {
+		deadline := time.Now().Add(18 * time.Second)
+		unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
+		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
+		// Guard eval is an internal call using configured provider keys. Skip the plugin
+		// pipeline so mandatory virtual-key / session auth cannot fail-open the DLP check.
+		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
+		resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
+		if unifaiErr != nil {
+			return false, truncateRunes(unifaiErrorMessage(unifaiErr), 180)
+		}
+		rawText := stripEvalMarkdown(evaluatorChoiceText(resp))
+		if rawText == "" {
+			return false, "empty evaluator response"
+		}
+		violated, recognized := parseAIBotDecision(rawText)
+		if !recognized {
+			return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80)
+		}
+		return violated, ""
 	}
-	rawText := stripEvalMarkdown(evaluatorChoiceText(resp))
-	if rawText == "" {
-		return false, "empty evaluator response"
+
+	violated, errMsg := runOnce()
+	if errMsg == "" {
+		return violated, ""
 	}
-	violated, recognized := parseAIBotDecision(rawText)
-	if !recognized {
-		return false, "evaluator returned unparseable output"
+	// One retry without json_object — some providers reject response_format.
+	unifaiReq.Params.ResponseFormat = nil
+	violated, errMsg2 := runOnce()
+	if errMsg2 == "" {
+		return violated, ""
 	}
-	return violated, ""
+	return false, errMsg + "; retry: " + errMsg2
 }
 
 func unifaiErrorMessage(err *schemas.UnifAIError) string {
