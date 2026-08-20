@@ -331,12 +331,50 @@ def has_ai_bot_rules() -> bool:
 
 
 def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str) -> tuple[bool, str, str, str, str]:
-    """Regex rules decide locally. AI Guard Bot rules must wait for backend LLM eval."""
+    """Regex decides locally first (fast). AI Guard Bot waits for backend LLM eval."""
+    # Fast path: local regex BLOCK — do not wait on AI bot (avoids Gemini spinner).
+    local_allowed, rule_triggered, action, redacted_prompt, reply_text = decide_prompt_locally(prompt)
+    if action == "Blocked" or not local_allowed:
+        def _log_local_block() -> None:
+            try:
+                payload = json.dumps({
+                    "platform": platform,
+                    "prompt": prompt,
+                    "client_ip": client_ip,
+                    "agent_id": UNIFAI_AGENT_ID,
+                    "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+                    "metadata": {
+                        "domain": domain,
+                        "url": url,
+                        "method": method,
+                        "is_blocked": True,
+                        "blocked_reason": rule_triggered or "Guard Rule",
+                        "agent_id": UNIFAI_AGENT_ID,
+                        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+                    },
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept",
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                urllib.request.urlopen(req, timeout=3)
+            except Exception:
+                pass
+
+        threading.Thread(target=_log_local_block, daemon=True).start()
+        return False, rule_triggered, action or "Blocked", redacted_prompt, reply_text
+
+    if action in ("Redacted", "Warned"):
+        log_prompt_async(platform, domain, prompt, client_ip, url, method)
+        return local_allowed, rule_triggered, action, redacted_prompt, reply_text
+
     if has_ai_bot_rules():
         return send_to_backend(platform, domain, prompt, client_ip, url, method)
-    allowed, rule_triggered, action, redacted_prompt, reply_text = decide_prompt_locally(prompt)
+
     log_prompt_async(platform, domain, prompt, client_ip, url, method)
-    return allowed, rule_triggered, action, redacted_prompt, reply_text
+    return True, "", "Allowed", prompt, ""
 
 
 def _fail_open() -> bool:
@@ -635,6 +673,11 @@ def looks_like_user_prompt(text: str) -> bool:
     # Filter tokens and RPC IDs when text has no spaces.
     # Digit-only text is a valid user prompt (phone, IDs, math). Do not drop it.
     if " " not in t:
+        # Gemini session / client tokens: _05Zravx, _a1B2c3d4
+        if re.fullmatch(r"_[0-9A-Za-z]{4,24}", t):
+            return False
+        if t.startswith("_") and 5 <= len(t) <= 32 and re.fullmatch(r"[0-9A-Za-z_]+", t):
+            return False
         # Google conversation/response tokens: r_653a..., c_44a8..., v_7f45..., rc_...
         if re.fullmatch(r"[rcv][_\.][0-9a-fA-F]{6,}", t, re.IGNORECASE):
             return False
@@ -968,39 +1011,62 @@ def _extract_from_json(data) -> str | None:
 
 
 def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str]:
-    """Detect real file upload attempts — not chat JSON that merely mentions file metadata."""
+    """Detect real file upload attempts — not chat JSON / + menu handshakes."""
     headers = flow.request.headers
     content_type = (headers.get("content-type", "") or "").lower()
     path = (flow.request.path or "").lower()
     method = (flow.request.method or "").upper()
     host = (flow.request.pretty_host or "").lower()
     chat_submit = is_chat_path(path, host)
+    body_len = len(flow.request.content or b"")
+    path_only = path.split("?", 1)[0]
 
-    # Google resumable upload protocol (Gemini / Drive / Docs)
-    for hk, hv in headers.items():
-        hk_l = (hk or "").lower()
-        hv_l = (hv or "").lower()
-        if hk_l.startswith("x-goog-upload"):
-            return True, f"Google Resumable Upload ({hk}={hv_l[:40]})"
-        if "upload" in hk_l and ("file" in hk_l or "content" in hk_l):
-            return True, f"Upload header ({hk})"
+    # Google resumable: only real byte transfer / finalize — not session "start"/"query"
+    goog_cmd = (headers.get("x-goog-upload-command", "") or "").lower()
+    if goog_cmd:
+        if any(x in goog_cmd for x in ("upload", "finalize", "append")):
+            return True, f"Google Resumable Upload ({goog_cmd})"
+        # start / query / cancel = picker open or handshake, not a file yet
+    else:
+        for hk, hv in headers.items():
+            hk_l = (hk or "").lower()
+            hv_l = (hv or "").lower()
+            if hk_l.startswith("x-goog-upload") and body_len >= 512:
+                return True, f"Google Resumable Upload ({hk}={hv_l[:40]})"
+            if "upload" in hk_l and ("file" in hk_l or "content" in hk_l) and body_len >= 512:
+                return True, f"Upload header ({hk})"
 
-    # Binary / multipart bodies are real uploads (never treat pure JSON chat as binary upload)
+    # Real multipart / binary body
     if "multipart/form-data" in content_type:
-        return True, f"File content-type ({content_type.split(';')[0]})"
+        # Empty multipart from opening the picker — require a filename= part
+        if "filename=" in (raw_content or "") or "filename*=" in (raw_content or "").lower():
+            return True, f"File content-type ({content_type.split(';')[0]})"
+        if body_len >= 1500:
+            return True, f"File content-type ({content_type.split(';')[0]})"
+        return False, ""
     if not chat_submit:
         for prefix in UPLOAD_CONTENT_TYPES:
-            if prefix in content_type:
+            if prefix in content_type and body_len >= 64:
                 return True, f"File content-type ({content_type.split(';')[0]})"
 
-    # Dedicated upload URL paths (not /conversation that happens to mention files in JSON)
-    path_only = path.split("?", 1)[0]
+    # Upload URL paths — ChatGPT "+" hits /files JSON handshake before any file is chosen
     for ep in UPLOAD_ENDPOINTS:
-        if ep in path_only:
-            # ChatGPT file-library polls are not chat submits — still uploads/API
+        if ep not in path_only:
+            continue
+        # Ignore library / list / process-status style GETs (method already POST-only upstream)
+        if any(x in path_only for x in ("/files/library", "/files/process", "/files/download")):
+            continue
+        is_json_body = "json" in content_type or (raw_content or "").lstrip()[:1] in ("{", "[")
+        # Real upload: binary, multipart, or large non-JSON body
+        if "multipart/form-data" in content_type or "octet-stream" in content_type:
             return True, f"File Upload Endpoint ({path_only[:80]})"
+        if not is_json_body and body_len >= 512:
+            return True, f"File Upload Endpoint ({path_only[:80]})"
+        if is_json_body and body_len >= 50_000:
+            return True, f"File Upload Endpoint large JSON ({path_only[:80]})"
+        # Small JSON to /files = create upload session / open + menu — NOT an upload
+        continue
 
-    body_len = len(flow.request.content or b"")
     if method in ("POST", "PUT", "PATCH") and body_len >= 2048:
         if any(
             x in host
@@ -1009,19 +1075,22 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
             if "json" not in content_type or body_len >= 50_000:
                 return True, f"Large upload body on {host} ({body_len} bytes)"
 
-    # JSON payload heuristics: NEVER on chat submit paths.
-    # ChatGPT conversation bodies often include file_id / asset_pointer from prior turns
-    # and were falsely blocked as "UPLOAD FILE BLOCK" in the chat UI.
-    if raw_content and not chat_submit:
+    # JSON attachment heuristics: NEVER on chat submit; NEVER tiny metadata-only bodies
+    if raw_content and not chat_submit and body_len >= 256:
         strong = any(
             k in raw_content
             for k in (
-                '"file_name"', '"fileName"', '"file_id"', '"mime_type"', '"mimeType"',
-                '"asset_pointer"', '"fileData"', '"inline_data"', '"inlineData"',
+                '"file_name"', '"fileName"', '"mime_type"', '"mimeType"',
+                '"fileData"', '"inline_data"', '"inlineData"',
                 "application/vnd.openxmlformats", "multipart/form-data",
             )
         )
-        if strong:
+        # file_id / asset_pointer alone are prior-turn chat metadata — not a new upload
+        if strong and (
+            "filename=" in raw_content.lower()
+            or body_len >= 2048
+            or any(x in raw_content for x in ('"bytes"', '"data":', "base64", "octet-stream"))
+        ):
             return True, "File Attachment Payload in Request"
         low = raw_content.lower()
         if "filename" in low and "content-type" in low and any(
@@ -1272,8 +1341,8 @@ def extract_gemini_prompt(content: str) -> str:
         # Hex hashes with letters — not digit-only user input
         if " " not in s and re.fullmatch(r"[0-9a-fA-F]{10,64}", s) and re.search(r"[a-fA-F]", s):
             return False
-        # Reject tokens starting with c_, r_, v_, rc_, f_, z_
-        if s.startswith(("c_", "r_", "v_", "rc_", "f_", "z_", "req0_")):
+        # Reject tokens starting with c_, r_, v_, rc_, f_, z_, or bare _session ids
+        if s.startswith(("c_", "r_", "v_", "rc_", "f_", "z_", "req0_", "_")):
             return False
         low = s.lower()
         if any(bad in low for bad in (
@@ -1491,8 +1560,8 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             method="POST"
         )
 
-        # Reply Bot may call an LLM — keep a bound so chat UIs do not hang forever
-        with urllib.request.urlopen(req, timeout=25) as response:
+        # Reply Bot / AI Guard Bot may call an LLM — bound tightly so Gemini/ChatGPT do not spin
+        with urllib.request.urlopen(req, timeout=12) as response:
             if response.status == 200:
                 res_data = json.loads(response.read().decode("utf-8"))
                 allowed = res_data.get("allowed", True)
@@ -1912,17 +1981,19 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         or ("google.com" in host_l and "batchexecute" in path)
     ):
         path_compact = path.replace("_", "")
-        if "streamgenerate" in path_compact or "generatecontent" in path_compact or "stream" in path:
-            gemini_sse = (
-                "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":"
-                f"{msg_json}"
-                "}],\"role\":\"model\"},\"finishReason\":\"STOP\"}]}\n\n"
-                "data: [DONE]\n\n"
+        # StreamGenerate expects progressive Google JSON lines — OpenAI-style SSE leaves the UI spinning.
+        if "streamgenerate" in path_compact or "generatecontent" in path_compact or "bardfrontend" in path:
+            # Minimal completed model turn so the composer stops loading
+            chunk = (
+                ")]}'\n"
+                f'[["wrb.fr","StreamGenerate","[null,[null,null,null,[[\\"{msg_escaped}\\"]]]]",'
+                'null,null,null,"generic"],'
+                '["di",34],["af.httprm",34,"-unifai-",1]]\n'
             )
             flow.response = http.Response.make(
                 200,
-                gemini_sse.encode("utf-8"),
-                {**common_headers, "Content-Type": "text/event-stream; charset=utf-8"},
+                chunk.encode("utf-8"),
+                {**common_headers, "Content-Type": "application/json; charset=utf-8"},
             )
             return
 

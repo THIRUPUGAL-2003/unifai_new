@@ -809,7 +809,7 @@ Reply with one JSON object and nothing else:
 		},
 	}
 
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(12 * time.Second)
 	unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
 	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
 	// Guard eval is an internal call using configured provider keys. Skip the plugin
