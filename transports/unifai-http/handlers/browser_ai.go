@@ -597,6 +597,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	allowed := logEntry.Action == "Allowed" || logEntry.Action == "Redacted" || logEntry.Action == "Warned"
 	isViolationBlock := !allowed
 
+	evalError := ""
 	// If no regex rule blocked the prompt, evaluate active AI Guard Bot rules
 	if allowed && logEntry.Action == "Allowed" {
 		rules, _ := h.manager.GetRules(ctx)
@@ -604,7 +605,15 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" || strings.TrimSpace(rule.BotPrompt) == "" {
 				continue
 			}
-			violated := h.evaluateAIBotRule(ctx, rule, payload.Prompt)
+			violated, evalErr := h.evaluateAIBotRule(rule, payload.Prompt)
+			if evalErr != "" {
+				evalError = evalErr
+				logEntry.Status = "Allowed (AI Guard Bot eval failed)"
+				logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
+				logEntry.RuleTriggered = rule.Name
+				_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+				continue
+			}
 			if violated {
 				ruleAction := strings.ToUpper(strings.TrimSpace(rule.Action))
 				if ruleAction == "" {
@@ -626,6 +635,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					}
 					allowed = false
 					isViolationBlock = true
+					evalError = ""
 					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 					break
 				} else if ruleAction == "WARN" {
@@ -636,6 +646,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					logEntry.PredictedCategory = "AI_GUARD_BOT_WARNING"
 					logEntry.RuleTriggered = rule.Name
 					ruleWarning = strings.TrimSpace(rule.WarningMessage)
+					evalError = ""
 					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 				}
 			}
@@ -706,6 +717,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		"reply_text":         replyText,
 		"reply_bot_provider": replyProvider,
 		"reply_bot_model":    replyModel,
+		"eval_error":         evalError,
 		"log":                logEntry,
 	})
 }
@@ -746,14 +758,14 @@ func resolveGuardBotModel(provider, model string) (schemas.ModelProvider, string
 	return schemas.ModelProvider(pLower), model
 }
 
-func (h *BrowserAIHandler) evaluateAIBotRule(ctx *fasthttp.RequestCtx, rule logstore.BrowserGuardRule, userPrompt string) bool {
+func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, userPrompt string) (bool, string) {
 	if h.client == nil {
-		return false
+		return false, "unifai client not available"
 	}
 
 	providerName, modelName := resolveGuardBotModel(rule.BotProvider, rule.BotModel)
 	if providerName == "" || strings.TrimSpace(modelName) == "" {
-		return false
+		return false, "guard bot provider/model missing"
 	}
 
 	systemPrompt := `You are a DLP classifier. Apply ONLY the admin SECURITY_POLICY to USER_PROMPT.
@@ -772,9 +784,8 @@ Reply with one JSON object and nothing else:
 		truncateRunes(userPrompt, 3000),
 	)
 
-	maxTokens := 64
+	maxTokens := 128
 	temp := 0.0
-	stop := []string{"\n\n"}
 	unifaiReq := &schemas.UnifAIChatRequest{
 		Provider: providerName,
 		Model:    modelName,
@@ -795,22 +806,38 @@ Reply with one JSON object and nothing else:
 		Params: &schemas.ChatParameters{
 			MaxCompletionTokens: &maxTokens,
 			Temperature:         &temp,
-			Stop:                stop,
 		},
 	}
 
 	deadline := time.Now().Add(20 * time.Second)
 	unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
 	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
+	// Guard eval is an internal call using configured provider keys. Skip the plugin
+	// pipeline so mandatory virtual-key / session auth cannot fail-open the DLP check.
+	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
 	resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
 	if unifaiErr != nil {
-		return false
+		return false, truncateRunes(unifaiErrorMessage(unifaiErr), 180)
 	}
 	rawText := stripEvalMarkdown(evaluatorChoiceText(resp))
 	if rawText == "" {
-		return false
+		return false, "empty evaluator response"
 	}
-	return parseAIBotViolation(rawText)
+	violated, recognized := parseAIBotDecision(rawText)
+	if !recognized {
+		return false, "evaluator returned unparseable output"
+	}
+	return violated, ""
+}
+
+func unifaiErrorMessage(err *schemas.UnifAIError) string {
+	if err == nil {
+		return "unknown evaluator error"
+	}
+	if err.Error != nil && strings.TrimSpace(err.Error.Message) != "" {
+		return strings.TrimSpace(err.Error.Message)
+	}
+	return "evaluator request failed"
 }
 
 func stripEvalMarkdown(raw string) string {
@@ -826,6 +853,11 @@ func stripEvalMarkdown(raw string) string {
 }
 
 func parseAIBotViolation(raw string) bool {
+	v, ok := parseAIBotDecision(raw)
+	return ok && v
+}
+
+func parseAIBotDecision(raw string) (bool, bool) {
 	compact := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(raw, " ", ""), "\n", ""))
 	iTrue := maxIndex(
 		strings.LastIndex(compact, `"violation":true`),
@@ -838,27 +870,27 @@ func parseAIBotViolation(raw string) bool {
 		strings.LastIndex(compact, `violation:false`),
 	)
 	if iTrue >= 0 || iFalse >= 0 {
-		return iTrue > iFalse
+		return iTrue > iFalse, true
 	}
 	if v, ok := violationFromJSON(raw); ok {
-		return v
+		return v, true
 	}
 	start := strings.LastIndex(raw, "{")
 	end := strings.LastIndex(raw, "}")
 	if start >= 0 && end > start {
 		if v, ok := violationFromJSON(raw[start : end+1]); ok {
-			return v
+			return v, true
 		}
 	}
 	trimmed := strings.ToLower(strings.TrimSpace(raw))
 	trimmed = strings.Trim(trimmed, "`\"'")
 	switch trimmed {
 	case "true", "yes", "block", "violation", "violated", "1":
-		return true
+		return true, true
 	case "false", "no", "allow", "allowed", "safe", "0":
-		return false
+		return false, true
 	}
-	return false
+	return false, false
 }
 
 func maxIndex(vals ...int) int {
@@ -965,6 +997,7 @@ If the question is unsafe or asks for secrets/credentials, refuse briefly and ex
 	deadline := time.Now().Add(18 * time.Second)
 	unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
 	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
+	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
 	_ = ctx
 
 	resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)

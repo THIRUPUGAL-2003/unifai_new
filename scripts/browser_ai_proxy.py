@@ -568,6 +568,32 @@ def _is_google_wire_blob(text: str) -> bool:
     return False
 
 
+def _is_ai_chrome_url(text: str) -> bool:
+    """True when the string is a Gemini/Bard/ChatGPT page URL, not typed chat."""
+    t = (text or "").strip()
+    if not re.match(r"^https?://", t, re.I):
+        return False
+    try:
+        u = urllib.parse.urlparse(t)
+    except Exception:
+        return False
+    host = (u.hostname or "").lower()
+    path = (u.path or "").lower()
+    query = (u.query or "").lower()
+    if "gemini.google." in host or "bard.google." in host:
+        return True
+    if "generativelanguage.googleapis" in host:
+        return True
+    if host in ("google.com", "www.google.com") and "gemini" in path:
+        return True
+    # Referrer-style ChatGPT app URLs (hl= locale) — not a user prompt
+    if ("chatgpt.com" in host or "chat.openai.com" in host) and (
+        "hl=" in query or path in ("", "/", "/app")
+    ):
+        return True
+    return False
+
+
 def looks_like_user_prompt(text: str) -> bool:
     """
     Save any user-typed prompt: any language, numbers, symbols, code, one word or long text.
@@ -577,6 +603,8 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
     t = text.strip()
     if len(t) < 1:
+        return False
+    if _is_ai_chrome_url(t):
         return False
     if _is_google_wire_blob(t):
         return False
@@ -1229,6 +1257,8 @@ def extract_gemini_prompt(content: str) -> str:
         s = _normalize_prompt(s)
         if not looks_like_user_prompt(s):
             return False
+        if _is_ai_chrome_url(s):
+            return False
         # Locale / UI language crumbs from Gemini (hl=en-IN → "en"). Keep greetings like "hi".
         if s.lower() in GEMINI_LOCALE_JUNK or re.fullmatch(r"[a-z]{2}-[A-Za-z]{2,3}", s):
             return False
@@ -1470,6 +1500,9 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
                 action = res_data.get("action", "Allowed")
                 redacted_prompt = res_data.get("redacted_prompt", prompt)
                 reply_text = (res_data.get("reply_text") or "").strip()
+                eval_error = (res_data.get("eval_error") or "").strip()
+                if eval_error:
+                    print(f"[UnifAI Proxy] AI Guard Bot eval failed | {eval_error}")
                 return allowed, rule_triggered, action, redacted_prompt, reply_text
     except Exception:
         pass
@@ -1482,14 +1515,14 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
     for r in rules:
         if not rule_matches_prompt(r, prompt):
             continue
-            rule_action = r.get("action", "BLOCK").upper()
-            if rule_action == "REDACT":
-                redacted = r["regex"].sub("[REDACTED_BY_UNIFAI]", prompt)
-                return True, r["name"], "Redacted", redacted, ""
-            elif rule_action == "BLOCK":
-                return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
-            elif rule_action == "WARN":
-                return True, r["name"], "Warned", prompt, ""
+        rule_action = (r.get("action") or "BLOCK").upper()
+        if rule_action == "REDACT":
+            redacted = r["regex"].sub("[REDACTED_BY_UNIFAI]", prompt)
+            return True, r["name"], "Redacted", redacted, ""
+        if rule_action == "BLOCK":
+            return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
+        if rule_action == "WARN":
+            return True, r["name"], "Warned", prompt, ""
 
     # Backend / evaluator miss: never block chat as "evaluation failed".
     if _fail_open() or has_ai_bot_rules():

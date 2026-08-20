@@ -24,9 +24,29 @@ func TestParseAIBotViolation(t *testing.T) {
 	}
 }
 
+func TestParseAIBotDecisionUnrecognized(t *testing.T) {
+	if _, ok := parseAIBotDecision("hello"); ok {
+		t.Fatal("expected unrecognized garbage")
+	}
+	if v, ok := parseAIBotDecision(`{"violation":false}`); !ok || v {
+		t.Fatalf("false json: v=%v ok=%v", v, ok)
+	}
+	if v, ok := parseAIBotDecision(`{"violation":true}`); !ok || !v {
+		t.Fatalf("true json: v=%v ok=%v", v, ok)
+	}
+}
+
 func TestResolveGuardBotModel(t *testing.T) {
 	p, m := resolveGuardBotModel("openrouter", "cohere/north-mini-code:free")
 	if string(p) != "openrouter" || m != "cohere/north-mini-code:free" {
 		t.Fatalf("got %s %s", p, m)
+	}
+	p, m = resolveGuardBotModel("openai", "gpt-4o-mini")
+	if string(p) != "openai" || m != "gpt-4o-mini" {
+		t.Fatalf("openai got %s %s", p, m)
+	}
+	p, m = resolveGuardBotModel("openai", "openai/gpt-4o-mini")
+	if string(p) != "openai" || m != "gpt-4o-mini" {
+		t.Fatalf("prefixed openai got %s %s", p, m)
 	}
 }
