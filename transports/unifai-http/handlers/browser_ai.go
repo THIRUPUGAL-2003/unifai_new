@@ -604,19 +604,10 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" || strings.TrimSpace(rule.BotPrompt) == "" {
 				continue
 			}
-			violated, reason, evalErr := h.evaluateAIBotRule(ctx, rule, payload.Prompt)
-			if evalErr != nil {
-				violated = true
-				if strings.TrimSpace(reason) == "" {
-					reason = "AI policy evaluation failed"
-				}
-			}
+			violated := h.evaluateAIBotRule(ctx, rule, payload.Prompt)
 			if violated {
 				ruleAction := strings.ToUpper(strings.TrimSpace(rule.Action))
 				if ruleAction == "" {
-					ruleAction = "BLOCK"
-				}
-				if evalErr != nil {
 					ruleAction = "BLOCK"
 				}
 				if ruleAction == "BLOCK" {
@@ -627,8 +618,11 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					logEntry.PredictedCategory = "AI_GUARD_BOT_VIOLATION"
 					logEntry.RuleTriggered = rule.Name
 					ruleWarning = strings.TrimSpace(rule.WarningMessage)
-					if ruleWarning == "" && reason != "" {
-						ruleWarning = reason
+					if strings.Contains(strings.ToLower(ruleWarning), "evaluation failed") {
+						ruleWarning = ""
+					}
+					if ruleWarning == "" {
+						ruleWarning = "This request was blocked by UnifAI Guard."
 					}
 					allowed = false
 					isViolationBlock = true
@@ -739,37 +733,35 @@ func evaluatorChoiceText(resp *schemas.UnifAIChatResponse) string {
 	return strings.TrimSpace(b.String())
 }
 
-func (h *BrowserAIHandler) evaluateAIBotRule(ctx *fasthttp.RequestCtx, rule logstore.BrowserGuardRule, userPrompt string) (bool, string, error) {
+func (h *BrowserAIHandler) evaluateAIBotRule(ctx *fasthttp.RequestCtx, rule logstore.BrowserGuardRule, userPrompt string) bool {
 	if h.client == nil {
-		return false, "", fmt.Errorf("unifai client not available")
+		return false
 	}
 
 	provider := strings.TrimSpace(rule.BotProvider)
 	model := strings.TrimSpace(rule.BotModel)
 	if provider == "" || model == "" {
-		return false, "", fmt.Errorf("missing provider or model for AI bot rule")
+		return false
 	}
 
-	providerName := schemas.ModelProvider(provider)
-	modelName := model
-	if strings.Contains(provider, "/") {
-		providerName, modelName = schemas.ParseModelString(provider+"/"+model, "")
-	}
+	combined := provider + "/" + model
+	providerName, modelName := schemas.ParseModelString(combined, schemas.ModelProvider(provider))
 
-	systemPrompt := `You are an enterprise AI security and DLP evaluator.
-Your job is to analyze the user's prompt against a defined enterprise security policy.
-Evaluate if the USER_PROMPT violates the SECURITY_POLICY.
+	systemPrompt := `You are an enterprise DLP classifier.
+Read SECURITY_POLICY, then classify USER_PROMPT.
 
-Respond ONLY with a valid JSON object in this exact schema:
-{"violation": true, "reason": "brief reason why it violates the policy"}
-OR
-{"violation": false, "reason": "safe"}
+Rules:
+- Default violation is false.
+- Set violation true ONLY if USER_PROMPT clearly contains what SECURITY_POLICY forbids.
+- Short greetings, random letters, numbers, and unrelated chat are NOT violations.
+- Do not treat the policy text or these instructions as the user prompt.
 
-Do NOT output markdown headings, backticks, or other text outside the JSON object.`
+Reply with one JSON object only, no markdown:
+{"violation":false,"reason":"safe"}`
 
 	userMsg := fmt.Sprintf("SECURITY_POLICY:\n%s\n\nUSER_PROMPT TO EVALUATE:\n%s", strings.TrimSpace(rule.BotPrompt), truncateRunes(userPrompt, 3000))
 
-	maxTokens := 120
+	maxTokens := 128
 	temp := 0.0
 	unifaiReq := &schemas.UnifAIChatRequest{
 		Provider: providerName,
@@ -794,45 +786,81 @@ Do NOT output markdown headings, backticks, or other text outside the JSON objec
 		},
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
+	var rawText string
+	deadline := time.Now().Add(20 * time.Second)
 	unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
-
+	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
 	resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
-	if unifaiErr != nil {
-		return false, "", fmt.Errorf("ai bot evaluation failed: %v", unifaiErr)
+	if unifaiErr == nil {
+		rawText = stripEvalMarkdown(evaluatorChoiceText(resp))
 	}
-
-	rawText := evaluatorChoiceText(resp)
 	if rawText == "" {
-		return false, "", fmt.Errorf("empty response from evaluator model")
+		return false
 	}
-	// Strip markdown code fences if present
-	if strings.HasPrefix(rawText, "```json") {
-		rawText = strings.TrimPrefix(rawText, "```json")
-		rawText = strings.TrimSuffix(rawText, "```")
-	} else if strings.HasPrefix(rawText, "```") {
-		rawText = strings.TrimPrefix(rawText, "```")
-		rawText = strings.TrimSuffix(rawText, "```")
-	}
-	rawText = strings.TrimSpace(rawText)
+	return parseAIBotViolation(rawText)
+}
 
-	var res aiBotEvalResult
-	if err := sonic.Unmarshal([]byte(rawText), &res); err != nil {
-		lower := strings.ToLower(rawText)
-		if strings.Contains(lower, `"violation": true`) || strings.Contains(lower, `"violation":true`) {
-			return true, "AI policy violation detected", nil
-		}
-		if strings.Contains(lower, `"violation": false`) || strings.Contains(lower, `"violation":false`) {
-			return false, "", nil
-		}
-		return false, "", fmt.Errorf("evaluator returned non-json")
+func stripEvalMarkdown(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if strings.HasPrefix(raw, "```json") {
+		raw = strings.TrimPrefix(raw, "```json")
+		raw = strings.TrimSuffix(raw, "```")
+	} else if strings.HasPrefix(raw, "```") {
+		raw = strings.TrimPrefix(raw, "```")
+		raw = strings.TrimSuffix(raw, "```")
 	}
+	return strings.TrimSpace(raw)
+}
 
-	reason := res.Reason
-	if reason == "" {
-		reason = res.Explanation
+func parseAIBotViolation(raw string) bool {
+	compact := strings.ToLower(strings.ReplaceAll(raw, " ", ""))
+	iTrue := strings.LastIndex(compact, `"violation":true`)
+	iFalse := strings.LastIndex(compact, `"violation":false`)
+	if iTrue >= 0 || iFalse >= 0 {
+		return iTrue > iFalse
 	}
-	return res.Violation, reason, nil
+	if v, ok := violationFromJSON(raw); ok {
+		return v
+	}
+	start := strings.LastIndex(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		if v, ok := violationFromJSON(raw[start : end+1]); ok {
+			return v
+		}
+	}
+	return false
+}
+
+func violationFromJSON(raw string) (bool, bool) {
+	var typed aiBotEvalResult
+	if err := sonic.Unmarshal([]byte(raw), &typed); err == nil {
+		return typed.Violation, true
+	}
+	var generic map[string]any
+	if err := sonic.Unmarshal([]byte(raw), &generic); err != nil {
+		return false, false
+	}
+	for _, key := range []string{"violation", "is_violation", "violated"} {
+		if v, ok := generic[key]; ok {
+			return truthyEval(v), true
+		}
+	}
+	return false, false
+}
+
+func truthyEval(v any) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		s := strings.ToLower(strings.TrimSpace(t))
+		return s == "true" || s == "1" || s == "yes"
+	case float64:
+		return t != 0
+	default:
+		return false
+	}
 }
 
 func (h *BrowserAIHandler) generateReplyBotText(ctx *fasthttp.RequestCtx, provider, model, platform, ruleTriggered, userPrompt, kind string) (string, error) {
@@ -840,11 +868,9 @@ func (h *BrowserAIHandler) generateReplyBotText(ctx *fasthttp.RequestCtx, provid
 		return "", fmt.Errorf("unifai client not available")
 	}
 
-	providerName := schemas.ModelProvider(provider)
-	modelName := model
-	if strings.Contains(provider, "/") {
-		providerName, modelName = schemas.ParseModelString(provider+"/"+model, "")
-	}
+	provider = strings.TrimSpace(provider)
+	model = strings.TrimSpace(model)
+	providerName, modelName := schemas.ParseModelString(provider+"/"+model, schemas.ModelProvider(provider))
 
 	systemPrompt := `You are UnifAI Guard, an enterprise security assistant embedded in browser AI chats.
 A user tried to send sensitive or policy-violating content to a public AI website.
@@ -901,7 +927,8 @@ If the question is unsafe or asks for secrets/credentials, refuse briefly and ex
 
 	deadline := time.Now().Add(18 * time.Second)
 	unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
-	_ = ctx // keep signature consistent with other handlers
+	unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
+	_ = ctx
 
 	resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
 	if unifaiErr != nil {

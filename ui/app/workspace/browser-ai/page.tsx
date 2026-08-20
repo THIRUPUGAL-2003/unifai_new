@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
 	Globe,
 	RefreshCw,
@@ -39,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ComboboxSelect } from "@/components/ui/combobox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -82,21 +83,10 @@ import {
 	BrowserTargetWebsite,
 	BrowserAIAgent,
 } from "@/lib/store/apis/browserAiApi";
-import { useGetProvidersQuery, useGetModelsQuery } from "@/lib/store/apis/providersApi";
+import { useGetAllKeysQuery, useGetModelsQuery, useGetProvidersQuery } from "@/lib/store/apis/providersApi";
+import { getProviderLabel } from "@/lib/constants/logs";
 import { getApiBaseUrl } from "@/lib/utils/port";
 import { getErrorMessage } from "@/lib/store/apis/baseApi";
-
-const DEFAULT_PROVIDER_MODELS: Record<string, string[]> = {
-	openai: ["gpt-4o-mini", "gpt-4o", "o3-mini", "gpt-4-turbo"],
-	anthropic: ["claude-3-5-haiku-20241022", "claude-3-5-sonnet-20241022", "claude-3-haiku-20240307"],
-	gemini: ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash-exp"],
-	groq: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant", "mixtral-8x7b-32768"],
-	bedrock: ["anthropic.claude-3-haiku-20240307-v1:0", "anthropic.claude-3-5-sonnet-20240620-v1:0"],
-	deepseek: ["deepseek-chat", "deepseek-reasoner"],
-	cohere: ["command-r", "command-r-plus"],
-	mistral: ["mistral-small-latest", "mistral-large-latest", "codestral-latest"],
-	ollama: ["llama3.2", "qwen2.5", "mistral"],
-};
 
 function GuardBotModelPicker({
 	provider,
@@ -109,38 +99,38 @@ function GuardBotModelPicker({
 	onChange: (model: string) => void;
 	disabled?: boolean;
 }) {
-	const providerKey = (provider || "").toLowerCase();
 	const { data, isFetching } = useGetModelsQuery(
-		{ provider: providerKey, limit: 1000, unfiltered: true },
-		{ skip: !providerKey },
+		{ provider, limit: 5000, unfiltered: true },
+		{ skip: !provider },
 	);
-	const catalogNames = (data?.models || []).map((m) => m.name).filter((n): n is string => Boolean(n));
-	const fallback = DEFAULT_PROVIDER_MODELS[providerKey] || [];
-	const names = Array.from(new Set([...fallback, ...catalogNames, value].filter((n) => String(n).trim())));
+	const options = useMemo(() => {
+		const seen = new Set<string>();
+		const opts: { label: string; value: string }[] = [];
+		for (const m of data?.models || []) {
+			const name = String(m?.name || "").trim();
+			if (!name || seen.has(name)) continue;
+			seen.add(name);
+			opts.push({ label: name, value: name });
+		}
+		const current = String(value || "").trim();
+		if (current && !seen.has(current)) {
+			opts.unshift({ label: current, value: current });
+		}
+		return opts;
+	}, [data, value]);
 
 	return (
-		<div className="space-y-1.5">
-			<Select value={value || undefined} onValueChange={onChange} disabled={disabled || !providerKey}>
-				<SelectTrigger className="h-9 text-xs" data-testid="browser-ai-guard-bot-model">
-					<SelectValue placeholder={!providerKey ? "Select a provider first" : isFetching ? "Loading models..." : "Select model"} />
-				</SelectTrigger>
-				<SelectContent position="popper" className="z-[200] max-h-60">
-					{names.map((m) => (
-						<SelectItem key={m} value={m} className="text-xs">
-							{m}
-						</SelectItem>
-					))}
-				</SelectContent>
-			</Select>
-			<Input
-				className="h-8 text-xs"
-				placeholder="Or type a custom model name"
-				value={value}
-				onChange={(e) => onChange(e.target.value)}
-				disabled={disabled || !providerKey}
-				data-testid="browser-ai-guard-bot-model-custom"
-			/>
-		</div>
+		<ComboboxSelect
+			options={options}
+			value={value || null}
+			onValueChange={(v) => onChange(String(v || ""))}
+			placeholder={!provider ? "Select a provider first" : isFetching ? "Loading models..." : "Select model"}
+			hideClear
+			disabled={disabled || !provider}
+			emptyMessage={provider ? "No models found for this provider" : "Select a provider first"}
+			searchPlaceholder="Search models..."
+			data-testid="browser-ai-guard-bot-model"
+		/>
 	);
 }
 
@@ -300,13 +290,30 @@ export default function BrowserAiPage() {
 	const { data: targetsData, refetch: refetchTargets } = useGetBrowserAiTargetsQuery(undefined, { pollingInterval: activePolling });
 	const { data: controlsData } = useGetBrowserAiControlsQuery(undefined, { pollingInterval: activePolling });
 	const { data: savedProviders = [] } = useGetProvidersQuery();
-	const availableProviderKeys = Object.keys(DEFAULT_PROVIDER_MODELS);
-	const allProviderNames = Array.from(
-		new Set([
-			...(Array.isArray(savedProviders) ? savedProviders.map((p: any) => String(p?.name || p).toLowerCase()) : []),
-			...availableProviderKeys,
-		])
-	).filter(Boolean);
+	const { data: allProviderKeys = [], isSuccess: hasLoadedProviderKeys } = useGetAllKeysQuery();
+	const keyedProviderNames = useMemo(() => {
+		const names = new Set((allProviderKeys || []).map((k) => String(k.provider || "").toLowerCase()).filter(Boolean));
+		if (!hasLoadedProviderKeys) {
+			return (Array.isArray(savedProviders) ? savedProviders : [])
+				.map((p: any) => String(p?.name || p).toLowerCase())
+				.filter(Boolean);
+		}
+		return (Array.isArray(savedProviders) ? savedProviders : [])
+			.map((p: any) => String(p?.name || p).toLowerCase())
+			.filter((name) => names.has(name));
+	}, [savedProviders, allProviderKeys, hasLoadedProviderKeys]);
+	const guardBotProviderOptions = useMemo(() => {
+		const opts = keyedProviderNames.map((name) => ({ label: getProviderLabel(name), value: name }));
+		const current = [newRuleBotProvider, editRuleBotProvider]
+			.map((p) => String(p || "").toLowerCase())
+			.filter(Boolean);
+		for (const name of current) {
+			if (name && !opts.some((o) => o.value === name)) {
+				opts.unshift({ label: getProviderLabel(name), value: name });
+			}
+		}
+		return opts;
+	}, [keyedProviderNames, newRuleBotProvider, editRuleBotProvider]);
 	const {
 		data: agentsData,
 		refetch: refetchAgents,
@@ -1495,26 +1502,19 @@ export default function BrowserAiPage() {
 													<div className="grid grid-cols-2 gap-3">
 														<div className="space-y-1.5">
 															<Label className="text-xs">Model Provider</Label>
-															<Select
-																value={newRuleBotProvider}
+															<ComboboxSelect
+																options={guardBotProviderOptions}
+																value={newRuleBotProvider || null}
 																onValueChange={(p) => {
-																	const key = String(p).toLowerCase();
+																	const key = String(p || "").toLowerCase();
 																	setNewRuleBotProvider(key);
-																	const first = (DEFAULT_PROVIDER_MODELS[key] || [])[0] || "";
-																	setNewRuleBotModel(first);
+																	setNewRuleBotModel("");
 																}}
-															>
-																<SelectTrigger className="h-9 text-xs">
-																	<SelectValue placeholder="Select Provider" />
-																</SelectTrigger>
-																<SelectContent className="z-[200]">
-																	{allProviderNames.map((p) => (
-																		<SelectItem key={p} value={p}>
-																			{p.toUpperCase()}
-																		</SelectItem>
-																	))}
-																</SelectContent>
-															</Select>
+																placeholder={guardBotProviderOptions.length === 0 ? "Add a provider key first" : "Select provider"}
+																hideClear
+																emptyMessage="No providers with API keys. Add a key under Models → Model Providers."
+																data-testid="browser-ai-guard-bot-provider"
+															/>
 														</div>
 														<div className="space-y-1.5">
 															<Label className="text-xs">Model Name</Label>
@@ -1525,6 +1525,9 @@ export default function BrowserAiPage() {
 															/>
 														</div>
 													</div>
+													<p className="text-[11px] text-muted-foreground">
+														Only providers with API keys from Models → Model Providers are listed. After you pick a provider, every model name for that provider is shown.
+													</p>
 													<div className="space-y-1.5">
 														<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
 														<Textarea
@@ -2180,26 +2183,19 @@ export default function BrowserAiPage() {
 									<div className="grid grid-cols-2 gap-3">
 										<div className="space-y-1.5">
 											<Label className="text-xs">Model Provider</Label>
-											<Select
-												value={editRuleBotProvider}
+											<ComboboxSelect
+												options={guardBotProviderOptions}
+												value={editRuleBotProvider || null}
 												onValueChange={(p) => {
-													const key = String(p).toLowerCase();
+													const key = String(p || "").toLowerCase();
 													setEditRuleBotProvider(key);
-													const first = (DEFAULT_PROVIDER_MODELS[key] || [])[0] || "";
-													setEditRuleBotModel(first);
+													setEditRuleBotModel("");
 												}}
-											>
-												<SelectTrigger className="h-9 text-xs">
-													<SelectValue placeholder="Select Provider" />
-												</SelectTrigger>
-												<SelectContent className="z-[200]">
-													{allProviderNames.map((p) => (
-														<SelectItem key={p} value={p}>
-															{p.toUpperCase()}
-														</SelectItem>
-													))}
-												</SelectContent>
-											</Select>
+												placeholder={guardBotProviderOptions.length === 0 ? "Add a provider key first" : "Select provider"}
+												hideClear
+												emptyMessage="No providers with API keys. Add a key under Models → Model Providers."
+												data-testid="browser-ai-guard-bot-provider-edit"
+											/>
 										</div>
 										<div className="space-y-1.5">
 											<Label className="text-xs">Model Name</Label>
@@ -2210,6 +2206,9 @@ export default function BrowserAiPage() {
 											/>
 										</div>
 									</div>
+									<p className="text-[11px] text-muted-foreground">
+										Only providers with API keys from Models → Model Providers are listed. After you pick a provider, every model name for that provider is shown.
+									</p>
 									<div className="space-y-1.5">
 										<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
 										<Textarea

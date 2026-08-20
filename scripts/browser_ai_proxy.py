@@ -75,6 +75,8 @@ IGNORE_PATH_PATTERNS = [
     # ChatGPT / OpenAI non-prompt API calls
     "/sentinel/", "/conversation/init", "/generate_autocompletions",
     "/conversation/prepare", "/f/conversation/prepare",
+    "/backend-api/conversation/prepare", "/backend-api/f/conversation/prepare",
+    "/generate_autocompletions", "/conversation/implicit",
     "/connectors/", "/files/library",
     "/domainreliability/", "/service/update2",
     "/lat/r", "/backend-api/me", "/backend-api/accounts",
@@ -107,6 +109,8 @@ CHAT_PATH_MARKERS = [
     "bardfrontendservice", "/bardchatui", "/_/bard",
 ]
 
+GEMINI_CHAT_RPCS = {"hR32Ce", "vyAQhe", "wXbdQc", "BardFrontendService", "StreamGenerate"}
+
 # Subdomains that are never chat UIs (analytics / CDN / challenges)
 NOISE_HOST_PREFIXES = (
     "count.", "cdn.", "static.", "assets.", "telemetry.", "analytics.",
@@ -137,6 +141,7 @@ _cached_has_ai_bot = False
 _domains_fetched_at: float = 0
 _rules_fetched_at: float = 0
 _recent_prompts: dict = {}  # key -> timestamp
+_composer_draft: dict = {}  # domain -> (prompt, timestamp) while user is still typing
 _cached_controls: dict = {
     "enabled": False,
     "block_upload": False,
@@ -475,8 +480,8 @@ def _path_has_ignore_pattern(path: str) -> bool:
     return False
 
 
-def is_chat_path(path: str) -> bool:
-    """True when URL path looks like an actual chat/prompt submit endpoint or general API on any target website."""
+def is_chat_path(path: str, host: str = "") -> bool:
+    """True when URL path looks like an actual chat/prompt submit endpoint."""
     p = (path or "").lower().split("?", 1)[0]
     if not p:
         return True
@@ -484,7 +489,35 @@ def is_chat_path(path: str) -> bool:
         return False
     if NOISE_EXTENSIONS.search(p):
         return False
+    h = (host or "").lower()
+    if "chatgpt.com" in h or "chat.openai.com" in h:
+        if "prepare" in p or "autocomplet" in p or "implicit" in p:
+            return False
+        return "/conversation" in p or "/messages" in p or "/chat/completions" in p
     return True
+
+
+def is_gemini_host(host: str) -> bool:
+    h = (host or "").lower()
+    return any(
+        x in h
+        for x in (
+            "gemini.google.",
+            "bard.google.",
+            "generativelanguage.googleapis",
+        )
+    )
+
+
+def is_gemini_chat_submit(path: str, body: str = "") -> bool:
+    """True only for the HTTP call that carries the user's typed Gemini prompt."""
+    path_l = (path or "").lower()
+    compact = path_l.replace("_", "")
+    if "streamgenerate" in compact or "generatecontent" in compact:
+        return True
+    if "bardfrontendservice" in path_l:
+        return True
+    return any(rpc in (body or "") for rpc in GEMINI_CHAT_RPCS)
 
 
 def _is_google_wire_blob(text: str) -> bool:
@@ -499,7 +532,10 @@ def _is_google_wire_blob(text: str) -> bool:
         return True
     if " " in t or "\n" in t:
         return False
-    # Opaque mixed-case ids: bxlsenAh8ow1YRs9NnsA
+    # Opaque session / RPC ids, including punctuation: br1sernAK9ow)YRx8NnaA
+    if 8 <= len(t) <= 64 and re.search(r"[A-Za-z]", t) and re.search(r"\d", t):
+        if any(c.isupper() for c in t) and any(c.islower() for c in t):
+            return True
     if 8 <= len(t) <= 48 and re.fullmatch(r"[A-Za-z0-9_-]+", t):
         has_u = any(c.isupper() for c in t)
         has_l = any(c.islower() for c in t)
@@ -594,7 +630,9 @@ def is_noise(path: str, content: str = "") -> bool:
         return True
 
     # Partial typing / autocomplete — not a submitted prompt
-    if path_lower.endswith("/prepare") or "partial_query" in (content or ""):
+    if path_lower.endswith("/prepare") or "/prepare" in path_lower or "partial_query" in (content or ""):
+        return True
+    if "autocomplet" in path_lower or "implicit_hint" in path_lower:
         return True
 
     if content:
@@ -668,6 +706,59 @@ def is_duplicate_event(domain: str, event_key: str, ttl: float = DEDUPE_TTL) -> 
 def is_duplicate_prompt(domain: str, prompt: str) -> bool:
     """Return True if the same prompt was already logged for this domain recently."""
     return is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL)
+
+
+def is_chatgpt_host(host: str) -> bool:
+    h = (host or "").lower()
+    return "chatgpt.com" in h or "chat.openai.com" in h
+
+
+def is_unsubmitted_chat_body(path: str, body: str) -> bool:
+    """True for ChatGPT prepare/draft/in-progress payloads — not Enter/send."""
+    path_l = (path or "").lower()
+    if "prepare" in path_l or "autocomplet" in path_l or "partial" in path_l:
+        return True
+    if not body:
+        return False
+    try:
+        data = json.loads(body)
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    action = str(data.get("action") or "").strip().lower()
+    if action and action not in ("next", "variant", "continue"):
+        return True
+    for m in data.get("messages") or []:
+        if not isinstance(m, dict):
+            continue
+        status = str(m.get("status") or "").lower()
+        if status in ("in_progress", "unfinished", "draft"):
+            return True
+        meta = m.get("metadata") if isinstance(m.get("metadata"), dict) else {}
+        if meta.get("is_complete") is False:
+            return True
+    return False
+
+
+def is_composer_typing_draft(domain: str, prompt: str) -> bool:
+    """Skip growing/shrinking composer text (keystrokes). Intercept the finished submit."""
+    text = (prompt or "").strip()
+    if not text or not domain:
+        return False
+    now = time.time()
+    prev = _composer_draft.get(domain)
+    _composer_draft[domain] = (text, now)
+    if not prev:
+        return False
+    prev_text, prev_ts = prev
+    if now - prev_ts > 2.5:
+        return False
+    if text == prev_text:
+        return False
+    grew = text.startswith(prev_text) and 0 < len(text) - len(prev_text) <= 24
+    shrunk = prev_text.startswith(text) and 0 < len(prev_text) - len(text) <= 24
+    return grew or shrunk
 
 
 def _parts_to_text(parts) -> str | None:
@@ -1066,9 +1157,6 @@ def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
     return False, "", ""
 
 
-GEMINI_CHAT_RPCS = {"hR32Ce", "vyAQhe", "wXbdQc", "BardFrontendService", "StreamGenerate"}
-
-
 def extract_gemini_prompt(content: str) -> str:
     """
     Extract ONLY the user-typed prompt from Gemini/Bard requests.
@@ -1232,7 +1320,7 @@ def extract_gemini_prompt(content: str) -> str:
     return ""
 
 
-def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
+def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") -> str | None:
     """
     Extract ONLY the exact user-typed prompt text from a request body.
     Never returns raw JSON / API metadata / Cloudflare challenge blobs.
@@ -1247,12 +1335,12 @@ def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
 
         ct = (content_type or "").lower()
 
-        # Gemini web form body (f.req=... or batchexecute with req0___data__)
-        if "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
+        # Gemini: never walk generic JSON/form fields — those are request ids.
+        if is_gemini_host(host) or "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
             gemini_prompt = extract_gemini_prompt(text)
             return _clean_prompt_text(gemini_prompt) if gemini_prompt else None
 
-        # URL-encoded form bodies (Copilot / Gemini / misc)
+        # URL-encoded form bodies (Copilot / misc — not Gemini)
         if "application/x-www-form-urlencoded" in ct or (
             "%" in text and not text.lstrip().startswith(("{", "["))
         ) or text.startswith(("count=", "at=", "soc-app=", "req0_", "req1_")):
@@ -1281,10 +1369,6 @@ def extract_prompt(body_bytes: bytes, content_type: str = "") -> str | None:
                 data = json.loads(text)
             except Exception:
                 return None
-            if isinstance(data, list):
-                gemini_prompt = extract_gemini_prompt(text)
-                if gemini_prompt:
-                    return _clean_prompt_text(gemini_prompt)
             return _extract_from_json(data)
 
         # Plain text payloads (only if body itself is a direct user sentence/code)
@@ -1350,7 +1434,7 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
         )
 
         # Reply Bot may call an LLM — keep a bound so chat UIs do not hang forever
-        with urllib.request.urlopen(req, timeout=8) as response:
+        with urllib.request.urlopen(req, timeout=25) as response:
             if response.status == 200:
                 res_data = json.loads(response.read().decode("utf-8"))
                 allowed = res_data.get("allowed", True)
@@ -1379,9 +1463,8 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             elif rule_action == "WARN":
                 return True, r["name"], "Warned", prompt, ""
 
-    # Fail-closed when backend is unreachable (enterprise safe default).
-    # Set UNIFAI_FAIL_OPEN=1 to allow prompts when backend + local rules miss.
-    if _fail_open():
+    # Backend / evaluator miss: never block chat as "evaluation failed".
+    if _fail_open() or has_ai_bot_rules():
         return True, "", "Allowed", prompt, ""
     return (
         False,
@@ -1584,6 +1667,10 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
     host_l = (host or "").lower()
     accept = (flow.request.headers.get("Accept", "") or "").lower()
     msg = (reply_text or "").strip()
+    if not msg:
+        msg = "This request was blocked by UnifAI Guard."
+    if "evaluation failed" in msg.lower():
+        msg = "This request was blocked by UnifAI Guard."
     msg_json = json.dumps(msg)
     msg_escaped = (
         msg.replace("\\", "\\\\")
@@ -1985,7 +2072,7 @@ class BrowserAIInterceptor:
 
             # Same text employees / chat replies see
             msg = prompt_log if (block_for_rule or block_all_uploads) else ""
-            if is_chat_path(path) and msg:
+            if is_chat_path(path, host) and msg:
                 make_blocked_response(flow, blocked_reason, host, reply_text=msg)
                 return
             flow.response = http.Response.make(
@@ -2046,8 +2133,12 @@ class BrowserAIInterceptor:
                 except Exception:
                     pass
 
+        # Gemini fires many extra POSTs (session ids, counters). Log only the chat submit.
+        if is_gemini_host(host) and not is_gemini_chat_submit(path, raw_text):
+            return
+
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
-        if not is_chat_path(path):
+        if not is_chat_path(path, host):
             return
 
         if is_noise(path):
@@ -2057,7 +2148,7 @@ class BrowserAIInterceptor:
         if is_noise(path, raw_text):
             return
 
-        prompt = extract_prompt(raw_bytes, content_type)
+        prompt = extract_prompt(raw_bytes, content_type, host=host)
         if not prompt or len(prompt.strip()) < 1:
             # Help debug Gemini/Copilot misses without flooding logs
             if any(x in (domain or "") for x in ("gemini", "copilot", "bing")) and len(raw_text) > 20:
@@ -2074,6 +2165,10 @@ class BrowserAIInterceptor:
         if "batchexecute" in path_l and "streamgenerate" not in compact:
             if not any(rpc in raw_text for rpc in GEMINI_CHAT_RPCS):
                 return
+
+        # ChatGPT fires POSTs while typing. Predict only after Enter/send.
+        if is_unsubmitted_chat_body(path, raw_text) or is_composer_typing_draft(domain, prompt):
+            return
 
         # Skip duplicate / typing-repeat submissions
         if is_duplicate_prompt(domain, prompt):
@@ -2138,10 +2233,13 @@ class BrowserAIInterceptor:
         if is_noise(flow.request.path, content):
             return
 
-        prompt = extract_prompt(content.encode("utf-8"), "application/json")
+        prompt = extract_prompt(content.encode("utf-8"), "application/json", host=host)
         if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
             return
         if not looks_like_user_prompt(prompt):
+            return
+
+        if is_unsubmitted_chat_body(flow.request.path, content) or is_composer_typing_draft(domain, prompt):
             return
 
         if is_duplicate_prompt(domain, prompt):
