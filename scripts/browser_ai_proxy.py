@@ -940,11 +940,13 @@ def _extract_from_json(data) -> str | None:
 
 
 def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str]:
-    """Detect file upload attempts from headers, path, content-type, and payload."""
+    """Detect real file upload attempts — not chat JSON that merely mentions file metadata."""
     headers = flow.request.headers
     content_type = (headers.get("content-type", "") or "").lower()
     path = (flow.request.path or "").lower()
     method = (flow.request.method or "").upper()
+    host = (flow.request.pretty_host or "").lower()
+    chat_submit = is_chat_path(path, host)
 
     # Google resumable upload protocol (Gemini / Drive / Docs)
     for hk, hv in headers.items():
@@ -955,15 +957,21 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
         if "upload" in hk_l and ("file" in hk_l or "content" in hk_l):
             return True, f"Upload header ({hk})"
 
-    for prefix in UPLOAD_CONTENT_TYPES:
-        if prefix in content_type:
-            return True, f"File content-type ({content_type.split(';')[0]})"
+    # Binary / multipart bodies are real uploads (never treat pure JSON chat as binary upload)
+    if "multipart/form-data" in content_type:
+        return True, f"File content-type ({content_type.split(';')[0]})"
+    if not chat_submit:
+        for prefix in UPLOAD_CONTENT_TYPES:
+            if prefix in content_type:
+                return True, f"File content-type ({content_type.split(';')[0]})"
 
+    # Dedicated upload URL paths (not /conversation that happens to mention files in JSON)
+    path_only = path.split("?", 1)[0]
     for ep in UPLOAD_ENDPOINTS:
-        if ep in path:
-            return True, f"File Upload Endpoint ({path.split('?', 1)[0][:80]})"
+        if ep in path_only:
+            # ChatGPT file-library polls are not chat submits — still uploads/API
+            return True, f"File Upload Endpoint ({path_only[:80]})"
 
-    host = (flow.request.pretty_host or "").lower()
     body_len = len(flow.request.content or b"")
     if method in ("POST", "PUT", "PATCH") and body_len >= 2048:
         if any(
@@ -973,7 +981,10 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
             if "json" not in content_type or body_len >= 50_000:
                 return True, f"Large upload body on {host} ({body_len} bytes)"
 
-    if raw_content:
+    # JSON payload heuristics: NEVER on chat submit paths.
+    # ChatGPT conversation bodies often include file_id / asset_pointer from prior turns
+    # and were falsely blocked as "UPLOAD FILE BLOCK" in the chat UI.
+    if raw_content and not chat_submit:
         strong = any(
             k in raw_content
             for k in (
