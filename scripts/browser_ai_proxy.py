@@ -299,12 +299,9 @@ def get_guard_rules() -> list:
         for r in rules:
             if not r.get("active", False):
                 continue
-            if (
-                str(r.get("rule_type") or "").strip().lower() == "ai_bot"
-                and str(r.get("bot_prompt") or "").strip()
-                and str(r.get("bot_provider") or "").strip()
-                and str(r.get("bot_model") or "").strip()
-            ):
+            # Any active AI bot must hit the backend (including incomplete BLOCK bots —
+            # backend fail-closes those). Do not require provider/model/prompt here.
+            if str(r.get("rule_type") or "").strip().lower() == "ai_bot":
                 has_ai_bot = True
             pattern = r.get("pattern", "").strip()
             if not pattern:
@@ -314,7 +311,7 @@ def get_guard_rules() -> list:
                     "name": r.get("name", "Unknown Rule"),
                     "pattern": pattern,
                     "regex": re.compile(pattern, re.IGNORECASE),
-                    "action": r.get("action", "BLOCK"),  # BLOCK, WARN, or REDACT
+                    "action": r.get("action", "BLOCK"),  # BLOCK or WARN (legacy REDACT→WARN)
                     "severity": r.get("severity", "HIGH"),
                     "warning_message": (r.get("warning_message") or "").strip(),
                 })
@@ -371,12 +368,13 @@ def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url
         threading.Thread(target=_log_local_block, daemon=True).start()
         return False, rule_triggered, action or "Blocked", redacted_prompt, reply_text
 
+    # Local WARN must NOT skip AI Guard Bot — a BLOCK bot can still escalate.
+    if has_ai_bot_rules():
+        return send_to_backend(platform, domain, prompt, client_ip, url, method)
+
     if action in ("Redacted", "Warned"):
         log_prompt_async(platform, domain, prompt, client_ip, url, method)
         return local_allowed, rule_triggered, action, redacted_prompt, reply_text
-
-    if has_ai_bot_rules():
-        return send_to_backend(platform, domain, prompt, client_ip, url, method)
 
     log_prompt_async(platform, domain, prompt, client_ip, url, method)
     return True, "", "Allowed", prompt, ""

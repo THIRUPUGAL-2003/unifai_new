@@ -3,6 +3,7 @@ package guardrails
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/unifai/unifai/core/schemas"
 )
@@ -30,14 +31,18 @@ func NewRegexProvider(config GuardrailProvider) (*RegexProvider, error) {
 	}
 
 	for _, pRaw := range patternsRaw {
-		pMap, ok := pRaw.(map[string]interface{})
-		if !ok {
+		var patternStr, desc, flags string
+
+		switch p := pRaw.(type) {
+		case string:
+			patternStr = strings.TrimSpace(p)
+		case map[string]interface{}:
+			patternStr, _ = p["pattern"].(string)
+			desc, _ = p["description"].(string)
+			flags, _ = p["flags"].(string)
+		default:
 			continue
 		}
-
-		patternStr, _ := pMap["pattern"].(string)
-		desc, _ := pMap["description"].(string)
-		flags, _ := pMap["flags"].(string)
 
 		if patternStr == "" {
 			continue

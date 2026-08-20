@@ -182,10 +182,37 @@ func (h *BrowserAIHandler) updateRule(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Validate AI Guard Bot fields when switching to / updating an ai_bot rule.
+	// Validate AI Guard Bot fields for the resulting rule (including partial updates).
 	ruleType := ""
 	if v, ok := updates["rule_type"].(string); ok {
 		ruleType = strings.ToLower(strings.TrimSpace(v))
+	}
+	_, hasBotPrompt := updates["bot_prompt"]
+	_, hasBotProvider := updates["bot_provider"]
+	_, hasBotModel := updates["bot_model"]
+	needsAIBotCheck := ruleType == "ai_bot" || hasBotPrompt || hasBotProvider || hasBotModel
+	if needsAIBotCheck {
+		if existingRules, getErr := h.manager.GetRules(ctx); getErr == nil {
+			for i := range existingRules {
+				if existingRules[i].ID != id {
+					continue
+				}
+				existing := existingRules[i]
+				if ruleType == "" {
+					ruleType = strings.ToLower(strings.TrimSpace(existing.RuleType))
+				}
+				if !hasBotPrompt {
+					updates["bot_prompt"] = existing.BotPrompt
+				}
+				if !hasBotProvider {
+					updates["bot_provider"] = existing.BotProvider
+				}
+				if !hasBotModel {
+					updates["bot_model"] = existing.BotModel
+				}
+				break
+			}
+		}
 	}
 	if ruleType == "ai_bot" {
 		botPrompt, _ := updates["bot_prompt"].(string)
@@ -618,8 +645,9 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	isViolationBlock := !allowed
 
 	evalError := ""
-	// If no regex rule blocked the prompt, evaluate active AI Guard Bot rules
-	if allowed && logEntry.Action == "Allowed" {
+	// Evaluate AI Guard Bot whenever the prompt is still allowed (Allowed or Warned).
+	// A regex WARN must not short-circuit a stronger AI Guard Bot BLOCK policy.
+	if allowed {
 		rules, _ := h.manager.GetRules(ctx)
 		for _, rule := range rules {
 			if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {

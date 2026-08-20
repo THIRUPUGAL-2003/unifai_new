@@ -48,16 +48,28 @@ export default function GuardrailsProviderView() {
 		setEditingProvider(null);
 	};
 
-	// Helper to extract regex patterns safely
+	// Plugin expects [{ pattern, description?, flags? }] (also accepts plain strings).
 	const getRegexPatterns = (provider: Partial<GuardrailProvider>) => {
-		if (provider.config && Array.isArray(provider.config.patterns)) {
-			return provider.config.patterns.join("\n");
-		}
-		return "";
+		const raw = provider.config?.patterns;
+		if (!Array.isArray(raw)) return "";
+		return raw
+			.map((item) => {
+				if (typeof item === "string") return item;
+				if (item && typeof item === "object" && "pattern" in item) {
+					return String((item as { pattern?: string }).pattern || "");
+				}
+				return "";
+			})
+			.filter((p) => p.trim() !== "")
+			.join("\n");
 	};
 
 	const setRegexPatterns = (val: string) => {
-		const patterns = val.split("\n").filter((p) => p.trim() !== "");
+		const patterns = val
+			.split("\n")
+			.map((p) => p.trim())
+			.filter((p) => p !== "")
+			.map((pattern) => ({ pattern, description: "", flags: "i" }));
 		setEditingProvider((prev) => ({
 			...prev,
 			config: { ...(prev?.config || {}), patterns },

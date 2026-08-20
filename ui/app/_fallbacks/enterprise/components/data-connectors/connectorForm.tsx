@@ -43,6 +43,11 @@ export function ConnectorForm({ name, title, description, fields, onDelete, isDe
 			<div>
 				<h2 className="text-lg font-semibold">{title}</h2>
 				<p className="text-muted-foreground text-sm">{description}</p>
+				<p className="text-muted-foreground mt-2 text-xs">
+					Settings are stored in the workspace DB. Live log export for this connector is not wired in the OSS runtime
+					(unlike OpenTelemetry / Prometheus / Maxim). Enabling it here does not send data until a runtime exporter is
+					configured.
+				</p>
 			</div>
 			<div className="flex items-center justify-between rounded-lg border p-3">
 				<Label>Enable connector</Label>
