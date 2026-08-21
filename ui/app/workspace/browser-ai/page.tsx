@@ -32,7 +32,6 @@ import {
 	Upload,
 	Bot,
 	Save,
-	MoreHorizontal,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,17 +45,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdownMenu";
-import {
-	AlertDialog,
-	AlertDialogAction,
-	AlertDialogCancel,
-	AlertDialogContent,
-	AlertDialogDescription,
-	AlertDialogFooter,
-	AlertDialogHeader,
-	AlertDialogTitle,
-} from "@/components/ui/alertDialog";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions } from "./relatedHosts";
 
@@ -76,7 +64,6 @@ import {
 	useGetBrowserAiAgentsQuery,
 	useGetBrowserAiAgentSettingsQuery,
 	useSaveBrowserAiUninstallKeyMutation,
-	useRemoteUninstallBrowserAiAgentMutation,
 	BrowserAILogEntry,
 	BrowserGuardRule,
 	BrowserControlSettings,
@@ -131,47 +118,6 @@ function GuardBotModelPicker({
 			searchPlaceholder="Search models..."
 			data-testid="browser-ai-guard-bot-model"
 		/>
-	);
-}
-
-function GuardAgentRowMenu({
-	agent,
-	onUninstall,
-}: {
-	agent: BrowserAIAgent;
-	onUninstall: (agent: BrowserAIAgent) => void;
-}) {
-	const status = (agent.status || "").toLowerCase();
-	const alreadyGone = status === "uninstalled";
-	const pending = status === "uninstall_pending" || !!agent.uninstall_requested;
-	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					variant="ghost"
-					size="icon"
-					className="h-8 w-8"
-					data-testid={`guard-agent-menu-${agent.id}`}
-					aria-label="Agent actions"
-				>
-					<MoreHorizontal className="h-4 w-4" />
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent align="end">
-				<DropdownMenuItem
-					className="text-destructive focus:text-destructive cursor-pointer"
-					disabled={alreadyGone || pending}
-					data-testid={`guard-agent-uninstall-${agent.id}`}
-					onSelect={(e) => {
-						e.preventDefault();
-						onUninstall(agent);
-					}}
-				>
-					<Trash2 className="h-4 w-4" />
-					{alreadyGone ? "Already uninstalled" : pending ? "Uninstall pending…" : "Uninstall"}
-				</DropdownMenuItem>
-			</DropdownMenuContent>
-		</DropdownMenu>
 	);
 }
 
@@ -383,9 +329,6 @@ export default function BrowserAiPage() {
 	);
 	const { data: agentSettingsData, refetch: refetchAgentSettings } = useGetBrowserAiAgentSettingsQuery();
 	const [saveUninstallKey, { isLoading: savingUninstallKey }] = useSaveBrowserAiUninstallKeyMutation();
-	const [remoteUninstallAgent, { isLoading: remoteUninstalling }] = useRemoteUninstallBrowserAiAgentMutation();
-	const [uninstallTarget, setUninstallTarget] = useState<BrowserAIAgent | null>(null);
-	const [remoteUninstallError, setRemoteUninstallError] = useState("");
 
 	const controls: BrowserControlSettings = controlsData?.controls || {
 		id: "browser-controls-default",
@@ -675,18 +618,6 @@ export default function BrowserAiPage() {
 			refetchAgentSettings();
 		} catch (error) {
 			setUninstallKeyError(error instanceof Error ? error.message : "Failed to update uninstall policy");
-		}
-	};
-
-	const handleConfirmRemoteUninstall = async () => {
-		if (!uninstallTarget?.id) return;
-		setRemoteUninstallError("");
-		try {
-			await remoteUninstallAgent(uninstallTarget.id).unwrap();
-			setUninstallTarget(null);
-			refetchAgents();
-		} catch (error) {
-			setRemoteUninstallError(getErrorMessage(error));
 		}
 	};
 
@@ -2314,10 +2245,12 @@ export default function BrowserAiPage() {
 					<Card className="bg-card border-border">
 						<CardHeader>
 							<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
-							<CardDescription>Installed Guard stays Active and keeps intercepting until uninstall. Admin Uninstall from this table tells the laptop to stop on the next heartbeat (up to 30s).</CardDescription>
+							<CardDescription>
+								Installed Guard stays Active and keeps intercepting until the agent is uninstalled on that laptop.
+							</CardDescription>
 						</CardHeader>
 						<CardContent className="p-0">
-							<Table className="table-fixed min-w-[1140px]">
+							<Table className="table-fixed min-w-[1080px]">
 								<TableHeader>
 									<TableRow className="hover:bg-transparent border-border">
 										<TableHead className="w-[160px]">Laptop</TableHead>
@@ -2329,7 +2262,6 @@ export default function BrowserAiPage() {
 										<TableHead className="w-[130px]">Status</TableHead>
 										<TableHead className="w-[160px]">Last seen</TableHead>
 										<TableHead className="w-[160px]">Installed</TableHead>
-										<TableHead className="w-[52px] text-right"> </TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -2359,14 +2291,11 @@ export default function BrowserAiPage() {
 											<TableCell className="text-xs text-muted-foreground truncate">
 												{agent.installed_at ? new Date(agent.installed_at).toLocaleString() : "—"}
 											</TableCell>
-											<TableCell className="text-right">
-												<GuardAgentRowMenu agent={agent} onUninstall={(a) => { setRemoteUninstallError(""); setUninstallTarget(a); }} />
-											</TableCell>
 										</TableRow>
 									))}
 									{agents.length === 0 && (
 										<TableRow>
-												<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
+												<TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
 												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe on employee laptops.
 											</TableCell>
 										</TableRow>
@@ -2375,34 +2304,6 @@ export default function BrowserAiPage() {
 							</Table>
 						</CardContent>
 					</Card>
-
-					<AlertDialog open={!!uninstallTarget} onOpenChange={(open) => { if (!open) setUninstallTarget(null); }}>
-						<AlertDialogContent>
-							<AlertDialogHeader>
-								<AlertDialogTitle>Uninstall Guard on this laptop?</AlertDialogTitle>
-								<AlertDialogDescription>
-									{uninstallTarget
-										? `This sends a remote uninstall to ${uninstallTarget.hostname || "this laptop"} (${uninstallTarget.username || "unknown user"}). Guard v1.2.6+ will stop intercepting on the next heartbeat (within ~30 seconds). Older Guard versions stay running until that laptop is upgraded.`
-										: ""}
-								</AlertDialogDescription>
-							</AlertDialogHeader>
-							{remoteUninstallError ? <p className="text-sm text-red-400">{remoteUninstallError}</p> : null}
-							<AlertDialogFooter>
-								<AlertDialogCancel data-testid="guard-agent-uninstall-cancel">Cancel</AlertDialogCancel>
-								<AlertDialogAction
-									onClick={(e) => {
-										e.preventDefault();
-										void handleConfirmRemoteUninstall();
-									}}
-									disabled={remoteUninstalling}
-									className="bg-destructive hover:bg-destructive/90"
-									data-testid="guard-agent-uninstall-confirm"
-								>
-									{remoteUninstalling ? "Sending…" : "Uninstall"}
-								</AlertDialogAction>
-							</AlertDialogFooter>
-						</AlertDialogContent>
-					</AlertDialog>
 
 					{totalAgents > agentPageLimit && (
 						<div className="flex items-center justify-end gap-2">
@@ -2586,7 +2487,7 @@ export default function BrowserAiPage() {
 									<CheckCircle2 className="h-6 w-6 text-emerald-400" />
 									<div>
 										<CardTitle className="text-lg">Employee Setup Package</CardTitle>
-										<CardDescription>Download a ZIP that contains the Guard installer, backend config, and employee setup guide.</CardDescription>
+										<CardDescription>Download a ZIP with the Guard Windows installer only.</CardDescription>
 									</div>
 								</div>
 								<div className="flex items-center gap-2">
@@ -2600,7 +2501,7 @@ export default function BrowserAiPage() {
 						</CardHeader>
 						<CardContent className="pt-0">
 							<p className="text-sm text-muted-foreground">
-								Use this ZIP for employee rollout. It bundles the Windows setup EXE with the same backend configuration used by this Browser AI workspace.
+								ZIP contains <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> only. Backend config is already inside the installer.
 							</p>
 							{setupPackageError ? <p className="mt-3 text-sm text-red-400">{setupPackageError}</p> : null}
 						</CardContent>
@@ -2609,7 +2510,7 @@ export default function BrowserAiPage() {
 					<Card className="bg-card border-border">
 						<CardHeader>
 							<CardTitle className="text-lg">Install Steps</CardTitle>
-							<CardDescription>Old certificate-only setup has been replaced with a single ZIP download and guided Windows installation.</CardDescription>
+							<CardDescription>Download the ZIP, extract the installer, and run it on the employee laptop.</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<div className="space-y-4">
@@ -2618,7 +2519,7 @@ export default function BrowserAiPage() {
 									<span>Download the ZIP package</span>
 								</div>
 								<p className="text-xs text-muted-foreground pl-8">
-									Click <strong>Download Setup ZIP</strong> above. The ZIP includes the installer EXE, employee README, and the backend config for this environment.
+									Click <strong>Download Setup ZIP</strong> above. The ZIP includes only <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code>.
 								</p>
 							</div>
 
@@ -2645,9 +2546,7 @@ export default function BrowserAiPage() {
 							<div className="rounded-md border border-border bg-background p-4 text-xs space-y-2">
 								<p className="font-semibold text-foreground">ZIP contents</p>
 								<ul className="list-disc pl-5 text-muted-foreground space-y-1">
-									<li><code>UnifAI_Guard_Setup.exe</code> for employee installation</li>
-									<li><code>unifai_guard_config.json</code> with backend URL</li>
-									<li><code>EMPLOYEE_README.txt</code> with install/support instructions</li>
+									<li><code>UnifAI_Guard_Setup.exe</code> — employee installer (only file)</li>
 								</ul>
 							</div>
 						</CardContent>

@@ -307,16 +307,6 @@ func browserAISetupCandidates() map[string][]string {
 		"UnifAI_Guard_Setup.exe": {
 			filepath.Join("release", "UnifAI_Guard_Setup.exe"),
 		},
-		"UnifAI_Guard.exe": {
-			filepath.Join("dist", "UnifAI_Guard.exe"),
-		},
-		"EMPLOYEE_README.txt": {
-			filepath.Join("installer", "EMPLOYEE_README.txt"),
-		},
-		"unifai_guard_config.json": {
-			"unifai_guard_config.json",
-			filepath.Join("dist", "unifai_guard_config.json"),
-		},
 	}
 }
 
