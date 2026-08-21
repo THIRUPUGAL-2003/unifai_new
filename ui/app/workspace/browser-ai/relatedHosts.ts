@@ -26,8 +26,8 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 	if (d === "gemini.google.com" || d === "bard.google.com") {
 		return {
 			label: "Gemini related hosts",
-			reason: "Names only — not added until you click. Subdomains of gemini.google.com are already covered.",
-			hosts: ["drive.google.com", "docs.google.com", "upload.google.com", "clients6.google.com"],
+			reason: "Chat prompts usually go through clients6.google.com — add it or Gemini logs stay empty. Subdomains of gemini.google.com are already covered.",
+			hosts: ["clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"],
 		};
 	}
 	if (d === "copilot.microsoft.com" || d === "copilot.cloud.microsoft") {

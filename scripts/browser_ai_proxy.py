@@ -534,7 +534,7 @@ def _path_has_ignore_pattern(path: str) -> bool:
     return False
 
 
-def is_chat_path(path: str, host: str = "") -> bool:
+def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
     """True when URL path looks like an actual chat/prompt submit endpoint."""
     p = (path or "").lower().split("?", 1)[0]
     h = (host or "").lower()
@@ -552,7 +552,7 @@ def is_chat_path(path: str, host: str = "") -> bool:
     if is_gemini_host(h):
         if not p:
             return False
-        return is_gemini_chat_submit(p, "")
+        return is_gemini_chat_submit(p, body or "")
     if not p:
         return True
     return True
@@ -566,6 +566,8 @@ def is_gemini_host(host: str) -> bool:
             "gemini.google.",
             "bard.google.",
             "generativelanguage.googleapis",
+            # Modern Gemini chat submit often goes here (admin related-host).
+            "clients6.google.",
         )
     )
 
@@ -573,16 +575,27 @@ def is_gemini_host(host: str) -> bool:
 def is_gemini_chat_submit(path: str, body: str = "") -> bool:
     """True only for the HTTP call that carries the user's typed Gemini prompt.
 
-    Only StreamGenerate / GenerateContent / BardFrontendService paths.
-    batchexecute alone leaks wire junk (co.in, session ids) — never treat as chat.
+    StreamGenerate / GenerateContent / BardFrontendService / BardChatUi batchexecute.
+    Plain telemetry batchexecute without a prompt-shaped payload is rejected.
     """
-    _ = body  # kept for call-site compatibility
     path_l = (path or "").lower()
     compact = path_l.replace("_", "")
     if "streamgenerate" in compact or "generatecontent" in compact:
         return True
     if "bardfrontendservice" in path_l:
         return True
+    # clients6.google.com /_/BardChatUi/data/batchexecute (RPC ids rotate often)
+    if "bardchatu" in compact or "bardchatui" in path_l:
+        if "batchexecute" in path_l or "streamgenerate" in compact:
+            return True
+    if "batchexecute" in path_l and body:
+        if any(rpc in body for rpc in GEMINI_CHAT_RPCS) or "StreamGenerate" in body:
+            return True
+        # Typed prompt slot: [["user text",0, ...
+        if re.search(r'\[\s*\[\s*"(?:[^"\\]|\\.)+?"\s*,\s*0\s*,', body):
+            return True
+        if re.search(r'\\"(?:[^"\\]|\\.)+?\\"\s*,\s*0\s*,', body):
+            return True
     return False
 
 
@@ -1440,17 +1453,17 @@ def extract_gemini_prompt(content: str) -> str:
     except Exception:
         pass
 
-    # 3. Slot regex only when a known chat RPC id is present (skip telemetry batchexecute).
-    if any(rpc in req_str for rpc in GEMINI_CHAT_RPCS):
-        for pat in (
-            r'\[\s*\[\s*"((?:[^"\\]|\\.)+?)"\s*,\s*0\s*,',
-            r'\\"((?:[^"\\]|\\.)+?)\\"\s*,\s*0\s*,',
-        ):
-            m = re.search(pat, req_str)
-            if m:
-                cand = _normalize_prompt(m.group(1))
-                if _is_valid_user_prompt(cand):
-                    return cand
+    # 3. Slot regex for StreamGenerate-shaped prompts.
+    # Google rotates batchexecute RPC ids often — do not require a hard-coded id list.
+    for pat in (
+        r'\[\s*\[\s*"((?:[^"\\]|\\.)+?)"\s*,\s*0\s*,',
+        r'\\"((?:[^"\\]|\\.)+?)\\"\s*,\s*0\s*,',
+    ):
+        m = re.search(pat, req_str)
+        if m:
+            cand = _normalize_prompt(m.group(1))
+            if _is_valid_user_prompt(cand) and not _is_google_wire_blob(cand):
+                return cand
 
     return ""
 
@@ -2289,7 +2302,7 @@ class BrowserAIInterceptor:
             return
 
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
-        if not is_chat_path(path, host):
+        if not is_chat_path(path, host, raw_text):
             return
 
         if is_noise(path):
@@ -2302,20 +2315,13 @@ class BrowserAIInterceptor:
         prompt = extract_prompt(raw_bytes, content_type, host=host)
         if not prompt or len(prompt.strip()) < 1:
             # Help debug Gemini/Copilot misses without flooding logs
-            if any(x in (domain or "") for x in ("gemini", "copilot", "bing")) and len(raw_text) > 20:
+            if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6")) and len(raw_text) > 20:
                 print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
             return
         if not looks_like_user_prompt(prompt):
             return
         if _is_google_wire_blob(prompt):
             return
-
-        # Gemini batchexecute background RPCs: only StreamGenerate / known chat RPCs.
-        path_l = (path or "").lower()
-        compact = path_l.replace("_", "")
-        if "batchexecute" in path_l and "streamgenerate" not in compact:
-            if not any(rpc in raw_text for rpc in GEMINI_CHAT_RPCS):
-                return
 
         # ChatGPT fires POSTs while typing. Predict only after Enter/send.
         if is_unsubmitted_chat_body(path, raw_text) or is_composer_typing_draft(domain, prompt):

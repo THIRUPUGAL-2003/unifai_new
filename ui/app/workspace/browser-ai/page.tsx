@@ -175,6 +175,60 @@ function GuardAgentRowMenu({
 	);
 }
 
+function isSiteBlockLog(log: {
+	user_prompt_preview?: string;
+	user_prompt_full?: string;
+	rule_triggered?: string;
+	predicted_category?: string;
+}): boolean {
+	const preview = `${log.user_prompt_preview || ""} ${log.user_prompt_full || ""}`.toUpperCase();
+	if (preview.includes("[SITE BLOCKED]")) return true;
+	if ((log.predicted_category || "").toUpperCase() === "SITE_BLOCK") return true;
+	return (log.rule_triggered || "").toLowerCase() === "block entire website";
+}
+
+function logActionBadge(log: {
+	action?: string;
+	user_prompt_preview?: string;
+	user_prompt_full?: string;
+	rule_triggered?: string;
+	predicted_category?: string;
+}) {
+	if (isSiteBlockLog(log)) {
+		return (
+			<Badge className="bg-rose-950/80 text-rose-300 border-rose-700/60 gap-1 text-[11px]">
+				<Globe className="h-3 w-3" /> Site Blocked
+			</Badge>
+		);
+	}
+	if (log.action === "Blocked") {
+		return (
+			<Badge className="bg-red-950/80 text-red-400 border-red-700/60 gap-1 text-[11px]">
+				<AlertTriangle className="h-3 w-3" /> Blocked
+			</Badge>
+		);
+	}
+	if (log.action === "Bot Answered") {
+		return (
+			<Badge className="bg-sky-950/80 text-sky-300 border-sky-700/60 gap-1 text-[11px]">
+				<Bot className="h-3 w-3" /> Bot Answered
+			</Badge>
+		);
+	}
+	if (log.action === "Redacted" || log.action === "Warned") {
+		return (
+			<Badge className="bg-amber-950/80 text-amber-300 border-amber-700/60 gap-1 text-[11px]">
+				<AlertCircle className="h-3 w-3" /> Warned
+			</Badge>
+		);
+	}
+	return (
+		<Badge className="bg-emerald-950/80 text-emerald-400 border-emerald-700/60 gap-1 text-[11px]">
+			<CheckCircle2 className="h-3 w-3" /> Allowed
+		</Badge>
+	);
+}
+
 export default function BrowserAiPage() {
 	const [activeTab, setActiveTab] = useState("overview");
 
@@ -944,25 +998,7 @@ export default function BrowserAiPage() {
 													{log.user_prompt_preview}
 												</TableCell>
 												<TableCell className="text-right text-xs font-mono truncate">{log.est_tokens}</TableCell>
-												<TableCell className="overflow-hidden">
-													{log.action === "Blocked" ? (
-														<Badge className="bg-red-950/80 text-red-400 border-red-700/60 gap-1 text-[11px]">
-															<AlertTriangle className="h-3 w-3" /> Blocked
-														</Badge>
-													) : log.action === "Bot Answered" ? (
-														<Badge className="bg-sky-950/80 text-sky-300 border-sky-700/60 gap-1 text-[11px]">
-															<Bot className="h-3 w-3" /> Bot Answered
-														</Badge>
-													) : log.action === "Redacted" || log.action === "Warned" ? (
-														<Badge className="bg-amber-950/80 text-amber-300 border-amber-700/60 gap-1 text-[11px]">
-															<AlertCircle className="h-3 w-3" /> Warned
-														</Badge>
-													) : (
-														<Badge className="bg-emerald-950/80 text-emerald-400 border-emerald-700/60 gap-1 text-[11px]">
-															<CheckCircle2 className="h-3 w-3" /> Allowed
-														</Badge>
-													)}
-												</TableCell>
+												<TableCell className="overflow-hidden">{logActionBadge(log)}</TableCell>
 												<TableCell className="text-right">
 													<Button
 														variant="ghost"
@@ -1056,7 +1092,8 @@ export default function BrowserAiPage() {
 										<SelectItem value="all">All Status</SelectItem>
 										<SelectItem value="Allowed">Allowed</SelectItem>
 										<SelectItem value="Warned">Warned</SelectItem>
-										<SelectItem value="Blocked">Blocked</SelectItem>
+										<SelectItem value="Blocked">Blocked (DLP / rules)</SelectItem>
+										<SelectItem value="SiteBlocked">Site Blocked (full website)</SelectItem>
 										<SelectItem value="Bot Answered">Bot Answered</SelectItem>
 									</SelectContent>
 								</Select>
@@ -1095,25 +1132,7 @@ export default function BrowserAiPage() {
 													{log.user_prompt_preview}
 												</TableCell>
 												<TableCell className="text-right text-xs font-mono truncate">{log.est_tokens}</TableCell>
-												<TableCell className="overflow-hidden">
-													{log.action === "Blocked" ? (
-														<Badge className="bg-red-950/80 text-red-400 border-red-700/60 gap-1 text-[11px]">
-															<AlertTriangle className="h-3 w-3" /> Blocked
-														</Badge>
-													) : log.action === "Bot Answered" ? (
-														<Badge className="bg-sky-950/80 text-sky-300 border-sky-700/60 gap-1 text-[11px]">
-															<Bot className="h-3 w-3" /> Bot Answered
-														</Badge>
-													) : log.action === "Redacted" || log.action === "Warned" ? (
-														<Badge className="bg-amber-950/80 text-amber-300 border-amber-700/60 gap-1 text-[11px]">
-															<AlertCircle className="h-3 w-3" /> Warned
-														</Badge>
-													) : (
-														<Badge className="bg-emerald-950/80 text-emerald-400 border-emerald-700/60 gap-1 text-[11px]">
-															<CheckCircle2 className="h-3 w-3" /> Allowed
-														</Badge>
-													)}
-												</TableCell>
+												<TableCell className="overflow-hidden">{logActionBadge(log)}</TableCell>
 												<TableCell className="text-right">
 													<Button
 														variant="ghost"
@@ -2656,28 +2675,11 @@ export default function BrowserAiPage() {
 							<div className="grid grid-cols-2 gap-4">
 								<div className="space-y-1">
 									<Label className="text-xs text-muted-foreground">Action / Status</Label>
-									<div>
-										{selectedLog.action === "Blocked" ? (
-											<Badge className="bg-red-950 text-red-400 border-red-800 gap-1">
-												<AlertTriangle className="h-3.5 w-3.5" />
-												{selectedLog.status}
-											</Badge>
-										) : selectedLog.action === "Bot Answered" ? (
-											<Badge className="bg-sky-950 text-sky-300 border-sky-800 gap-1">
-												<Bot className="h-3.5 w-3.5" />
-												Bot Answered
-											</Badge>
-										) : selectedLog.action === "Redacted" || selectedLog.action === "Warned" ? (
-											<Badge className="bg-amber-950 text-amber-300 border-amber-800 gap-1">
-												<AlertCircle className="h-3.5 w-3.5" />
-												{selectedLog.status}
-											</Badge>
-										) : (
-											<Badge className="bg-emerald-950 text-emerald-400 border-emerald-800 gap-1">
-												<CheckCircle2 className="h-3.5 w-3.5" />
-												Allowed
-											</Badge>
-										)}
+									<div className="space-y-1">
+										{logActionBadge(selectedLog)}
+										{selectedLog.status ? (
+											<p className="text-[11px] text-muted-foreground">{selectedLog.status}</p>
+										) : null}
 									</div>
 								</div>
 								<div className="space-y-1">

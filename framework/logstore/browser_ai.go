@@ -299,7 +299,19 @@ func (m *BrowserAIManager) GetLogs(ctx context.Context, platform, status, action
 		}
 	}
 	if action != "" && strings.ToLower(action) != "all" {
-		query = query.Where("LOWER(action) = ?", strings.ToLower(action))
+		switch strings.ToLower(strings.TrimSpace(action)) {
+		case "siteblocked", "site_blocked", "site blocked":
+			// Full-site lock logs (Target Websites → Block entire website), not DLP prompt blocks.
+			query = query.Where(
+				"LOWER(user_prompt_full) LIKE ? OR LOWER(user_prompt_preview) LIKE ? OR LOWER(rule_triggered) = ? OR LOWER(predicted_category) = ?",
+				"%[site blocked]%",
+				"%[site blocked]%",
+				"block entire website",
+				"site_block",
+			)
+		default:
+			query = query.Where("LOWER(action) = ?", strings.ToLower(action))
+		}
 	}
 	if search != "" {
 		s := "%" + strings.ToLower(search) + "%"
@@ -814,6 +826,9 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		if blockedReason, ok := metadata["blocked_reason"].(string); ok && blockedReason != "" {
 			status = fmt.Sprintf("Blocked (%s)", blockedReason)
 			ruleTriggered = blockedReason
+			if strings.EqualFold(strings.TrimSpace(blockedReason), "Block Entire Website") {
+				predictedCategory = "SITE_BLOCK"
+			}
 		} else if statusStr, ok := metadata["status"].(string); ok && statusStr != "" {
 			status = statusStr
 		} else {
@@ -821,7 +836,9 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		}
 		riskScore = 95
 		predictiveRisk = "CRITICAL"
-		predictedCategory = "SECURITY_POLICY_VIOLATION"
+		if predictedCategory == "SAFE" {
+			predictedCategory = "SECURITY_POLICY_VIOLATION"
+		}
 	}
 
 	if estTokens > 500 {
