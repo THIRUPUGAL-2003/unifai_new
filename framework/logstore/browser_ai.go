@@ -54,8 +54,12 @@ type BrowserAILog struct {
 	ReplyBotProvider  string    `json:"reply_bot_provider"`
 	ReplyBotModel     string    `json:"reply_bot_model"`
 	ReplyBotText      string    `gorm:"type:text" json:"reply_bot_text"`
-	Metadata          string    `gorm:"type:text" json:"metadata"`
-	CreatedAt         time.Time `json:"created_at"`
+	// Attachment* — intercepted file upload (PDF stored under APP_DIR/pdf for now).
+	AttachmentName        string `json:"attachment_name,omitempty"`
+	AttachmentStoredName  string `json:"attachment_stored_name,omitempty"` // basename only under pdf/
+	AttachmentContentType string `json:"attachment_content_type,omitempty"`
+	Metadata              string    `gorm:"type:text" json:"metadata"`
+	CreatedAt             time.Time `json:"created_at"`
 }
 
 // BrowserAIAgent tracks every installed Guard EXE (unlimited scale in unifai_new).
@@ -929,6 +933,10 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 	if v, ok := metadata["agent_hostname"].(string); ok {
 		agentHostname = strings.TrimSpace(v)
 	}
+	attachmentName := ""
+	if v, ok := metadata["file_name"].(string); ok {
+		attachmentName = strings.TrimSpace(v)
+	}
 
 	logEntry := BrowserAILog{
 		ID:                uuid.New().String(),
@@ -946,6 +954,7 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		RiskScore:         riskScore,
 		PredictiveRisk:    predictiveRisk,
 		PredictedCategory: predictedCategory,
+		AttachmentName:    attachmentName,
 		Metadata:          string(metaBytes),
 		CreatedAt:         time.Now(),
 	}
@@ -959,6 +968,34 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 	}
 
 	return &logEntry, matchedWarning, nil
+}
+
+// UpdateLogAttachment links a stored upload file to an intercept log.
+func (m *BrowserAIManager) UpdateLogAttachment(ctx context.Context, logID, name, storedName, contentType string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil || strings.TrimSpace(logID) == "" || strings.TrimSpace(storedName) == "" {
+		return nil
+	}
+	return m.db.WithContext(ctx).Model(&BrowserAILog{}).Where("id = ?", logID).Updates(map[string]any{
+		"attachment_name":         strings.TrimSpace(name),
+		"attachment_stored_name":  strings.TrimSpace(storedName),
+		"attachment_content_type": strings.TrimSpace(contentType),
+	}).Error
+}
+
+// GetLogByID returns one intercept log by id.
+func (m *BrowserAIManager) GetLogByID(ctx context.Context, id string) (*BrowserAILog, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.db == nil || strings.TrimSpace(id) == "" {
+		return nil, fmt.Errorf("log not found")
+	}
+	var log BrowserAILog
+	if err := m.db.WithContext(ctx).Where("id = ?", id).First(&log).Error; err != nil {
+		return nil, err
+	}
+	return &log, nil
 }
 
 // UpdateLogReplyBot stores the Reply Bot provider/model/text on an existing intercept log.

@@ -34,7 +34,9 @@ fix_permissions() {
         
         # Ensure logs subdirectory exists with correct permissions
         mkdir -p "$APP_DIR/logs"
+        mkdir -p "$APP_DIR/pdf"
         chmod 755 "$APP_DIR/logs" 2>/dev/null || true
+        chmod 755 "$APP_DIR/pdf" 2>/dev/null || true
     fi
 }
 

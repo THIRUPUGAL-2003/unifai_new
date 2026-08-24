@@ -970,7 +970,7 @@ func (m *AuthMiddleware) APIMiddleware() schemas.UnifAIHTTPMiddleware {
 func isPublicBrowserAIRoute(method, path string) bool {
 	method = strings.ToUpper(strings.TrimSpace(method))
 	switch path {
-	case "/api/browser-ai/intercept":
+	case "/api/browser-ai/intercept", "/api/browser-ai/intercept-file":
 		return method == fasthttp.MethodPost
 	case "/api/browser-ai/proxy.pac", "/api/browser-ai/pac":
 		return method == fasthttp.MethodGet

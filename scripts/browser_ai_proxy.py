@@ -1161,6 +1161,119 @@ def extract_filename_from_upload(flow: http.HTTPFlow, raw_text: str = "") -> str
     return ""
 
 
+def extract_pdf_bytes(raw: bytes) -> bytes | None:
+    """Return PDF payload if present in raw upload body (direct or multipart)."""
+    if not raw:
+        return None
+    if raw.startswith(b"%PDF-"):
+        data = raw
+    else:
+        idx = raw.find(b"%PDF-")
+        if idx < 0 or idx > 64 * 1024:
+            return None
+        data = raw[idx:]
+    eof = data.rfind(b"%%EOF")
+    if eof >= 0:
+        end = eof + 5
+        while end < len(data) and data[end] in (10, 13):
+            end += 1
+        data = data[:end]
+    # Cap 20 MiB
+    if len(data) > 20 * 1024 * 1024:
+        return None
+    return data
+
+
+def post_upload_intercept(
+    *,
+    platform: str,
+    prompt: str,
+    client_ip: str,
+    domain: str,
+    url: str,
+    method: str,
+    file_name: str = "",
+    is_blocked: bool = False,
+    blocked_reason: str = "",
+    raw_bytes: bytes | None = None,
+) -> None:
+    """Log file upload; when PDF bytes exist, store via /api/browser-ai/intercept-file."""
+    metadata = {
+        "domain": domain,
+        "url": url,
+        "method": method,
+        "is_blocked": bool(is_blocked),
+        "upload_scan": True,
+        "file_name": file_name or "attachment",
+        "agent_id": UNIFAI_AGENT_ID,
+        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+    }
+    if blocked_reason:
+        metadata["blocked_reason"] = blocked_reason
+
+    pdf = extract_pdf_bytes(raw_bytes or b"")
+    if pdf:
+        try:
+            boundary = f"----UnifAI{int(time.time() * 1000)}"
+            fname = (file_name or "document.pdf").replace('"', "")
+            if not fname.lower().endswith(".pdf"):
+                fname = f"{fname}.pdf"
+            parts: list[bytes] = []
+
+            def add_field(name: str, value: str) -> None:
+                parts.append(
+                    f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode("utf-8")
+                )
+
+            add_field("platform", platform)
+            add_field("prompt", prompt)
+            add_field("client_ip", client_ip)
+            add_field("agent_id", UNIFAI_AGENT_ID or "")
+            add_field("agent_hostname", UNIFAI_AGENT_HOSTNAME or "")
+            add_field("file_name", fname)
+            add_field("metadata", json.dumps(metadata))
+            parts.append(
+                (
+                    f"--{boundary}\r\n"
+                    f'Content-Disposition: form-data; name="file"; filename="{fname}"\r\n'
+                    f"Content-Type: application/pdf\r\n\r\n"
+                ).encode("utf-8")
+                + pdf
+                + b"\r\n"
+            )
+            parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+            body = b"".join(parts)
+            req = urllib.request.Request(
+                f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept-file",
+                data=body,
+                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=8)
+            return
+        except Exception as e:
+            print(f"[UnifAI Proxy WARNING] intercept-file failed, falling back to JSON: {e}")
+
+    try:
+        payload = json.dumps({
+            "platform": platform,
+            "prompt": prompt,
+            "client_ip": client_ip,
+            "agent_id": UNIFAI_AGENT_ID,
+            "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+            "metadata": metadata,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=2)
+    except Exception:
+        pass
+
+
 def _extract_pdf_text(data: bytes) -> str:
     """Extract readable text from PDF bytes (pypdf if available, else lightweight fallback)."""
     if not data or b"%PDF" not in data[:1024] and not data.startswith(b"%PDF"):
@@ -2206,33 +2319,19 @@ class BrowserAIInterceptor:
             )
             if should_log:
                 print(f"[UnifAI Proxy] FILE UPLOAD BLOCKED | {client_ip} → {host} | Reason: {reason}")
-                try:
-                    payload = json.dumps({
-                        "platform": platform,
-                        "prompt": prompt_log,
-                        "client_ip": client_ip,
-                        "agent_id": UNIFAI_AGENT_ID,
-                        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
-                        "metadata": {
-                            "domain": domain,
-                            "url": flow.request.url,
-                            "method": flow.request.method,
-                            "is_blocked": True,
-                            "blocked_reason": blocked_reason,
-                            "upload_scan": True,
-                            "agent_id": UNIFAI_AGENT_ID,
-                            "agent_hostname": UNIFAI_AGENT_HOSTNAME,
-                        },
-                    }).encode("utf-8")
-                    req = urllib.request.Request(
-                        f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept",
-                        data=payload,
-                        headers={"Content-Type": "application/json"},
-                        method="POST"
-                    )
-                    urllib.request.urlopen(req, timeout=2)
-                except Exception:
-                    pass
+                fname = extract_filename_from_upload(flow, raw_text)
+                post_upload_intercept(
+                    platform=platform,
+                    prompt=prompt_log,
+                    client_ip=client_ip,
+                    domain=domain,
+                    url=flow.request.url,
+                    method=flow.request.method,
+                    file_name=fname or "attachment",
+                    is_blocked=True,
+                    blocked_reason=blocked_reason,
+                    raw_bytes=raw_bytes,
+                )
 
             # Same text employees / chat replies see
             msg = prompt_log if (block_for_rule or block_all_uploads) else ""
@@ -2269,33 +2368,17 @@ class BrowserAIInterceptor:
             )
             if should_log:
                 print(f"[UnifAI Proxy] FILE UPLOAD ALLOWED | {client_ip} → {host} | {clean_log}")
-                try:
-                    payload = json.dumps({
-                        "platform": platform,
-                        "prompt": clean_log,
-                        "client_ip": client_ip,
-                        "agent_id": UNIFAI_AGENT_ID,
-                        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
-                        "metadata": {
-                            "domain": domain,
-                            "url": flow.request.url,
-                            "method": flow.request.method,
-                            "is_blocked": False,
-                            "upload_scan": True,
-                            "file_name": fname or "attachment",
-                            "agent_id": UNIFAI_AGENT_ID,
-                            "agent_hostname": UNIFAI_AGENT_HOSTNAME,
-                        },
-                    }).encode("utf-8")
-                    req = urllib.request.Request(
-                        f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept",
-                        data=payload,
-                        headers={"Content-Type": "application/json"},
-                        method="POST"
-                    )
-                    urllib.request.urlopen(req, timeout=2)
-                except Exception:
-                    pass
+                post_upload_intercept(
+                    platform=platform,
+                    prompt=clean_log,
+                    client_ip=client_ip,
+                    domain=domain,
+                    url=flow.request.url,
+                    method=flow.request.method,
+                    file_name=fname or "attachment",
+                    is_blocked=False,
+                    raw_bytes=raw_bytes,
+                )
 
         # Gemini fires many extra POSTs (session ids, counters). Log only the chat submit.
         if is_gemini_host(host) and not is_gemini_chat_submit(path, raw_text):

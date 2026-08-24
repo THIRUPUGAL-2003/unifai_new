@@ -32,6 +32,7 @@ import {
 	Upload,
 	Bot,
 	Save,
+	Paperclip,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,7 +44,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions } from "./relatedHosts";
@@ -188,6 +188,33 @@ function oneLinePreview(text?: string) {
 	return (text || "").replace(/\s+/g, " ").trim();
 }
 
+function logHasPdfAttachment(log: BrowserAILogEntry | null | undefined) {
+	if (!log?.attachment_stored_name) return false;
+	const ct = (log.attachment_content_type || "").toLowerCase();
+	const name = (log.attachment_name || "").toLowerCase();
+	return ct.includes("pdf") || name.endsWith(".pdf") || !!log.attachment_stored_name;
+}
+
+function logAttachmentLabel(log: BrowserAILogEntry) {
+	return log.attachment_name || "document.pdf";
+}
+
+function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
+	if (log.attachment_name || log.attachment_stored_name) {
+		return (
+			<div className="flex min-w-0 items-center gap-1.5" title={logAttachmentLabel(log)}>
+				<Paperclip className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+				<span className="truncate font-mono text-xs">{logAttachmentLabel(log)}</span>
+			</div>
+		);
+	}
+	return (
+		<div className="truncate font-mono text-xs" title={log.user_prompt_preview || ""}>
+			{oneLinePreview(log.user_prompt_preview) || "—"}
+		</div>
+	);
+}
+
 export default function BrowserAiPage() {
 	const [activeTab, setActiveTab] = useState("overview");
 
@@ -204,6 +231,10 @@ export default function BrowserAiPage() {
 	const [ruleSearch, setRuleSearch] = useState("");
 	const [targetSearch, setTargetSearch] = useState("");
 	const [selectedLog, setSelectedLog] = useState<BrowserAILogEntry | null>(null);
+	const [pdfViewerLog, setPdfViewerLog] = useState<BrowserAILogEntry | null>(null);
+	const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+	const [pdfLoading, setPdfLoading] = useState(false);
+	const [pdfError, setPdfError] = useState("");
 	const [copiedPrompt, setCopiedPrompt] = useState(false);
 	const [setupPackageDownloading, setSetupPackageDownloading] = useState(false);
 	const [setupPackageError, setSetupPackageError] = useState("");
@@ -400,6 +431,74 @@ export default function BrowserAiPage() {
 			}, 8000);
 		});
 	}, [logsData]);
+
+	useEffect(() => {
+		if (!pdfViewerLog?.id || !logHasPdfAttachment(pdfViewerLog)) {
+			if (pdfBlobUrl) {
+				URL.revokeObjectURL(pdfBlobUrl);
+				setPdfBlobUrl(null);
+			}
+			setPdfLoading(false);
+			setPdfError("");
+			return;
+		}
+		let cancelled = false;
+		let objectUrl: string | null = null;
+		setPdfLoading(true);
+		setPdfError("");
+		(async () => {
+			try {
+				const res = await fetch(`${getApiBaseUrl()}/browser-ai/attachments/${encodeURIComponent(pdfViewerLog.id)}`, {
+					credentials: "include",
+				});
+				if (!res.ok) {
+					throw new Error(res.status === 404 ? "PDF not found on server" : `Failed to load PDF (${res.status})`);
+				}
+				const blob = await res.blob();
+				if (cancelled) return;
+				objectUrl = URL.createObjectURL(blob);
+				setPdfBlobUrl(objectUrl);
+			} catch (e) {
+				if (!cancelled) {
+					setPdfError(e instanceof Error ? e.message : "Failed to load PDF");
+					setPdfBlobUrl(null);
+				}
+			} finally {
+				if (!cancelled) setPdfLoading(false);
+			}
+		})();
+		return () => {
+			cancelled = true;
+			if (objectUrl) URL.revokeObjectURL(objectUrl);
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when log id changes
+	}, [pdfViewerLog?.id]);
+
+	const openPdfViewer = (log: BrowserAILogEntry, e?: React.MouseEvent) => {
+		e?.stopPropagation();
+		setPdfViewerLog(log);
+	};
+
+	const downloadPdfAttachment = async (log: BrowserAILogEntry) => {
+		try {
+			const res = await fetch(
+				`${getApiBaseUrl()}/browser-ai/attachments/${encodeURIComponent(log.id)}?download=1`,
+				{ credentials: "include" },
+			);
+			if (!res.ok) throw new Error("Download failed");
+			const blob = await res.blob();
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement("a");
+			a.href = url;
+			a.download = logAttachmentLabel(log);
+			document.body.appendChild(a);
+			a.click();
+			a.remove();
+			URL.revokeObjectURL(url);
+		} catch {
+			setPdfError("Download failed");
+		}
+	};
 
 	const [clearLogs] = useClearBrowserAiLogsMutation();
 	const [createRule] = useCreateBrowserAiRuleMutation();
@@ -927,24 +1026,36 @@ export default function BrowserAiPage() {
 													</div>
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
-													<div className="truncate font-mono text-xs" title={log.user_prompt_preview || ""}>
-														{oneLinePreview(log.user_prompt_preview) || "—"}
-													</div>
+													<LogPromptPreviewCell log={log} />
 												</TableCell>
 												<TableCell className="py-0 text-right text-xs font-mono">{log.est_tokens}</TableCell>
 												<TableCell className="py-0">{logActionBadge(log)}</TableCell>
 												<TableCell className="py-0 text-right">
-													<Button
-														variant="ghost"
-														size="icon"
-														onClick={(e) => {
-															e.stopPropagation();
-															setSelectedLog(log);
-														}}
-														className="h-8 w-8 text-muted-foreground hover:text-foreground"
-													>
-														<Eye className="h-4 w-4" />
-													</Button>
+													<div className="inline-flex items-center justify-end gap-0.5">
+														{logHasPdfAttachment(log) ? (
+															<Button
+																variant="ghost"
+																size="sm"
+																onClick={(e) => openPdfViewer(log, e)}
+																className="h-8 px-2 text-xs text-sky-400 hover:text-sky-300"
+																title="View PDF"
+															>
+																View
+															</Button>
+														) : null}
+														<Button
+															variant="ghost"
+															size="icon"
+															onClick={(e) => {
+																e.stopPropagation();
+																setSelectedLog(log);
+															}}
+															className="h-8 w-8 text-muted-foreground hover:text-foreground"
+															title="Prompt details"
+														>
+															<Eye className="h-4 w-4" />
+														</Button>
+													</div>
 												</TableCell>
 											</TableRow>
 										))}
@@ -1069,24 +1180,36 @@ export default function BrowserAiPage() {
 													</div>
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
-													<div className="truncate font-mono text-xs" title={log.user_prompt_preview || ""}>
-														{oneLinePreview(log.user_prompt_preview) || "—"}
-													</div>
+													<LogPromptPreviewCell log={log} />
 												</TableCell>
 												<TableCell className="py-0 text-right text-xs font-mono">{log.est_tokens}</TableCell>
 												<TableCell className="py-0">{logActionBadge(log)}</TableCell>
 												<TableCell className="py-0 text-right">
-													<Button
-														variant="ghost"
-														size="icon"
-														onClick={(e) => {
-															e.stopPropagation();
-															setSelectedLog(log);
-														}}
-														className="h-8 w-8 text-muted-foreground hover:text-foreground"
-													>
-														<Eye className="h-4 w-4" />
-													</Button>
+													<div className="inline-flex items-center justify-end gap-0.5">
+														{logHasPdfAttachment(log) ? (
+															<Button
+																variant="ghost"
+																size="sm"
+																onClick={(e) => openPdfViewer(log, e)}
+																className="h-8 px-2 text-xs text-sky-400 hover:text-sky-300"
+																title="View PDF"
+															>
+																View
+															</Button>
+														) : null}
+														<Button
+															variant="ghost"
+															size="icon"
+															onClick={(e) => {
+																e.stopPropagation();
+																setSelectedLog(log);
+															}}
+															className="h-8 w-8 text-muted-foreground hover:text-foreground"
+															title="Prompt details"
+														>
+															<Eye className="h-4 w-4" />
+														</Button>
+													</div>
 												</TableCell>
 											</TableRow>
 										))}
@@ -2565,104 +2688,215 @@ export default function BrowserAiPage() {
 				</TabsContent>
 			</Tabs>
 
-			{/* Log Details Side Sheet */}
-			<Sheet open={!!selectedLog} onOpenChange={() => setSelectedLog(null)}>
-				<SheetContent className="bg-card border-border text-foreground sm:max-w-xl overflow-y-auto">
-					<SheetHeader className="pb-4 border-b border-border">
-						<div className="flex items-center justify-between">
-							<SheetTitle className="flex items-center gap-2 text-lg">
-								Prompt Details
-								{selectedLog && getPlatformBadge(selectedLog.platform)}
-							</SheetTitle>
-						</div>
-						<SheetDescription>
-							Captured {selectedLog && new Date(selectedLog.timestamp).toLocaleString()}
-						</SheetDescription>
-					</SheetHeader>
-
+			{/* Prompt Details — centered modal */}
+			<Dialog
+				open={!!selectedLog}
+				onOpenChange={(open) => {
+					if (!open) setSelectedLog(null);
+				}}
+			>
+				<DialogContent
+					disableOutsideClick={false}
+					className="bg-card border-border text-foreground sm:max-w-2xl w-[calc(100%-2rem)] p-0 gap-0 overflow-hidden flex flex-col max-h-[min(88vh,860px)]"
+				>
 					{selectedLog && (
-						<div className="space-y-5 py-4">
-							<div className="grid grid-cols-2 gap-4">
-								<div className="space-y-1">
-									<Label className="text-xs text-muted-foreground">Action / Status</Label>
-									<div className="space-y-1">
-										{logActionBadge(selectedLog)}
-										{selectedLog.status ? (
-											<p className="text-[11px] text-muted-foreground">{selectedLog.status}</p>
-										) : null}
+						<>
+							<DialogHeader className="px-6 pt-5 pb-4 shrink-0 border-b border-border/70 space-y-1.5 text-left">
+								<DialogTitle className="flex flex-wrap items-center gap-2 text-lg pr-8">
+									Prompt Details
+									{getPlatformBadge(selectedLog.platform)}
+								</DialogTitle>
+								<DialogDescription className="text-xs">
+									Captured {new Date(selectedLog.timestamp).toLocaleString()}
+								</DialogDescription>
+							</DialogHeader>
+
+							<div className="px-6 py-5 space-y-5 overflow-y-auto flex-1 min-h-0">
+								<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+									<div className="rounded-lg border border-border/80 bg-background/60 p-3.5 space-y-1.5">
+										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Action / Status</Label>
+										<div className="space-y-1">
+											{logActionBadge(selectedLog)}
+											{selectedLog.status ? (
+												<p className="text-[11px] text-muted-foreground leading-snug">{selectedLog.status}</p>
+											) : null}
+										</div>
+									</div>
+									<div className="rounded-lg border border-border/80 bg-background/60 p-3.5 space-y-1.5">
+										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Guard laptop</Label>
+										<p className="text-sm font-medium truncate">{selectedLog.agent_hostname || "—"}</p>
+										<p className="text-[11px] text-muted-foreground font-mono truncate">
+											{selectedLog.agent_id || selectedLog.client_ip || ""}
+										</p>
 									</div>
 								</div>
-								<div className="space-y-1">
-									<Label className="text-xs text-muted-foreground">Guard laptop</Label>
-									<p className="text-sm font-medium">{selectedLog.agent_hostname || "—"}</p>
-									<p className="text-[11px] text-muted-foreground font-mono truncate">{selectedLog.agent_id || selectedLog.client_ip || ""}</p>
-								</div>
-							</div>
 
-							{/* Predictive Risk Scoring */}
-							<div className="p-3.5 bg-background border border-border rounded-md space-y-2">
-								<div className="flex justify-between items-center text-xs font-semibold">
-									<span className="flex items-center gap-1.5 text-purple-300">
-										<BrainCircuit className="h-4 w-4" /> Predictive Risk Score
-									</span>
-									<span className={(selectedLog.risk_score || 0) >= 70 ? "text-red-400 font-bold" : (selectedLog.risk_score || 0) >= 40 ? "text-amber-400" : "text-emerald-400"}>
-										{selectedLog.risk_score || 10}% ({selectedLog.predictive_risk || "LOW"})
-									</span>
+								<div className="rounded-lg border border-border/80 bg-background/60 p-4 space-y-2.5">
+									<div className="flex justify-between items-center text-xs font-semibold gap-3">
+										<span className="flex items-center gap-1.5 text-purple-300">
+											<BrainCircuit className="h-4 w-4 shrink-0" /> Predictive Risk Score
+										</span>
+										<span
+											className={
+												(selectedLog.risk_score || 0) >= 70
+													? "text-red-400 font-bold"
+													: (selectedLog.risk_score || 0) >= 40
+														? "text-amber-400"
+														: "text-emerald-400"
+											}
+										>
+											{selectedLog.risk_score || 10}% ({selectedLog.predictive_risk || "LOW"})
+										</span>
+									</div>
+									<div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
+										<div
+											className={`h-full rounded-full transition-all ${
+												(selectedLog.risk_score || 0) >= 70
+													? "bg-red-500"
+													: (selectedLog.risk_score || 0) >= 40
+														? "bg-amber-500"
+														: "bg-emerald-500"
+											}`}
+											style={{ width: `${Math.min(100, Math.max(5, selectedLog.risk_score || 10))}%` }}
+										/>
+									</div>
+									<div className="flex flex-wrap justify-between gap-2 text-[11px] text-muted-foreground pt-0.5">
+										<span>
+											Category: <code className="text-foreground">{selectedLog.predicted_category || "SAFE"}</code>
+										</span>
+										<span>Threat Level: {selectedLog.predictive_risk || "LOW"}</span>
+									</div>
 								</div>
-								<div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-									<div
-										className={`h-full rounded-full transition-all ${
-											(selectedLog.risk_score || 0) >= 70 ? "bg-red-500" : (selectedLog.risk_score || 0) >= 40 ? "bg-amber-500" : "bg-emerald-500"
-										}`}
-										style={{ width: `${Math.min(100, Math.max(5, selectedLog.risk_score || 10))}%` }}
-									/>
-								</div>
-								<div className="flex justify-between items-center text-[11px] text-muted-foreground pt-1">
-									<span>Category: <code className="text-foreground">{selectedLog.predicted_category || "SAFE"}</code></span>
-									<span>Threat Level: {selectedLog.predictive_risk || "LOW"}</span>
-								</div>
-							</div>
 
-							<div className="space-y-2">
-								<div className="flex justify-between items-center">
-									<Label className="text-xs text-muted-foreground">
-										"Full Intercepted Prompt Text"
-									</Label>
-									<Button variant="ghost" size="sm" onClick={() => handleCopyPrompt(selectedLog.user_prompt_full)} className="h-7 text-xs gap-1">
-										{copiedPrompt ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-										{copiedPrompt ? "Copied" : "Copy"}
-									</Button>
+								<div className="space-y-2">
+									<div className="flex justify-between items-center gap-2">
+										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
+											Full Intercepted Prompt Text
+										</Label>
+										<Button
+											variant="ghost"
+											size="sm"
+											onClick={() => handleCopyPrompt(selectedLog.user_prompt_full)}
+											className="h-7 text-xs gap-1 shrink-0"
+										>
+											{copiedPrompt ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+											{copiedPrompt ? "Copied" : "Copy"}
+										</Button>
+									</div>
+									<div className="p-3.5 bg-background border border-border rounded-lg font-mono text-xs max-h-52 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+										{selectedLog.user_prompt_full}
+									</div>
 								</div>
-								<div className="p-3 bg-background border border-border rounded-md font-mono text-xs max-h-64 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-									{selectedLog.user_prompt_full}
-								</div>
-							</div>
 
-							<div className="grid grid-cols-2 gap-4">
-								<div className="space-y-1">
-									<Label className="text-xs text-muted-foreground">Estimated Token Usage</Label>
-									<p className="text-sm font-semibold">{selectedLog.est_tokens} tokens</p>
-								</div>
-								<div className="space-y-1">
-									<Label className="text-xs text-muted-foreground">Rule Triggered</Label>
-									<p className={`text-sm font-semibold ${selectedLog.rule_triggered ? "text-purple-300" : "text-muted-foreground"}`}>
-										{selectedLog.rule_triggered || "None"}
-									</p>
-								</div>
-							</div>
+								{logHasPdfAttachment(selectedLog) ? (
+									<div className="rounded-lg border border-sky-900/50 bg-sky-950/20 p-3.5 flex flex-wrap items-center justify-between gap-3">
+										<div className="flex min-w-0 items-center gap-2">
+											<Paperclip className="h-4 w-4 shrink-0 text-sky-400" />
+											<div className="min-w-0">
+												<p className="text-[11px] uppercase tracking-wide text-muted-foreground">Attached file</p>
+												<p className="text-sm font-medium truncate">{logAttachmentLabel(selectedLog)}</p>
+											</div>
+										</div>
+										<div className="flex items-center gap-2 shrink-0">
+											<Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => openPdfViewer(selectedLog)}>
+												<Eye className="h-3.5 w-3.5" /> View PDF
+											</Button>
+											<Button size="sm" className="h-8 gap-1.5" onClick={() => downloadPdfAttachment(selectedLog)}>
+												<Download className="h-3.5 w-3.5" /> Download
+											</Button>
+										</div>
+									</div>
+								) : null}
 
-							{selectedLog.metadata && (
-								<div className="space-y-1">
-									<Label className="text-xs text-muted-foreground">Metadata Payload</Label>
-									<pre className="p-3 bg-background border border-border rounded-md font-mono text-[11px] max-h-40 overflow-auto">
-										{JSON.stringify(JSON.parse(selectedLog.metadata || "{}"), null, 2)}
-									</pre>
+								<div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+									<div className="rounded-lg border border-border/80 bg-background/60 p-3.5 space-y-1">
+										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Estimated Tokens</Label>
+										<p className="text-sm font-semibold">{selectedLog.est_tokens} tokens</p>
+									</div>
+									<div className="rounded-lg border border-border/80 bg-background/60 p-3.5 space-y-1">
+										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Rule Triggered</Label>
+										<p className={`text-sm font-semibold ${selectedLog.rule_triggered ? "text-purple-300" : "text-muted-foreground"}`}>
+											{selectedLog.rule_triggered || "None"}
+										</p>
+									</div>
 								</div>
-							)}
-						</div>
+
+								{selectedLog.metadata ? (
+									<div className="space-y-2">
+										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Metadata Payload</Label>
+										<pre className="p-3.5 bg-background border border-border rounded-lg font-mono text-[11px] max-h-36 overflow-auto">
+											{(() => {
+												try {
+													return JSON.stringify(JSON.parse(selectedLog.metadata || "{}"), null, 2);
+												} catch {
+													return selectedLog.metadata;
+												}
+											})()}
+										</pre>
+									</div>
+								) : null}
+							</div>
+						</>
 					)}
-				</SheetContent>
-			</Sheet>
+				</DialogContent>
+			</Dialog>
+
+			{/* PDF viewer — centered popup */}
+			<Dialog
+				open={!!pdfViewerLog}
+				onOpenChange={(open) => {
+					if (!open) {
+						setPdfViewerLog(null);
+						setPdfError("");
+					}
+				}}
+			>
+				<DialogContent
+					disableOutsideClick={false}
+					className="bg-card border-border text-foreground sm:max-w-4xl w-[calc(100%-2rem)] p-0 gap-0 overflow-hidden flex flex-col max-h-[min(92vh,920px)]"
+				>
+					{pdfViewerLog && (
+						<>
+							<DialogHeader className="px-5 pt-4 pb-3 shrink-0 border-b border-border/70 space-y-1 text-left">
+								<DialogTitle className="flex flex-wrap items-center gap-2 text-base pr-8">
+									<FileText className="h-4 w-4 text-sky-400" />
+									{logAttachmentLabel(pdfViewerLog)}
+								</DialogTitle>
+								<DialogDescription className="text-xs">
+									{pdfViewerLog.platform} · Captured {new Date(pdfViewerLog.timestamp).toLocaleString()}
+								</DialogDescription>
+							</DialogHeader>
+							<div className="px-5 py-3 flex flex-wrap items-center gap-2 shrink-0 border-b border-border/50">
+								<Button size="sm" className="h-8 gap-1.5" onClick={() => downloadPdfAttachment(pdfViewerLog)} disabled={pdfLoading}>
+									<Download className="h-3.5 w-3.5" /> Download
+								</Button>
+								<Button
+									size="sm"
+									variant="outline"
+									className="h-8"
+									onClick={() => {
+										setPdfViewerLog(null);
+										setSelectedLog(pdfViewerLog);
+									}}
+								>
+									Prompt details
+								</Button>
+							</div>
+							<div className="flex-1 min-h-0 bg-black/40 flex items-center justify-center p-3">
+								{pdfLoading ? (
+									<p className="text-sm text-muted-foreground">Loading PDF…</p>
+								) : pdfError ? (
+									<p className="text-sm text-red-400">{pdfError}</p>
+								) : pdfBlobUrl ? (
+									<iframe title={logAttachmentLabel(pdfViewerLog)} src={pdfBlobUrl} className="w-full h-[min(70vh,720px)] rounded-md border border-border bg-white" />
+								) : (
+									<p className="text-sm text-muted-foreground">No preview available</p>
+								)}
+							</div>
+						</>
+					)}
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

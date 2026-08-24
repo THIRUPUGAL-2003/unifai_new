@@ -84,6 +84,8 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.POST("/api/browser-ai/agents/{id}/remote-uninstall", lib.ChainMiddlewares(h.remoteUninstallAgent, middlewares...))
 
 	r.POST("/api/browser-ai/intercept", lib.ChainMiddlewares(h.intercept, middlewares...))
+	r.POST("/api/browser-ai/intercept-file", lib.ChainMiddlewares(h.interceptFile, middlewares...))
+	r.GET("/api/browser-ai/attachments/{id}", lib.ChainMiddlewares(h.getAttachment, middlewares...))
 }
 
 func (h *BrowserAIHandler) getLogs(ctx *fasthttp.RequestCtx) {
@@ -801,6 +803,167 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		"eval_error":         evalError,
 		"log":                logEntry,
 	})
+}
+
+// interceptFile accepts multipart upload from Guard/proxy: form fields + optional PDF file.
+// Stores PDFs under APP_DIR/pdf and links them on the intercept log for View/Download in UI.
+func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+
+	form, err := ctx.MultipartForm()
+	if err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "expected multipart form")
+		return
+	}
+
+	getForm := func(key string) string {
+		if form.Value == nil {
+			return ""
+		}
+		vals := form.Value[key]
+		if len(vals) == 0 {
+			return ""
+		}
+		return strings.TrimSpace(vals[0])
+	}
+
+	platform := getForm("platform")
+	prompt := getForm("prompt")
+	clientIP := getForm("client_ip")
+	agentID := getForm("agent_id")
+	agentHostname := getForm("agent_hostname")
+	metaRaw := getForm("metadata")
+
+	metadata := map[string]any{}
+	if metaRaw != "" {
+		_ = sonic.Unmarshal([]byte(metaRaw), &metadata)
+	}
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	if clientIP == "" {
+		clientIP = ctx.RemoteIP().String()
+	}
+	if platform == "" {
+		platform = "Browser AI"
+	}
+	if agentID != "" {
+		metadata["agent_id"] = agentID
+	}
+	if agentHostname != "" {
+		metadata["agent_hostname"] = agentHostname
+	}
+	metadata["upload_scan"] = true
+
+	var fileBytes []byte
+	fileName := getForm("file_name")
+	if form.File != nil {
+		for _, headers := range form.File {
+			if len(headers) == 0 {
+				continue
+			}
+			fh := headers[0]
+			if fileName == "" && fh.Filename != "" {
+				fileName = fh.Filename
+			}
+			f, openErr := fh.Open()
+			if openErr != nil {
+				continue
+			}
+			buf := make([]byte, browserAIAttachmentMaxBytes+1)
+			n, _ := f.Read(buf)
+			_ = f.Close()
+			if n > 0 {
+				if n > browserAIAttachmentMaxBytes {
+					SendError(ctx, fasthttp.StatusRequestEntityTooLarge, "file too large (max 20MB)")
+					return
+				}
+				fileBytes = buf[:n]
+				break
+			}
+		}
+	}
+	if fileName != "" {
+		metadata["file_name"] = fileName
+	}
+	if prompt == "" {
+		if fileName != "" {
+			prompt = "[FILE UPLOAD] " + fileName
+		} else {
+			prompt = "[FILE UPLOAD] attachment"
+		}
+	}
+
+	logEntry, ruleWarning, err := h.manager.InterceptPrompt(ctx, platform, prompt, clientIP, metadata)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if len(fileBytes) > 0 {
+		stored, ctype, storeErr := storeBrowserAIPDF(logEntry.ID, fileName, fileBytes)
+		if storeErr == nil {
+			_ = h.manager.UpdateLogAttachment(ctx, logEntry.ID, sanitizeAttachmentFileName(fileName), stored, ctype)
+			logEntry.AttachmentName = sanitizeAttachmentFileName(fileName)
+			logEntry.AttachmentStoredName = stored
+			logEntry.AttachmentContentType = ctype
+		}
+	}
+
+	SendJSON(ctx, map[string]any{
+		"status":          "success",
+		"allowed":         logEntry.Action == "Allowed" || logEntry.Action == "Warned" || logEntry.Action == "Redacted",
+		"action":          logEntry.Action,
+		"rule_triggered":  logEntry.RuleTriggered,
+		"warning_message": ruleWarning,
+		"log":             logEntry,
+	})
+}
+
+func (h *BrowserAIHandler) getAttachment(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+	id := ctx.UserValue("id")
+	idStr, _ := id.(string)
+	idStr = strings.TrimSpace(idStr)
+	if idStr == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "missing attachment id")
+		return
+	}
+	logEntry, err := h.manager.GetLogByID(ctx, idStr)
+	if err != nil || logEntry == nil || strings.TrimSpace(logEntry.AttachmentStoredName) == "" {
+		SendError(ctx, fasthttp.StatusNotFound, "attachment not found")
+		return
+	}
+	path, err := resolveBrowserAIAttachmentPath(logEntry.AttachmentStoredName)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusNotFound, "attachment file missing")
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusNotFound, "attachment file missing")
+		return
+	}
+	ctype := strings.TrimSpace(logEntry.AttachmentContentType)
+	if ctype == "" {
+		ctype = "application/pdf"
+	}
+	name := strings.TrimSpace(logEntry.AttachmentName)
+	if name == "" {
+		name = "document.pdf"
+	}
+	download := string(ctx.QueryArgs().Peek("download")) == "1" ||
+		strings.EqualFold(string(ctx.QueryArgs().Peek("download")), "true")
+
+	ctx.SetStatusCode(fasthttp.StatusOK)
+	ctx.SetContentType(ctype)
+	ctx.Response.Header.Set("Cache-Control", "private, max-age=60")
+	if download {
+		ctx.Response.Header.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(name, `"`, "")))
+	} else {
+		ctx.Response.Header.Set("Content-Disposition", fmt.Sprintf(`inline; filename="%s"`, strings.ReplaceAll(name, `"`, "")))
+	}
+	ctx.SetBody(data)
 }
 
 type aiBotEvalResult struct {

@@ -19,6 +19,9 @@ export interface BrowserAILogEntry {
 	reply_bot_provider?: string;
 	reply_bot_model?: string;
 	reply_bot_text?: string;
+	attachment_name?: string;
+	attachment_stored_name?: string;
+	attachment_content_type?: string;
 	metadata?: string;
 	created_at: string;
 }
