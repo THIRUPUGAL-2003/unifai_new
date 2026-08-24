@@ -140,39 +140,52 @@ function logActionBadge(log: {
 	rule_triggered?: string;
 	predicted_category?: string;
 }) {
-	if (isSiteBlockLog(log)) {
-		return (
-			<Badge className="bg-rose-950/80 text-rose-300 border-rose-700/60 gap-1 text-[11px]">
-				<Globe className="h-3 w-3" /> Site Blocked
-			</Badge>
-		);
-	}
-	if (log.action === "Blocked") {
-		return (
-			<Badge className="bg-red-950/80 text-red-400 border-red-700/60 gap-1 text-[11px]">
-				<AlertTriangle className="h-3 w-3" /> Blocked
-			</Badge>
-		);
-	}
-	if (log.action === "Bot Answered") {
-		return (
-			<Badge className="bg-sky-950/80 text-sky-300 border-sky-700/60 gap-1 text-[11px]">
-				<Bot className="h-3 w-3" /> Bot Answered
-			</Badge>
-		);
-	}
-	if (log.action === "Redacted" || log.action === "Warned") {
-		return (
-			<Badge className="bg-amber-950/80 text-amber-300 border-amber-700/60 gap-1 text-[11px]">
-				<AlertCircle className="h-3 w-3" /> Warned
-			</Badge>
-		);
-	}
-	return (
-		<Badge className="bg-emerald-950/80 text-emerald-400 border-emerald-700/60 gap-1 text-[11px]">
-			<CheckCircle2 className="h-3 w-3" /> Allowed
+	// Fixed-width chip so Action column stays the same size every row.
+	const chip = (className: string, icon: React.ReactNode, label: string) => (
+		<Badge className={`inline-flex h-6 w-[108px] shrink-0 items-center justify-center gap-1 px-1.5 text-[10px] font-medium ${className}`}>
+			{icon}
+			<span className="truncate">{label}</span>
 		</Badge>
 	);
+	if (isSiteBlockLog(log)) {
+		return chip("bg-rose-950/80 text-rose-300 border-rose-700/60", <Globe className="h-3 w-3 shrink-0" />, "Site Block");
+	}
+	if (log.action === "Blocked") {
+		return chip("bg-red-950/80 text-red-400 border-red-700/60", <AlertTriangle className="h-3 w-3 shrink-0" />, "Blocked");
+	}
+	if (log.action === "Bot Answered") {
+		return chip("bg-sky-950/80 text-sky-300 border-sky-700/60", <Bot className="h-3 w-3 shrink-0" />, "Bot");
+	}
+	if (log.action === "Redacted" || log.action === "Warned") {
+		return chip("bg-amber-950/80 text-amber-300 border-amber-700/60", <AlertCircle className="h-3 w-3 shrink-0" />, "Warned");
+	}
+	return chip("bg-emerald-950/80 text-emerald-400 border-emerald-700/60", <CheckCircle2 className="h-3 w-3 shrink-0" />, "Allowed");
+}
+
+function platformBadgeLabel(platform: string): { label: string; className: string } {
+	const p = (platform || "").toLowerCase();
+	if (p.includes("claude")) return { label: "Claude", className: "bg-purple-950/60 text-purple-300 border-purple-700/60" };
+	if (p.includes("chatgpt") || p.includes("openai")) return { label: "ChatGPT", className: "bg-emerald-950/60 text-emerald-300 border-emerald-700/60" };
+	if (p.includes("gemini") || p.includes("google")) return { label: "Gemini", className: "bg-blue-950/60 text-blue-300 border-blue-700/60" };
+	if (p.includes("copilot") || p.includes("microsoft")) return { label: "Copilot", className: "bg-cyan-950/60 text-cyan-300 border-cyan-700/60" };
+	if (p.includes("perplexity")) return { label: "Perplexity", className: "bg-amber-950/60 text-amber-300 border-amber-700/60" };
+	if (p.includes("deepseek")) return { label: "DeepSeek", className: "bg-indigo-950/60 text-indigo-300 border-indigo-700/60" };
+	const raw = (platform || "AI").trim();
+	const label = raw.length > 14 ? `${raw.slice(0, 12)}…` : raw || "AI";
+	return { label, className: "bg-slate-800 text-slate-300 border-slate-700" };
+}
+
+function getPlatformBadge(platform: string) {
+	const { label, className } = platformBadgeLabel(platform);
+	return (
+		<Badge className={`inline-flex h-6 max-w-full items-center border px-2 text-[10px] font-medium ${className}`} title={platform || ""}>
+			<span className="truncate">{label}</span>
+		</Badge>
+	);
+}
+
+function oneLinePreview(text?: string) {
+	return (text || "").replace(/\s+/g, " ").trim();
 }
 
 export default function BrowserAiPage() {
@@ -707,24 +720,6 @@ export default function BrowserAiPage() {
 		}
 	};
 
-	const getPlatformBadge = (platform: string) => {
-		const p = platform.toLowerCase();
-		if (p.includes("claude")) {
-			return <Badge className="bg-purple-950/60 text-purple-300 border border-purple-700/60">Claude</Badge>;
-		} else if (p.includes("chatgpt") || p.includes("openai")) {
-			return <Badge className="bg-emerald-950/60 text-emerald-300 border border-emerald-700/60">ChatGPT</Badge>;
-		} else if (p.includes("gemini") || p.includes("google")) {
-			return <Badge className="bg-blue-950/60 text-blue-300 border border-blue-700/60">Gemini</Badge>;
-		} else if (p.includes("copilot") || p.includes("microsoft")) {
-			return <Badge className="bg-cyan-950/60 text-cyan-300 border border-cyan-700/60">Copilot</Badge>;
-		} else if (p.includes("perplexity")) {
-			return <Badge className="bg-amber-950/60 text-amber-300 border border-amber-700/60">Perplexity</Badge>;
-		} else if (p.includes("deepseek")) {
-			return <Badge className="bg-indigo-950/60 text-indigo-300 border border-indigo-700/60">DeepSeek</Badge>;
-		}
-		return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">{platform || "AI Platform"}</Badge>;
-	};
-
 	const getAgentStatusBadge = (status: string, uninstallRequested?: boolean) => {
 		const s = (status || "").toLowerCase();
 		if (s === "uninstalled") return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">Uninstalled</Badge>;
@@ -899,16 +894,16 @@ export default function BrowserAiPage() {
 						</CardHeader>
 						<CardContent>
 							<div className="rounded-md border border-border overflow-x-auto">
-								<Table className="table-fixed min-w-[980px]">
+								<Table className="table-fixed w-full min-w-[960px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[160px]">Timestamp</TableHead>
-											<TableHead className="w-[110px]">Platform</TableHead>
-											<TableHead className="w-[120px]">Guard</TableHead>
-											<TableHead className="w-[280px]">User Prompt Preview</TableHead>
-											<TableHead className="w-[90px] text-right">Est. Tokens</TableHead>
+											<TableHead className="w-[150px]">Timestamp</TableHead>
+											<TableHead className="w-[100px]">Platform</TableHead>
+											<TableHead className="w-[110px]">Guard</TableHead>
+											<TableHead className="w-[auto]">User Prompt Preview</TableHead>
+											<TableHead className="w-[80px] text-right">Est. Tokens</TableHead>
 											<TableHead className="w-[120px]">Action</TableHead>
-											<TableHead className="w-[70px] text-right">Details</TableHead>
+											<TableHead className="w-[64px] text-right">Details</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>
@@ -916,21 +911,29 @@ export default function BrowserAiPage() {
 											<TableRow
 												key={log.id}
 												onClick={() => setSelectedLog(log)}
-												className="cursor-pointer border-border hover:bg-accent/50 transition-colors"
+												className="h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
 											>
-												<TableCell className="text-xs text-muted-foreground font-mono truncate" title={new Date(log.timestamp).toLocaleString()}>
-													{new Date(log.timestamp).toLocaleString()}
+												<TableCell className="max-w-0 py-0">
+													<div className="truncate text-xs font-mono text-muted-foreground" title={new Date(log.timestamp).toLocaleString()}>
+														{new Date(log.timestamp).toLocaleString()}
+													</div>
 												</TableCell>
-												<TableCell className="overflow-hidden">{getPlatformBadge(log.platform)}</TableCell>
-												<TableCell className="text-xs text-muted-foreground truncate" title={log.agent_hostname || log.agent_id || ""}>
-													{log.agent_hostname || log.agent_id || "—"}
+												<TableCell className="max-w-0 py-0">
+													<div className="min-w-0 truncate">{getPlatformBadge(log.platform)}</div>
 												</TableCell>
-												<TableCell className="font-mono text-xs truncate" title={log.user_prompt_preview || ""}>
-													{log.user_prompt_preview}
+												<TableCell className="max-w-0 py-0">
+													<div className="truncate text-xs text-muted-foreground" title={log.agent_hostname || log.agent_id || ""}>
+														{log.agent_hostname || log.agent_id || "—"}
+													</div>
 												</TableCell>
-												<TableCell className="text-right text-xs font-mono truncate">{log.est_tokens}</TableCell>
-												<TableCell className="overflow-hidden">{logActionBadge(log)}</TableCell>
-												<TableCell className="text-right">
+												<TableCell className="max-w-0 py-0">
+													<div className="truncate font-mono text-xs" title={log.user_prompt_preview || ""}>
+														{oneLinePreview(log.user_prompt_preview) || "—"}
+													</div>
+												</TableCell>
+												<TableCell className="py-0 text-right text-xs font-mono">{log.est_tokens}</TableCell>
+												<TableCell className="py-0">{logActionBadge(log)}</TableCell>
+												<TableCell className="py-0 text-right">
 													<Button
 														variant="ghost"
 														size="icon"
@@ -1033,16 +1036,16 @@ export default function BrowserAiPage() {
 
 						<CardContent>
 							<div className="rounded-md border border-border overflow-x-auto">
-								<Table className="table-fixed min-w-[980px]">
+								<Table className="table-fixed w-full min-w-[960px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[160px]">Timestamp</TableHead>
-											<TableHead className="w-[110px]">Platform</TableHead>
-											<TableHead className="w-[120px]">Guard</TableHead>
-											<TableHead className="w-[280px]">User Prompt Preview</TableHead>
-											<TableHead className="w-[90px] text-right">Est. Tokens</TableHead>
+											<TableHead className="w-[150px]">Timestamp</TableHead>
+											<TableHead className="w-[100px]">Platform</TableHead>
+											<TableHead className="w-[110px]">Guard</TableHead>
+											<TableHead className="w-[auto]">User Prompt Preview</TableHead>
+											<TableHead className="w-[80px] text-right">Est. Tokens</TableHead>
 											<TableHead className="w-[120px]">Action</TableHead>
-											<TableHead className="w-[70px] text-right">Details</TableHead>
+											<TableHead className="w-[64px] text-right">Details</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>
@@ -1050,21 +1053,29 @@ export default function BrowserAiPage() {
 											<TableRow
 												key={log.id}
 												onClick={() => setSelectedLog(log)}
-												className="cursor-pointer border-border hover:bg-accent/50 transition-colors"
+												className="h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
 											>
-												<TableCell className="text-xs text-muted-foreground font-mono truncate" title={new Date(log.timestamp).toLocaleString()}>
-													{new Date(log.timestamp).toLocaleString()}
+												<TableCell className="max-w-0 py-0">
+													<div className="truncate text-xs font-mono text-muted-foreground" title={new Date(log.timestamp).toLocaleString()}>
+														{new Date(log.timestamp).toLocaleString()}
+													</div>
 												</TableCell>
-												<TableCell className="overflow-hidden">{getPlatformBadge(log.platform)}</TableCell>
-												<TableCell className="text-xs text-muted-foreground truncate" title={log.agent_hostname || log.agent_id || ""}>
-													{log.agent_hostname || log.agent_id || "—"}
+												<TableCell className="max-w-0 py-0">
+													<div className="min-w-0 truncate">{getPlatformBadge(log.platform)}</div>
 												</TableCell>
-												<TableCell className="font-mono text-xs truncate" title={log.user_prompt_preview || ""}>
-													{log.user_prompt_preview}
+												<TableCell className="max-w-0 py-0">
+													<div className="truncate text-xs text-muted-foreground" title={log.agent_hostname || log.agent_id || ""}>
+														{log.agent_hostname || log.agent_id || "—"}
+													</div>
 												</TableCell>
-												<TableCell className="text-right text-xs font-mono truncate">{log.est_tokens}</TableCell>
-												<TableCell className="overflow-hidden">{logActionBadge(log)}</TableCell>
-												<TableCell className="text-right">
+												<TableCell className="max-w-0 py-0">
+													<div className="truncate font-mono text-xs" title={log.user_prompt_preview || ""}>
+														{oneLinePreview(log.user_prompt_preview) || "—"}
+													</div>
+												</TableCell>
+												<TableCell className="py-0 text-right text-xs font-mono">{log.est_tokens}</TableCell>
+												<TableCell className="py-0">{logActionBadge(log)}</TableCell>
+												<TableCell className="py-0 text-right">
 													<Button
 														variant="ghost"
 														size="icon"
