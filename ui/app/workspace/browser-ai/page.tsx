@@ -47,6 +47,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions } from "./relatedHosts";
+import { buildAttachmentPreview, type AttachmentPreviewKind } from "./attachmentPreview";
 
 import {
 	useGetBrowserAiLogsQuery,
@@ -200,21 +201,6 @@ function logHasStoredAttachment(log: BrowserAILogEntry | null | undefined) {
 	return !!(log?.attachment_stored_name);
 }
 
-function logAttachmentIsImage(log: BrowserAILogEntry | null | undefined) {
-	if (!log) return false;
-	const ct = (log.attachment_content_type || "").toLowerCase();
-	const name = (log.attachment_name || "").toLowerCase();
-	if (ct.startsWith("image/")) return true;
-	return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].some((ext) => name.endsWith(ext));
-}
-
-function logAttachmentIsPdf(log: BrowserAILogEntry | null | undefined) {
-	if (!log) return false;
-	const ct = (log.attachment_content_type || "").toLowerCase();
-	const name = (log.attachment_name || "").toLowerCase();
-	return ct.includes("pdf") || name.endsWith(".pdf");
-}
-
 function logAttachmentLabel(log: BrowserAILogEntry) {
 	const name = (log.attachment_name || "").trim();
 	if (name && name.toLowerCase() !== "attachment") return name;
@@ -262,6 +248,9 @@ export default function BrowserAiPage() {
 	const [selectedLog, setSelectedLog] = useState<BrowserAILogEntry | null>(null);
 	const [pdfViewerLog, setPdfViewerLog] = useState<BrowserAILogEntry | null>(null);
 	const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+	const [attachmentPreviewKind, setAttachmentPreviewKind] = useState<AttachmentPreviewKind | null>(null);
+	const [attachmentPreviewHtml, setAttachmentPreviewHtml] = useState("");
+	const [attachmentPreviewText, setAttachmentPreviewText] = useState("");
 	const [pdfLoading, setPdfLoading] = useState(false);
 	const [pdfError, setPdfError] = useState("");
 	const [copiedPrompt, setCopiedPrompt] = useState(false);
@@ -467,6 +456,9 @@ export default function BrowserAiPage() {
 				URL.revokeObjectURL(pdfBlobUrl);
 				setPdfBlobUrl(null);
 			}
+			setAttachmentPreviewKind(null);
+			setAttachmentPreviewHtml("");
+			setAttachmentPreviewText("");
 			setPdfLoading(false);
 			setPdfError("");
 			return;
@@ -475,6 +467,13 @@ export default function BrowserAiPage() {
 		let objectUrl: string | null = null;
 		setPdfLoading(true);
 		setPdfError("");
+		setAttachmentPreviewKind(null);
+		setAttachmentPreviewHtml("");
+		setAttachmentPreviewText("");
+		if (pdfBlobUrl) {
+			URL.revokeObjectURL(pdfBlobUrl);
+			setPdfBlobUrl(null);
+		}
 		(async () => {
 			try {
 				const res = await fetch(`${getApiBaseUrl()}/browser-ai/attachments/${encodeURIComponent(pdfViewerLog.id)}`, {
@@ -485,12 +484,28 @@ export default function BrowserAiPage() {
 				}
 				const blob = await res.blob();
 				if (cancelled) return;
-				objectUrl = URL.createObjectURL(blob);
-				setPdfBlobUrl(objectUrl);
+				const preview = await buildAttachmentPreview(
+					blob,
+					logAttachmentLabel(pdfViewerLog),
+					pdfViewerLog.attachment_content_type || blob.type,
+				);
+				if (cancelled) return;
+				setAttachmentPreviewKind(preview.kind);
+				if (preview.blobUrl) {
+					objectUrl = preview.blobUrl;
+					setPdfBlobUrl(preview.blobUrl);
+				}
+				if (preview.html) setAttachmentPreviewHtml(preview.html);
+				if (preview.text) setAttachmentPreviewText(preview.text);
+				if (preview.kind === "unsupported") {
+					objectUrl = URL.createObjectURL(blob);
+					setPdfBlobUrl(objectUrl);
+				}
 			} catch (e) {
 				if (!cancelled) {
 					setPdfError(e instanceof Error ? e.message : "Failed to load file");
 					setPdfBlobUrl(null);
+					setAttachmentPreviewKind(null);
 				}
 			} finally {
 				if (!cancelled) setPdfLoading(false);
@@ -2883,6 +2898,9 @@ export default function BrowserAiPage() {
 					if (!open) {
 						setPdfViewerLog(null);
 						setPdfError("");
+						setAttachmentPreviewKind(null);
+						setAttachmentPreviewHtml("");
+						setAttachmentPreviewText("");
 					}
 				}}
 			>
@@ -2920,30 +2938,39 @@ export default function BrowserAiPage() {
 							</div>
 							<div className="flex-1 min-h-0 bg-black/40 flex items-center justify-center p-3 overflow-auto">
 								{pdfLoading ? (
-									<p className="text-sm text-muted-foreground">Loading file…</p>
+									<p className="text-sm text-muted-foreground">Loading document…</p>
 								) : pdfError ? (
 									<p className="text-sm text-red-400">{pdfError}</p>
-								) : pdfBlobUrl && logAttachmentIsImage(pdfViewerLog) ? (
+								) : attachmentPreviewKind === "image" && pdfBlobUrl ? (
 									<img
 										src={pdfBlobUrl}
 										alt={logAttachmentLabel(pdfViewerLog)}
 										className="max-h-[min(70vh,720px)] max-w-full rounded-md border border-border object-contain bg-black/20"
 									/>
-								) : pdfBlobUrl && logAttachmentIsPdf(pdfViewerLog) ? (
+								) : attachmentPreviewKind === "pdf" && pdfBlobUrl ? (
 									<iframe
 										title={logAttachmentLabel(pdfViewerLog)}
 										src={pdfBlobUrl}
 										className="w-full h-[min(70vh,720px)] rounded-md border border-border bg-white"
 									/>
-								) : pdfBlobUrl ? (
+								) : attachmentPreviewKind === "html" && attachmentPreviewHtml ? (
+									<div
+										className="w-full max-h-[min(70vh,720px)] overflow-auto rounded-md border border-border bg-background p-4 text-foreground"
+										dangerouslySetInnerHTML={{ __html: attachmentPreviewHtml }}
+									/>
+								) : attachmentPreviewKind === "text" && attachmentPreviewText ? (
+									<pre className="w-full max-h-[min(70vh,720px)] overflow-auto rounded-md border border-border bg-background p-4 text-xs font-mono whitespace-pre-wrap">
+										{attachmentPreviewText}
+									</pre>
+								) : (
 									<div className="text-center space-y-3 p-6">
-										<p className="text-sm text-muted-foreground">Preview not available for this file type.</p>
+										<p className="text-sm text-muted-foreground">
+											In-browser preview is not available for this file type. Download to open it locally.
+										</p>
 										<Button size="sm" className="gap-1.5" onClick={() => downloadPdfAttachment(pdfViewerLog)}>
-											<Download className="h-3.5 w-3.5" /> Download to open
+											<Download className="h-3.5 w-3.5" /> Download
 										</Button>
 									</div>
-								) : (
-									<p className="text-sm text-muted-foreground">No preview available</p>
 								)}
 							</div>
 						</>
