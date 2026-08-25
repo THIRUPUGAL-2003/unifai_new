@@ -663,6 +663,15 @@ def looks_like_user_prompt(text: str) -> bool:
     t = text.strip()
     if len(t) < 1:
         return False
+    # Never treat multipart / raw HTTP file bodies as chat prompts
+    low_head = t[:80].lower()
+    if (
+        "webkitformboundary" in low_head
+        or t.startswith("------")
+        or "content-disposition: form-data" in t[:500].lower()
+        or "multipart/form-data" in t[:200].lower()
+    ):
+        return False
     if _is_ai_chrome_url(t):
         return False
     if _is_google_wire_blob(t):
@@ -797,8 +806,12 @@ def _clean_prompt_text(text: str) -> str | None:
     return cleaned
 
 
-def is_duplicate_event(domain: str, event_key: str, ttl: float = DEDUPE_TTL) -> bool:
-    """Return True if the same event was already logged for this domain recently."""
+def is_duplicate_event(domain: str, event_key: str, ttl: float = DEDUPE_TTL, *, mark: bool = True) -> bool:
+    """Return True if the same event was already logged for this domain recently.
+
+    mark=False only peeks (does not stamp) — use before a backend write, then
+    call mark_duplicate_event after success so failed posts can retry.
+    """
     now = time.time()
     expired = [k for k, ts in _recent_prompts.items() if now - ts > max(DEDUPE_TTL, BLOCK_DEDUPE_TTL)]
     for k in expired:
@@ -808,8 +821,15 @@ def is_duplicate_event(domain: str, event_key: str, ttl: float = DEDUPE_TTL) -> 
     prev = _recent_prompts.get(key)
     if prev is not None and (now - prev) <= ttl:
         return True
-    _recent_prompts[key] = now
+    if mark:
+        _recent_prompts[key] = now
     return False
+
+
+def mark_duplicate_event(domain: str, event_key: str) -> None:
+    """Stamp dedupe key after a successful backend log."""
+    key = f"{domain}|{(event_key or '').strip().lower()}"
+    _recent_prompts[key] = time.time()
 
 
 def is_duplicate_prompt(domain: str, prompt: str) -> bool:
@@ -1058,12 +1078,12 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
                 return True, f"Upload header ({hk})"
 
     # Real multipart / binary body
-    if "multipart/form-data" in content_type:
+    if "multipart/form-data" in content_type or "webkitformboundary" in (raw_content or "")[:300].lower():
         # Empty multipart from opening the picker — require a filename= part
         if "filename=" in (raw_content or "") or "filename*=" in (raw_content or "").lower():
-            return True, f"File content-type ({content_type.split(';')[0]})"
-        if body_len >= 1500:
-            return True, f"File content-type ({content_type.split(';')[0]})"
+            return True, f"File content-type ({(content_type or 'multipart').split(';')[0]})"
+        if body_len >= 800:
+            return True, f"File content-type ({(content_type or 'multipart').split(';')[0]})"
         return False, ""
     if not chat_submit:
         for prefix in UPLOAD_CONTENT_TYPES:
@@ -1196,8 +1216,11 @@ def post_upload_intercept(
     is_blocked: bool = False,
     blocked_reason: str = "",
     raw_bytes: bytes | None = None,
-) -> None:
-    """Log file upload; when PDF bytes exist, store via /api/browser-ai/intercept-file."""
+) -> bool:
+    """Log file upload; when PDF bytes exist, store via /api/browser-ai/intercept-file.
+
+    Returns True when the backend accepted the log (so caller can stamp dedupe).
+    """
     metadata = {
         "domain": domain,
         "url": url,
@@ -1249,8 +1272,9 @@ def post_upload_intercept(
                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
                 method="POST",
             )
-            urllib.request.urlopen(req, timeout=8)
-            return
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if 200 <= getattr(resp, "status", 200) < 300:
+                    return True
         except Exception as e:
             print(f"[UnifAI Proxy WARNING] intercept-file failed, falling back to JSON: {e}")
 
@@ -1269,9 +1293,11 @@ def post_upload_intercept(
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=2)
-    except Exception:
-        pass
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            return 200 <= getattr(resp, "status", 200) < 300
+    except Exception as e:
+        print(f"[UnifAI Proxy WARNING] upload intercept JSON failed: {e}")
+        return False
 
 
 def _extract_pdf_text(data: bytes) -> str:
@@ -1595,6 +1621,10 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
             return None
 
         ct = (content_type or "").lower()
+
+        # Never treat raw multipart file bodies as chat prompts (logs WebKitFormBoundary junk).
+        if "multipart/form-data" in ct or "webkitformboundary" in text[:200].lower() or text.lstrip().startswith("------"):
+            return None
 
         # Gemini: never walk generic JSON/form fields — those are request ids.
         if is_gemini_host(host) or "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
@@ -2302,25 +2332,24 @@ class BrowserAIInterceptor:
             blocked_reason = "Block Upload"
             upload_warn = (get_control_settings().get("upload_warning") or "").strip()
             base_upload_msg = upload_warn or "Upload block"
-            # Prompt Logs: admin warning text; rule hits append " -- {policy name}"
-            prompt_log = base_upload_msg
+            fname = extract_filename_from_upload(flow, raw_text)
+            file_label = fname or (upload_reason or "File attachment")
+            # Prompt Logs must show the file, not raw multipart / warning-only text
+            prompt_log = f"[FILE UPLOAD] {file_label}"
             if block_for_rule:
                 reason = f"Guard Rule in file: {file_rule_name}"
                 blocked_reason = file_rule_name or "Guard Rule (file content)"
                 rule_warn = _warning_for_rule_name(file_rule_name)
-                # Prefer rule's own warning as the left side when set; else upload policy warning
                 left = (rule_warn or base_upload_msg).strip() or "Upload block"
-                prompt_log = f"{left} -- {file_rule_name}" if file_rule_name else left
+                prompt_log = f"[FILE UPLOAD] {file_label} — {left}" + (f" -- {file_rule_name}" if file_rule_name else "")
+            else:
+                prompt_log = f"[FILE UPLOAD] {file_label} — {base_upload_msg}"
 
-            should_log = not is_duplicate_event(
-                domain,
-                f"upload-block|{blocked_reason}|{reason}",
-                ttl=BLOCK_DEDUPE_TTL,
-            )
+            dedupe_key = f"upload-block|{blocked_reason}|{file_label}|{reason}"
+            should_log = not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False)
             if should_log:
-                print(f"[UnifAI Proxy] FILE UPLOAD BLOCKED | {client_ip} → {host} | Reason: {reason}")
-                fname = extract_filename_from_upload(flow, raw_text)
-                post_upload_intercept(
+                print(f"[UnifAI Proxy] FILE UPLOAD BLOCKED | {client_ip} → {host} | Reason: {reason} | {file_label}")
+                ok = post_upload_intercept(
                     platform=platform,
                     prompt=prompt_log,
                     client_ip=client_ip,
@@ -2332,9 +2361,15 @@ class BrowserAIInterceptor:
                     blocked_reason=blocked_reason,
                     raw_bytes=raw_bytes,
                 )
+                if ok:
+                    mark_duplicate_event(domain, dedupe_key)
 
             # Same text employees / chat replies see
-            msg = prompt_log if (block_for_rule or block_all_uploads) else ""
+            msg = base_upload_msg
+            if block_for_rule:
+                rule_warn = _warning_for_rule_name(file_rule_name)
+                left = (rule_warn or base_upload_msg).strip() or "Upload block"
+                msg = f"{left} -- {file_rule_name}" if file_rule_name else left
             if is_chat_path(path, host) and msg:
                 make_blocked_response(flow, blocked_reason, host, reply_text=msg)
                 return
@@ -2358,17 +2393,14 @@ class BrowserAIInterceptor:
             )
             return
         elif is_upload:
-            # Clean file upload allowed: Log audit event to backend
+            # Clean file upload allowed: Log audit event to backend — never fall through to chat extract
             fname = extract_filename_from_upload(flow, raw_text)
             clean_log = f"[FILE UPLOAD] {fname}" if fname else f"[FILE UPLOAD] {upload_reason or 'File attachment'}"
-            should_log = not is_duplicate_event(
-                domain,
-                f"upload-allowed|{fname or upload_reason}",
-                ttl=BLOCK_DEDUPE_TTL,
-            )
+            dedupe_key = f"upload-allowed|{fname or upload_reason}"
+            should_log = not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False)
             if should_log:
                 print(f"[UnifAI Proxy] FILE UPLOAD ALLOWED | {client_ip} → {host} | {clean_log}")
-                post_upload_intercept(
+                ok = post_upload_intercept(
                     platform=platform,
                     prompt=clean_log,
                     client_ip=client_ip,
@@ -2379,6 +2411,13 @@ class BrowserAIInterceptor:
                     is_blocked=False,
                     raw_bytes=raw_bytes,
                 )
+                if ok:
+                    mark_duplicate_event(domain, dedupe_key)
+            return  # uploads must not be re-parsed as chat prompts
+
+        # Also drop multipart noise that slipped past upload detection
+        if "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower():
+            return
 
         # Gemini fires many extra POSTs (session ids, counters). Log only the chat submit.
         if is_gemini_host(host) and not is_gemini_chat_submit(path, raw_text):

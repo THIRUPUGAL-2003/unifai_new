@@ -166,8 +166,9 @@ function platformBadgeLabel(platform: string): { label: string; className: strin
 	const p = (platform || "").toLowerCase();
 	if (p.includes("claude")) return { label: "Claude", className: "bg-purple-950/60 text-purple-300 border-purple-700/60" };
 	if (p.includes("chatgpt") || p.includes("openai")) return { label: "ChatGPT", className: "bg-emerald-950/60 text-emerald-300 border-emerald-700/60" };
-	if (p.includes("gemini") || p.includes("google")) return { label: "Gemini", className: "bg-blue-950/60 text-blue-300 border-blue-700/60" };
-	if (p.includes("copilot") || p.includes("microsoft")) return { label: "Copilot", className: "bg-cyan-950/60 text-cyan-300 border-cyan-700/60" };
+	// Only real Gemini/Bard — do NOT map every "google" host (Drive/Docs) to Gemini
+	if (p.includes("gemini") || p.includes("bard")) return { label: "Gemini", className: "bg-blue-950/60 text-blue-300 border-blue-700/60" };
+	if (p.includes("copilot") || (p.includes("microsoft") && !p.includes("google"))) return { label: "Copilot", className: "bg-cyan-950/60 text-cyan-300 border-cyan-700/60" };
 	if (p.includes("perplexity")) return { label: "Perplexity", className: "bg-amber-950/60 text-amber-300 border-amber-700/60" };
 	if (p.includes("deepseek")) return { label: "DeepSeek", className: "bg-indigo-950/60 text-indigo-300 border-indigo-700/60" };
 	const raw = (platform || "AI").trim();
@@ -188,6 +189,13 @@ function oneLinePreview(text?: string) {
 	return (text || "").replace(/\s+/g, " ").trim();
 }
 
+function isFileUploadLog(log: BrowserAILogEntry | null | undefined) {
+	if (!log) return false;
+	if (log.attachment_name || log.attachment_stored_name) return true;
+	const p = (log.user_prompt_full || log.user_prompt_preview || "").trim();
+	return p.startsWith("[FILE UPLOAD]");
+}
+
 function logHasPdfAttachment(log: BrowserAILogEntry | null | undefined) {
 	if (!log?.attachment_stored_name) return false;
 	const ct = (log.attachment_content_type || "").toLowerCase();
@@ -196,15 +204,24 @@ function logHasPdfAttachment(log: BrowserAILogEntry | null | undefined) {
 }
 
 function logAttachmentLabel(log: BrowserAILogEntry) {
-	return log.attachment_name || "document.pdf";
+	const name = (log.attachment_name || "").trim();
+	if (name && name.toLowerCase() !== "attachment") return name;
+	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
+	const m = full.match(/^\[FILE UPLOAD\]\s+(.+?)(?:\s+[—-]\s+|$)/i);
+	if (m?.[1]) {
+		const label = m[1].trim();
+		if (label && label.toLowerCase() !== "attachment") return label;
+	}
+	return name || "document.pdf";
 }
 
 function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
-	if (log.attachment_name || log.attachment_stored_name) {
+	if (isFileUploadLog(log)) {
+		const label = logAttachmentLabel(log);
 		return (
-			<div className="flex min-w-0 items-center gap-1.5" title={logAttachmentLabel(log)}>
+			<div className="flex min-w-0 items-center gap-1.5" title={label}>
 				<Paperclip className="h-3.5 w-3.5 shrink-0 text-sky-400" />
-				<span className="truncate font-mono text-xs">{logAttachmentLabel(log)}</span>
+				<span className="truncate font-mono text-xs">{label}</span>
 			</div>
 		);
 	}
@@ -829,6 +846,14 @@ export default function BrowserAiPage() {
 		return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">{status || "unknown"}</Badge>;
 	};
 
+	const getAgentHealthBadge = (health?: string, detail?: string) => {
+		const h = (health || "").toLowerCase();
+		if (h === "ok") return <Badge className="bg-emerald-950 text-emerald-300 border border-emerald-800" title={detail || ""}>Health OK</Badge>;
+		if (h === "degraded") return <Badge className="bg-amber-950 text-amber-300 border border-amber-800" title={detail || ""}>Degraded</Badge>;
+		if (h === "error") return <Badge className="bg-red-950 text-red-300 border border-red-800" title={detail || ""}>Error</Badge>;
+		return <Badge variant="outline" className="text-muted-foreground" title={detail || ""}>Unknown</Badge>;
+	};
+
 	const nicGuidOnly = (raw?: string) => {
 		const m = (raw || "").match(/\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}/);
 		return m ? m[0].toUpperCase() : "";
@@ -1301,7 +1326,7 @@ export default function BrowserAiPage() {
 										</Badge>
 									</div>
 									<CardDescription>
-										Control uploads on monitored AI sites. Prompts and PDF content still use Guard Rules below.
+										Control uploads on monitored AI sites. Each Guard Rule below has its own Active/Disabled toggle — off skips that pattern in prompts and inside uploaded files (PDF/text).
 									</CardDescription>
 								</div>
 							</div>
@@ -1458,7 +1483,9 @@ export default function BrowserAiPage() {
 							<div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
 								<div>
 									<CardTitle className="text-lg">DLP Guard Rules ({rules.length} Configured)</CardTitle>
-									<CardDescription>Real-time regular expressions matched against browser prompts</CardDescription>
+									<CardDescription>
+										Matched against prompts and text inside uploaded files (PDF/text). Use each rule&apos;s Active toggle to enable or disable without deleting.
+									</CardDescription>
 								</div>
 								<Dialog open={ruleDialogOpen} onOpenChange={setRuleDialogOpen}>
 									<DialogTrigger asChild>
@@ -2380,22 +2407,23 @@ export default function BrowserAiPage() {
 						<CardHeader>
 							<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
 							<CardDescription>
-								Installed Guard stays Active and keeps intercepting until the agent is uninstalled on that laptop.
+								Guard 1.4.0+ reports Health (PAC / CA / proxy / backend). Keep Chrome or Edge; after install quit & reopen browsers.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="p-0">
-							<Table className="table-fixed min-w-[1080px]">
+							<Table className="table-fixed min-w-[1200px]">
 								<TableHeader>
 									<TableRow className="hover:bg-transparent border-border">
 										<TableHead className="w-[160px]">Laptop</TableHead>
 										<TableHead className="w-[100px]">User</TableHead>
-										<TableHead className="w-[130px]">IP</TableHead>
-										<TableHead className="w-[160px]">Physical address (MAC)</TableHead>
-										<TableHead className="w-[180px]">Transport name</TableHead>
+										<TableHead className="w-[120px]">IP</TableHead>
+										<TableHead className="w-[140px]">Physical address (MAC)</TableHead>
+										<TableHead className="w-[140px]">Transport name</TableHead>
 										<TableHead className="w-[80px]">Version</TableHead>
-										<TableHead className="w-[130px]">Status</TableHead>
-										<TableHead className="w-[160px]">Last seen</TableHead>
-										<TableHead className="w-[160px]">Installed</TableHead>
+										<TableHead className="w-[110px]">Health</TableHead>
+										<TableHead className="w-[120px]">Status</TableHead>
+										<TableHead className="w-[150px]">Last seen</TableHead>
+										<TableHead className="w-[150px]">Installed</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -2417,7 +2445,8 @@ export default function BrowserAiPage() {
 											<TableCell className="text-[11px] font-mono text-muted-foreground truncate" data-testid="guard-agent-transport-cell" title={nicGuidOnly(agent.transport_name) || ""}>
 												{nicGuidOnly(agent.transport_name) || "—"}
 											</TableCell>
-											<TableCell className="text-xs truncate">{agent.agent_version || "—"}</TableCell>
+											<TableCell className="text-xs truncate font-medium">{agent.agent_version || "—"}</TableCell>
+											<TableCell>{getAgentHealthBadge(agent.health_status, agent.health_detail)}</TableCell>
 											<TableCell>{getAgentStatusBadge(agent.status, agent.uninstall_requested)}</TableCell>
 											<TableCell className="text-xs text-muted-foreground truncate">
 												{agent.last_seen_at ? new Date(agent.last_seen_at).toLocaleString() : "—"}
@@ -2429,7 +2458,7 @@ export default function BrowserAiPage() {
 									))}
 									{agents.length === 0 && (
 										<TableRow>
-												<TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
+												<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
 												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe on employee laptops.
 											</TableCell>
 										</TableRow>
@@ -2788,7 +2817,7 @@ export default function BrowserAiPage() {
 									</div>
 								</div>
 
-								{logHasPdfAttachment(selectedLog) ? (
+								{isFileUploadLog(selectedLog) ? (
 									<div className="rounded-lg border border-sky-900/50 bg-sky-950/20 p-3.5 flex flex-wrap items-center justify-between gap-3">
 										<div className="flex min-w-0 items-center gap-2">
 											<Paperclip className="h-4 w-4 shrink-0 text-sky-400" />
@@ -2797,14 +2826,18 @@ export default function BrowserAiPage() {
 												<p className="text-sm font-medium truncate">{logAttachmentLabel(selectedLog)}</p>
 											</div>
 										</div>
-										<div className="flex items-center gap-2 shrink-0">
-											<Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => openPdfViewer(selectedLog)}>
-												<Eye className="h-3.5 w-3.5" /> View PDF
-											</Button>
-											<Button size="sm" className="h-8 gap-1.5" onClick={() => downloadPdfAttachment(selectedLog)}>
-												<Download className="h-3.5 w-3.5" /> Download
-											</Button>
-										</div>
+										{logHasPdfAttachment(selectedLog) ? (
+											<div className="flex items-center gap-2 shrink-0">
+												<Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => openPdfViewer(selectedLog)}>
+													<Eye className="h-3.5 w-3.5" /> View PDF
+												</Button>
+												<Button size="sm" className="h-8 gap-1.5" onClick={() => downloadPdfAttachment(selectedLog)}>
+													<Download className="h-3.5 w-3.5" /> Download
+												</Button>
+											</div>
+										) : (
+											<p className="text-xs text-muted-foreground shrink-0">Logged by filename (PDF preview when stored)</p>
+										)}
 									</div>
 								) : null}
 

@@ -37,10 +37,15 @@ from mitmproxy.tools.main import mitmdump
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifai.dev-yp.com"
-AGENT_VERSION = "1.2.21"
+AGENT_VERSION = "1.4.0"
 HEARTBEAT_SECONDS = 30
+HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
 PAC_HTTP_PORT = 18085
+_FIRST_RUN_FLAG = "first_run_done.flag"
+_LAST_PAC_BUST = ""
+_HEALTH_LOCK = threading.Lock()
+_LAST_HEALTH: dict = {}
 
 
 def exe_dir() -> str:
@@ -225,6 +230,10 @@ def collect_agent_info(agent_id: str, status: str = "active") -> dict:
     hostname = socket.gethostname()
     username = os.environ.get("USERNAME") or os.environ.get("USER") or ""
     mac, transport = detect_mac_and_transport()
+    health = _LAST_HEALTH if isinstance(_LAST_HEALTH, dict) else {}
+    hs = str(health.get("status") or "").strip()
+    details = health.get("details") if isinstance(health.get("details"), list) else []
+    detail_s = "; ".join(str(x) for x in details[:6])
     return {
         "id": agent_id,
         "hostname": hostname,
@@ -234,6 +243,8 @@ def collect_agent_info(agent_id: str, status: str = "active") -> dict:
         "transport_name": transport,
         "os_version": platform.platform(),
         "agent_version": AGENT_VERSION,
+        "health_status": hs or "unknown",
+        "health_detail": detail_s,
         "status": status or "active",
     }
 
@@ -303,9 +314,188 @@ def heartbeat_loop(agent_id: str, stop_event: threading.Event) -> None:
             apply_admin_uninstall(agent_id)
             return
         # Sleep/wake must not drop PAC. Re-assert on every beat until uninstall.
-        set_windows_proxy_pac(enable=True, pac_url=pac_http_url(), silent=True)
+        apply_pac_with_bust(silent=True)
         set_browser_quic(enable_quic=False)
         stop_event.wait(HEARTBEAT_SECONDS)
+
+
+def health_path() -> str:
+    return os.path.join(data_dir(), "health.json")
+
+
+def first_run_path() -> str:
+    return os.path.join(data_dir(), _FIRST_RUN_FLAG)
+
+
+def port_open(host: str, port: int, timeout: float = 0.6) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except Exception:
+        return False
+
+
+def ca_trusted() -> bool:
+    status_path = os.path.join(data_dir(), "ca_install_status.txt")
+    try:
+        if os.path.isfile(status_path):
+            with open(status_path, "r", encoding="utf-8", errors="replace") as f:
+                if f.read().strip().upper().startswith("OK"):
+                    return True
+    except Exception:
+        pass
+    # Live probe: mitmproxy CA present in current-user Root store
+    try:
+        completed = subprocess.run(
+            ["certutil.exe", "-user", "-store", "Root"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=12,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+            check=False,
+        )
+        out = ((completed.stdout or "") + (completed.stderr or "")).lower()
+        return "mitmproxy" in out
+    except Exception:
+        return False
+
+
+def run_health_check(proxy_port: int | None = None) -> dict:
+    """Probe backend, PAC, local proxy, CA — write health.json for support."""
+    global _LAST_HEALTH
+    if proxy_port is None:
+        try:
+            proxy_port = int(PROXY_ADDR.rsplit(":", 1)[-1] or "8085")
+        except Exception:
+            proxy_port = 8085
+
+    checks: dict[str, bool] = {}
+    details: list[str] = []
+
+    targets = _http_get_text(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets", "application/json", timeout=6)
+    checks["backend_targets"] = bool(targets and "targets" in targets)
+    if not checks["backend_targets"]:
+        details.append("backend targets unreachable")
+
+    pac_ok = False
+    try:
+        pac_body = _http_get_text(pac_http_url(), "application/x-ns-proxy-autoconfig,*/*", timeout=3)
+        pac_ok = bool(pac_body and "FindProxyForURL" in pac_body)
+    except Exception:
+        pac_ok = False
+    checks["local_pac"] = pac_ok
+    if not pac_ok:
+        details.append("local PAC HTTP not serving")
+
+    checks["proxy_port"] = port_open("127.0.0.1", proxy_port)
+    if not checks["proxy_port"]:
+        details.append(f"proxy :{proxy_port} not listening")
+
+    checks["ca_trusted"] = ca_trusted()
+    if not checks["ca_trusted"]:
+        details.append("CA trust missing or not OK")
+
+    addon = get_resource_path("browser_ai_proxy.py")
+    if not os.path.exists(addon):
+        addon = os.path.abspath(os.path.join(os.path.dirname(__file__), "browser_ai_proxy.py"))
+    checks["proxy_script"] = os.path.isfile(addon)
+    if not checks["proxy_script"]:
+        details.append("browser_ai_proxy.py missing")
+
+    critical = ("backend_targets", "local_pac", "proxy_script")
+    if all(checks.get(k) for k in critical) and checks.get("ca_trusted") and checks.get("proxy_port"):
+        status = "ok"
+    elif checks.get("backend_targets") and checks.get("proxy_script"):
+        status = "degraded"
+    else:
+        status = "error"
+
+    report = {
+        "status": status,
+        "agent_version": AGENT_VERSION,
+        "backend_url": UNIFAI_BACKEND_URL,
+        "proxy_addr": PROXY_ADDR,
+        "checks": checks,
+        "details": details,
+        "updated_at": time_iso(),
+    }
+    with _HEALTH_LOCK:
+        _LAST_HEALTH = report
+    try:
+        with open(health_path(), "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+    except Exception as e:
+        print(f"[UnifAI Guard WARNING] Could not write health.json: {e}")
+    print(f"[UnifAI Guard] Health={status} checks={checks}")
+    return report
+
+
+def time_iso() -> str:
+    import datetime
+
+    return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def health_loop(stop_event: threading.Event, proxy_port: int) -> None:
+    # First check shortly after proxy starts
+    stop_event.wait(4)
+    while not stop_event.is_set():
+        try:
+            run_health_check(proxy_port)
+            apply_pac_with_bust(silent=True)
+            set_browser_quic(enable_quic=False)
+        except Exception as e:
+            print(f"[UnifAI Guard WARNING] Health loop: {e}")
+        stop_event.wait(HEALTH_SECONDS)
+
+
+def show_message(title: str, text: str, flags: int = 0x40) -> None:
+    """Windows MessageBox (MB_ICONINFORMATION default)."""
+    try:
+        ctypes.windll.user32.MessageBoxW(0, text, title, flags)
+    except Exception as e:
+        print(f"[UnifAI Guard] Message: {title}: {text} ({e})")
+
+
+def maybe_first_run_prompt() -> None:
+    path = first_run_path()
+    if os.path.isfile(path):
+        return
+    show_message(
+        "UnifAI Guard installed",
+        "UnifAI Guard is running.\n\n"
+        "For Browser AI monitoring & predict to work:\n"
+        "1) Fully quit Chrome and Edge (all windows)\n"
+        "2) Reopen Chrome or Edge\n"
+        "3) Open a monitored AI site and send a test prompt\n\n"
+        f"Version {AGENT_VERSION}\n"
+        f"Backend: {UNIFAI_BACKEND_URL}",
+        0x40,
+    )
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(AGENT_VERSION + "\n")
+    except Exception:
+        pass
+
+
+def apply_pac_with_bust(silent: bool = False) -> bool:
+    """Enable PAC with cache-busting query so Chrome picks up Target Website changes fast."""
+    global _LAST_PAC_BUST
+    try:
+        content = ""
+        path = local_pac_path()
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read()
+        bust = abs(hash(content or PROXY_ADDR)) % 1000000007
+        pac_url = f"{pac_http_url()}?v={bust}"
+        _LAST_PAC_BUST = pac_url
+        return set_windows_proxy_pac(enable=True, pac_url=pac_url, silent=silent)
+    except Exception as e:
+        print(f"[UnifAI Guard WARNING] PAC apply failed: {e}")
+        return set_windows_proxy_pac(enable=True, pac_url=pac_http_url(), silent=silent)
 
 
 def clear_guard_runtime() -> None:
@@ -515,7 +705,50 @@ def pac_http_url() -> str:
 class _PACRequestHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         path = (self.path or "/").split("?", 1)[0]
-        if path not in ("/proxy.pac", "/pac", "/"):
+        if path in ("/status", "/health"):
+            report = _LAST_HEALTH if isinstance(_LAST_HEALTH, dict) and _LAST_HEALTH else {"status": "starting", "agent_version": AGENT_VERSION}
+            body = json.dumps(report, indent=2).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path in ("/", "/status.html"):
+            report = _LAST_HEALTH if isinstance(_LAST_HEALTH, dict) else {}
+            st = html_escape(str(report.get("status") or "starting"))
+            ver = html_escape(AGENT_VERSION)
+            backend = html_escape(UNIFAI_BACKEND_URL)
+            checks = report.get("checks") if isinstance(report.get("checks"), dict) else {}
+            rows = "".join(
+                f"<tr><td>{html_escape(k)}</td><td>{'OK' if v else 'FAIL'}</td></tr>" for k, v in checks.items()
+            )
+            details = report.get("details") if isinstance(report.get("details"), list) else []
+            det = "<br/>".join(html_escape(str(d)) for d in details) or "—"
+            html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"/><title>UnifAI Guard</title>
+<style>body{{font-family:Segoe UI,sans-serif;background:#0b1220;color:#e2e8f0;padding:24px}}
+.card{{background:#111827;border:1px solid #334155;border-radius:12px;padding:20px;max-width:720px}}
+h1{{margin:0 0 8px;font-size:20px}} .ok{{color:#34d399}} .bad{{color:#f87171}} .deg{{color:#fbbf24}}
+table{{width:100%;border-collapse:collapse;margin-top:12px}} td,th{{border-bottom:1px solid #334155;padding:8px;text-align:left;font-size:13px}}
+</style></head><body><div class="card">
+<h1>UnifAI Guard {ver}</h1>
+<p>Status: <strong class="{'ok' if st=='ok' else 'deg' if st=='degraded' else 'bad'}">{st}</strong></p>
+<p>Backend: <code>{backend}</code></p>
+<p>Local status API: <code>/status</code></p>
+<table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>{rows}</tbody></table>
+<p style="margin-top:16px;font-size:12px;color:#94a3b8">Details: {det}</p>
+<p style="font-size:12px;color:#94a3b8">For predict/monitor: use Chrome or Edge, quit &amp; reopen after install.</p>
+</div></body></html>"""
+            body = html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path not in ("/proxy.pac", "/pac"):
             self.send_error(404)
             return
         body = (
@@ -535,6 +768,16 @@ class _PACRequestHandler(http.server.BaseHTTPRequestHandler):
 
     def log_message(self, format: str, *args) -> None:  # noqa: A003
         return
+
+
+def html_escape(s: str) -> str:
+    return (
+        (s or "")
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
 
 
 def start_local_pac_http_server() -> str:
@@ -769,7 +1012,7 @@ def sync_pac_loop(stop_event: threading.Event) -> None:
         if pac and pac != last:
             write_local_pac(pac)
             last = pac
-            set_windows_proxy_pac(enable=True, pac_url=pac_http_url())
+            apply_pac_with_bust(silent=False)
             n = pac.count('",') if "aiHosts" in pac else 0
             print(f"[UnifAI Guard] PAC refreshed (~{n} domain entries).")
         stop_event.wait(PAC_SYNC_SECONDS)
@@ -920,12 +1163,20 @@ def main() -> None:
         )
 
     start_local_pac_http_server()
-    set_windows_proxy_pac(enable=True, pac_url=pac_http_url())
+    apply_pac_with_bust(silent=False)
     set_browser_quic(enable_quic=False)
     print("[UnifAI Guard] Chrome/Edge HTTP/3 (QUIC) disabled so Target Websites use the proxy.")
     if not install_ca_certificate():
         print("[UnifAI Guard ERROR] CA trust failed — open %LOCALAPPDATA%\\UnifAI\\Guard\\ca_install_status.txt")
         print("[UnifAI Guard ERROR] Without CA trust, browsers will not accept MITM HTTPS. Fix cert then restart Guard.")
+        show_message(
+            "UnifAI Guard — CA trust failed",
+            "Certificate install failed.\nHTTPS intercept / predict may not work until CA is trusted.\n\n"
+            "See %LOCALAPPDATA%\\UnifAI\\Guard\\ca_install_status.txt",
+            0x10,
+        )
+
+    maybe_first_run_prompt()
 
     stop_event = threading.Event()
     threading.Thread(target=sync_pac_loop, args=(stop_event,), daemon=True).start()
@@ -942,9 +1193,10 @@ def main() -> None:
 
     print("[UnifAI Guard] Agent is active. Sleep/shutdown keep monitoring; only uninstall stops Guard.")
     port = int(PROXY_ADDR.rsplit(":", 1)[-1] or "8085")
+    threading.Thread(target=health_loop, args=(stop_event, port), daemon=True).start()
     try:
         while not stop_event.is_set():
-            set_windows_proxy_pac(enable=True, pac_url=pac_http_url(), silent=True)
+            apply_pac_with_bust(silent=True)
             run_proxy_server(addon_script, port=port)
             if stop_event.is_set():
                 break

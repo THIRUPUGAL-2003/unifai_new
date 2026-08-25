@@ -25,6 +25,27 @@ func looksLikeSecretToken(s string) bool {
 	return secretTokenPrefix.MatchString(strings.TrimSpace(s))
 }
 
+// GuardSeverityScore maps rule severity to predictive risk score + label.
+func GuardSeverityScore(severity string) (int, string) {
+	return guardSeverityScore(severity)
+}
+
+// guardSeverityScore maps rule severity to predictive risk score + label.
+func guardSeverityScore(severity string) (int, string) {
+	switch strings.ToUpper(strings.TrimSpace(severity)) {
+	case "CRITICAL":
+		return 95, "CRITICAL"
+	case "HIGH":
+		return 80, "HIGH"
+	case "MEDIUM":
+		return 55, "MEDIUM"
+	case "LOW":
+		return 30, "LOW"
+	default:
+		return 85, "HIGH"
+	}
+}
+
 func isPhoneLikeRule(name, pattern string) bool {
 	n := strings.ToLower(name)
 	p := strings.ToLower(pattern)
@@ -72,6 +93,9 @@ type BrowserAIAgent struct {
 	TransportName string     `json:"transport_name"`
 	OSVersion     string     `json:"os_version"`
 	AgentVersion  string     `json:"agent_version"`
+	// HealthStatus: ok | degraded | error — reported by Guard EXE health loop.
+	HealthStatus       string     `json:"health_status"`
+	HealthDetail       string     `gorm:"type:text" json:"health_detail"`
 	Status             string     `gorm:"index" json:"status"` // active | uninstall_pending | uninstalled
 	UninstallRequested bool       `json:"uninstall_requested"`
 	LastSeenAt         time.Time  `gorm:"index" json:"last_seen_at"`
@@ -693,7 +717,67 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 		target.Status = "MONITORED"
 	}
 	target.CreatedAt = time.Now()
-	return m.db.WithContext(ctx).Create(target).Error
+	if err := m.db.WithContext(ctx).Create(target).Error; err != nil {
+		return err
+	}
+	// Top-level product domains: auto-add related API hosts so monitoring/predict actually works.
+	if target.ParentID == "" {
+		_ = m.ensureRelatedHostsLocked(ctx, target)
+	}
+	return nil
+}
+
+// relatedHostsForDomain mirrors UI suggestions — required for Gemini/Copilot prompt capture.
+func relatedHostsForDomain(domain string) []string {
+	switch NormalizeDomain(domain) {
+	case "gemini.google.com", "bard.google.com":
+		return []string{"clients6.google.com"}
+	case "copilot.microsoft.com", "copilot.cloud.microsoft":
+		return []string{"sydney.bing.com", "edgeservices.bing.com"}
+	case "chatgpt.com":
+		return []string{"chat.openai.com"}
+	default:
+		return nil
+	}
+}
+
+func (m *BrowserAIManager) ensureRelatedHostsLocked(ctx context.Context, parent *BrowserTargetWebsite) error {
+	if parent == nil || m.db == nil {
+		return nil
+	}
+	hosts := relatedHostsForDomain(parent.Domain)
+	for _, host := range hosts {
+		host = NormalizeDomain(host)
+		if host == "" || host == parent.Domain {
+			continue
+		}
+		var existing BrowserTargetWebsite
+		if err := m.db.WithContext(ctx).Where("domain = ?", host).First(&existing).Error; err == nil {
+			// Link under parent if orphan
+			if strings.TrimSpace(existing.ParentID) == "" && existing.ID != parent.ID {
+				_ = m.db.WithContext(ctx).Model(&existing).Updates(map[string]any{
+					"parent_id":     parent.ID,
+					"monitored":     parent.Monitored,
+					"block_site":    parent.BlockSite,
+					"platform_name": parent.PlatformName,
+					"status":        parent.Status,
+				}).Error
+			}
+			continue
+		}
+		child := BrowserTargetWebsite{
+			ID:           "tgt-" + uuid.New().String()[:8],
+			Domain:       host,
+			PlatformName: parent.PlatformName,
+			Monitored:    parent.Monitored,
+			BlockSite:    parent.BlockSite,
+			Status:       parent.Status,
+			ParentID:     parent.ID,
+			CreatedAt:    time.Now(),
+		}
+		_ = m.db.WithContext(ctx).Create(&child).Error
+	}
+	return nil
 }
 
 func (m *BrowserAIManager) UpdateTarget(ctx context.Context, id string, updates map[string]any) error {
@@ -855,7 +939,21 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		return pi != pj && !pi && pj
 	})
 
+	// Proxy already decided Blocked (upload / site lock) — do not let a WARN rule downgrade it.
+	alreadyBlocked := action == "Blocked"
+	// Upload audit lines are not chat prompts — skip regex DLP on "[FILE UPLOAD] …".
+	uploadScan := false
+	if v, ok := metadata["upload_scan"].(bool); ok && v {
+		uploadScan = true
+	}
+	if strings.HasPrefix(strings.TrimSpace(promptFull), "[FILE UPLOAD]") {
+		uploadScan = true
+	}
+
 	for _, rule := range rules {
+		if alreadyBlocked || uploadScan {
+			break
+		}
 		if strings.ToLower(rule.RuleType) == "ai_bot" || rule.Pattern == "" {
 			continue
 		}
@@ -874,26 +972,42 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		ruleTriggered = rule.Name
 		matchedWarning = strings.TrimSpace(rule.WarningMessage)
 		ruleAction := NormalizeGuardRuleAction(rule.Action)
+		sevScore, sevLabel := guardSeverityScore(rule.Severity)
 
 		if ruleAction == "BLOCK" {
 			action = "Blocked"
 			status = fmt.Sprintf("Blocked (%s)", rule.Name)
-			riskScore = 95
-			predictiveRisk = "CRITICAL"
+			riskScore = sevScore
+			if riskScore < 70 {
+				riskScore = 85
+			}
+			predictiveRisk = sevLabel
+			if predictiveRisk == "LOW" || predictiveRisk == "MEDIUM" {
+				predictiveRisk = "HIGH"
+			}
 			predictedCategory = "SECURITY_POLICY_VIOLATION"
 			break
 		} else if ruleAction == "WARN" {
 			// Log keeps the real prompt; ChatGPT gets prompt+warning via forward_prompt on the API.
 			action = "Warned"
 			status = fmt.Sprintf("Warned (%s)", rule.Name)
-			riskScore = 55
+			riskScore = sevScore
+			if riskScore > 70 {
+				riskScore = 60
+			}
+			if riskScore < 40 {
+				riskScore = 45
+			}
 			predictiveRisk = "MEDIUM"
+			if sevLabel == "CRITICAL" || sevLabel == "HIGH" {
+				predictiveRisk = "HIGH"
+			}
 			predictedCategory = "SUSPICIOUS_CONTENT"
 			break
 		}
 	}
 
-	if action == "Allowed" && looksLikeSecretToken(promptFull) {
+	if action == "Allowed" && !uploadScan && looksLikeSecretToken(promptFull) {
 		for _, rule := range rules {
 			n := strings.ToLower(rule.Name)
 			if strings.Contains(n, "phone") || strings.Contains(n, "mobile") {
@@ -1157,6 +1271,8 @@ func (m *BrowserAIManager) UpsertAgentHeartbeat(ctx context.Context, incoming *B
 			TransportName: nicGUIDFromTransport(incoming.TransportName),
 			OSVersion:     strings.TrimSpace(incoming.OSVersion),
 			AgentVersion:  strings.TrimSpace(incoming.AgentVersion),
+			HealthStatus:  strings.TrimSpace(incoming.HealthStatus),
+			HealthDetail:  strings.TrimSpace(incoming.HealthDetail),
 			Status:        AgentStatusActive,
 			LastSeenAt:    now,
 			InstalledAt:   now,
@@ -1178,6 +1294,12 @@ func (m *BrowserAIManager) UpsertAgentHeartbeat(ctx context.Context, incoming *B
 	}
 	existing.OSVersion = firstNonEmpty(strings.TrimSpace(incoming.OSVersion), existing.OSVersion)
 	existing.AgentVersion = firstNonEmpty(strings.TrimSpace(incoming.AgentVersion), existing.AgentVersion)
+	if hs := strings.TrimSpace(incoming.HealthStatus); hs != "" {
+		existing.HealthStatus = hs
+	}
+	if hd := strings.TrimSpace(incoming.HealthDetail); hd != "" {
+		existing.HealthDetail = hd
+	}
 	existing.LastSeenAt = now
 	existing.UpdatedAt = now
 	if existing.UninstallRequested || existing.Status == AgentStatusUninstallPending {

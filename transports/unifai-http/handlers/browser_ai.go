@@ -636,6 +636,36 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	allowed := logEntry.Action == "Allowed" || logEntry.Action == "Redacted" || logEntry.Action == "Warned"
 	isViolationBlock := !allowed
 
+	// File-upload audit logs: proxy already decided allow/block. Do not re-run AI Guard Bot
+	// or Reply Bot on "[FILE UPLOAD] …" — that corrupts Allowed upload rows in Prompt Logs.
+	uploadScan := false
+	if v, ok := payload.Metadata["upload_scan"].(bool); ok && v {
+		uploadScan = true
+	}
+	if strings.HasPrefix(strings.TrimSpace(payload.Prompt), "[FILE UPLOAD]") {
+		uploadScan = true
+	}
+	if uploadScan {
+		SendJSON(ctx, map[string]any{
+			"status":             "success",
+			"allowed":            allowed,
+			"action":             logEntry.Action,
+			"rule_triggered":     logEntry.RuleTriggered,
+			"warning_message":    ruleWarning,
+			"redacted_prompt":    payload.Prompt,
+			"forward_prompt":     payload.Prompt,
+			"risk_score":         logEntry.RiskScore,
+			"predictive_risk":    logEntry.PredictiveRisk,
+			"predicted_category": logEntry.PredictedCategory,
+			"reply_text":         "",
+			"reply_bot_provider": "",
+			"reply_bot_model":    "",
+			"eval_error":         "",
+			"log":                logEntry,
+		})
+		return
+	}
+
 	evalError := ""
 	// Evaluate AI Guard Bot whenever the prompt is still allowed (Allowed or Warned).
 	// A regex WARN must not short-circuit a stronger AI Guard Bot BLOCK policy.
@@ -695,11 +725,18 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			}
 			if violated {
 				ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
+				sevScore, sevLabel := logstore.GuardSeverityScore(rule.Severity)
 				if ruleAction == "BLOCK" {
 					logEntry.Action = "Blocked"
 					logEntry.Status = fmt.Sprintf("Blocked (%s)", rule.Name)
-					logEntry.RiskScore = 95
-					logEntry.PredictiveRisk = "CRITICAL"
+					logEntry.RiskScore = sevScore
+					if logEntry.RiskScore < 80 {
+						logEntry.RiskScore = 90
+					}
+					logEntry.PredictiveRisk = sevLabel
+					if logEntry.PredictiveRisk == "LOW" || logEntry.PredictiveRisk == "MEDIUM" {
+						logEntry.PredictiveRisk = "HIGH"
+					}
 					logEntry.PredictedCategory = "AI_GUARD_BOT_VIOLATION"
 					logEntry.RuleTriggered = rule.Name
 					ruleWarning = strings.TrimSpace(rule.WarningMessage)
@@ -717,8 +754,17 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 				} else if ruleAction == "WARN" {
 					logEntry.Action = "Warned"
 					logEntry.Status = fmt.Sprintf("Warned (%s)", rule.Name)
-					logEntry.RiskScore = 55
+					logEntry.RiskScore = sevScore
+					if logEntry.RiskScore > 70 {
+						logEntry.RiskScore = 65
+					}
+					if logEntry.RiskScore < 40 {
+						logEntry.RiskScore = 50
+					}
 					logEntry.PredictiveRisk = "MEDIUM"
+					if sevLabel == "CRITICAL" || sevLabel == "HIGH" {
+						logEntry.PredictiveRisk = "HIGH"
+					}
 					logEntry.PredictedCategory = "AI_GUARD_BOT_WARNING"
 					logEntry.RuleTriggered = rule.Name
 					ruleWarning = strings.TrimSpace(rule.WarningMessage)

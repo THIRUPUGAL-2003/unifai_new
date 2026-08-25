@@ -35,6 +35,8 @@ export interface BrowserAIAgent {
 	transport_name?: string;
 	os_version: string;
 	agent_version: string;
+	health_status?: string;
+	health_detail?: string;
 	status: "active" | "uninstalled" | "uninstall_pending" | string;
 	uninstall_requested?: boolean;
 	last_seen_at: string;
