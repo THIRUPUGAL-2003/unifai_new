@@ -12,6 +12,8 @@ Features:
 - Sends intercepted prompts to /api/browser-ai/intercept
 """
 
+import asyncio
+import io
 import json
 import os
 import re
@@ -19,6 +21,8 @@ import threading
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
+import zipfile
 from mitmproxy import http
 
 # ─────────────────────────────────────────────
@@ -1513,10 +1517,9 @@ def _extract_pdf_text(data: bytes) -> str:
 
     # Prefer pypdf
     try:
-        from io import BytesIO
         from pypdf import PdfReader
 
-        reader = PdfReader(BytesIO(data), strict=False)
+        reader = PdfReader(io.BytesIO(data), strict=False)
         parts: list[str] = []
         for page in reader.pages[:50]:  # cap pages for performance
             try:
@@ -1551,11 +1554,387 @@ def _extract_pdf_text(data: bytes) -> str:
     return "\n".join(texts)[:200_000]
 
 
+def _xml_local(tag: str) -> str:
+    if "}" in tag:
+        return tag.rsplit("}", 1)[-1]
+    return tag
+
+
+def _office_zip_bytes(data: bytes) -> bytes | None:
+    """Return ZIP payload for OOXML (docx/xlsx/pptx), including multipart-wrapped bodies."""
+    if not data:
+        return None
+    if data[:2] == b"PK":
+        return data
+    # Multipart / prefix noise: locate ZIP local-file header
+    idx = data.find(b"PK\x03\x04")
+    if idx >= 0 and idx < len(data) - 30:
+        return data[idx:]
+    return None
+
+
+def _extract_docx_text(data: bytes) -> str:
+    """Extract paragraph text from .docx (OOXML ZIP) without third-party libs."""
+    zdata = _office_zip_bytes(data)
+    if not zdata:
+        return ""
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            if "word/document.xml" not in zf.namelist():
+                return ""
+            xml = zf.read("word/document.xml")
+    except Exception:
+        return ""
+    try:
+        root = ET.fromstring(xml)
+    except Exception:
+        return ""
+    parts: list[str] = []
+    for el in root.iter():
+        if _xml_local(el.tag) != "p":
+            continue
+        bits: list[str] = []
+        for node in el.iter():
+            loc = _xml_local(node.tag)
+            if loc == "t" and node.text:
+                bits.append(node.text)
+            elif loc == "tab":
+                bits.append("\t")
+            elif loc in ("br", "cr"):
+                bits.append("\n")
+        line = "".join(bits).strip()
+        if line:
+            parts.append(line)
+    if not parts:
+        for el in root.iter():
+            if _xml_local(el.tag) == "t" and (el.text or "").strip():
+                parts.append(el.text.strip())
+    joined = "\n".join(parts).strip()
+    return joined[:200_000]
+
+
+def _extract_xlsx_text(data: bytes) -> str:
+    """Extract cell values from .xlsx (shared strings + sheet cells)."""
+    zdata = _office_zip_bytes(data)
+    if not zdata:
+        return ""
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            names = zf.namelist()
+            if not any(n.startswith("xl/") for n in names):
+                return ""
+            shared: list[str] = []
+            if "xl/sharedStrings.xml" in names:
+                try:
+                    ss_root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+                    for si in ss_root:
+                        if _xml_local(si.tag) != "si":
+                            continue
+                        texts = []
+                        for node in si.iter():
+                            if _xml_local(node.tag) == "t" and node.text:
+                                texts.append(node.text)
+                        shared.append("".join(texts))
+                except Exception:
+                    shared = []
+
+            sheet_names = sorted(
+                n for n in names if re.match(r"xl/worksheets/sheet\d+\.xml$", n)
+            )[:20]
+            values: list[str] = []
+            for sheet in sheet_names:
+                try:
+                    root = ET.fromstring(zf.read(sheet))
+                except Exception:
+                    continue
+                for el in root.iter():
+                    if _xml_local(el.tag) != "c":
+                        continue
+                    cell_type = (el.attrib.get("t") or "").lower()
+                    v_el = None
+                    is_el = None
+                    for child in el:
+                        loc = _xml_local(child.tag)
+                        if loc == "v":
+                            v_el = child
+                        elif loc == "is":
+                            is_el = child
+                    if cell_type == "s" and v_el is not None and (v_el.text or "").strip() != "":
+                        try:
+                            idx = int(v_el.text)
+                            if 0 <= idx < len(shared) and shared[idx].strip():
+                                values.append(shared[idx].strip())
+                        except Exception:
+                            pass
+                    elif cell_type == "inlineStr" and is_el is not None:
+                        texts = []
+                        for node in is_el.iter():
+                            if _xml_local(node.tag) == "t" and node.text:
+                                texts.append(node.text)
+                        s = "".join(texts).strip()
+                        if s:
+                            values.append(s)
+                    elif v_el is not None and (v_el.text or "").strip():
+                        # numbers / booleans / formulas cached value
+                        values.append(v_el.text.strip())
+            # Also dump shared strings if sheets yielded little (rare sheet layouts)
+            if len(values) < 3 and shared:
+                values.extend(s.strip() for s in shared if s and s.strip())
+    except Exception:
+        return ""
+    # Dedupe while preserving order (repeated headers OK once)
+    seen: set[str] = set()
+    out: list[str] = []
+    for v in values:
+        if v in seen:
+            continue
+        seen.add(v)
+        out.append(v)
+        if len(out) >= 20_000:
+            break
+    return "\n".join(out)[:200_000]
+
+
+def _extract_pptx_text(data: bytes) -> str:
+    """Extract text from .pptx slide XMLs."""
+    zdata = _office_zip_bytes(data)
+    if not zdata:
+        return ""
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            slides = sorted(n for n in zf.namelist() if re.match(r"ppt/slides/slide\d+\.xml$", n))[:30]
+            if not slides:
+                return ""
+            parts: list[str] = []
+            for name in slides:
+                try:
+                    root = ET.fromstring(zf.read(name))
+                except Exception:
+                    continue
+                for el in root.iter():
+                    if _xml_local(el.tag) == "t" and (el.text or "").strip():
+                        parts.append(el.text.strip())
+    except Exception:
+        return ""
+    return "\n".join(parts)[:200_000]
+
+
+def _looks_like_docx(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    if "wordprocessingml" in ct or fn.endswith(".docx"):
+        return True
+    zdata = _office_zip_bytes(data)
+    if not zdata:
+        return False
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            return "word/document.xml" in zf.namelist()
+    except Exception:
+        return False
+
+
+def _looks_like_xlsx(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    if "spreadsheetml" in ct or fn.endswith(".xlsx") or fn.endswith(".xlsm"):
+        return True
+    zdata = _office_zip_bytes(data)
+    if not zdata:
+        return False
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            names = zf.namelist()
+            return any(n.startswith("xl/") for n in names)
+    except Exception:
+        return False
+
+
+def _looks_like_pptx(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    if "presentationml" in ct or fn.endswith(".pptx"):
+        return True
+    zdata = _office_zip_bytes(data)
+    if not zdata:
+        return False
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            return any(n.startswith("ppt/slides/") for n in zf.namelist())
+    except Exception:
+        return False
+
+
+def _extract_office_text(data: bytes, content_type: str = "", file_name: str = "") -> str:
+    """Best-effort OOXML text (Word / Excel / PowerPoint)."""
+    if _looks_like_docx(data, content_type, file_name):
+        t = _extract_docx_text(data)
+        if t:
+            return t
+    if _looks_like_xlsx(data, content_type, file_name):
+        t = _extract_xlsx_text(data)
+        if t:
+            return t
+    if _looks_like_pptx(data, content_type, file_name):
+        t = _extract_pptx_text(data)
+        if t:
+            return t
+    # Unknown ZIP: try all
+    if data[:2] == b"PK" or b"PK\x03\x04" in data[:8192]:
+        for fn in (_extract_docx_text, _extract_xlsx_text, _extract_pptx_text):
+            try:
+                t = fn(data)
+            except Exception:
+                t = ""
+            if t:
+                return t
+    return ""
+
+
+def _looks_like_image(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    if ct.startswith("image/"):
+        return True
+    if any(fn.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff")):
+        return True
+    if not data:
+        return False
+    if data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"\xff\xd8\xff") or data.startswith(b"GIF8"):
+        return True
+    if data.startswith(b"BM") and len(data) > 30:
+        return True
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return True
+    return False
+
+
+def _run_async(coro):
+    """Run a coroutine even if mitmproxy already has an event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result: dict = {}
+    exc: dict = {}
+
+    def runner() -> None:
+        try:
+            result["v"] = asyncio.run(coro)
+        except Exception as e:
+            exc["e"] = e
+
+    t = threading.Thread(target=runner, daemon=True)
+    t.start()
+    t.join(timeout=35)
+    if t.is_alive():
+        raise TimeoutError("ocr timed out")
+    if "e" in exc:
+        raise exc["e"]
+    return result.get("v")
+
+
+async def _windows_ocr_pil(img) -> str:
+    """Windows.Media.Ocr (built into Windows 10+) — no Tesseract install required."""
+    from winrt.windows.globalization import Language
+    from winrt.windows.graphics.imaging import BitmapPixelFormat, SoftwareBitmap
+    from winrt.windows.media.ocr import OcrEngine
+    from winrt.windows.storage.streams import DataWriter
+
+    if img.mode != "RGBA":
+        img = img.convert("RGBA")
+    # Cap size for OCR latency / memory
+    max_side = 2000
+    w, h = img.size
+    if w < 8 or h < 8:
+        return ""
+    if max(w, h) > max_side:
+        scale = max_side / float(max(w, h))
+        img = img.resize((max(8, int(w * scale)), max(8, int(h * scale))))
+
+    engine = OcrEngine.try_create_from_user_profile_languages()
+    if engine is None:
+        for tag in ("en", "en-US", "en-GB"):
+            try:
+                if OcrEngine.is_language_supported(Language(tag)):
+                    engine = OcrEngine.try_create_from_language(Language(tag))
+                    if engine is not None:
+                        break
+            except Exception:
+                continue
+    if engine is None:
+        return ""
+
+    writer = DataWriter()
+    writer.write_bytes(bytearray(img.tobytes()))
+    bitmap = SoftwareBitmap.create_copy_from_buffer(
+        writer.detach_buffer(),
+        BitmapPixelFormat.RGBA8,
+        img.width,
+        img.height,
+    )
+    result = await engine.recognize_async(bitmap)
+    text = (getattr(result, "text", None) or "").strip()
+    return text
+
+
+def _extract_image_text(data: bytes) -> str:
+    """
+    OCR text from image uploads (PNG/JPEG/WebP/GIF/BMP) so Guard Rules can scan
+    text that appears inside screenshots / photos of documents.
+    Primary: Windows Media OCR. Optional fallback: pytesseract if installed.
+    """
+    if not data or len(data) < 32:
+        return ""
+    # Skip huge images (DoS / memory)
+    if len(data) > 15 * 1024 * 1024:
+        data = data[: 15 * 1024 * 1024]
+
+    try:
+        from PIL import Image
+    except Exception:
+        return ""
+
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+        # First frame only for animated GIF/WebP
+        if getattr(img, "n_frames", 1) > 1:
+            img.seek(0)
+        img = img.convert("RGB")
+    except Exception:
+        return ""
+
+    # 1) Windows built-in OCR
+    try:
+        text = _run_async(_windows_ocr_pil(img)) or ""
+        text = str(text).strip()
+        if text:
+            return text[:200_000]
+    except Exception as e:
+        print(f"[UnifAI Proxy] Windows OCR unavailable: {e}")
+
+    # 2) Optional Tesseract (if admin installed it on the laptop)
+    try:
+        import pytesseract  # type: ignore
+
+        text = (pytesseract.image_to_string(img) or "").strip()
+        if text:
+            return text[:200_000]
+    except Exception:
+        pass
+
+    return ""
+
+
 def _extract_plain_text_bytes(data: bytes) -> str:
     if not data:
         return ""
     # Skip obvious binary without text
     if data.startswith(b"\x89PNG") or data.startswith(b"\xff\xd8\xff") or data.startswith(b"GIF8"):
+        return ""
+    if data[:2] == b"PK" or data[:5] == b"%PDF-":
         return ""
     try:
         text = data.decode("utf-8")
@@ -1573,47 +1952,96 @@ def _extract_plain_text_bytes(data: bytes) -> str:
     return text[:200_000]
 
 
-def extract_upload_text_for_rules(raw_bytes: bytes, content_type: str = "", raw_text: str = "") -> str:
-    """
-    Pull text from an upload body so Guard Rules can scan file contents
-    (PDF insides, plain text, multipart attachments).
-    """
-    parts: list[str] = []
+def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name: str = "") -> str:
+    """Extract scannable text from a single file payload (PDF / Office / image OCR / plain)."""
+    if not data:
+        return ""
     ct = (content_type or "").lower()
-    data = raw_bytes or b""
+    fn = (file_name or "").lower()
+    parts: list[str] = []
 
-    # Direct PDF body
-    if "pdf" in ct or data[:5] == b"%PDF" or b"%PDF" in data[:4096]:
-        pdf_text = _extract_pdf_text(data)
-        if pdf_text:
-            parts.append(pdf_text)
+    if "pdf" in ct or fn.endswith(".pdf") or data[:5] == b"%PDF" or b"%PDF" in data[:4096]:
+        t = _extract_pdf_text(data)
+        if t:
+            parts.append(t)
 
-    # Multipart / mixed: scan each binary island for PDF + text
-    if "multipart" in ct or b"%PDF" in data or b"filename=" in data[:8000]:
-        # Split roughly on boundaries
-        for chunk in re.split(rb"\r\n--[^\r\n]+", data):
-            if len(chunk) < 20:
-                continue
-            if b"%PDF" in chunk[:2000] or chunk.lstrip().startswith(b"%PDF"):
-                t = _extract_pdf_text(chunk)
-                if t:
-                    parts.append(t)
-            else:
-                # strip headers
-                body = chunk
-                if b"\r\n\r\n" in chunk:
-                    body = chunk.split(b"\r\n\r\n", 1)[1]
-                t = _extract_plain_text_bytes(body)
-                if t and len(t) > 20:
-                    parts.append(t)
+    office = _extract_office_text(data, content_type, file_name)
+    if office:
+        parts.append(office)
 
-    # Plain / json text bodies
-    if raw_text and len(raw_text) > 20:
-        parts.append(raw_text[:200_000])
+    if _looks_like_image(data, content_type, file_name):
+        t = _extract_image_text(data)
+        if t:
+            parts.append(t)
+
+    if fn.endswith((".txt", ".csv", ".json", ".md", ".log")) or any(
+        x in ct for x in ("text/", "csv", "json")
+    ):
+        t = _extract_plain_text_bytes(data)
+        if t:
+            parts.append(t)
     elif not parts:
         t = _extract_plain_text_bytes(data)
         if t:
             parts.append(t)
+
+    return "\n\n".join(parts)[:200_000]
+
+
+def extract_upload_text_for_rules(
+    raw_bytes: bytes,
+    content_type: str = "",
+    raw_text: str = "",
+    file_name: str = "",
+) -> str:
+    """
+    Pull text from an upload body so Guard Rules can scan file contents
+    (PDF, Word .docx, Excel .xlsx, PowerPoint .pptx, images via OCR, plain text, multipart).
+    """
+    parts: list[str] = []
+    ct = (content_type or "").lower()
+    data = raw_bytes or b""
+    fname = (file_name or "").strip()
+
+    # Prefer clean file bytes from multipart / wrappers when present
+    payload, sniffed_ct, sniffed_name = extract_upload_file_payload(data, content_type, fname)
+    if payload and len(payload) >= 32:
+        t = _extract_text_from_file_bytes(payload, sniffed_ct or content_type, sniffed_name or fname)
+        if t:
+            parts.append(t)
+
+    # Direct scan of full body (non-multipart or when payload extract missed)
+    if not parts:
+        t = _extract_text_from_file_bytes(data, content_type, fname)
+        if t:
+            parts.append(t)
+
+    # Multipart islands: PDF / Office / plain per part
+    if "multipart" in ct or b"filename=" in data[:12000] or b"webkitformboundary" in data[:4000].lower():
+        for chunk in re.split(rb"\r\n--[^\r\n]+", data):
+            if len(chunk) < 20:
+                continue
+            body = chunk
+            part_name = ""
+            header = b""
+            if b"\r\n\r\n" in chunk:
+                header, body = chunk.split(b"\r\n\r\n", 1)
+                try:
+                    hdr = header.decode("utf-8", errors="ignore")
+                except Exception:
+                    hdr = ""
+                m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";\r\n]+)"?', hdr, re.I)
+                if m:
+                    part_name = m.group(1).strip()
+            t = _extract_text_from_file_bytes(body, content_type, part_name or fname)
+            if t and len(t) > 8:
+                parts.append(t)
+
+    # Plain / json text bodies (chat-shaped uploads)
+    if raw_text and len(raw_text) > 20 and not parts:
+        # Avoid stuffing huge binary-as-latin1 into rule scan
+        if "filename=" not in raw_text[:2000].lower() and raw_text.count("\x00") == 0:
+            parts.append(raw_text[:200_000])
 
     # Deduplicate while preserving order
     seen = set()
@@ -2510,9 +2938,9 @@ class BrowserAIInterceptor:
 
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
         if is_upload:
-            upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text)
-            file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
             fname = extract_filename_from_upload(flow, raw_text)
+            upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, fname)
+            file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
             file_ids = _extract_file_ids_from_chat(raw_text)
             cache_upload_file(
                 domain,
@@ -2566,7 +2994,7 @@ class BrowserAIInterceptor:
             cached_bytes = (cached.get("raw_bytes") if cached else b"") or b""
             cached_ct = (cached.get("content_type") if cached else "") or content_type
             if cached_bytes and not rule_hit:
-                ut = extract_upload_text_for_rules(cached_bytes, cached_ct, "")
+                ut = extract_upload_text_for_rules(cached_bytes, cached_ct, "", fname)
                 rule_hit, rule_name, rule_action = match_guard_rules_on_text(ut)
                 rule_action = (rule_action or "").upper()
 

@@ -149,6 +149,34 @@ export const browserAiApi = baseApi.injectEndpoints({
 			invalidatesTags: ["BrowserAiRules" as any],
 		}),
 
+		testBrowserAiGuardBot: builder.mutation<
+			{
+				status: string;
+				violation: boolean;
+				security_verdict: string;
+				security_message: string;
+				security_met: boolean;
+				would_block: boolean;
+				would_warn: boolean;
+				eval_error?: string;
+				rule_name?: string;
+			},
+			{
+				bot_provider: string;
+				bot_model: string;
+				bot_prompt: string;
+				sample_prompt: string;
+				action?: string;
+				name?: string;
+			}
+		>({
+			query: (body) => ({
+				url: "/browser-ai/rules/test-bot",
+				method: "POST",
+				body,
+			}),
+		}),
+
 		getBrowserAiControls: builder.query<{ controls: BrowserControlSettings }, void>({
 			query: () => "/browser-ai/controls",
 			providesTags: ["BrowserAiControls" as any],
@@ -239,6 +267,7 @@ export const {
 	useCreateBrowserAiRuleMutation,
 	useUpdateBrowserAiRuleMutation,
 	useDeleteBrowserAiRuleMutation,
+	useTestBrowserAiGuardBotMutation,
 	useGetBrowserAiControlsQuery,
 	useUpdateBrowserAiControlsMutation,
 	useGetBrowserAiTargetsQuery,

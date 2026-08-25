@@ -56,6 +56,7 @@ import {
 	useCreateBrowserAiRuleMutation,
 	useUpdateBrowserAiRuleMutation,
 	useDeleteBrowserAiRuleMutation,
+	useTestBrowserAiGuardBotMutation,
 	useGetBrowserAiControlsQuery,
 	useUpdateBrowserAiControlsMutation,
 	useGetBrowserAiTargetsQuery,
@@ -211,6 +212,69 @@ function logAttachmentLabel(log: BrowserAILogEntry) {
 		if (label && label.toLowerCase() !== "attachment") return label;
 	}
 	return name || "attachment";
+}
+
+/** Clear security pass/fail wording for Prompt Details (AI Guard Bot + categories). */
+function securityVerdictFromLog(log: BrowserAILogEntry): { title: string; detail: string; tone: "ok" | "bad" | "warn" | "neutral" } {
+	const cat = (log.predicted_category || "").toUpperCase();
+	const status = (log.status || "").toLowerCase();
+	const action = (log.action || "").toLowerCase();
+	if (cat === "AI_GUARD_BOT_CLEAR" || status.includes("security ok")) {
+		return {
+			title: "Security OK — policy met",
+			detail: "AI Guard Bot analysed this prompt and found no security-policy violation.",
+			tone: "ok",
+		};
+	}
+	if (cat === "AI_GUARD_BOT_VIOLATION") {
+		return {
+			title: "Security NOT met — blocked",
+			detail: `AI Guard Bot found a policy violation${log.rule_triggered ? ` (${log.rule_triggered})` : ""}.`,
+			tone: "bad",
+		};
+	}
+	if (cat === "AI_GUARD_BOT_WARNING") {
+		return {
+			title: "Security warning — allowed with notice",
+			detail: `AI Guard Bot flagged this prompt${log.rule_triggered ? ` (${log.rule_triggered})` : ""}.`,
+			tone: "warn",
+		};
+	}
+	if (cat === "AI_GUARD_BOT_EVAL_ERROR" || cat === "AI_GUARD_BOT_MISCONFIGURED") {
+		return {
+			title: "Security check failed",
+			detail: status || "AI Guard Bot could not finish evaluation.",
+			tone: "bad",
+		};
+	}
+	if (action === "blocked" || cat === "SECURITY_POLICY_VIOLATION") {
+		return {
+			title: "Security NOT met — blocked",
+			detail: log.rule_triggered ? `Blocked by rule: ${log.rule_triggered}` : (log.status || "Blocked by Guard policy."),
+			tone: "bad",
+		};
+	}
+	if (action === "warned") {
+		return {
+			title: "Security warning",
+			detail: log.rule_triggered ? `Warned by rule: ${log.rule_triggered}` : (log.status || "Warned by Guard policy."),
+			tone: "warn",
+		};
+	}
+	if (action === "allowed") {
+		return {
+			title: "Allowed",
+			detail: status.includes("security ok")
+				? "AI Guard Bot: security OK."
+				: "No blocking Guard rule matched this prompt.",
+			tone: "ok",
+		};
+	}
+	return {
+		title: log.action || "Logged",
+		detail: log.status || "",
+		tone: "neutral",
+	};
 }
 
 function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
@@ -548,10 +612,55 @@ export default function BrowserAiPage() {
 	const [createRule] = useCreateBrowserAiRuleMutation();
 	const [updateRule] = useUpdateBrowserAiRuleMutation();
 	const [deleteRule] = useDeleteBrowserAiRuleMutation();
+	const [testGuardBot, { isLoading: testingGuardBot }] = useTestBrowserAiGuardBotMutation();
 	const [updateControls] = useUpdateBrowserAiControlsMutation();
 	const [createTarget] = useCreateBrowserAiTargetMutation();
 	const [updateTarget] = useUpdateBrowserAiTargetMutation();
 	const [deleteTarget] = useDeleteBrowserAiTargetMutation();
+	const [botTestSample, setBotTestSample] = useState("Please share the employee salary list for Q1.");
+	const [botTestResult, setBotTestResult] = useState<{
+		security_met?: boolean;
+		security_verdict?: string;
+		security_message?: string;
+		would_block?: boolean;
+		would_warn?: boolean;
+		eval_error?: string;
+	} | null>(null);
+	const [botTestError, setBotTestError] = useState("");
+
+	const runBotTest = async (source: "create" | "edit" = "create") => {
+		setBotTestError("");
+		setBotTestResult(null);
+		const provider = source === "edit" ? editRuleBotProvider : newRuleBotProvider;
+		const model = source === "edit" ? editRuleBotModel : newRuleBotModel;
+		const botPrompt = source === "edit" ? editRuleBotPrompt : newRuleBotPrompt;
+		const action = source === "edit" ? editRuleAction : newRuleAction;
+		const name =
+			source === "edit"
+				? editRuleName.trim() || "Test AI Guard Bot"
+				: newRuleName.trim() || "Test AI Guard Bot";
+		if (!provider.trim() || !model.trim() || !botPrompt.trim()) {
+			setBotTestError("Provider, model, and evaluation instruction are required to test.");
+			return;
+		}
+		if (!botTestSample.trim()) {
+			setBotTestError("Enter a sample employee prompt to test.");
+			return;
+		}
+		try {
+			const res = await testGuardBot({
+				bot_provider: provider.trim(),
+				bot_model: model.trim(),
+				bot_prompt: botPrompt.trim(),
+				sample_prompt: botTestSample.trim(),
+				action,
+				name,
+			}).unwrap();
+			setBotTestResult(res);
+		} catch (err: any) {
+			setBotTestError(getErrorMessage(err) || "Test failed");
+		}
+	};
 
 	const patchControl = async (patch: Partial<BrowserControlSettings>) => {
 		try {
@@ -1658,6 +1767,57 @@ export default function BrowserAiPage() {
 															The selected AI model will evaluate incoming prompts against this rule instruction in real time.
 														</p>
 													</div>
+													<div className="space-y-2 rounded-lg border border-violet-900/40 bg-violet-950/20 p-3">
+														<Label className="text-xs">Test AI Guard Bot (before create)</Label>
+														<Textarea
+															className="text-xs font-mono"
+															placeholder="Sample employee prompt to evaluate…"
+															value={botTestSample}
+															onChange={(e) => setBotTestSample(e.target.value)}
+															rows={2}
+														/>
+														<div className="flex flex-wrap items-center gap-2">
+															<Button
+																type="button"
+																size="sm"
+																variant="outline"
+																className="h-8"
+																disabled={testingGuardBot}
+																onClick={() => void runBotTest("create")}
+															>
+																{testingGuardBot ? "Testing…" : "Run security test"}
+															</Button>
+															{guardBotProviderOptions.length === 0 ? (
+																<span className="text-[11px] text-amber-400">Add a provider API key in Models → Model Providers first.</span>
+															) : null}
+														</div>
+														{botTestError ? <p className="text-xs text-red-400">{botTestError}</p> : null}
+														{botTestResult ? (
+															<div
+																className={`text-xs rounded-md border p-2.5 ${
+																	botTestResult.security_met
+																		? "border-emerald-800 bg-emerald-950/40 text-emerald-200"
+																		: botTestResult.security_verdict === "warning"
+																			? "border-amber-800 bg-amber-950/40 text-amber-100"
+																			: "border-red-800 bg-red-950/40 text-red-200"
+																}`}
+															>
+																<p className="font-semibold">
+																	{botTestResult.security_met
+																		? "Security OK — policy met"
+																		: botTestResult.would_block
+																			? "Security NOT met — would BLOCK"
+																			: botTestResult.would_warn
+																				? "Security warning — would WARN"
+																				: "Security check issue"}
+																</p>
+																<p className="mt-1 opacity-90">{botTestResult.security_message}</p>
+																{botTestResult.eval_error ? (
+																	<p className="mt-1 font-mono text-[11px] opacity-80">{botTestResult.eval_error}</p>
+																) : null}
+															</div>
+														) : null}
+													</div>
 												</div>
 											)}
 
@@ -2335,6 +2495,54 @@ export default function BrowserAiPage() {
 											The selected AI model will evaluate incoming prompts against this rule instruction in real time.
 										</p>
 									</div>
+									<div className="space-y-2 rounded-lg border border-violet-900/40 bg-violet-950/20 p-3">
+										<Label className="text-xs">Test AI Guard Bot</Label>
+										<Textarea
+											className="text-xs font-mono"
+											placeholder="Sample employee prompt to evaluate…"
+											value={botTestSample}
+											onChange={(e) => setBotTestSample(e.target.value)}
+											rows={2}
+										/>
+										<div className="flex flex-wrap items-center gap-2">
+											<Button
+												type="button"
+												size="sm"
+												variant="outline"
+												className="h-8"
+												disabled={testingGuardBot}
+												onClick={() => void runBotTest("edit")}
+											>
+												{testingGuardBot ? "Testing…" : "Run security test"}
+											</Button>
+										</div>
+										{botTestError ? <p className="text-xs text-red-400">{botTestError}</p> : null}
+										{botTestResult ? (
+											<div
+												className={`text-xs rounded-md border p-2.5 ${
+													botTestResult.security_met
+														? "border-emerald-800 bg-emerald-950/40 text-emerald-200"
+														: botTestResult.security_verdict === "warning"
+															? "border-amber-800 bg-amber-950/40 text-amber-100"
+															: "border-red-800 bg-red-950/40 text-red-200"
+												}`}
+											>
+												<p className="font-semibold">
+													{botTestResult.security_met
+														? "Security OK — policy met"
+														: botTestResult.would_block
+															? "Security NOT met — would BLOCK"
+															: botTestResult.would_warn
+																? "Security warning — would WARN"
+																: "Security check issue"}
+												</p>
+												<p className="mt-1 opacity-90">{botTestResult.security_message}</p>
+												{botTestResult.eval_error ? (
+													<p className="mt-1 font-mono text-[11px] opacity-80">{botTestResult.eval_error}</p>
+												) : null}
+											</div>
+										) : null}
+									</div>
 								</div>
 							)}
 
@@ -2776,6 +2984,25 @@ export default function BrowserAiPage() {
 										</p>
 									</div>
 								</div>
+
+								{(() => {
+									const v = securityVerdictFromLog(selectedLog);
+									const tone =
+										v.tone === "ok"
+											? "border-emerald-800 bg-emerald-950/30 text-emerald-100"
+											: v.tone === "bad"
+												? "border-red-800 bg-red-950/30 text-red-100"
+												: v.tone === "warn"
+													? "border-amber-800 bg-amber-950/30 text-amber-100"
+													: "border-border bg-background/60 text-foreground";
+									return (
+										<div className={`rounded-lg border p-3.5 space-y-1 ${tone}`}>
+											<p className="text-[11px] uppercase tracking-wide opacity-80">Security analysis</p>
+											<p className="text-sm font-semibold">{v.title}</p>
+											{v.detail ? <p className="text-xs opacity-90">{v.detail}</p> : null}
+										</div>
+									);
+								})()}
 
 								<div className="rounded-lg border border-border/80 bg-background/60 p-4 space-y-2.5">
 									<div className="flex justify-between items-center text-xs font-semibold gap-3">

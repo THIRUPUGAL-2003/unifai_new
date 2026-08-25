@@ -86,6 +86,7 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.POST("/api/browser-ai/intercept", lib.ChainMiddlewares(h.intercept, middlewares...))
 	r.POST("/api/browser-ai/intercept-file", lib.ChainMiddlewares(h.interceptFile, middlewares...))
 	r.GET("/api/browser-ai/attachments/{id}", lib.ChainMiddlewares(h.getAttachment, middlewares...))
+	r.POST("/api/browser-ai/rules/test-bot", lib.ChainMiddlewares(h.testAIGuardBot, middlewares...))
 }
 
 func (h *BrowserAIHandler) getLogs(ctx *fasthttp.RequestCtx) {
@@ -667,6 +668,9 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	}
 
 	evalError := ""
+	securityVerdict := "not_evaluated" // clear | violation | warning | eval_failed | misconfigured | not_evaluated
+	aiBotCheckedOK := false
+	aiBotClearRule := ""
 	// Evaluate AI Guard Bot whenever the prompt is still allowed (Allowed or Warned).
 	// A regex WARN must not short-circuit a stronger AI Guard Bot BLOCK policy.
 	if allowed {
@@ -691,6 +695,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					allowed = false
 					isViolationBlock = true
 					evalError = "ai guard bot misconfigured: provider, model, and prompt are required"
+					securityVerdict = "misconfigured"
 					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 					break
 				}
@@ -714,12 +719,14 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					}
 					allowed = false
 					isViolationBlock = true
+					securityVerdict = "eval_failed"
 					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 					break
 				}
 				logEntry.Status = "Allowed (AI Guard Bot eval failed)"
 				logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
 				logEntry.RuleTriggered = rule.Name
+				securityVerdict = "eval_failed"
 				_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 				continue
 			}
@@ -749,6 +756,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					allowed = false
 					isViolationBlock = true
 					evalError = ""
+					securityVerdict = "violation"
 					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 					break
 				} else if ruleAction == "WARN" {
@@ -769,9 +777,25 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					logEntry.RuleTriggered = rule.Name
 					ruleWarning = strings.TrimSpace(rule.WarningMessage)
 					evalError = ""
+					securityVerdict = "warning"
 					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 				}
+			} else {
+				// Model said no violation — security policy met for this bot rule.
+				aiBotCheckedOK = true
+				aiBotClearRule = rule.Name
+				if securityVerdict == "not_evaluated" || securityVerdict == "clear" {
+					securityVerdict = "clear"
+				}
 			}
+		}
+		if allowed && aiBotCheckedOK && securityVerdict == "clear" {
+			logEntry.Status = "Allowed (AI Guard Bot: security OK)"
+			logEntry.PredictedCategory = "AI_GUARD_BOT_CLEAR"
+			if logEntry.RuleTriggered == "" {
+				logEntry.RuleTriggered = aiBotClearRule
+			}
+			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 		}
 	}
 
@@ -843,6 +867,8 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		"risk_score":         logEntry.RiskScore,
 		"predictive_risk":    logEntry.PredictiveRisk,
 		"predicted_category": logEntry.PredictedCategory,
+		"security_verdict":   securityVerdict,
+		"security_message":   securityVerdictMessage(securityVerdict, logEntry.RuleTriggered),
 		"reply_text":         replyText,
 		"reply_bot_provider": replyProvider,
 		"reply_bot_model":    replyModel,
@@ -1041,6 +1067,110 @@ func evaluatorChoiceText(resp *schemas.UnifAIChatResponse) string {
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func securityVerdictMessage(verdict, ruleName string) string {
+	switch verdict {
+	case "clear":
+		if ruleName != "" {
+			return "Security OK — AI Guard Bot found no policy violation (" + ruleName + ")."
+		}
+		return "Security OK — AI Guard Bot found no policy violation."
+	case "violation":
+		if ruleName != "" {
+			return "Security NOT met — prompt violates AI Guard Bot policy (" + ruleName + "). Blocked."
+		}
+		return "Security NOT met — prompt violates AI Guard Bot policy. Blocked."
+	case "warning":
+		if ruleName != "" {
+			return "Security warning — prompt matched AI Guard Bot policy (" + ruleName + "). Allowed with warning."
+		}
+		return "Security warning — prompt matched AI Guard Bot policy. Allowed with warning."
+	case "eval_failed":
+		return "Security check failed — AI Guard Bot could not evaluate this prompt."
+	case "misconfigured":
+		return "Security check failed — AI Guard Bot rule is incomplete (provider/model/prompt)."
+	default:
+		return ""
+	}
+}
+
+// testAIGuardBot dry-runs an AI Guard Bot policy against a sample prompt (admin only).
+func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+	var payload struct {
+		BotProvider  string `json:"bot_provider"`
+		BotModel     string `json:"bot_model"`
+		BotPrompt    string `json:"bot_prompt"`
+		SamplePrompt string `json:"sample_prompt"`
+		Action       string `json:"action"`
+		Name         string `json:"name"`
+	}
+	if err := sonic.Unmarshal(ctx.PostBody(), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	if strings.TrimSpace(payload.BotPrompt) == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "bot_prompt is required")
+		return
+	}
+	if strings.TrimSpace(payload.BotProvider) == "" || strings.TrimSpace(payload.BotModel) == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "bot_provider and bot_model are required")
+		return
+	}
+	sample := strings.TrimSpace(payload.SamplePrompt)
+	if sample == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "sample_prompt is required")
+		return
+	}
+	rule := logstore.BrowserGuardRule{
+		Name:        strings.TrimSpace(payload.Name),
+		RuleType:    "ai_bot",
+		BotProvider: strings.TrimSpace(payload.BotProvider),
+		BotModel:    strings.TrimSpace(payload.BotModel),
+		BotPrompt:   strings.TrimSpace(payload.BotPrompt),
+		Action:      logstore.NormalizeGuardRuleAction(payload.Action),
+		Active:      true,
+	}
+	if rule.Name == "" {
+		rule.Name = "Test AI Guard Bot"
+	}
+	violated, evalErr := h.evaluateAIBotRule(rule, sample)
+	verdict := "clear"
+	message := securityVerdictMessage("clear", rule.Name)
+	wouldBlock := false
+	wouldWarn := false
+	if evalErr != "" {
+		verdict = "eval_failed"
+		message = securityVerdictMessage("eval_failed", rule.Name) + " " + evalErr
+		if rule.Action == "BLOCK" {
+			wouldBlock = true
+			message += " (BLOCK rules fail-closed — live traffic would be blocked.)"
+		}
+	} else if violated {
+		if rule.Action == "WARN" {
+			verdict = "warning"
+			wouldWarn = true
+			message = securityVerdictMessage("warning", rule.Name)
+		} else {
+			verdict = "violation"
+			wouldBlock = true
+			message = securityVerdictMessage("violation", rule.Name)
+		}
+	}
+	SendJSON(ctx, map[string]any{
+		"status":            "success",
+		"violation":         violated && evalErr == "",
+		"security_verdict":  verdict,
+		"security_message":  message,
+		"security_met":      verdict == "clear",
+		"would_block":       wouldBlock,
+		"would_warn":        wouldWarn,
+		"eval_error":        evalErr,
+		"rule_name":         rule.Name,
+		"bot_provider":      rule.BotProvider,
+		"bot_model":         rule.BotModel,
+	})
 }
 
 func resolveGuardBotModel(provider, model string) (schemas.ModelProvider, string) {
