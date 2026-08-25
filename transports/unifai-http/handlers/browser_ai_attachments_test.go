@@ -28,8 +28,28 @@ func TestExtractAndStorePDF(t *testing.T) {
 		t.Fatalf("stored mismatch")
 	}
 	dir := filepath.Dir(path)
-	if filepath.Base(dir) != "pdf" {
-		t.Fatalf("expected pdf dir, got %s", dir)
+	if filepath.Base(dir) != "attachments" {
+		t.Fatalf("expected attachments dir, got %s", dir)
+	}
+}
+
+func TestStorePNGAttachment(t *testing.T) {
+	t.Setenv("APP_DIR", t.TempDir())
+	png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+	stored, ctype, err := storeBrowserAIAttachment("log-img", "shot.png", png, "image/png")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctype != "image/png" {
+		t.Fatalf("ctype=%s", ctype)
+	}
+	path, err := resolveBrowserAIAttachmentPath(stored)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(path)
+	if len(got) != len(png) {
+		t.Fatalf("len mismatch")
 	}
 }
 

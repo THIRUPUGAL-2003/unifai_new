@@ -1,4 +1,4 @@
-/** Suggested related hosts for known products. Never auto-applied — admin must add them. */
+/** Suggested related hosts. Gemini/Copilot/ChatGPT also auto-added on CreateTarget in backend. */
 
 export type RelatedHostGroup = {
 	label: string;

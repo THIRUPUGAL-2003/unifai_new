@@ -851,8 +851,8 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	})
 }
 
-// interceptFile accepts multipart upload from Guard/proxy: form fields + optional PDF file.
-// Stores PDFs under APP_DIR/pdf and links them on the intercept log for View/Download in UI.
+// interceptFile accepts multipart upload from Guard/proxy: form fields + optional file bytes.
+// Stores attachments under APP_DIR/attachments and links them on the intercept log for View/Download.
 func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	h.ensureDB(ctx)
 
@@ -879,6 +879,7 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	agentID := getForm("agent_id")
 	agentHostname := getForm("agent_hostname")
 	metaRaw := getForm("metadata")
+	contentTypeHint := getForm("content_type")
 
 	metadata := map[string]any{}
 	if metaRaw != "" {
@@ -911,6 +912,9 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 			fh := headers[0]
 			if fileName == "" && fh.Filename != "" {
 				fileName = fh.Filename
+			}
+			if contentTypeHint == "" && fh.Header != nil {
+				contentTypeHint = strings.TrimSpace(fh.Header.Get("Content-Type"))
 			}
 			f, openErr := fh.Open()
 			if openErr != nil {
@@ -947,10 +951,14 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	}
 
 	if len(fileBytes) > 0 {
-		stored, ctype, storeErr := storeBrowserAIPDF(logEntry.ID, fileName, fileBytes)
+		stored, ctype, storeErr := storeBrowserAIAttachment(logEntry.ID, fileName, fileBytes, contentTypeHint)
 		if storeErr == nil {
-			_ = h.manager.UpdateLogAttachment(ctx, logEntry.ID, sanitizeAttachmentFileName(fileName), stored, ctype)
-			logEntry.AttachmentName = sanitizeAttachmentFileName(fileName)
+			safeName := sanitizeAttachmentFileName(fileName)
+			if safeName == "attachment" || filepath.Ext(safeName) == "" {
+				safeName = ensureAttachmentExt(fileName, ctype)
+			}
+			_ = h.manager.UpdateLogAttachment(ctx, logEntry.ID, safeName, stored, ctype)
+			logEntry.AttachmentName = safeName
 			logEntry.AttachmentStoredName = stored
 			logEntry.AttachmentContentType = ctype
 		}
@@ -992,11 +1000,11 @@ func (h *BrowserAIHandler) getAttachment(ctx *fasthttp.RequestCtx) {
 	}
 	ctype := strings.TrimSpace(logEntry.AttachmentContentType)
 	if ctype == "" {
-		ctype = "application/pdf"
+		ctype = "application/octet-stream"
 	}
 	name := strings.TrimSpace(logEntry.AttachmentName)
 	if name == "" {
-		name = "document.pdf"
+		name = "attachment"
 	}
 	download := string(ctx.QueryArgs().Peek("download")) == "1" ||
 		strings.EqualFold(string(ctx.QueryArgs().Peek("download")), "true")

@@ -75,7 +75,7 @@ type BrowserAILog struct {
 	ReplyBotProvider  string    `json:"reply_bot_provider"`
 	ReplyBotModel     string    `json:"reply_bot_model"`
 	ReplyBotText      string    `gorm:"type:text" json:"reply_bot_text"`
-	// Attachment* — intercepted file upload (PDF stored under APP_DIR/pdf for now).
+	// Attachment* — intercepted file upload stored under APP_DIR/attachments (legacy: pdf/).
 	AttachmentName        string `json:"attachment_name,omitempty"`
 	AttachmentStoredName  string `json:"attachment_stored_name,omitempty"` // basename only under pdf/
 	AttachmentContentType string `json:"attachment_content_type,omitempty"`
@@ -731,7 +731,7 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 func relatedHostsForDomain(domain string) []string {
 	switch NormalizeDomain(domain) {
 	case "gemini.google.com", "bard.google.com":
-		return []string{"clients6.google.com"}
+		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"}
 	case "copilot.microsoft.com", "copilot.cloud.microsoft":
 		return []string{"sydney.bing.com", "edgeservices.bing.com"}
 	case "chatgpt.com":

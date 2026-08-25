@@ -158,10 +158,12 @@ _cached_controls: dict = {
 _controls_fetched_at: float = 0
 _controls_from_backend = False
 
+# File bytes cached at upload-time; Prompt Log + allow/block happen only on chat Send.
+_UPLOAD_FILE_CACHE: dict[str, dict] = {}
+_UPLOAD_FILE_CACHE_LOCK = threading.Lock()
+_UPLOAD_FILE_CACHE_TTL = 15 * 60  # 15 minutes
+_UPLOAD_FILE_CACHE_MAX = 40
 
-# ─────────────────────────────────────────────
-# Backend API Fetching
-# ─────────────────────────────────────────────
 
 def _fetch_json(url: str) -> dict | None:
     """Generic GET JSON fetch from backend."""
@@ -412,13 +414,13 @@ def get_control_settings() -> dict:
 def controls_active(key: str) -> bool:
     """True when master enable is on and the named control is enabled.
 
-    If controls were never loaded from the backend, fail-closed (same as prompts)
-    unless UNIFAI_FAIL_OPEN=1.
+    If controls were never loaded from the backend, do NOT invent policies
+    (especially block_upload) — fail open until admin settings are fetched.
     """
     c = get_control_settings()
-    if _controls_from_backend:
-        return bool(c.get("enabled")) and bool(c.get(key))
-    return not _fail_open()
+    if not _controls_from_backend:
+        return False
+    return bool(c.get("enabled")) and bool(c.get(key))
 
 
 # ─────────────────────────────────────────────
@@ -1198,10 +1200,213 @@ def extract_pdf_bytes(raw: bytes) -> bytes | None:
         while end < len(data) and data[end] in (10, 13):
             end += 1
         data = data[:end]
-    # Cap 20 MiB
     if len(data) > 20 * 1024 * 1024:
         return None
     return data
+
+
+def _sniff_upload_content_type(data: bytes, file_name: str = "", hint: str = "") -> str:
+    hint = (hint or "").split(";")[0].strip().lower()
+    if hint and hint not in ("application/octet-stream", "binary/octet-stream"):
+        return hint
+    if data.startswith(b"%PDF-") or b"%PDF-" in data[:4096]:
+        return "application/pdf"
+    if len(data) >= 3 and data[0] == 0xFF and data[1] == 0xD8 and data[2] == 0xFF:
+        return "image/jpeg"
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data[:2] == b"PK":
+        low = (file_name or "").lower()
+        if low.endswith(".docx"):
+            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        if low.endswith(".xlsx"):
+            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if low.endswith(".pptx"):
+            return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+        return "application/zip"
+    ext = os.path.splitext(file_name or "")[1].lower()
+    return {
+        ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".txt": "text/plain",
+        ".csv": "text/csv",
+        ".json": "application/json",
+    }.get(ext, "application/octet-stream")
+
+
+def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: str = "") -> tuple[bytes | None, str, str]:
+    """Best-effort file bytes from upload body. Returns (bytes, content_type, name)."""
+    if not raw:
+        return None, "", file_name or "attachment"
+    name = (file_name or "").strip() or "attachment"
+    pdf = extract_pdf_bytes(raw)
+    if pdf:
+        if not name.lower().endswith(".pdf"):
+            name = f"{name}.pdf" if name != "attachment" else "document.pdf"
+        return pdf, "application/pdf", name
+
+    # Multipart: extract part after filename=
+    low_prefix = raw[: min(len(raw), 64 * 1024)].lower()
+    if b"filename=" in low_prefix or b"webkitformboundary" in low_prefix or b"multipart" in (content_type or "").lower().encode():
+        idx = low_prefix.find(b"filename=")
+        if idx >= 0:
+            rest = raw[idx:]
+            sep = b"\r\n\r\n"
+            si = rest.find(sep)
+            if si < 0:
+                sep = b"\n\n"
+                si = rest.find(sep)
+            if si >= 0:
+                body = rest[si + len(sep) :]
+                end = len(body)
+                for i in range(len(body) - 2):
+                    if body[i] == 10 and body[i + 1] == 45 and body[i + 2] == 45:  # \n--
+                        end = i - 1 if i > 0 and body[i - 1] == 13 else i
+                        break
+                part = body[:end]
+                if part:
+                    pdf2 = extract_pdf_bytes(part)
+                    if pdf2:
+                        if not name.lower().endswith(".pdf"):
+                            name = f"{name}.pdf" if name != "attachment" else "document.pdf"
+                        return pdf2, "application/pdf", name
+                    ctype = _sniff_upload_content_type(part, name, content_type)
+                    if len(part) > 20 * 1024 * 1024:
+                        part = part[: 20 * 1024 * 1024]
+                    return part, ctype, name
+
+    # Direct binary body (resumable / octet-stream)
+    if len(raw) >= 32:
+        ctype = _sniff_upload_content_type(raw, name, content_type)
+        # Skip tiny JSON metadata
+        stripped = raw.lstrip()
+        if stripped[:1] in (b"{", b"[") and len(raw) < 50_000 and ctype == "application/octet-stream":
+            return None, "", name
+        data = raw if len(raw) <= 20 * 1024 * 1024 else raw[: 20 * 1024 * 1024]
+        return data, ctype, name
+    return None, "", name
+
+
+def _purge_upload_file_cache(now: float | None = None) -> None:
+    now = now if now is not None else time.time()
+    dead = [k for k, v in _UPLOAD_FILE_CACHE.items() if now - float(v.get("ts") or 0) > _UPLOAD_FILE_CACHE_TTL]
+    for k in dead:
+        _UPLOAD_FILE_CACHE.pop(k, None)
+    while len(_UPLOAD_FILE_CACHE) > _UPLOAD_FILE_CACHE_MAX:
+        oldest = min(_UPLOAD_FILE_CACHE.items(), key=lambda kv: float(kv[1].get("ts") or 0))
+        _UPLOAD_FILE_CACHE.pop(oldest[0], None)
+
+
+def cache_upload_file(
+    domain: str,
+    *,
+    file_name: str,
+    raw_bytes: bytes,
+    content_type: str,
+    upload_reason: str,
+    rule_hit: bool = False,
+    rule_name: str = "",
+    rule_action: str = "",
+    file_id: str = "",
+) -> None:
+    """Remember file at upload-time; enforcement/log waits for chat Send."""
+    payload, ctype, name = extract_upload_file_payload(raw_bytes or b"", content_type, file_name)
+    entry = {
+        "ts": time.time(),
+        "domain": domain,
+        "file_name": name or file_name or "attachment",
+        "content_type": ctype or content_type or "application/octet-stream",
+        "raw_bytes": payload or b"",
+        "upload_reason": upload_reason or "",
+        "rule_hit": bool(rule_hit),
+        "rule_name": rule_name or "",
+        "rule_action": (rule_action or "").upper(),
+        "file_id": file_id or "",
+    }
+    keys = []
+    d = (domain or "").lower()
+    if file_id:
+        keys.append(f"{d}|id|{file_id}")
+    keys.append(f"{d}|name|{(name or file_name or 'attachment').lower()}")
+    keys.append(f"{d}|latest")
+    with _UPLOAD_FILE_CACHE_LOCK:
+        _purge_upload_file_cache()
+        for k in keys:
+            _UPLOAD_FILE_CACHE[k] = entry
+    print(
+        f"[UnifAI Proxy] FILE CACHED (await Send) | {domain} | {entry['file_name']} | "
+        f"{len(entry['raw_bytes'])} bytes | rule_hit={rule_hit}"
+    )
+
+
+def _extract_file_ids_from_chat(raw_text: str) -> list[str]:
+    ids: list[str] = []
+    if not raw_text:
+        return ids
+    for pat in (
+        r'"file_id"\s*:\s*"([^"]+)"',
+        r'"fileId"\s*:\s*"([^"]+)"',
+        r'file-service://file-([a-zA-Z0-9_-]+)',
+        r'asset_pointer"\s*:\s*"[^"]*file-([a-zA-Z0-9_-]+)',
+    ):
+        for m in re.finditer(pat, raw_text):
+            ids.append(m.group(1))
+    # unique preserve order
+    out: list[str] = []
+    seen: set[str] = set()
+    for i in ids:
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
+def chat_carries_attachment(raw_text: str) -> bool:
+    """True when a chat Send payload references an attached file."""
+    if not raw_text:
+        return False
+    low = raw_text.lower()
+    markers = (
+        '"file_id"', '"fileid"', "asset_pointer", '"attachments"',
+        "file-service://", "attachment://", '"mime_type"', '"mimetype"',
+        '"files":', "input_file", "input_image", '"image_url"',
+        '"inline_data"', '"inlinedata"', '"filedata"',
+    )
+    return any(m in low for m in markers)
+
+
+def take_cached_upload_for_send(domain: str, raw_text: str = "") -> dict | None:
+    """Pop the best matching cached upload for this chat Send."""
+    d = (domain or "").lower()
+    with _UPLOAD_FILE_CACHE_LOCK:
+        _purge_upload_file_cache()
+        for fid in _extract_file_ids_from_chat(raw_text):
+            for key in (f"{d}|id|{fid}", f"{d}|id|file-{fid}"):
+                if key in _UPLOAD_FILE_CACHE:
+                    return _UPLOAD_FILE_CACHE.pop(key)
+        # Match filename mentioned in chat JSON
+        for m in re.finditer(
+            r'["\'](?:file_name|fileName|filename|name|title)["\']\s*:\s*["\']([^"\']+)["\']',
+            raw_text or "",
+        ):
+            key = f"{d}|name|{m.group(1).strip().lower()}"
+            if key in _UPLOAD_FILE_CACHE:
+                return _UPLOAD_FILE_CACHE.pop(key)
+        latest = _UPLOAD_FILE_CACHE.pop(f"{d}|latest", None)
+        if latest:
+            # Also drop name key for same entry
+            name_key = f"{d}|name|{(latest.get('file_name') or '').lower()}"
+            _UPLOAD_FILE_CACHE.pop(name_key, None)
+            return latest
+    return None
 
 
 def post_upload_intercept(
@@ -1216,11 +1421,9 @@ def post_upload_intercept(
     is_blocked: bool = False,
     blocked_reason: str = "",
     raw_bytes: bytes | None = None,
+    content_type: str = "",
 ) -> bool:
-    """Log file upload; when PDF bytes exist, store via /api/browser-ai/intercept-file.
-
-    Returns True when the backend accepted the log (so caller can stamp dedupe).
-    """
+    """Log file event on Send; store any file bytes via /api/browser-ai/intercept-file."""
     metadata = {
         "domain": domain,
         "url": url,
@@ -1234,13 +1437,11 @@ def post_upload_intercept(
     if blocked_reason:
         metadata["blocked_reason"] = blocked_reason
 
-    pdf = extract_pdf_bytes(raw_bytes or b"")
-    if pdf:
+    payload, ctype, fname = extract_upload_file_payload(raw_bytes or b"", content_type, file_name)
+    if payload:
         try:
             boundary = f"----UnifAI{int(time.time() * 1000)}"
-            fname = (file_name or "document.pdf").replace('"', "")
-            if not fname.lower().endswith(".pdf"):
-                fname = f"{fname}.pdf"
+            safe_name = (fname or file_name or "attachment").replace('"', "")
             parts: list[bytes] = []
 
             def add_field(name: str, value: str) -> None:
@@ -1253,15 +1454,16 @@ def post_upload_intercept(
             add_field("client_ip", client_ip)
             add_field("agent_id", UNIFAI_AGENT_ID or "")
             add_field("agent_hostname", UNIFAI_AGENT_HOSTNAME or "")
-            add_field("file_name", fname)
+            add_field("file_name", safe_name)
+            add_field("content_type", ctype or "application/octet-stream")
             add_field("metadata", json.dumps(metadata))
             parts.append(
                 (
                     f"--{boundary}\r\n"
-                    f'Content-Disposition: form-data; name="file"; filename="{fname}"\r\n'
-                    f"Content-Type: application/pdf\r\n\r\n"
+                    f'Content-Disposition: form-data; name="file"; filename="{safe_name}"\r\n'
+                    f"Content-Type: {ctype or 'application/octet-stream'}\r\n\r\n"
                 ).encode("utf-8")
-                + pdf
+                + payload
                 + b"\r\n"
             )
             parts.append(f"--{boundary}--\r\n".encode("utf-8"))
@@ -1279,7 +1481,7 @@ def post_upload_intercept(
             print(f"[UnifAI Proxy WARNING] intercept-file failed, falling back to JSON: {e}")
 
     try:
-        payload = json.dumps({
+        payload_json = json.dumps({
             "platform": platform,
             "prompt": prompt,
             "client_ip": client_ip,
@@ -1289,7 +1491,7 @@ def post_upload_intercept(
         }).encode("utf-8")
         req = urllib.request.Request(
             f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept",
-            data=payload,
+            data=payload_json,
             headers={"Content-Type": "application/json"},
             method="POST",
         )
@@ -2297,7 +2499,7 @@ class BrowserAIInterceptor:
         path = flow.request.path
         client_ip = get_client_ip(flow)
 
-        # ── File Upload Detection (before noise filter) ──
+        # ── File Upload: cache only (no Prompt Log / no block until chat Send) ──
         raw_bytes = flow.request.content or b""
         content_type = flow.request.headers.get("content-type", "")
 
@@ -2307,113 +2509,24 @@ class BrowserAIInterceptor:
             raw_text = ""
 
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
-
-        # Always scan upload body with Guard Rules (PDF insides + text files)
-        file_rule_hit = False
-        file_rule_name = ""
-        file_rule_action = ""
         if is_upload:
             upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text)
             file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
-            if file_rule_hit:
-                print(
-                    f"[UnifAI Proxy] FILE CONTENT RULE HIT | {host} | "
-                    f"rule={file_rule_name} action={file_rule_action} chars={len(upload_text)}"
-                )
-
-        block_all_uploads = is_upload and controls_active("block_upload")
-        # For file uploads: legacy REDACT treated as BLOCK; WARN also blocks attachments (safer)
-        block_for_rule = bool(
-            is_upload and file_rule_hit and file_rule_action in ("BLOCK", "REDACT", "WARN")
-        )
-        # WARN on file content still blocks upload (safer for attachments)
-        if block_all_uploads or block_for_rule:
-            reason = upload_reason
-            blocked_reason = "Block Upload"
-            upload_warn = (get_control_settings().get("upload_warning") or "").strip()
-            base_upload_msg = upload_warn or "Upload block"
             fname = extract_filename_from_upload(flow, raw_text)
-            file_label = fname or (upload_reason or "File attachment")
-            # Prompt Logs must show the file, not raw multipart / warning-only text
-            prompt_log = f"[FILE UPLOAD] {file_label}"
-            if block_for_rule:
-                reason = f"Guard Rule in file: {file_rule_name}"
-                blocked_reason = file_rule_name or "Guard Rule (file content)"
-                rule_warn = _warning_for_rule_name(file_rule_name)
-                left = (rule_warn or base_upload_msg).strip() or "Upload block"
-                prompt_log = f"[FILE UPLOAD] {file_label} — {left}" + (f" -- {file_rule_name}" if file_rule_name else "")
-            else:
-                prompt_log = f"[FILE UPLOAD] {file_label} — {base_upload_msg}"
-
-            dedupe_key = f"upload-block|{blocked_reason}|{file_label}|{reason}"
-            should_log = not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False)
-            if should_log:
-                print(f"[UnifAI Proxy] FILE UPLOAD BLOCKED | {client_ip} → {host} | Reason: {reason} | {file_label}")
-                ok = post_upload_intercept(
-                    platform=platform,
-                    prompt=prompt_log,
-                    client_ip=client_ip,
-                    domain=domain,
-                    url=flow.request.url,
-                    method=flow.request.method,
-                    file_name=fname or "attachment",
-                    is_blocked=True,
-                    blocked_reason=blocked_reason,
-                    raw_bytes=raw_bytes,
-                )
-                if ok:
-                    mark_duplicate_event(domain, dedupe_key)
-
-            # Same text employees / chat replies see
-            msg = base_upload_msg
-            if block_for_rule:
-                rule_warn = _warning_for_rule_name(file_rule_name)
-                left = (rule_warn or base_upload_msg).strip() or "Upload block"
-                msg = f"{left} -- {file_rule_name}" if file_rule_name else left
-            if is_chat_path(path, host) and msg:
-                make_blocked_response(flow, blocked_reason, host, reply_text=msg)
-                return
-            flow.response = http.Response.make(
-                403,
-                json.dumps({
-                    "error": {
-                        "message": msg,
-                        "type": "file_upload_blocked",
-                        "code": "file_content_rule_blocked" if block_for_rule else "file_upload_restricted",
-                        "rule": file_rule_name or None,
-                    },
-                    "detail": f"File upload blocked: {reason}",
-                    "status": "PERMISSION_DENIED",
-                }).encode("utf-8"),
-                {
-                    "Content-Type": "application/json; charset=utf-8",
-                    "Access-Control-Allow-Origin": "*",
-                    "Cache-Control": "no-store",
-                }
+            file_ids = _extract_file_ids_from_chat(raw_text)
+            cache_upload_file(
+                domain,
+                file_name=fname or "attachment",
+                raw_bytes=raw_bytes,
+                content_type=content_type,
+                upload_reason=upload_reason or "",
+                rule_hit=file_rule_hit,
+                rule_name=file_rule_name,
+                rule_action=file_rule_action,
+                file_id=file_ids[0] if file_ids else "",
             )
+            # Never block or log here — user must press Send first.
             return
-        elif is_upload:
-            # Clean file upload allowed: Log audit event to backend — never fall through to chat extract
-            fname = extract_filename_from_upload(flow, raw_text)
-            clean_log = f"[FILE UPLOAD] {fname}" if fname else f"[FILE UPLOAD] {upload_reason or 'File attachment'}"
-            dedupe_key = f"upload-allowed|{fname or upload_reason}"
-            should_log = not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False)
-            if should_log:
-                print(f"[UnifAI Proxy] FILE UPLOAD ALLOWED | {client_ip} → {host} | {clean_log}")
-                ok = post_upload_intercept(
-                    platform=platform,
-                    prompt=clean_log,
-                    client_ip=client_ip,
-                    domain=domain,
-                    url=flow.request.url,
-                    method=flow.request.method,
-                    file_name=fname or "attachment",
-                    is_blocked=False,
-                    raw_bytes=raw_bytes,
-                )
-                if ok:
-                    mark_duplicate_event(domain, dedupe_key)
-            return  # uploads must not be re-parsed as chat prompts
 
         # Also drop multipart noise that slipped past upload detection
         if "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower():
@@ -2434,15 +2547,101 @@ class BrowserAIInterceptor:
         if is_noise(path, raw_text):
             return
 
+        # File attached + Send: Prompt Log + Allow/Block happens HERE only
+        if chat_carries_attachment(raw_text):
+            cached = take_cached_upload_for_send(domain, raw_text)
+            fname = ""
+            if cached:
+                fname = (cached.get("file_name") or "").strip()
+            if not fname:
+                fname = extract_filename_from_upload(flow, raw_text) or "attachment"
+            file_label = fname
+            upload_warn = (get_control_settings().get("upload_warning") or "").strip()
+            base_upload_msg = upload_warn or "Upload block"
+
+            rule_hit = bool(cached and cached.get("rule_hit"))
+            rule_name = (cached.get("rule_name") if cached else "") or ""
+            rule_action = ((cached.get("rule_action") if cached else "") or "").upper()
+            # Re-scan cached bytes on Send if needed
+            cached_bytes = (cached.get("raw_bytes") if cached else b"") or b""
+            cached_ct = (cached.get("content_type") if cached else "") or content_type
+            if cached_bytes and not rule_hit:
+                ut = extract_upload_text_for_rules(cached_bytes, cached_ct, "")
+                rule_hit, rule_name, rule_action = match_guard_rules_on_text(ut)
+                rule_action = (rule_action or "").upper()
+
+            block_all = controls_active("block_upload")
+            block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT", "WARN"))
+            if block_all or block_for_rule:
+                blocked_reason = "Block Upload"
+                prompt_log = f"[FILE UPLOAD] {file_label} — {base_upload_msg}"
+                if block_for_rule:
+                    blocked_reason = rule_name or "Guard Rule (file content)"
+                    rule_warn = _warning_for_rule_name(rule_name)
+                    left = (rule_warn or base_upload_msg).strip() or "Upload block"
+                    prompt_log = f"[FILE UPLOAD] {file_label} — {left}" + (f" -- {rule_name}" if rule_name else "")
+                dedupe_key = f"upload-send-block|{blocked_reason}|{file_label}"
+                if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                    print(f"[UnifAI Proxy] FILE SEND BLOCKED | {client_ip} → {host} | {file_label}")
+                    ok = post_upload_intercept(
+                        platform=platform,
+                        prompt=prompt_log,
+                        client_ip=client_ip,
+                        domain=domain,
+                        url=flow.request.url,
+                        method=flow.request.method,
+                        file_name=fname,
+                        is_blocked=True,
+                        blocked_reason=blocked_reason,
+                        raw_bytes=cached_bytes,
+                        content_type=cached_ct,
+                    )
+                    if ok:
+                        mark_duplicate_event(domain, dedupe_key)
+                msg = base_upload_msg
+                if block_for_rule:
+                    rule_warn = _warning_for_rule_name(rule_name)
+                    left = (rule_warn or base_upload_msg).strip() or "Upload block"
+                    msg = f"{left} -- {rule_name}" if rule_name else left
+                make_blocked_response(flow, blocked_reason, host, reply_text=msg)
+                return
+
+            # Allowed file send — still audit + store for View/Download
+            clean_log = f"[FILE UPLOAD] {file_label}"
+            dedupe_key = f"upload-send-allowed|{file_label}"
+            if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                print(f"[UnifAI Proxy] FILE SEND ALLOWED | {client_ip} → {host} | {clean_log}")
+                ok = post_upload_intercept(
+                    platform=platform,
+                    prompt=clean_log,
+                    client_ip=client_ip,
+                    domain=domain,
+                    url=flow.request.url,
+                    method=flow.request.method,
+                    file_name=fname,
+                    is_blocked=False,
+                    raw_bytes=cached_bytes,
+                    content_type=cached_ct,
+                )
+                if ok:
+                    mark_duplicate_event(domain, dedupe_key)
+            # Continue to also log the text prompt if present (do not return yet)
+
         prompt = extract_prompt(raw_bytes, content_type, host=host)
         if not prompt or len(prompt.strip()) < 1:
             # Help debug Gemini/Copilot misses without flooding logs
             if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6")) and len(raw_text) > 20:
                 print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
+            # Attachment-only send already logged above
+            if chat_carries_attachment(raw_text):
+                return
             return
         if not looks_like_user_prompt(prompt):
             return
         if _is_google_wire_blob(prompt):
+            return
+        # Skip duplicate FILE UPLOAD lines if extract_prompt somehow returned that
+        if prompt.strip().startswith("[FILE UPLOAD"):
             return
 
         # ChatGPT fires POSTs while typing. Predict only after Enter/send.

@@ -196,11 +196,23 @@ function isFileUploadLog(log: BrowserAILogEntry | null | undefined) {
 	return p.startsWith("[FILE UPLOAD]");
 }
 
-function logHasPdfAttachment(log: BrowserAILogEntry | null | undefined) {
-	if (!log?.attachment_stored_name) return false;
+function logHasStoredAttachment(log: BrowserAILogEntry | null | undefined) {
+	return !!(log?.attachment_stored_name);
+}
+
+function logAttachmentIsImage(log: BrowserAILogEntry | null | undefined) {
+	if (!log) return false;
 	const ct = (log.attachment_content_type || "").toLowerCase();
 	const name = (log.attachment_name || "").toLowerCase();
-	return ct.includes("pdf") || name.endsWith(".pdf") || !!log.attachment_stored_name;
+	if (ct.startsWith("image/")) return true;
+	return [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"].some((ext) => name.endsWith(ext));
+}
+
+function logAttachmentIsPdf(log: BrowserAILogEntry | null | undefined) {
+	if (!log) return false;
+	const ct = (log.attachment_content_type || "").toLowerCase();
+	const name = (log.attachment_name || "").toLowerCase();
+	return ct.includes("pdf") || name.endsWith(".pdf");
 }
 
 function logAttachmentLabel(log: BrowserAILogEntry) {
@@ -212,7 +224,7 @@ function logAttachmentLabel(log: BrowserAILogEntry) {
 		const label = m[1].trim();
 		if (label && label.toLowerCase() !== "attachment") return label;
 	}
-	return name || "document.pdf";
+	return name || "attachment";
 }
 
 function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
@@ -450,7 +462,7 @@ export default function BrowserAiPage() {
 	}, [logsData]);
 
 	useEffect(() => {
-		if (!pdfViewerLog?.id || !logHasPdfAttachment(pdfViewerLog)) {
+		if (!pdfViewerLog?.id || !logHasStoredAttachment(pdfViewerLog)) {
 			if (pdfBlobUrl) {
 				URL.revokeObjectURL(pdfBlobUrl);
 				setPdfBlobUrl(null);
@@ -469,7 +481,7 @@ export default function BrowserAiPage() {
 					credentials: "include",
 				});
 				if (!res.ok) {
-					throw new Error(res.status === 404 ? "PDF not found on server" : `Failed to load PDF (${res.status})`);
+					throw new Error(res.status === 404 ? "File not found on server" : `Failed to load file (${res.status})`);
 				}
 				const blob = await res.blob();
 				if (cancelled) return;
@@ -477,7 +489,7 @@ export default function BrowserAiPage() {
 				setPdfBlobUrl(objectUrl);
 			} catch (e) {
 				if (!cancelled) {
-					setPdfError(e instanceof Error ? e.message : "Failed to load PDF");
+					setPdfError(e instanceof Error ? e.message : "Failed to load file");
 					setPdfBlobUrl(null);
 				}
 			} finally {
@@ -846,14 +858,6 @@ export default function BrowserAiPage() {
 		return <Badge className="bg-slate-800 text-slate-300 border border-slate-700">{status || "unknown"}</Badge>;
 	};
 
-	const getAgentHealthBadge = (health?: string, detail?: string) => {
-		const h = (health || "").toLowerCase();
-		if (h === "ok") return <Badge className="bg-emerald-950 text-emerald-300 border border-emerald-800" title={detail || ""}>Health OK</Badge>;
-		if (h === "degraded") return <Badge className="bg-amber-950 text-amber-300 border border-amber-800" title={detail || ""}>Degraded</Badge>;
-		if (h === "error") return <Badge className="bg-red-950 text-red-300 border border-red-800" title={detail || ""}>Error</Badge>;
-		return <Badge variant="outline" className="text-muted-foreground" title={detail || ""}>Unknown</Badge>;
-	};
-
 	const nicGuidOnly = (raw?: string) => {
 		const m = (raw || "").match(/\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}/);
 		return m ? m[0].toUpperCase() : "";
@@ -1057,13 +1061,13 @@ export default function BrowserAiPage() {
 												<TableCell className="py-0">{logActionBadge(log)}</TableCell>
 												<TableCell className="py-0 text-right">
 													<div className="inline-flex items-center justify-end gap-0.5">
-														{logHasPdfAttachment(log) ? (
+														{logHasStoredAttachment(log) ? (
 															<Button
 																variant="ghost"
 																size="sm"
 																onClick={(e) => openPdfViewer(log, e)}
 																className="h-8 px-2 text-xs text-sky-400 hover:text-sky-300"
-																title="View PDF"
+																title="View file"
 															>
 																View
 															</Button>
@@ -1211,13 +1215,13 @@ export default function BrowserAiPage() {
 												<TableCell className="py-0">{logActionBadge(log)}</TableCell>
 												<TableCell className="py-0 text-right">
 													<div className="inline-flex items-center justify-end gap-0.5">
-														{logHasPdfAttachment(log) ? (
+														{logHasStoredAttachment(log) ? (
 															<Button
 																variant="ghost"
 																size="sm"
 																onClick={(e) => openPdfViewer(log, e)}
 																className="h-8 px-2 text-xs text-sky-400 hover:text-sky-300"
-																title="View PDF"
+																title="View file"
 															>
 																View
 															</Button>
@@ -2407,11 +2411,11 @@ export default function BrowserAiPage() {
 						<CardHeader>
 							<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
 							<CardDescription>
-								Guard 1.4.1+ reports Health (PAC / CA / proxy / backend). Windows: Chrome, Edge, Brave, Opera, Vivaldi, Firefox — fully quit & reopen after install. Safari is not on Windows Guard.
+								Windows: Chrome, Edge, Brave, Opera, Vivaldi, Firefox — fully quit & reopen after install. Safari is not on Windows Guard.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="p-0">
-							<Table className="table-fixed min-w-[1200px]">
+							<Table className="table-fixed min-w-[1100px]">
 								<TableHeader>
 									<TableRow className="hover:bg-transparent border-border">
 										<TableHead className="w-[160px]">Laptop</TableHead>
@@ -2420,7 +2424,6 @@ export default function BrowserAiPage() {
 										<TableHead className="w-[140px]">Physical address (MAC)</TableHead>
 										<TableHead className="w-[140px]">Transport name</TableHead>
 										<TableHead className="w-[80px]">Version</TableHead>
-										<TableHead className="w-[110px]">Health</TableHead>
 										<TableHead className="w-[120px]">Status</TableHead>
 										<TableHead className="w-[150px]">Last seen</TableHead>
 										<TableHead className="w-[150px]">Installed</TableHead>
@@ -2446,7 +2449,6 @@ export default function BrowserAiPage() {
 												{nicGuidOnly(agent.transport_name) || "—"}
 											</TableCell>
 											<TableCell className="text-xs truncate font-medium">{agent.agent_version || "—"}</TableCell>
-											<TableCell>{getAgentHealthBadge(agent.health_status, agent.health_detail)}</TableCell>
 											<TableCell>{getAgentStatusBadge(agent.status, agent.uninstall_requested)}</TableCell>
 											<TableCell className="text-xs text-muted-foreground truncate">
 												{agent.last_seen_at ? new Date(agent.last_seen_at).toLocaleString() : "—"}
@@ -2458,7 +2460,7 @@ export default function BrowserAiPage() {
 									))}
 									{agents.length === 0 && (
 										<TableRow>
-												<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
+											<TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
 												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe on employee laptops.
 											</TableCell>
 										</TableRow>
@@ -2826,17 +2828,17 @@ export default function BrowserAiPage() {
 												<p className="text-sm font-medium truncate">{logAttachmentLabel(selectedLog)}</p>
 											</div>
 										</div>
-										{logHasPdfAttachment(selectedLog) ? (
+										{logHasStoredAttachment(selectedLog) ? (
 											<div className="flex items-center gap-2 shrink-0">
 												<Button size="sm" variant="outline" className="h-8 gap-1.5" onClick={() => openPdfViewer(selectedLog)}>
-													<Eye className="h-3.5 w-3.5" /> View PDF
+													<Eye className="h-3.5 w-3.5" /> View
 												</Button>
 												<Button size="sm" className="h-8 gap-1.5" onClick={() => downloadPdfAttachment(selectedLog)}>
 													<Download className="h-3.5 w-3.5" /> Download
 												</Button>
 											</div>
 										) : (
-											<p className="text-xs text-muted-foreground shrink-0">Logged by filename (PDF preview when stored)</p>
+											<p className="text-xs text-muted-foreground shrink-0">Filename logged — View after file is stored on Send</p>
 										)}
 									</div>
 								) : null}
@@ -2874,7 +2876,7 @@ export default function BrowserAiPage() {
 				</DialogContent>
 			</Dialog>
 
-			{/* PDF viewer — centered popup */}
+			{/* Attachment viewer — centered popup (PDF / image / download others) */}
 			<Dialog
 				open={!!pdfViewerLog}
 				onOpenChange={(open) => {
@@ -2896,7 +2898,8 @@ export default function BrowserAiPage() {
 									{logAttachmentLabel(pdfViewerLog)}
 								</DialogTitle>
 								<DialogDescription className="text-xs">
-									{pdfViewerLog.platform} · Captured {new Date(pdfViewerLog.timestamp).toLocaleString()}
+									{pdfViewerLog.platform} · {pdfViewerLog.action || "—"} · Captured{" "}
+									{new Date(pdfViewerLog.timestamp).toLocaleString()}
 								</DialogDescription>
 							</DialogHeader>
 							<div className="px-5 py-3 flex flex-wrap items-center gap-2 shrink-0 border-b border-border/50">
@@ -2915,13 +2918,30 @@ export default function BrowserAiPage() {
 									Prompt details
 								</Button>
 							</div>
-							<div className="flex-1 min-h-0 bg-black/40 flex items-center justify-center p-3">
+							<div className="flex-1 min-h-0 bg-black/40 flex items-center justify-center p-3 overflow-auto">
 								{pdfLoading ? (
-									<p className="text-sm text-muted-foreground">Loading PDF…</p>
+									<p className="text-sm text-muted-foreground">Loading file…</p>
 								) : pdfError ? (
 									<p className="text-sm text-red-400">{pdfError}</p>
+								) : pdfBlobUrl && logAttachmentIsImage(pdfViewerLog) ? (
+									<img
+										src={pdfBlobUrl}
+										alt={logAttachmentLabel(pdfViewerLog)}
+										className="max-h-[min(70vh,720px)] max-w-full rounded-md border border-border object-contain bg-black/20"
+									/>
+								) : pdfBlobUrl && logAttachmentIsPdf(pdfViewerLog) ? (
+									<iframe
+										title={logAttachmentLabel(pdfViewerLog)}
+										src={pdfBlobUrl}
+										className="w-full h-[min(70vh,720px)] rounded-md border border-border bg-white"
+									/>
 								) : pdfBlobUrl ? (
-									<iframe title={logAttachmentLabel(pdfViewerLog)} src={pdfBlobUrl} className="w-full h-[min(70vh,720px)] rounded-md border border-border bg-white" />
+									<div className="text-center space-y-3 p-6">
+										<p className="text-sm text-muted-foreground">Preview not available for this file type.</p>
+										<Button size="sm" className="gap-1.5" onClick={() => downloadPdfAttachment(pdfViewerLog)}>
+											<Download className="h-3.5 w-3.5" /> Download to open
+										</Button>
+									</div>
 								) : (
 									<p className="text-sm text-muted-foreground">No preview available</p>
 								)}
