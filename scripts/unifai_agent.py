@@ -37,7 +37,7 @@ from mitmproxy.tools.main import mitmdump
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifai.dev-yp.com"
-AGENT_VERSION = "1.4.0"
+AGENT_VERSION = "1.4.1"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
@@ -467,7 +467,7 @@ def maybe_first_run_prompt() -> None:
         "UnifAI Guard is running.\n\n"
         "For Browser AI monitoring & predict to work:\n"
         "1) Fully quit Chrome and Edge (all windows)\n"
-        "2) Reopen Chrome or Edge\n"
+        "2) Fully quit & reopen browsers (Chrome, Edge, Brave, Opera, Vivaldi, Firefox)\n"
         "3) Open a monitored AI site and send a test prompt\n\n"
         f"Version {AGENT_VERSION}\n"
         f"Backend: {UNIFAI_BACKEND_URL}",
@@ -738,7 +738,7 @@ table{{width:100%;border-collapse:collapse;margin-top:12px}} td,th{{border-botto
 <p>Local status API: <code>/status</code></p>
 <table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>{rows}</tbody></table>
 <p style="margin-top:16px;font-size:12px;color:#94a3b8">Details: {det}</p>
-<p style="font-size:12px;color:#94a3b8">For predict/monitor: use Chrome or Edge, quit &amp; reopen after install.</p>
+<p style="font-size:12px;color:#94a3b8">Windows: Chrome, Edge, Brave, Opera, Vivaldi, Firefox. Quit &amp; reopen after install. Safari is not supported on Windows Guard.</p>
 </div></body></html>"""
             body = html.encode("utf-8")
             self.send_response(200)
@@ -802,6 +802,28 @@ def start_local_pac_http_server() -> str:
 # Windows proxy / browser policy
 # ---------------------------------------------------------------------------
 
+# Chromium-family policy keys (PAC + QuicAllowed). Safari is macOS-only — not on Windows Guard.
+_CHROMIUM_POLICY_PATHS = (
+    r"Software\Policies\Google\Chrome",
+    r"Software\Policies\Microsoft\Edge",
+    r"Software\Policies\BraveSoftware\Brave",
+    r"Software\Policies\BraveSoftware\Brave-Browser",
+    r"Software\Policies\Opera Software\Opera",
+    r"Software\Policies\Opera Software\Opera Stable",
+    r"Software\Policies\Opera Software\Opera GX",
+    r"Software\Policies\Vivaldi",
+    r"Software\Policies\Chromium",
+    r"Software\Google\Chrome",
+    r"Software\Microsoft\Edge",
+    r"Software\BraveSoftware\Brave",
+    r"Software\Opera Software\Opera",
+    r"Software\Vivaldi",
+)
+
+_FIREFOX_PREF_MARKER_BEGIN = "// --- UnifAI Guard BEGIN ---"
+_FIREFOX_PREF_MARKER_END = "// --- UnifAI Guard END ---"
+
+
 def _notify_wininet() -> None:
     ctypes.windll.Wininet.InternetSetOptionW(0, 39, 0, 0)
     ctypes.windll.Wininet.InternetSetOptionW(0, 37, 0, 0)
@@ -821,26 +843,29 @@ def set_browser_quic(enable_quic: bool) -> None:
     value = 1 if enable_quic else 0
     ok = False
     for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
-        for path in (
-            r"Software\Policies\Google\Chrome",
-            r"Software\Policies\Microsoft\Edge",
-            r"Software\Google\Chrome",
-            r"Software\Microsoft\Edge",
-        ):
+        for path in _CHROMIUM_POLICY_PATHS:
             if _set_reg_dword(root, path, "QuicAllowed", value):
                 ok = True
     if not ok and not enable_quic:
-        print("[UnifAI Guard WARNING] Could not disable Chrome/Edge HTTP/3 (QUIC). ChatGPT/Gemini may bypass the proxy.")
+        print("[UnifAI Guard WARNING] Could not disable browser HTTP/3 (QUIC). Some sites may bypass the proxy.")
 
 
 def set_browser_pac_policy(enable: bool, pac_url: str | None = None) -> None:
-    """Force Chrome/Edge to use the Guard PAC even when they ignore Windows Internet Settings."""
+    """Force Chromium browsers (Chrome/Edge/Brave/Opera/Vivaldi) onto Guard PAC."""
     if pac_url is None:
         pac_url = pac_http_url()
-    for path in (
+    policy_only = (
         r"Software\Policies\Google\Chrome",
         r"Software\Policies\Microsoft\Edge",
-    ):
+        r"Software\Policies\BraveSoftware\Brave",
+        r"Software\Policies\BraveSoftware\Brave-Browser",
+        r"Software\Policies\Opera Software\Opera",
+        r"Software\Policies\Opera Software\Opera Stable",
+        r"Software\Policies\Opera Software\Opera GX",
+        r"Software\Policies\Vivaldi",
+        r"Software\Policies\Chromium",
+    )
+    for path in policy_only:
         try:
             key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE)
             if enable:
@@ -855,6 +880,194 @@ def set_browser_pac_policy(enable: bool, pac_url: str | None = None) -> None:
             winreg.CloseKey(key)
         except Exception as e:
             print(f"[UnifAI Guard WARNING] Could not set browser PAC policy on {path}: {e}")
+    set_firefox_proxy_policy(enable=enable, pac_url=pac_url)
+
+
+def _firefox_profiles_dirs() -> list[str]:
+    """Return Firefox profile directories for the current Windows user."""
+    dirs: list[str] = []
+    roaming = os.environ.get("APPDATA") or ""
+    if not roaming:
+        return dirs
+    base = os.path.join(roaming, "Mozilla", "Firefox")
+    ini = os.path.join(base, "profiles.ini")
+    if os.path.isfile(ini):
+        try:
+            with open(ini, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.read().splitlines()
+        except Exception:
+            lines = []
+        current: dict[str, str] = {}
+
+        def flush() -> None:
+            path = current.get("Path")
+            if not path:
+                return
+            is_rel = current.get("IsRelative", "1") != "0"
+            full = path if not is_rel else os.path.join(base, path.replace("/", os.sep))
+            if os.path.isdir(full):
+                dirs.append(full)
+
+        for raw in lines:
+            line = raw.strip()
+            if line.startswith("[") and line.endswith("]"):
+                flush()
+                current = {}
+                continue
+            if "=" in line:
+                k, v = line.split("=", 1)
+                current[k.strip()] = v.strip()
+        flush()
+    profiles = os.path.join(base, "Profiles")
+    if os.path.isdir(profiles):
+        for name in os.listdir(profiles):
+            p = os.path.join(profiles, name)
+            if os.path.isdir(p):
+                dirs.append(p)
+    out: list[str] = []
+    seen: set[str] = set()
+    for d in dirs:
+        n = os.path.normcase(os.path.abspath(d))
+        if n not in seen:
+            seen.add(n)
+            out.append(d)
+    return out
+
+
+def _firefox_guard_pref_block(pac_url: str) -> str:
+    # network.proxy.type 2 = PAC / autoconfig URL
+    esc = pac_url.replace("\\", "\\\\").replace('"', '\\"')
+    return "\n".join(
+        [
+            _FIREFOX_PREF_MARKER_BEGIN,
+            f'user_pref("network.proxy.type", 2);',
+            f'user_pref("network.proxy.autoconfig_url", "{esc}");',
+            'user_pref("network.proxy.share_proxy_settings", true);',
+            'user_pref("security.enterprise_roots.enabled", true);',
+            'user_pref("network.http.http3.enable", false);',
+            'user_pref("network.http.http3.enable_0rtt", false);',
+            _FIREFOX_PREF_MARKER_END,
+            "",
+        ]
+    )
+
+
+def _strip_firefox_guard_block(text: str) -> str:
+    begin = text.find(_FIREFOX_PREF_MARKER_BEGIN)
+    if begin < 0:
+        return text
+    end = text.find(_FIREFOX_PREF_MARKER_END, begin)
+    if end < 0:
+        return text[:begin].rstrip() + "\n"
+    end += len(_FIREFOX_PREF_MARKER_END)
+    while end < len(text) and text[end] in "\r\n":
+        end += 1
+    return (text[:begin].rstrip() + "\n" + text[end].lstrip()) if text[end:] else text[:begin].rstrip() + "\n"
+
+
+def _write_firefox_user_js(profile_dir: str, enable: bool, pac_url: str) -> bool:
+    path = os.path.join(profile_dir, "user.js")
+    try:
+        existing = ""
+        if os.path.isfile(path):
+            with open(path, "r", encoding="utf-8", errors="replace") as f:
+                existing = f.read()
+        cleaned = _strip_firefox_guard_block(existing)
+        if enable:
+            cleaned = cleaned.rstrip() + "\n" + _firefox_guard_pref_block(pac_url)
+        with open(path, "w", encoding="utf-8", newline="\n") as f:
+            f.write(cleaned if cleaned.endswith("\n") else cleaned + "\n")
+        return True
+    except Exception as e:
+        print(f"[UnifAI Guard WARNING] Firefox user.js update failed ({profile_dir}): {e}")
+        return False
+
+
+def _write_firefox_policies_json(enable: bool, pac_url: str) -> None:
+    """Best-effort enterprise policies.json next to Firefox installs (needs write access)."""
+    policy = {
+        "policies": {
+            "Proxy": {
+                "Mode": "autoConfig",
+                "AutoConfigURL": pac_url,
+                "Locked": True,
+            },
+            "Certificates": {"ImportEnterpriseRoots": True},
+            "Preferences": {
+                "network.http.http3.enable": {"Value": False, "Status": "locked"},
+                "security.enterprise_roots.enabled": {"Value": True, "Status": "locked"},
+            },
+        }
+    }
+    roots = [
+        os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Mozilla Firefox"),
+        os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"), "Mozilla Firefox"),
+    ]
+    local = os.environ.get("LOCALAPPDATA") or ""
+    if local:
+        roots.append(os.path.join(local, "Mozilla Firefox"))
+    for root in roots:
+        if not root or not os.path.isdir(root):
+            continue
+        dist = os.path.join(root, "distribution")
+        path = os.path.join(dist, "policies.json")
+        try:
+            if not enable:
+                if os.path.isfile(path):
+                    try:
+                        with open(path, "r", encoding="utf-8") as f:
+                            existing = json.load(f)
+                        proxy = ((existing or {}).get("policies") or {}).get("Proxy") or {}
+                        if str(proxy.get("AutoConfigURL") or "").startswith("http://127.0.0.1:"):
+                            os.remove(path)
+                    except Exception:
+                        pass
+                continue
+            os.makedirs(dist, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(policy, f, indent=2)
+            print(f"[UnifAI Guard] Firefox policies.json -> {path}")
+        except Exception:
+            pass
+
+
+def set_firefox_proxy_policy(enable: bool, pac_url: str | None = None) -> None:
+    """Point Firefox at Guard PAC + trust Windows enterprise roots (MITM CA)."""
+    if pac_url is None:
+        pac_url = pac_http_url()
+    profiles = _firefox_profiles_dirs()
+    ok = 0
+    for p in profiles:
+        if _write_firefox_user_js(p, enable=enable, pac_url=pac_url):
+            ok += 1
+    _write_firefox_policies_json(enable=enable, pac_url=pac_url)
+    # Registry Preferences (Firefox enterprise) — best effort
+    try:
+        key = winreg.CreateKeyEx(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Policies\Mozilla\Firefox",
+            0,
+            winreg.KEY_SET_VALUE,
+        )
+        if enable:
+            # JSON blob policies are not fully supported via arbitrary REG_SZ on all builds;
+            # ImportEnterpriseRoots helps Firefox trust the Windows Root CA we install.
+            winreg.SetValueEx(key, "ImportEnterpriseRoots", 0, winreg.REG_DWORD, 1)
+        else:
+            try:
+                winreg.DeleteValue(key, "ImportEnterpriseRoots")
+            except FileNotFoundError:
+                pass
+        winreg.CloseKey(key)
+    except Exception as e:
+        print(f"[UnifAI Guard WARNING] Firefox registry policy: {e}")
+    if enable:
+        if ok:
+            print(f"[UnifAI Guard] Firefox PAC applied to {ok} profile(s). Fully quit & reopen Firefox.")
+        else:
+            print("[UnifAI Guard] Firefox not found yet — open Firefox once, then restart Guard to apply PAC.")
+    else:
+        print("[UnifAI Guard] Firefox Guard prefs cleared (restart Firefox).")
 
 
 def set_windows_proxy_pac(enable: bool, pac_url: str | None = None, silent: bool = False) -> bool:
@@ -1165,7 +1378,8 @@ def main() -> None:
     start_local_pac_http_server()
     apply_pac_with_bust(silent=False)
     set_browser_quic(enable_quic=False)
-    print("[UnifAI Guard] Chrome/Edge HTTP/3 (QUIC) disabled so Target Websites use the proxy.")
+    print("[UnifAI Guard] Browser HTTP/3 (QUIC) disabled (Chrome/Edge/Brave/Opera/Vivaldi) so Target Websites use the proxy.")
+    print("[UnifAI Guard] PAC policies: Chrome, Edge, Brave, Opera, Vivaldi + Firefox profiles. Safari is not supported on Windows.")
     if not install_ca_certificate():
         print("[UnifAI Guard ERROR] CA trust failed — open %LOCALAPPDATA%\\UnifAI\\Guard\\ca_install_status.txt")
         print("[UnifAI Guard ERROR] Without CA trust, browsers will not accept MITM HTTPS. Fix cert then restart Guard.")

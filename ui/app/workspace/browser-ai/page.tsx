@@ -2407,7 +2407,7 @@ export default function BrowserAiPage() {
 						<CardHeader>
 							<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
 							<CardDescription>
-								Guard 1.4.0+ reports Health (PAC / CA / proxy / backend). Keep Chrome or Edge; after install quit & reopen browsers.
+								Guard 1.4.1+ reports Health (PAC / CA / proxy / backend). Windows: Chrome, Edge, Brave, Opera, Vivaldi, Firefox — fully quit & reopen after install. Safari is not on Windows Guard.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="p-0">
