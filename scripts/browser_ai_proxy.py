@@ -1191,11 +1191,12 @@ def is_confident_file_upload(
     raw_bytes: bytes,
     raw_text: str,
     upload_reason: str = "",
+    host: str = "",
+    path: str = "",
 ) -> bool:
-    """Block Upload / FILE log only when we are sure a real file is present.
+    """True only for a real user file pick/upload — not chat/telemetry noise.
 
-    Stops Gemini/Claude/WhatsApp chat noise from becoming automatic
-    '[FILE UPLOAD] attachment' Blocked rows when the user did not attach anything.
+    Used to CACHE bytes. Prompt Log + Block happen only later on chat Send.
     """
     name = (fname or "").strip()
     name_l = name.lower()
@@ -1203,10 +1204,22 @@ def is_confident_file_upload(
     data = raw_bytes or b""
     reason = (upload_reason or "").lower()
     raw = raw_text or ""
+    host_l = (host or "").lower()
+    path_l = (path or "").lower().split("?", 1)[0]
 
-    # Google resumable finalize/upload with bytes — confident
+    # WhatsApp / web.whatsapp sends lots of media-sync binary — never treat as AI file
+    # unless path clearly looks like a user media upload AND we have a real name/magic.
+    wa_like = "whatsapp" in host_l or "whatsapp" in path_l
+    if wa_like:
+        has_media_path = any(x in path_l for x in ("/upload", "/media", "/mms", "/cdn", "/attachment"))
+        if not has_media_path:
+            return False
+
+    # Google resumable finalize/upload with bytes
     if "google resumable" in reason and len(data) >= 64:
-        return True
+        if any(x in reason for x in ("finalize", "upload", "append")):
+            return True
+        return False
 
     # Real filename with extension (not placeholder names)
     if name and name_l not in _FAKE_UPLOAD_NAMES and "." in name:
@@ -1214,18 +1227,22 @@ def is_confident_file_upload(
         if 1 <= len(ext) <= 5 and ext.isalnum():
             return True
 
-    # Magic bytes / known file shapes
-    if data:
+    # Magic bytes / known file shapes (strong evidence)
+    if len(data) >= 64:
         if data[:5] == b"%PDF-" or b"%PDF-" in data[:4096]:
             return True
         if _looks_like_image(data, ct, name):
             return True
         if _looks_like_audio(data, ct, name):
             return True
-        if data[:2] == b"PK" and len(data) >= 256:  # zip/office
-            return True
+        if data[:2] == b"PK" and len(data) >= 1024:
+            # OOXML / zip — only if upload-ish path or office content-type
+            if "officedocument" in ct or "zip" in ct or any(
+                x in path_l for x in ("/upload", "/files", "/attachment", "/convert")
+            ):
+                return True
 
-    # Multipart with non-empty filename=
+    # Multipart with non-empty real filename=
     if "filename=" in raw.lower() or "filename*=" in raw.lower():
         m = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';\r\n]+)["\']?', raw[:16000], re.I)
         if m:
@@ -1233,8 +1250,13 @@ def is_confident_file_upload(
             if got and got.lower() not in _FAKE_UPLOAD_NAMES:
                 return True
 
-    # Explicit binary upload content-types with meaningful size
-    if len(data) >= 1024 and any(
+    # Binary content-type alone is NOT enough (WhatsApp/Claude noise).
+    # Require upload path + meaningful size + binary type.
+    uploadish = any(
+        x in path_l
+        for x in ("/upload", "/files", "/attachment", "/convert_document", "/filepush", "/media/")
+    )
+    if uploadish and len(data) >= 2048 and any(
         x in ct
         for x in (
             "octet-stream", "application/pdf", "image/", "audio/", "video/",
@@ -1711,30 +1733,36 @@ def enforce_file_send_policy(
     if not has_attach:
         return False, ""
 
+    # WhatsApp: never invent file blocks from chat noise without a real cached upload
+    if "whatsapp" in (domain or "").lower() or "whatsapp" in (host or "").lower():
+        if not cached:
+            return False, ""
+
     get_control_settings()
     fname = (file_name_hint or "").strip()
     if cached:
         fname = fname or (cached.get("file_name") or "").strip()
     if not fname:
         for m in re.finditer(
-            r'["\'](?:file_name|fileName|filename|name|title)["\']\s*:\s*["\']([^"\']+)["\']',
+            r'["\'](?:file_name|fileName|filename)["\']\s*:\s*["\']([^"\']+)["\']',
             raw_text or "",
         ):
             cand = m.group(1).strip()
-            if cand and "." in cand and cand.lower() not in ("attachment", "file", "document"):
+            if cand and "." in cand and cand.lower() not in _FAKE_UPLOAD_NAMES:
                 fname = cand
                 break
-    # Markers without a real name/cache → typed chat, not a file (never invent "attachment")
-    if (not fname or fname.lower() in _FAKE_UPLOAD_NAMES) and not cached:
+
+    # MUST have either a real cached file from upload, or a real filename on this Send.
+    # Markers alone (no cache / fake name) → not a user file+Send event.
+    cached_name = ((cached.get("file_name") if cached else "") or "").strip()
+    real_cached = bool(cached and (cached.get("raw_bytes") or cached_name.lower() not in _FAKE_UPLOAD_NAMES))
+    real_name = bool(fname and fname.lower() not in _FAKE_UPLOAD_NAMES)
+    if not real_cached and not real_name:
         return False, ""
-    if fname.lower() in _FAKE_UPLOAD_NAMES and cached:
-        fname = (cached.get("file_name") or "").strip() or fname
-    file_label = fname if fname and fname.lower() not in _FAKE_UPLOAD_NAMES else (
-        (cached.get("file_name") if cached else "") or "attachment"
-    )
-    if file_label.lower() in _FAKE_UPLOAD_NAMES and not cached:
-        return False, ""
-    file_label = file_label or "attachment"
+
+    file_label = fname if real_name else (cached_name if cached_name.lower() not in _FAKE_UPLOAD_NAMES else "attachment")
+    if not file_label:
+        file_label = "attachment"
     upload_warn = (get_control_settings().get("upload_warning") or "").strip()
     base_upload_msg = upload_warn or "Upload block"
 
@@ -3675,81 +3703,19 @@ class BrowserAIInterceptor:
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
         if is_upload:
             fname = extract_filename_from_upload(flow, raw_text)
-            # Gemini/Claude/WhatsApp chat noise often looks like "upload" — only act when sure
-            if not is_confident_file_upload(
+            # Only CACHE real files here. Never Prompt Log / never Block until chat Send.
+            if is_confident_file_upload(
                 fname=fname,
                 content_type=content_type,
                 raw_bytes=raw_bytes,
                 raw_text=raw_text,
                 upload_reason=upload_reason or "",
+                host=host,
+                path=path,
             ):
-                print(
-                    f"[UnifAI Proxy] Ignoring weak upload signal | {host} | "
-                    f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
-                )
-                # Fall through to normal prompt intercept (do not Block / FILE log)
-            else:
                 upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, fname)
                 file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
                 file_ids = _extract_file_ids_from_chat(raw_text)
-                file_rule_action = (file_rule_action or "").upper()
-                block_all = controls_active("block_upload")
-                block_for_rule = bool(file_rule_hit and file_rule_action in ("BLOCK", "REDACT", "WARN"))
-
-                # Block Upload / file-content rule: stop bytes from reaching the AI provider NOW
-                if block_all or block_for_rule:
-                    cache_upload_file(
-                        domain,
-                        file_name=fname or "attachment",
-                        raw_bytes=raw_bytes,
-                        content_type=content_type,
-                        upload_reason=upload_reason or "",
-                        rule_hit=file_rule_hit,
-                        rule_name=file_rule_name,
-                        rule_action=file_rule_action,
-                        file_id=file_ids[0] if file_ids else "",
-                    )
-                    upload_warn = (get_control_settings().get("upload_warning") or "").strip()
-                    base_upload_msg = upload_warn or "Upload block"
-                    blocked_reason = "Block Upload"
-                    file_label = fname or "attachment"
-                    tag = _upload_log_tag(fname, content_type, raw_bytes)
-                    excerpt = re.sub(r"\s+", " ", (upload_text or "")).strip()[:180]
-                    prompt_log = f"{tag} {file_label} — {base_upload_msg}"
-                    if excerpt:
-                        prompt_log = f"{prompt_log} | {excerpt}"
-                    msg = base_upload_msg
-                    if block_for_rule:
-                        blocked_reason = file_rule_name or "Guard Rule (file content)"
-                        rule_warn = _warning_for_rule_name(file_rule_name)
-                        left = (rule_warn or base_upload_msg).strip() or "Upload block"
-                        prompt_log = f"{tag} {file_label} — {left}" + (
-                            f" -- {file_rule_name}" if file_rule_name else ""
-                        )
-                        if excerpt:
-                            prompt_log = f"{prompt_log} | {excerpt}"
-                        msg = f"{left} -- {file_rule_name}" if file_rule_name else left
-                    dedupe_key = f"upload-time-block|{blocked_reason}|{file_label}"
-                    if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
-                        print(f"[UnifAI Proxy] FILE UPLOAD BLOCKED | {client_ip} → {host} | {file_label}")
-                        ok = post_upload_intercept(
-                            platform=platform,
-                            prompt=prompt_log,
-                            client_ip=client_ip,
-                            domain=domain,
-                            url=flow.request.url,
-                            method=flow.request.method,
-                            file_name=fname or "attachment",
-                            is_blocked=True,
-                            blocked_reason=blocked_reason,
-                            raw_bytes=raw_bytes,
-                            content_type=content_type,
-                        )
-                        if ok:
-                            mark_duplicate_event(domain, dedupe_key)
-                    make_blocked_response(flow, blocked_reason, host, reply_text=msg)
-                    return
-
                 cache_upload_file(
                     domain,
                     file_name=fname or "attachment",
@@ -3761,8 +3727,16 @@ class BrowserAIInterceptor:
                     rule_action=file_rule_action,
                     file_id=file_ids[0] if file_ids else "",
                 )
-                # Allowed upload — cache for Send-time audit; do not Prompt Log until Send.
+                print(
+                    f"[UnifAI Proxy] FILE CACHED (await Send — no log yet) | {domain} | "
+                    f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
+                )
                 return
+            print(
+                f"[UnifAI Proxy] Ignoring weak upload signal | {host} | "
+                f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
+            )
+            # Fall through to normal prompt intercept
 
         # Also drop multipart noise that slipped past upload detection
         if "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower():
