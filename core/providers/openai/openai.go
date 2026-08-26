@@ -65,7 +65,8 @@ func NewOpenAIProvider(config *schemas.ProviderConfig, logger schemas.Logger) *O
 	if config.NetworkConfig.BaseURL == "" {
 		config.NetworkConfig.BaseURL = "https://api.openai.com"
 	}
-	config.NetworkConfig.BaseURL = strings.TrimRight(config.NetworkConfig.BaseURL, "/")
+	// Strip trailing /v1 — paths already include /v1/... (avoids .../v1/v1/models → 404)
+	config.NetworkConfig.BaseURL = providerUtils.NormalizeOpenAICompatibleBaseURL(config.NetworkConfig.BaseURL)
 
 	return &OpenAIProvider{
 		logger:               logger,

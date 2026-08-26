@@ -2751,6 +2751,23 @@ func HandleStreamControlSkip(unifaiErr *schemas.UnifAIError) bool {
 	return false
 }
 
+// NormalizeOpenAICompatibleBaseURL trims trailing slashes and a trailing "/v1"
+// segment. OpenAI-compatible providers append paths like "/v1/models" and
+// "/v1/chat/completions"; docs for SiliconFlow / OpenRouter / etc. often show
+// base_url as "https://api.example.com/v1", which would otherwise become
+// ".../v1/v1/models" and return 404.
+func NormalizeOpenAICompatibleBaseURL(baseURL string) string {
+	baseURL = strings.TrimSpace(baseURL)
+	baseURL = strings.TrimRight(baseURL, "/")
+	if len(baseURL) >= 3 {
+		lower := strings.ToLower(baseURL)
+		if strings.HasSuffix(lower, "/v1") {
+			baseURL = strings.TrimRight(baseURL[:len(baseURL)-3], "/")
+		}
+	}
+	return baseURL
+}
+
 // GetProviderName extracts the provider name from custom provider configuration.
 // If a custom provider key is specified, it returns that; otherwise, it returns the default provider.
 // Note: CustomProviderKey is internally set by UnifAI and should always match the provider name.

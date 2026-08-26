@@ -179,12 +179,20 @@ export function NetworkFormFragment({ provider }: NetworkFormFragmentProps) {
 										<FormLabel>Base URL {baseURLRequired ? "(Required)" : "(Optional)"}</FormLabel>
 										<FormControl>
 											<Input
-												placeholder={isCustomProvider ? "https://api.your-provider.com" : "https://api.example.com"}
+												placeholder={isCustomProvider ? "https://api.siliconflow.com" : "https://api.example.com"}
 												{...field}
 												value={field.value || ""}
 												disabled={!hasUpdateProviderAccess}
 											/>
 										</FormControl>
+										{isCustomProvider ? (
+											<FormDescription>
+												Host only — do not include <code className="text-xs">/v1</code>. UnifAI appends paths like{" "}
+												<code className="text-xs">/v1/models</code>. Example:{" "}
+												<code className="text-xs">https://api.siliconflow.com</code> (not{" "}
+												<code className="text-xs">…/v1</code>).
+											</FormDescription>
+										) : null}
 										<FormMessage />
 									</FormItem>
 								)}

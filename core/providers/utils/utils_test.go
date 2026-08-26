@@ -2079,3 +2079,22 @@ func TestProcessAndSendResponse_CompletesSpanWhenFinalSendFails(t *testing.T) {
 		t.Errorf("successful stream whose delivery failed should end as %q, got %q", schemas.SpanStatusOk, tracer.endStatus)
 	}
 }
+
+func TestNormalizeOpenAICompatibleBaseURL(t *testing.T) {
+	cases := []struct {
+		in, want string
+	}{
+		{"https://api.siliconflow.com/v1", "https://api.siliconflow.com"},
+		{"https://api.siliconflow.com/v1/", "https://api.siliconflow.com"},
+		{"https://api.siliconflow.com", "https://api.siliconflow.com"},
+		{"https://api.openai.com/v1", "https://api.openai.com"},
+		{"  https://api.example.com/V1/  ", "https://api.example.com"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		got := NormalizeOpenAICompatibleBaseURL(tc.in)
+		if got != tc.want {
+			t.Errorf("NormalizeOpenAICompatibleBaseURL(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}

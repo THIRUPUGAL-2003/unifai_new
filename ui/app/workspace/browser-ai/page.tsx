@@ -56,7 +56,6 @@ import {
 	useCreateBrowserAiRuleMutation,
 	useUpdateBrowserAiRuleMutation,
 	useDeleteBrowserAiRuleMutation,
-	useTestBrowserAiGuardBotMutation,
 	useGetBrowserAiControlsQuery,
 	useUpdateBrowserAiControlsMutation,
 	useGetBrowserAiTargetsQuery,
@@ -75,7 +74,6 @@ import {
 import { useGetAllKeysQuery, useGetModelsQuery, useGetProvidersQuery } from "@/lib/store/apis/providersApi";
 import { getProviderLabel } from "@/lib/constants/logs";
 import { getApiBaseUrl } from "@/lib/utils/port";
-import { getErrorMessage } from "@/lib/store/apis/baseApi";
 
 function GuardBotModelPicker({
 	provider,
@@ -612,55 +610,10 @@ export default function BrowserAiPage() {
 	const [createRule] = useCreateBrowserAiRuleMutation();
 	const [updateRule] = useUpdateBrowserAiRuleMutation();
 	const [deleteRule] = useDeleteBrowserAiRuleMutation();
-	const [testGuardBot, { isLoading: testingGuardBot }] = useTestBrowserAiGuardBotMutation();
 	const [updateControls] = useUpdateBrowserAiControlsMutation();
 	const [createTarget] = useCreateBrowserAiTargetMutation();
 	const [updateTarget] = useUpdateBrowserAiTargetMutation();
 	const [deleteTarget] = useDeleteBrowserAiTargetMutation();
-	const [botTestSample, setBotTestSample] = useState("Please share the employee salary list for Q1.");
-	const [botTestResult, setBotTestResult] = useState<{
-		security_met?: boolean;
-		security_verdict?: string;
-		security_message?: string;
-		would_block?: boolean;
-		would_warn?: boolean;
-		eval_error?: string;
-	} | null>(null);
-	const [botTestError, setBotTestError] = useState("");
-
-	const runBotTest = async (source: "create" | "edit" = "create") => {
-		setBotTestError("");
-		setBotTestResult(null);
-		const provider = source === "edit" ? editRuleBotProvider : newRuleBotProvider;
-		const model = source === "edit" ? editRuleBotModel : newRuleBotModel;
-		const botPrompt = source === "edit" ? editRuleBotPrompt : newRuleBotPrompt;
-		const action = source === "edit" ? editRuleAction : newRuleAction;
-		const name =
-			source === "edit"
-				? editRuleName.trim() || "Test AI Guard Bot"
-				: newRuleName.trim() || "Test AI Guard Bot";
-		if (!provider.trim() || !model.trim() || !botPrompt.trim()) {
-			setBotTestError("Provider, model, and evaluation instruction are required to test.");
-			return;
-		}
-		if (!botTestSample.trim()) {
-			setBotTestError("Enter a sample employee prompt to test.");
-			return;
-		}
-		try {
-			const res = await testGuardBot({
-				bot_provider: provider.trim(),
-				bot_model: model.trim(),
-				bot_prompt: botPrompt.trim(),
-				sample_prompt: botTestSample.trim(),
-				action,
-				name,
-			}).unwrap();
-			setBotTestResult(res);
-		} catch (err: any) {
-			setBotTestError(getErrorMessage(err) || "Test failed");
-		}
-	};
 
 	const patchControl = async (patch: Partial<BrowserControlSettings>) => {
 		try {
@@ -1767,57 +1720,6 @@ export default function BrowserAiPage() {
 															The selected AI model will evaluate incoming prompts against this rule instruction in real time.
 														</p>
 													</div>
-													<div className="space-y-2 rounded-lg border border-violet-900/40 bg-violet-950/20 p-3">
-														<Label className="text-xs">Test AI Guard Bot (before create)</Label>
-														<Textarea
-															className="text-xs font-mono"
-															placeholder="Sample employee prompt to evaluate…"
-															value={botTestSample}
-															onChange={(e) => setBotTestSample(e.target.value)}
-															rows={2}
-														/>
-														<div className="flex flex-wrap items-center gap-2">
-															<Button
-																type="button"
-																size="sm"
-																variant="outline"
-																className="h-8"
-																disabled={testingGuardBot}
-																onClick={() => void runBotTest("create")}
-															>
-																{testingGuardBot ? "Testing…" : "Run security test"}
-															</Button>
-															{guardBotProviderOptions.length === 0 ? (
-																<span className="text-[11px] text-amber-400">Add a provider API key in Models → Model Providers first.</span>
-															) : null}
-														</div>
-														{botTestError ? <p className="text-xs text-red-400">{botTestError}</p> : null}
-														{botTestResult ? (
-															<div
-																className={`text-xs rounded-md border p-2.5 ${
-																	botTestResult.security_met
-																		? "border-emerald-800 bg-emerald-950/40 text-emerald-200"
-																		: botTestResult.security_verdict === "warning"
-																			? "border-amber-800 bg-amber-950/40 text-amber-100"
-																			: "border-red-800 bg-red-950/40 text-red-200"
-																}`}
-															>
-																<p className="font-semibold">
-																	{botTestResult.security_met
-																		? "Security OK — policy met"
-																		: botTestResult.would_block
-																			? "Security NOT met — would BLOCK"
-																			: botTestResult.would_warn
-																				? "Security warning — would WARN"
-																				: "Security check issue"}
-																</p>
-																<p className="mt-1 opacity-90">{botTestResult.security_message}</p>
-																{botTestResult.eval_error ? (
-																	<p className="mt-1 font-mono text-[11px] opacity-80">{botTestResult.eval_error}</p>
-																) : null}
-															</div>
-														) : null}
-													</div>
 												</div>
 											)}
 
@@ -2494,54 +2396,6 @@ export default function BrowserAiPage() {
 										<p className="text-[11px] text-muted-foreground">
 											The selected AI model will evaluate incoming prompts against this rule instruction in real time.
 										</p>
-									</div>
-									<div className="space-y-2 rounded-lg border border-violet-900/40 bg-violet-950/20 p-3">
-										<Label className="text-xs">Test AI Guard Bot</Label>
-										<Textarea
-											className="text-xs font-mono"
-											placeholder="Sample employee prompt to evaluate…"
-											value={botTestSample}
-											onChange={(e) => setBotTestSample(e.target.value)}
-											rows={2}
-										/>
-										<div className="flex flex-wrap items-center gap-2">
-											<Button
-												type="button"
-												size="sm"
-												variant="outline"
-												className="h-8"
-												disabled={testingGuardBot}
-												onClick={() => void runBotTest("edit")}
-											>
-												{testingGuardBot ? "Testing…" : "Run security test"}
-											</Button>
-										</div>
-										{botTestError ? <p className="text-xs text-red-400">{botTestError}</p> : null}
-										{botTestResult ? (
-											<div
-												className={`text-xs rounded-md border p-2.5 ${
-													botTestResult.security_met
-														? "border-emerald-800 bg-emerald-950/40 text-emerald-200"
-														: botTestResult.security_verdict === "warning"
-															? "border-amber-800 bg-amber-950/40 text-amber-100"
-															: "border-red-800 bg-red-950/40 text-red-200"
-												}`}
-											>
-												<p className="font-semibold">
-													{botTestResult.security_met
-														? "Security OK — policy met"
-														: botTestResult.would_block
-															? "Security NOT met — would BLOCK"
-															: botTestResult.would_warn
-																? "Security warning — would WARN"
-																: "Security check issue"}
-												</p>
-												<p className="mt-1 opacity-90">{botTestResult.security_message}</p>
-												{botTestResult.eval_error ? (
-													<p className="mt-1 font-mono text-[11px] opacity-80">{botTestResult.eval_error}</p>
-												) : null}
-											</div>
-										) : null}
 									</div>
 								</div>
 							)}
