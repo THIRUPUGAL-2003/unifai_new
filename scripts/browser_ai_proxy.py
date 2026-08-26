@@ -41,12 +41,16 @@ CACHE_TTL = 1
 # Default fallback is EMPTY — only admin-added Target Websites are monitored.
 DEFAULT_TARGET_DOMAINS: dict = {}
 
-# File upload endpoint patterns (include Gemini / Google Drive / Docs upload paths)
+# File upload endpoint patterns (ChatGPT / Claude / Gemini / Copilot / Drive)
 UPLOAD_ENDPOINTS = [
     "/files", "/file", "/upload", "/attachment", "/attachments",
     "/backend-api/files", "/v1/files", "/api/upload", "/file-upload",
     "/upload/", "/media/upload", "/resumable", "/filepush", "/pushfile",
     "/v1beta/files", "/upload/v1beta", "/drive/v3/files", "/upload/drive",
+    # Claude
+    "/convert_document", "/upload_document", "/api/organizations", "/chat_conversations",
+    # Copilot / M365
+    "/c/api/attachments", "/api/attachments", "/m365copilot/uploadfile", "/uploadfile",
 ]
 
 # Upload payload field indicators
@@ -165,8 +169,11 @@ _controls_from_backend = False
 # File bytes cached at upload-time; Prompt Log + allow/block happen only on chat Send.
 _UPLOAD_FILE_CACHE: dict[str, dict] = {}
 _UPLOAD_FILE_CACHE_LOCK = threading.Lock()
-_UPLOAD_FILE_CACHE_TTL = 15 * 60  # 15 minutes
+_UPLOAD_FILE_CACHE_TTL = 15 * 60  # 15 minutes — keep bytes for View/Download
 _UPLOAD_FILE_CACHE_MAX = 40
+# Only treat "latest upload" as this Send's file if the upload was this recent.
+# Prevents typed prompts from becoming "[FILE UPLOAD] attachment" after an old pick.
+_UPLOAD_LATEST_MATCH_TTL = 5 * 60  # 5 min — upload then Send without matching id still binds
 
 
 def _fetch_json(url: str) -> dict | None:
@@ -1095,6 +1102,19 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
         for prefix in UPLOAD_CONTENT_TYPES:
             if prefix in content_type and body_len >= 64:
                 return True, f"File content-type ({content_type.split(';')[0]})"
+    else:
+        # Copilot/Claude: is_chat_path is loose — still treat upload paths + binary as uploads
+        path_looks_upload = any(
+            x in path_only
+            for x in (
+                "/attachments", "/attachment", "/convert_document", "/upload_document",
+                "/upload", "/files", "/filepush", "/m365copilot",
+            )
+        )
+        if path_looks_upload and body_len >= 64:
+            for prefix in UPLOAD_CONTENT_TYPES:
+                if prefix in content_type:
+                    return True, f"File content-type ({content_type.split(';')[0]})"
 
     # Upload URL paths — ChatGPT "+" hits /files JSON handshake before any file is chosen
     for ep in UPLOAD_ENDPOINTS:
@@ -1117,7 +1137,11 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
     if method in ("POST", "PUT", "PATCH") and body_len >= 2048:
         if any(
             x in host
-            for x in ("upload.google", "drive.google", "docs.google", "clients6.google", "googleapis.com")
+            for x in (
+                "upload.google", "drive.google", "docs.google", "clients6.google",
+                "googleapis.com", "claude.ai", "anthropic.com", "copilot.microsoft",
+                "sydney.bing", "substrate.office",
+            )
         ):
             if "json" not in content_type or body_len >= 50_000:
                 return True, f"Large upload body on {host} ({body_len} bytes)"
@@ -1309,6 +1333,30 @@ def _purge_upload_file_cache(now: float | None = None) -> None:
         _UPLOAD_FILE_CACHE.pop(oldest[0], None)
 
 
+def upload_domain_aliases(domain: str) -> list[str]:
+    """Hosts that share one product family — upload may hit A, chat Send hits B."""
+    d = (domain or "").lower().strip()
+    if not d:
+        return []
+    families = [
+        {"chatgpt.com", "chat.openai.com", "ab.chatgpt.com"},
+        {
+            "gemini.google.com", "bard.google.com", "clients6.google.com",
+            "drive.google.com", "docs.google.com", "upload.google.com",
+        },
+        {
+            "copilot.microsoft.com", "copilot.cloud.microsoft", "sydney.bing.com",
+            "edgeservices.bing.com", "bing.com", "m365.cloud.microsoft",
+            "substrate.office.com",
+        },
+        {"claude.ai", "www.claude.ai", "api.anthropic.com"},
+    ]
+    for fam in families:
+        if d in fam or any(d.endswith("." + x) for x in fam):
+            return sorted(fam)
+    return [d]
+
+
 def cache_upload_file(
     domain: str,
     *,
@@ -1339,22 +1387,12 @@ def cache_upload_file(
         "rule_action": (rule_action or "").upper(),
         "file_id": file_id or "",
     }
-    keys = []
-    d = (domain or "").lower()
-    if file_id:
-        keys.append(f"{d}|id|{file_id}")
-    keys.append(f"{d}|name|{(name or file_name or 'attachment').lower()}")
-    keys.append(f"{d}|latest")
-    # ChatGPT / OpenAI alias — upload host and chat host often differ.
-    aliases = []
-    if d in ("chatgpt.com", "chat.openai.com"):
-        aliases = ["chatgpt.com", "chat.openai.com"]
-    for alias in aliases:
-        if alias == d:
-            continue
+    keys: list[str] = []
+    fname_key = (name or file_name or "attachment").lower()
+    for alias in upload_domain_aliases(domain):
         if file_id:
             keys.append(f"{alias}|id|{file_id}")
-        keys.append(f"{alias}|name|{(name or file_name or 'attachment').lower()}")
+        keys.append(f"{alias}|name|{fname_key}")
         keys.append(f"{alias}|latest")
     with _UPLOAD_FILE_CACHE_LOCK:
         _purge_upload_file_cache()
@@ -1362,7 +1400,7 @@ def cache_upload_file(
             _UPLOAD_FILE_CACHE[k] = entry
     print(
         f"[UnifAI Proxy] FILE CACHED (await Send) | {domain} | {entry['file_name']} | "
-        f"{len(entry['raw_bytes'])} bytes | rule_hit={rule_hit}"
+        f"{len(entry['raw_bytes'])} bytes | rule_hit={rule_hit} | aliases={len(keys)}"
     )
 
 
@@ -1373,12 +1411,17 @@ def _extract_file_ids_from_chat(raw_text: str) -> list[str]:
     for pat in (
         r'"file_id"\s*:\s*"([^"]+)"',
         r'"fileId"\s*:\s*"([^"]+)"',
+        r'"file_uuid"\s*:\s*"([^"]+)"',
+        r'"fileUuid"\s*:\s*"([^"]+)"',
+        r'"docId"\s*:\s*"([^"]+)"',
+        r'"document_id"\s*:\s*"([^"]+)"',
+        r'"attachment_id"\s*:\s*"([^"]+)"',
+        r'"attachmentId"\s*:\s*"([^"]+)"',
         r'file-service://file-([a-zA-Z0-9_-]+)',
         r'asset_pointer"\s*:\s*"[^"]*file-([a-zA-Z0-9_-]+)',
     ):
         for m in re.finditer(pat, raw_text):
             ids.append(m.group(1))
-    # unique preserve order
     out: list[str] = []
     seen: set[str] = set()
     for i in ids:
@@ -1389,43 +1432,272 @@ def _extract_file_ids_from_chat(raw_text: str) -> list[str]:
 
 
 def chat_carries_attachment(raw_text: str) -> bool:
-    """True when a chat Send payload references an attached file."""
+    """True only when THIS chat Send actually references a real attached file.
+
+    Claude/Copilot text-only bodies often contain keys like "document", "attachments":[]
+    or "media_type" — those must NOT count as an upload (that caused Prompt Log =
+    "[FILE UPLOAD] attachment" for normal typed prompts).
+    """
     if not raw_text:
         return False
     low = raw_text.lower()
-    markers = (
-        '"file_id"', '"fileid"', "asset_pointer", '"attachments"',
-        "file-service://", "attachment://", '"mime_type"', '"mimetype"',
-        '"files":', "input_file", "input_image", '"image_url"',
-        '"inline_data"', '"inlinedata"', '"filedata"',
+
+    # Empty arrays / nulls are not attachments
+    if re.search(r'"attachments"\s*:\s*\[\s*\]', low):
+        low = re.sub(r'"attachments"\s*:\s*\[\s*\]', " ", low)
+    if re.search(r'"files"\s*:\s*\[\s*\]', low):
+        low = re.sub(r'"files"\s*:\s*\[\s*\]', " ", low)
+    if re.search(r'"documents"\s*:\s*\[\s*\]', low):
+        low = re.sub(r'"documents"\s*:\s*\[\s*\]', " ", low)
+
+    # Strong URI / pointer evidence
+    if any(
+        x in low
+        for x in (
+            "file-service://",
+            "attachment://",
+            "asset_pointer",
+            "converted_file",
+            "convert_document",
+            "/c/api/attachments",
+            '"messagetype":"image"',
+            "input_file",
+            "input_image",
+        )
+    ):
+        return True
+
+    # Non-empty attachment / files arrays
+    if re.search(r'"attachments"\s*:\s*\[\s*\{', low):
+        return True
+    if re.search(r'"files"\s*:\s*\[\s*\{', low):
+        return True
+    if re.search(r'"documents"\s*:\s*\[\s*\{', low):
+        return True
+
+    # Real IDs with non-empty values (not null / "")
+    id_patterns = (
+        r'"file_id"\s*:\s*"(?!null)[^"]+"',
+        r'"fileid"\s*:\s*"(?!null)[^"]+"',
+        r'"file_uuid"\s*:\s*"(?!null)[^"]+"',
+        r'"fileuuid"\s*:\s*"(?!null)[^"]+"',
+        r'"docid"\s*:\s*"(?!null)[^"]+"',
+        r'"document_id"\s*:\s*"(?!null)[^"]+"',
+        r'"attachment_id"\s*:\s*"(?!null)[^"]+"',
+        r'"attachmentid"\s*:\s*"(?!null)[^"]+"',
+        r'"file_uri"\s*:\s*"(?!null)[^"]+"',
+        r'"fileuri"\s*:\s*"(?!null)[^"]+"',
+        r'"image_url"\s*:\s*"(?!null)https?[^"]+"',
+        r'"imageurl"\s*:\s*"(?!null)https?[^"]+"',
     )
-    return any(m in low for m in markers)
+    if any(re.search(p, low) for p in id_patterns):
+        return True
+
+    # Inline binary / base64 file payloads (Gemini / multimodal)
+    if re.search(r'"(?:inline_data|inlinedata|filedata)"\s*:\s*\{', low):
+        return True
+    if re.search(r'"media_type"\s*:\s*"(?:application/|image/|audio/|video/)', low):
+        # Claude document blocks often use media_type + data together
+        if '"data"' in low or "base64" in low or "extracted_content" in low:
+            return True
+
+    # Filename with common document/image extension in this send
+    if re.search(
+        r'"(?:file_name|filename|fileName|name|title)"\s*:\s*"[^"]+\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|webp|txt|csv)"',
+        low,
+    ):
+        return True
+
+    # Claude content blocks: {"type":"document"|"image"|"file", ...} with real payload
+    if re.search(r'"type"\s*:\s*"(?:document|image|file|input_image|input_file)"', low):
+        if any(
+            x in low
+            for x in (
+                '"source"', '"data"', "base64", "file_uuid", "file_id",
+                "application/pdf", "image/png", "image/jpeg", "extracted_content",
+            )
+        ):
+            return True
+
+    # Gemini Drive / file URI refs on StreamGenerate (not empty placeholders)
+    if re.search(r'"(?:file_data|filedata|file_uri|fileuri)"\s*:\s*\{', low):
+        return True
+    if "drive.google.com" in low and ("file/" in low or "open?id=" in low):
+        return True
+
+    return False
 
 
-def take_cached_upload_for_send(domain: str, raw_text: str = "") -> dict | None:
-    """Pop the best matching cached upload for this chat Send."""
-    d = (domain or "").lower()
+def take_cached_upload_for_send(
+    domain: str,
+    raw_text: str = "",
+    *,
+    allow_latest: bool = False,
+) -> dict | None:
+    """Pop the best matching cached upload for this chat Send (product-family aliases).
+
+    Prefer file-id / filename from the chat body. Only fall back to "|latest" when
+    allow_latest=True and the upload happened within _UPLOAD_LATEST_MATCH_TTL —
+    otherwise typed prompts steal an old cache and log as attachment.
+    """
+    aliases = upload_domain_aliases(domain)
     with _UPLOAD_FILE_CACHE_LOCK:
         _purge_upload_file_cache()
         for fid in _extract_file_ids_from_chat(raw_text):
-            for key in (f"{d}|id|{fid}", f"{d}|id|file-{fid}"):
-                if key in _UPLOAD_FILE_CACHE:
-                    return _UPLOAD_FILE_CACHE.pop(key)
-        # Match filename mentioned in chat JSON
+            for alias in aliases:
+                for key in (f"{alias}|id|{fid}", f"{alias}|id|file-{fid}"):
+                    if key in _UPLOAD_FILE_CACHE:
+                        return _UPLOAD_FILE_CACHE.pop(key)
         for m in re.finditer(
             r'["\'](?:file_name|fileName|filename|name|title)["\']\s*:\s*["\']([^"\']+)["\']',
             raw_text or "",
         ):
-            key = f"{d}|name|{m.group(1).strip().lower()}"
-            if key in _UPLOAD_FILE_CACHE:
-                return _UPLOAD_FILE_CACHE.pop(key)
-        latest = _UPLOAD_FILE_CACHE.pop(f"{d}|latest", None)
-        if latest:
-            # Also drop name key for same entry
-            name_key = f"{d}|name|{(latest.get('file_name') or '').lower()}"
-            _UPLOAD_FILE_CACHE.pop(name_key, None)
-            return latest
+            name = m.group(1).strip().lower()
+            if not name or name in ("attachment", "file", "document", "untitled"):
+                continue
+            for alias in aliases:
+                key = f"{alias}|name|{name}"
+                if key in _UPLOAD_FILE_CACHE:
+                    return _UPLOAD_FILE_CACHE.pop(key)
+        if not allow_latest:
+            return None
+        now = time.time()
+        for alias in aliases:
+            latest = _UPLOAD_FILE_CACHE.get(f"{alias}|latest")
+            if not latest:
+                continue
+            age = now - float(latest.get("ts") or 0)
+            if age > _UPLOAD_LATEST_MATCH_TTL:
+                continue
+            latest = _UPLOAD_FILE_CACHE.pop(f"{alias}|latest", None)
+            if latest:
+                name_key = f"{alias}|name|{(latest.get('file_name') or '').lower()}"
+                _UPLOAD_FILE_CACHE.pop(name_key, None)
+                return latest
     return None
+
+
+def enforce_file_send_policy(
+    *,
+    platform: str,
+    domain: str,
+    host: str,
+    client_ip: str,
+    url: str,
+    method: str,
+    raw_text: str,
+    content_type: str = "",
+    file_name_hint: str = "",
+) -> tuple[bool, str]:
+    """
+    On chat Send with an attachment: Block Upload / file-content rules / Prompt Log.
+    Returns (should_block, block_reply_text). should_block=True → stop the site AI request.
+
+    Typed-only prompts must return (False, "") so normal Guard Rules still run.
+    """
+    has_attach = chat_carries_attachment(raw_text) or bool((file_name_hint or "").strip())
+    # Bind cache only when THIS Send looks like a file send — never steal an old
+    # upload for a typed Claude/Copilot "hi" (that logged as "[FILE UPLOAD] attachment").
+    cached = (
+        take_cached_upload_for_send(domain, raw_text, allow_latest=True)
+        if has_attach
+        else None
+    )
+
+    # No real attachment evidence → normal text prompt path (Guard Rules / AI Bot)
+    if not has_attach:
+        return False, ""
+
+    get_control_settings()
+    fname = (file_name_hint or "").strip()
+    if cached:
+        fname = fname or (cached.get("file_name") or "").strip()
+    if not fname:
+        for m in re.finditer(
+            r'["\'](?:file_name|fileName|filename|name|title)["\']\s*:\s*["\']([^"\']+)["\']',
+            raw_text or "",
+        ):
+            cand = m.group(1).strip()
+            if cand and "." in cand and cand.lower() not in ("attachment", "file", "document"):
+                fname = cand
+                break
+    # Markers without a real name/cache:
+    # - Block Upload ON → still fail-closed (block + log) so AI sites cannot Send a file past Guard
+    # - Block Upload OFF and no cache → do not invent a fake "[FILE UPLOAD] attachment" row
+    if not fname and not cached:
+        if not controls_active("block_upload"):
+            return False, ""
+        fname = "attachment"
+    file_label = fname or "attachment"
+    upload_warn = (get_control_settings().get("upload_warning") or "").strip()
+    base_upload_msg = upload_warn or "Upload block"
+
+    rule_hit = bool(cached and cached.get("rule_hit"))
+    rule_name = (cached.get("rule_name") if cached else "") or ""
+    rule_action = ((cached.get("rule_action") if cached else "") or "").upper()
+    cached_bytes = (cached.get("raw_bytes") if cached else b"") or b""
+    cached_ct = (cached.get("content_type") if cached else "") or content_type
+    if cached_bytes and not rule_hit:
+        ut = extract_upload_text_for_rules(cached_bytes, cached_ct, "", fname)
+        rule_hit, rule_name, rule_action = match_guard_rules_on_text(ut)
+        rule_action = (rule_action or "").upper()
+
+    block_all = controls_active("block_upload")
+    block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT", "WARN"))
+    if block_all or block_for_rule:
+        blocked_reason = "Block Upload"
+        prompt_log = f"[FILE UPLOAD] {file_label} — {base_upload_msg}"
+        if block_for_rule:
+            blocked_reason = rule_name or "Guard Rule (file content)"
+            rule_warn = _warning_for_rule_name(rule_name)
+            left = (rule_warn or base_upload_msg).strip() or "Upload block"
+            prompt_log = f"[FILE UPLOAD] {file_label} — {left}" + (f" -- {rule_name}" if rule_name else "")
+        dedupe_key = f"upload-send-block|{blocked_reason}|{file_label}"
+        if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+            print(f"[UnifAI Proxy] FILE SEND BLOCKED | {client_ip} → {host} | {file_label}")
+            ok = post_upload_intercept(
+                platform=platform,
+                prompt=prompt_log,
+                client_ip=client_ip,
+                domain=domain,
+                url=url,
+                method=method,
+                file_name=fname,
+                is_blocked=True,
+                blocked_reason=blocked_reason,
+                raw_bytes=cached_bytes,
+                content_type=cached_ct,
+            )
+            if ok:
+                mark_duplicate_event(domain, dedupe_key)
+        msg = base_upload_msg
+        if block_for_rule:
+            rule_warn = _warning_for_rule_name(rule_name)
+            left = (rule_warn or base_upload_msg).strip() or "Upload block"
+            msg = f"{left} -- {rule_name}" if rule_name else left
+        return True, msg
+
+    # Allowed file send — audit log only when we truly have a file (cache or named attach)
+    if cached or fname:
+        clean_log = f"[FILE UPLOAD] {file_label}"
+        dedupe_key = f"upload-send-allowed|{file_label}"
+        if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+            print(f"[UnifAI Proxy] FILE SEND ALLOWED | {client_ip} → {host} | {clean_log}")
+            ok = post_upload_intercept(
+                platform=platform,
+                prompt=clean_log,
+                client_ip=client_ip,
+                domain=domain,
+                url=url,
+                method=method,
+                file_name=fname,
+                is_blocked=False,
+                raw_bytes=cached_bytes,
+                content_type=cached_ct,
+            )
+            if ok:
+                mark_duplicate_event(domain, dedupe_key)
+    return False, ""
 
 
 def post_upload_intercept(
@@ -2876,6 +3148,28 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
     )
 
 
+def inject_warned_prompt(raw_text: str, original: str, warned: str) -> str | None:
+    """Rewrite request body so WARN forwarding works on JSON and Gemini f.req wire formats."""
+    if not raw_text or not original or not warned or original == warned:
+        return None
+    if original in raw_text:
+        return raw_text.replace(original, warned, 1)
+
+    # Gemini / form bodies often JSON-escape the prompt inside f.req=
+    variants = [
+        original.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"),
+        json.dumps(original)[1:-1],  # same escaping as JSON string content
+    ]
+    warned_variants = [
+        warned.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t"),
+        json.dumps(warned)[1:-1],
+    ]
+    for ov, wv in zip(variants, warned_variants):
+        if ov and ov in raw_text and ov != wv:
+            return raw_text.replace(ov, wv, 1)
+    return None
+
+
 # ─────────────────────────────────────────────
 # mitmproxy Addon Class
 # ─────────────────────────────────────────────
@@ -2957,6 +3251,59 @@ class BrowserAIInterceptor:
             upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, fname)
             file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
             file_ids = _extract_file_ids_from_chat(raw_text)
+            file_rule_action = (file_rule_action or "").upper()
+            block_all = controls_active("block_upload")
+            block_for_rule = bool(file_rule_hit and file_rule_action in ("BLOCK", "REDACT", "WARN"))
+
+            # Block Upload / file-content rule: stop bytes from reaching the AI provider NOW
+            # (not only on later Send). Still cache for Prompt Log / View.
+            if block_all or block_for_rule:
+                cache_upload_file(
+                    domain,
+                    file_name=fname or "attachment",
+                    raw_bytes=raw_bytes,
+                    content_type=content_type,
+                    upload_reason=upload_reason or "",
+                    rule_hit=file_rule_hit,
+                    rule_name=file_rule_name,
+                    rule_action=file_rule_action,
+                    file_id=file_ids[0] if file_ids else "",
+                )
+                upload_warn = (get_control_settings().get("upload_warning") or "").strip()
+                base_upload_msg = upload_warn or "Upload block"
+                blocked_reason = "Block Upload"
+                file_label = fname or "attachment"
+                prompt_log = f"[FILE UPLOAD] {file_label} — {base_upload_msg}"
+                msg = base_upload_msg
+                if block_for_rule:
+                    blocked_reason = file_rule_name or "Guard Rule (file content)"
+                    rule_warn = _warning_for_rule_name(file_rule_name)
+                    left = (rule_warn or base_upload_msg).strip() or "Upload block"
+                    prompt_log = f"[FILE UPLOAD] {file_label} — {left}" + (
+                        f" -- {file_rule_name}" if file_rule_name else ""
+                    )
+                    msg = f"{left} -- {file_rule_name}" if file_rule_name else left
+                dedupe_key = f"upload-time-block|{blocked_reason}|{file_label}"
+                if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                    print(f"[UnifAI Proxy] FILE UPLOAD BLOCKED | {client_ip} → {host} | {file_label}")
+                    ok = post_upload_intercept(
+                        platform=platform,
+                        prompt=prompt_log,
+                        client_ip=client_ip,
+                        domain=domain,
+                        url=flow.request.url,
+                        method=flow.request.method,
+                        file_name=fname or "attachment",
+                        is_blocked=True,
+                        blocked_reason=blocked_reason,
+                        raw_bytes=raw_bytes,
+                        content_type=content_type,
+                    )
+                    if ok:
+                        mark_duplicate_event(domain, dedupe_key)
+                make_blocked_response(flow, blocked_reason, host, reply_text=msg)
+                return
+
             cache_upload_file(
                 domain,
                 file_name=fname or "attachment",
@@ -2968,7 +3315,7 @@ class BrowserAIInterceptor:
                 rule_action=file_rule_action,
                 file_id=file_ids[0] if file_ids else "",
             )
-            # Never block or log here — user must press Send first.
+            # Allowed upload — cache for Send-time audit; do not Prompt Log until Send.
             return
 
         # Also drop multipart noise that slipped past upload detection
@@ -2990,92 +3337,28 @@ class BrowserAIInterceptor:
         if is_noise(path, raw_text):
             return
 
-        # File attached + Send: Prompt Log + Allow/Block happens HERE only
-        if chat_carries_attachment(raw_text):
-            cached = take_cached_upload_for_send(domain, raw_text)
-            fname = ""
-            if cached:
-                fname = (cached.get("file_name") or "").strip()
-            if not fname:
-                fname = extract_filename_from_upload(flow, raw_text) or "attachment"
-            file_label = fname
-            upload_warn = (get_control_settings().get("upload_warning") or "").strip()
-            base_upload_msg = upload_warn or "Upload block"
-
-            rule_hit = bool(cached and cached.get("rule_hit"))
-            rule_name = (cached.get("rule_name") if cached else "") or ""
-            rule_action = ((cached.get("rule_action") if cached else "") or "").upper()
-            # Re-scan cached bytes on Send if needed
-            cached_bytes = (cached.get("raw_bytes") if cached else b"") or b""
-            cached_ct = (cached.get("content_type") if cached else "") or content_type
-            if cached_bytes and not rule_hit:
-                ut = extract_upload_text_for_rules(cached_bytes, cached_ct, "", fname)
-                rule_hit, rule_name, rule_action = match_guard_rules_on_text(ut)
-                rule_action = (rule_action or "").upper()
-
-            block_all = controls_active("block_upload")
-            block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT", "WARN"))
-            if block_all or block_for_rule:
-                blocked_reason = "Block Upload"
-                prompt_log = f"[FILE UPLOAD] {file_label} — {base_upload_msg}"
-                if block_for_rule:
-                    blocked_reason = rule_name or "Guard Rule (file content)"
-                    rule_warn = _warning_for_rule_name(rule_name)
-                    left = (rule_warn or base_upload_msg).strip() or "Upload block"
-                    prompt_log = f"[FILE UPLOAD] {file_label} — {left}" + (f" -- {rule_name}" if rule_name else "")
-                dedupe_key = f"upload-send-block|{blocked_reason}|{file_label}"
-                if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
-                    print(f"[UnifAI Proxy] FILE SEND BLOCKED | {client_ip} → {host} | {file_label}")
-                    ok = post_upload_intercept(
-                        platform=platform,
-                        prompt=prompt_log,
-                        client_ip=client_ip,
-                        domain=domain,
-                        url=flow.request.url,
-                        method=flow.request.method,
-                        file_name=fname,
-                        is_blocked=True,
-                        blocked_reason=blocked_reason,
-                        raw_bytes=cached_bytes,
-                        content_type=cached_ct,
-                    )
-                    if ok:
-                        mark_duplicate_event(domain, dedupe_key)
-                msg = base_upload_msg
-                if block_for_rule:
-                    rule_warn = _warning_for_rule_name(rule_name)
-                    left = (rule_warn or base_upload_msg).strip() or "Upload block"
-                    msg = f"{left} -- {rule_name}" if rule_name else left
-                make_blocked_response(flow, blocked_reason, host, reply_text=msg)
-                return
-
-            # Allowed file send — still audit + store for View/Download
-            clean_log = f"[FILE UPLOAD] {file_label}"
-            dedupe_key = f"upload-send-allowed|{file_label}"
-            if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
-                print(f"[UnifAI Proxy] FILE SEND ALLOWED | {client_ip} → {host} | {clean_log}")
-                ok = post_upload_intercept(
-                    platform=platform,
-                    prompt=clean_log,
-                    client_ip=client_ip,
-                    domain=domain,
-                    url=flow.request.url,
-                    method=flow.request.method,
-                    file_name=fname,
-                    is_blocked=False,
-                    raw_bytes=cached_bytes,
-                    content_type=cached_ct,
-                )
-                if ok:
-                    mark_duplicate_event(domain, dedupe_key)
-            # Continue to also log the text prompt if present (do not return yet)
+        # File attached + Send: Prompt Log + Allow/Block (ChatGPT / Claude / Gemini / Copilot)
+        should_block_file, file_block_msg = enforce_file_send_policy(
+            platform=platform,
+            domain=domain,
+            host=host,
+            client_ip=client_ip,
+            url=flow.request.url,
+            method=flow.request.method,
+            raw_text=raw_text,
+            content_type=content_type,
+            file_name_hint=extract_filename_from_upload(flow, raw_text) if chat_carries_attachment(raw_text) else "",
+        )
+        if should_block_file:
+            make_blocked_response(flow, "Block Upload", host, reply_text=file_block_msg)
+            return
 
         prompt = extract_prompt(raw_bytes, content_type, host=host)
         if not prompt or len(prompt.strip()) < 1:
             # Help debug Gemini/Copilot misses without flooding logs
-            if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6")) and len(raw_text) > 20:
+            if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6", "claude")) and len(raw_text) > 20:
                 print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
-            # Attachment-only send already logged above
+            # Attachment-only send already logged above (real file markers only)
             if chat_carries_attachment(raw_text):
                 return
             return
@@ -3115,8 +3398,11 @@ class BrowserAIInterceptor:
         elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
             print(f"[UnifAI Proxy] WARNED prompt to {domain} → Rule: {rule_triggered} (prompt+warning forwarded)")
             try:
-                new_content = raw_text.replace(prompt, redacted_prompt)
-                flow.request.content = new_content.encode("utf-8")
+                new_content = inject_warned_prompt(raw_text, prompt, redacted_prompt)
+                if new_content:
+                    flow.request.content = new_content.encode("utf-8")
+                else:
+                    print(f"[UnifAI Proxy Warning] WARN inject miss | {domain} | could not rewrite body")
             except Exception as e:
                 print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
 
@@ -3157,6 +3443,28 @@ class BrowserAIInterceptor:
                 return
 
         if is_noise(flow.request.path, content):
+            return
+
+        # Copilot (and other WS chat): file attachment Send must hit Block Upload / file rules
+        should_block_file, file_block_msg = enforce_file_send_policy(
+            platform=platform,
+            domain=domain,
+            host=host,
+            client_ip=get_client_ip(flow),
+            url=flow.request.url,
+            method="WS",
+            raw_text=content,
+            content_type="application/json",
+        )
+        if should_block_file:
+            try:
+                msg.drop()
+            except Exception:
+                try:
+                    msg.kill()
+                except Exception:
+                    pass
+            inject_websocket_reply(flow, host, file_block_msg)
             return
 
         prompt = extract_prompt(content.encode("utf-8"), "application/json", host=host)
@@ -3200,7 +3508,9 @@ class BrowserAIInterceptor:
             inject_websocket_reply(flow, host, block_msg)
         elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
             print(f"[UnifAI Proxy] WARNED WebSocket prompt to {domain} → Rule: {rule_triggered}")
-            msg.text = msg.text.replace(prompt, redacted_prompt)
+            new_content = inject_warned_prompt(content, prompt, redacted_prompt)
+            if new_content:
+                msg.text = new_content
 
 
 addons = [BrowserAIInterceptor()]

@@ -222,9 +222,10 @@ func NormalizeDomain(raw string) string {
 }
 
 type BrowserAIManager struct {
-	db       *gorm.DB
-	migrated bool
-	mu       sync.RWMutex
+	db                    *gorm.DB
+	migrated              bool
+	relatedHostsBackfilled bool
+	mu                    sync.RWMutex
 }
 
 func NewBrowserAIManager(db *gorm.DB) *BrowserAIManager {
@@ -547,14 +548,34 @@ func (m *BrowserAIManager) UpdateControls(ctx context.Context, updates map[strin
 }
 
 func (m *BrowserAIManager) GetTargets(ctx context.Context) ([]BrowserTargetWebsite, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var targets []BrowserTargetWebsite
 	if m.db == nil {
 		return targets, nil
 	}
-	err := m.db.WithContext(ctx).Order("domain ASC").Find(&targets).Error
-	return targets, err
+	if err := m.db.WithContext(ctx).Order("domain ASC").Find(&targets).Error; err != nil {
+		return targets, err
+	}
+	// One-time backfill for AI parents created before related-host auto-add
+	if !m.relatedHostsBackfilled {
+		for i := range targets {
+			t := &targets[i]
+			if strings.TrimSpace(t.ParentID) != "" {
+				continue
+			}
+			if len(relatedHostsForDomain(t.Domain)) == 0 {
+				continue
+			}
+			_ = m.ensureRelatedHostsLocked(ctx, t)
+		}
+		m.relatedHostsBackfilled = true
+		targets = nil
+		if err := m.db.WithContext(ctx).Order("domain ASC").Find(&targets).Error; err != nil {
+			return targets, err
+		}
+	}
+	return targets, nil
 }
 
 func sanitizeProxyAddr(raw string) string {
@@ -730,14 +751,20 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 // relatedHostsForDomain mirrors UI suggestions — required for Gemini/Copilot prompt capture.
 func relatedHostsForDomain(domain string) []string {
 	switch NormalizeDomain(domain) {
-	case "gemini.google.com", "bard.google.com":
-		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"}
-	case "copilot.microsoft.com", "copilot.cloud.microsoft":
-		return []string{"sydney.bing.com", "edgeservices.bing.com"}
 	case "chatgpt.com":
 		return []string{"chat.openai.com", "ab.chatgpt.com"}
 	case "chat.openai.com":
 		return []string{"chatgpt.com", "ab.chatgpt.com"}
+	case "claude.ai", "www.claude.ai":
+		return []string{"claude.ai", "www.claude.ai"}
+	case "copilot.microsoft.com", "copilot.cloud.microsoft":
+		return []string{
+			"sydney.bing.com", "edgeservices.bing.com", "bing.com", "business.bing.com",
+			"substrate.office.com", "m365.cloud.microsoft",
+			"copilot.microsoft.com", "copilot.cloud.microsoft",
+		}
+	case "gemini.google.com", "bard.google.com":
+		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"}
 	default:
 		return nil
 	}

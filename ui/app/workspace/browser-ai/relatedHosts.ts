@@ -33,7 +33,7 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 	if (d === "copilot.microsoft.com" || d === "copilot.cloud.microsoft") {
 		return {
 			label: "Copilot related hosts",
-			reason: "Names only — not added until you click. Subdomains of copilot.microsoft.com are already covered.",
+			reason: "Chat often uses sydney.bing.com; M365 uploads use substrate.office.com.",
 			hosts: [
 				"sydney.bing.com",
 				"bing.com",
@@ -41,6 +41,7 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 				"business.bing.com",
 				"copilot.cloud.microsoft",
 				"m365.cloud.microsoft",
+				"substrate.office.com",
 			],
 		};
 	}
@@ -49,6 +50,13 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 			label: "ChatGPT related hosts",
 			reason: "Chat and upload traffic can use chatgpt.com or chat.openai.com — keep both monitored for file View/logs.",
 			hosts: ["chatgpt.com", "chat.openai.com", "ab.chatgpt.com"],
+		};
+	}
+	if (d === "claude.ai" || d === "www.claude.ai") {
+		return {
+			label: "Claude related hosts",
+			reason: "Keep claude.ai monitored so document convert/upload and chat Send are both visible to Guard.",
+			hosts: ["claude.ai", "www.claude.ai"],
 		};
 	}
 	return null;
