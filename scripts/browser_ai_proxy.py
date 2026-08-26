@@ -1508,15 +1508,30 @@ def chat_carries_attachment(raw_text: str) -> bool:
     ):
         return True
 
-    # Claude content blocks: {"type":"document"|"image"|"file", ...} with real payload
-    if re.search(r'"type"\s*:\s*"(?:document|image|file|input_image|input_file)"', low):
+    # Claude content blocks: {"type":"document"|"image"|"file"|"audio", ...} with real payload
+    if re.search(r'"type"\s*:\s*"(?:document|image|file|input_image|input_file|audio|input_audio|voice)"', low):
         if any(
             x in low
             for x in (
                 '"source"', '"data"', "base64", "file_uuid", "file_id",
                 "application/pdf", "image/png", "image/jpeg", "extracted_content",
+                "audio/", "audio/wav", "audio/mpeg", "audio/webm",
             )
         ):
+            return True
+
+    # Voice / audio attachment markers
+    if any(
+        x in low
+        for x in (
+            '"input_audio"', "audio_url", '"voice_mode"',
+            "audio/webm", "audio/wav", "audio/mpeg", "audio/mp4",
+        )
+    ):
+        return True
+    if re.search(r'"(?:transcript|transcription)"\s*:\s*"(?!null)[^"]{2,}"', low):
+        # Transcript alone is enough to treat as voice content for rule scan on Send
+        if any(x in low for x in ("audio", "voice", "speech", "dictation", "file_id", "attachment")):
             return True
 
     # Gemini Drive / file URI refs on StreamGenerate (not empty placeholders)
@@ -1644,14 +1659,28 @@ def enforce_file_send_policy(
 
     block_all = controls_active("block_upload")
     block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT", "WARN"))
+    tag = _upload_log_tag(fname, cached_ct, cached_bytes)
+    # Include short extracted voice/file text in the log so admins see what was spoken/scanned
+    excerpt = ""
+    if cached_bytes or rule_hit:
+        try:
+            scanned = extract_upload_text_for_rules(cached_bytes, cached_ct, raw_text or "", fname)
+            if scanned:
+                excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
+        except Exception:
+            excerpt = ""
     if block_all or block_for_rule:
         blocked_reason = "Block Upload"
-        prompt_log = f"[FILE UPLOAD] {file_label} — {base_upload_msg}"
+        prompt_log = f"{tag} {file_label} — {base_upload_msg}"
+        if excerpt:
+            prompt_log = f"{prompt_log} | {excerpt}"
         if block_for_rule:
             blocked_reason = rule_name or "Guard Rule (file content)"
             rule_warn = _warning_for_rule_name(rule_name)
             left = (rule_warn or base_upload_msg).strip() or "Upload block"
-            prompt_log = f"[FILE UPLOAD] {file_label} — {left}" + (f" -- {rule_name}" if rule_name else "")
+            prompt_log = f"{tag} {file_label} — {left}" + (f" -- {rule_name}" if rule_name else "")
+            if excerpt:
+                prompt_log = f"{prompt_log} | {excerpt}"
         dedupe_key = f"upload-send-block|{blocked_reason}|{file_label}"
         if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
             print(f"[UnifAI Proxy] FILE SEND BLOCKED | {client_ip} → {host} | {file_label}")
@@ -1679,7 +1708,9 @@ def enforce_file_send_policy(
 
     # Allowed file send — audit log only when we truly have a file (cache or named attach)
     if cached or fname:
-        clean_log = f"[FILE UPLOAD] {file_label}"
+        clean_log = f"{tag} {file_label}"
+        if excerpt:
+            clean_log = f"{clean_log} | {excerpt}"
         dedupe_key = f"upload-send-allowed|{file_label}"
         if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
             print(f"[UnifAI Proxy] FILE SEND ALLOWED | {client_ip} → {host} | {clean_log}")
@@ -1698,6 +1729,16 @@ def enforce_file_send_policy(
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
     return False, ""
+
+
+def _upload_log_tag(file_name: str = "", content_type: str = "", raw_bytes: bytes = b"") -> str:
+    """Prompt Log prefix: VOICE vs FILE."""
+    if _looks_like_audio(raw_bytes or b"", content_type, file_name):
+        return "[VOICE UPLOAD]"
+    fn = (file_name or "").lower()
+    if fn.endswith((".wav", ".mp3", ".m4a", ".ogg", ".webm", ".flac", ".aac", ".opus", ".wma")):
+        return "[VOICE UPLOAD]"
+    return "[FILE UPLOAD]"
 
 
 def post_upload_intercept(
@@ -2215,6 +2256,289 @@ def _extract_image_text(data: bytes) -> str:
     return ""
 
 
+def _looks_like_audio(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    """True for voice notes / audio file uploads (wav/mp3/m4a/ogg/webm/aac/flac)."""
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    if ct.startswith("audio/") or "audio" in ct.split(";")[0]:
+        return True
+    if fn.endswith((".wav", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".webm", ".flac", ".wma")):
+        return True
+    if not data or len(data) < 12:
+        return False
+    head = data[:16]
+    if head[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        return True
+    if head[:3] == b"ID3" or head[:2] == b"\xff\xfb" or head[:2] == b"\xff\xf3":
+        return True  # mp3
+    if head[:4] == b"fLaC" or head[:4] == b"OggS":
+        return True
+    if head[4:8] == b"ftyp":  # m4a/mp4 container
+        return True
+    return False
+
+
+def _extract_transcript_fields_from_json(raw_text: str) -> str:
+    """Many AI sites STT locally and send transcript JSON with the voice blob."""
+    if not raw_text or len(raw_text) < 8:
+        return ""
+    low = raw_text.lower()
+    if not any(
+        k in low
+        for k in (
+            "transcript", "transcription", "spoken", "voice", "dictation",
+            "asr", "speech_to_text", "speechtext",
+        )
+    ):
+        return ""
+    try:
+        data = json.loads(raw_text)
+    except Exception:
+        # Regex fallback for nested / escaped transcripts
+        parts = []
+        for pat in (
+            r'"(?:transcript|transcription|spoken_text|speech_text|dictation|asr_text)"\s*:\s*"((?:\\.|[^"\\])*)"',
+            r'"(?:transcript|transcription)"\s*:\s*"((?:\\.|[^"\\])*)"',
+        ):
+            for m in re.finditer(pat, raw_text, re.I):
+                try:
+                    val = json.loads(f'"{m.group(1)}"')
+                except Exception:
+                    val = m.group(1).replace("\\n", "\n").replace('\\"', '"')
+                val = (val or "").strip()
+                if val and looks_like_user_prompt(val):
+                    parts.append(val)
+        return "\n".join(parts)[:200_000]
+
+    found: list[str] = []
+
+    def walk(obj, depth=0):
+        if depth > 8 or len(found) >= 5:
+            return
+        if isinstance(obj, dict):
+            for k, v in obj.items():
+                kl = str(k).lower()
+                if kl in (
+                    "transcript", "transcription", "spoken_text", "speech_text",
+                    "dictation", "asr_text", "voice_text", "recognized_text",
+                ) and isinstance(v, str) and v.strip():
+                    if looks_like_user_prompt(v.strip()):
+                        found.append(v.strip())
+                else:
+                    walk(v, depth + 1)
+        elif isinstance(obj, list):
+            for item in obj[:40]:
+                walk(item, depth + 1)
+
+    walk(data)
+    return "\n".join(found)[:200_000]
+
+
+def _audio_to_wav_path(data: bytes, content_type: str = "", file_name: str = "") -> str | None:
+    """Write audio to a temp path; convert to WAV when possible for Windows STT."""
+    import tempfile
+    import os
+
+    if not data or len(data) < 64:
+        return None
+    if len(data) > 25 * 1024 * 1024:
+        data = data[: 25 * 1024 * 1024]
+
+    fn = (file_name or "").lower()
+    ct = (content_type or "").lower()
+    suffix = ".bin"
+    for ext in (".wav", ".mp3", ".m4a", ".ogg", ".webm", ".flac", ".aac", ".wma", ".opus"):
+        if fn.endswith(ext) or ext.replace(".", "") in ct:
+            suffix = ext
+            break
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        suffix = ".wav"
+
+    fd, path = tempfile.mkstemp(prefix="unifai_voice_", suffix=suffix)
+    try:
+        os.write(fd, data)
+    finally:
+        os.close(fd)
+
+    if path.lower().endswith(".wav"):
+        return path
+
+    # Prefer ffmpeg on PATH (common on IT images) to produce PCM WAV for System.Speech
+    wav_path = path + ".wav"
+    try:
+        import shutil
+        ffmpeg = shutil.which("ffmpeg")
+        if ffmpeg:
+            import subprocess
+            proc = subprocess.run(
+                [ffmpeg, "-y", "-i", path, "-ac", "1", "-ar", "16000", wav_path],
+                capture_output=True,
+                timeout=45,
+            )
+            if proc.returncode == 0 and os.path.isfile(wav_path) and os.path.getsize(wav_path) > 64:
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+                return wav_path
+    except Exception as e:
+        print(f"[UnifAI Proxy] ffmpeg voice convert skipped: {e}")
+
+    # Optional pydub (if installed + ffmpeg)
+    try:
+        from pydub import AudioSegment  # type: ignore
+        fmt = suffix.lstrip(".")
+        if fmt == "mp3":
+            seg = AudioSegment.from_mp3(path)
+        elif fmt in ("ogg", "oga", "opus"):
+            seg = AudioSegment.from_ogg(path)
+        elif fmt == "wav":
+            seg = AudioSegment.from_wav(path)
+        else:
+            seg = AudioSegment.from_file(path)
+        seg = seg.set_channels(1).set_frame_rate(16000)
+        seg.export(wav_path, format="wav")
+        if os.path.isfile(wav_path) and os.path.getsize(wav_path) > 64:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            return wav_path
+    except Exception:
+        pass
+
+    return path  # may still be useful for whisper
+
+
+def _windows_system_speech_stt(wav_path: str) -> str:
+    """Offline STT via Windows System.Speech (dictation grammar) for WAV files."""
+    import subprocess
+    import tempfile
+    import os
+
+    if not wav_path or not os.path.isfile(wav_path):
+        return ""
+    # Escape for PowerShell single-quoted string
+    safe = wav_path.replace("'", "''")
+    ps = f"""
+Add-Type -AssemblyName System.Speech
+$engine = New-Object System.Speech.Recognition.SpeechRecognitionEngine
+try {{
+  $engine.SetInputToWaveFile('{safe}')
+  $engine.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+  $result = $engine.Recognize()
+  if ($result -ne $null) {{ $result.Text }}
+}} finally {{
+  $engine.Dispose()
+}}
+"""
+    try:
+        proc = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True,
+            timeout=60,
+            text=True,
+            encoding="utf-8",
+            errors="ignore",
+        )
+        text = (proc.stdout or "").strip()
+        if text and looks_like_user_prompt(text):
+            return text[:200_000]
+    except Exception as e:
+        print(f"[UnifAI Proxy] Windows System.Speech STT failed: {e}")
+    return ""
+
+
+def _whisper_stt(path: str) -> str:
+    """Optional local Whisper (openai-whisper or faster-whisper) if installed on the machine."""
+    if not path:
+        return ""
+    # faster-whisper
+    try:
+        from faster_whisper import WhisperModel  # type: ignore
+
+        model = WhisperModel("tiny", device="cpu", compute_type="int8")
+        segments, _info = model.transcribe(path, beam_size=1)
+        parts = [s.text.strip() for s in segments if getattr(s, "text", None)]
+        text = " ".join(parts).strip()
+        if text:
+            return text[:200_000]
+    except Exception:
+        pass
+    # openai-whisper
+    try:
+        import whisper  # type: ignore
+
+        model = whisper.load_model("tiny")
+        result = model.transcribe(path)
+        text = (result.get("text") or "").strip()
+        if text:
+            return text[:200_000]
+    except Exception:
+        pass
+    # speech_recognition + whisper backend
+    try:
+        import speech_recognition as sr  # type: ignore
+
+        r = sr.Recognizer()
+        with sr.AudioFile(path) as source:
+            audio = r.record(source)
+        if hasattr(r, "recognize_whisper"):
+            text = (r.recognize_whisper(audio, model="tiny") or "").strip()
+            if text:
+                return text[:200_000]
+    except Exception:
+        pass
+    return ""
+
+
+def _extract_audio_text(data: bytes, content_type: str = "", file_name: str = "") -> str:
+    """
+    Speech-to-text for voice / audio uploads so Guard Rules can scan spoken content.
+    Order: site-provided transcript fields are handled separately; here we STT the bytes.
+    1) Windows System.Speech on WAV (built-in)
+    2) Optional Whisper / faster-whisper if installed
+    """
+    import os
+
+    if not data or len(data) < 64:
+        return ""
+    path = None
+    try:
+        path = _audio_to_wav_path(data, content_type, file_name)
+        if not path:
+            return ""
+        # Prefer WAV for System.Speech
+        wav = path if path.lower().endswith(".wav") else None
+        if wav:
+            text = _windows_system_speech_stt(wav)
+            if text:
+                print(f"[UnifAI Proxy] Voice STT (Windows) | {len(text)} chars | {file_name or 'audio'}")
+                return text
+        text = _whisper_stt(path)
+        if text:
+            print(f"[UnifAI Proxy] Voice STT (Whisper) | {len(text)} chars | {file_name or 'audio'}")
+            return text
+        if wav is None and path.lower().endswith((".wav",)):
+            text = _windows_system_speech_stt(path)
+            if text:
+                return text
+    except Exception as e:
+        print(f"[UnifAI Proxy] Voice STT error: {e}")
+    finally:
+        if path:
+            try:
+                os.remove(path)
+            except Exception:
+                pass
+            try:
+                if path.endswith(".wav") is False and os.path.isfile(path + ".wav"):
+                    os.remove(path + ".wav")
+            except Exception:
+                pass
+    return ""
+
+
 def _extract_plain_text_bytes(data: bytes) -> str:
     if not data:
         return ""
@@ -2240,7 +2564,7 @@ def _extract_plain_text_bytes(data: bytes) -> str:
 
 
 def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name: str = "") -> str:
-    """Extract scannable text from a single file payload (PDF / Office / image OCR / plain)."""
+    """Extract scannable text from a single file payload (PDF / Office / image OCR / voice STT / plain)."""
     if not data:
         return ""
     ct = (content_type or "").lower()
@@ -2260,6 +2584,13 @@ def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name
         t = _extract_image_text(data)
         if t:
             parts.append(t)
+
+    if _looks_like_audio(data, content_type, file_name):
+        t = _extract_audio_text(data, content_type, file_name)
+        if t:
+            parts.append(t)
+        # Never decode raw audio as latin-1 "plain text"
+        return "\n\n".join(parts)[:200_000]
 
     if fn.endswith((".txt", ".csv", ".json", ".md", ".log")) or any(
         x in ct for x in ("text/", "csv", "json")
@@ -2283,12 +2614,17 @@ def extract_upload_text_for_rules(
 ) -> str:
     """
     Pull text from an upload body so Guard Rules can scan file contents
-    (PDF, Word .docx, Excel .xlsx, PowerPoint .pptx, images via OCR, plain text, multipart).
+    (PDF, Word, Excel, PowerPoint, image OCR, voice STT, plain text, multipart).
     """
     parts: list[str] = []
     ct = (content_type or "").lower()
     data = raw_bytes or b""
     fname = (file_name or "").strip()
+
+    # Site often sends STT transcript alongside the voice blob
+    transcript = _extract_transcript_fields_from_json(raw_text or "")
+    if transcript:
+        parts.append(transcript)
 
     # Prefer clean file bytes from multipart / wrappers when present
     payload, sniffed_ct, sniffed_name = extract_upload_file_payload(data, content_type, fname)
@@ -2298,12 +2634,12 @@ def extract_upload_text_for_rules(
             parts.append(t)
 
     # Direct scan of full body (non-multipart or when payload extract missed)
-    if not parts:
+    if not parts or (transcript and len(parts) == 1):
         t = _extract_text_from_file_bytes(data, content_type, fname)
-        if t:
+        if t and t not in parts:
             parts.append(t)
 
-    # Multipart islands: PDF / Office / plain per part
+    # Multipart islands: PDF / Office / plain / audio per part
     if "multipart" in ct or b"filename=" in data[:12000] or b"webkitformboundary" in data[:4000].lower():
         for chunk in re.split(rb"\r\n--[^\r\n]+", data):
             if len(chunk) < 20:
@@ -2321,7 +2657,7 @@ def extract_upload_text_for_rules(
                 if m:
                     part_name = m.group(1).strip()
             t = _extract_text_from_file_bytes(body, content_type, part_name or fname)
-            if t and len(t) > 8:
+            if t and len(t) > 8 and t not in parts:
                 parts.append(t)
 
     # Plain / json text bodies (chat-shaped uploads)
@@ -3273,15 +3609,21 @@ class BrowserAIInterceptor:
                 base_upload_msg = upload_warn or "Upload block"
                 blocked_reason = "Block Upload"
                 file_label = fname or "attachment"
-                prompt_log = f"[FILE UPLOAD] {file_label} — {base_upload_msg}"
+                tag = _upload_log_tag(fname, content_type, raw_bytes)
+                excerpt = re.sub(r"\s+", " ", (upload_text or "")).strip()[:180]
+                prompt_log = f"{tag} {file_label} — {base_upload_msg}"
+                if excerpt:
+                    prompt_log = f"{prompt_log} | {excerpt}"
                 msg = base_upload_msg
                 if block_for_rule:
                     blocked_reason = file_rule_name or "Guard Rule (file content)"
                     rule_warn = _warning_for_rule_name(file_rule_name)
                     left = (rule_warn or base_upload_msg).strip() or "Upload block"
-                    prompt_log = f"[FILE UPLOAD] {file_label} — {left}" + (
+                    prompt_log = f"{tag} {file_label} — {left}" + (
                         f" -- {file_rule_name}" if file_rule_name else ""
                     )
+                    if excerpt:
+                        prompt_log = f"{prompt_log} | {excerpt}"
                     msg = f"{left} -- {file_rule_name}" if file_rule_name else left
                 dedupe_key = f"upload-time-block|{blocked_reason}|{file_label}"
                 if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
