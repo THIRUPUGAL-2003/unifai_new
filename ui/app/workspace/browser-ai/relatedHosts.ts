@@ -44,6 +44,13 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 			],
 		};
 	}
+	if (d === "chatgpt.com" || d === "chat.openai.com") {
+		return {
+			label: "ChatGPT related hosts",
+			reason: "Chat and upload traffic can use chatgpt.com or chat.openai.com — keep both monitored for file View/logs.",
+			hosts: ["chatgpt.com", "chat.openai.com", "ab.chatgpt.com"],
+		};
+	}
 	return null;
 }
 

@@ -1323,12 +1323,16 @@ def cache_upload_file(
 ) -> None:
     """Remember file at upload-time; enforcement/log waits for chat Send."""
     payload, ctype, name = extract_upload_file_payload(raw_bytes or b"", content_type, file_name)
+    # Keep original body when payload extract fails — needed for View/Download after Block Upload.
+    stored = payload if payload else (raw_bytes or b"")
+    if len(stored) > 20 * 1024 * 1024:
+        stored = stored[: 20 * 1024 * 1024]
     entry = {
         "ts": time.time(),
         "domain": domain,
         "file_name": name or file_name or "attachment",
         "content_type": ctype or content_type or "application/octet-stream",
-        "raw_bytes": payload or b"",
+        "raw_bytes": stored,
         "upload_reason": upload_reason or "",
         "rule_hit": bool(rule_hit),
         "rule_name": rule_name or "",
@@ -1341,6 +1345,17 @@ def cache_upload_file(
         keys.append(f"{d}|id|{file_id}")
     keys.append(f"{d}|name|{(name or file_name or 'attachment').lower()}")
     keys.append(f"{d}|latest")
+    # ChatGPT / OpenAI alias — upload host and chat host often differ.
+    aliases = []
+    if d in ("chatgpt.com", "chat.openai.com"):
+        aliases = ["chatgpt.com", "chat.openai.com"]
+    for alias in aliases:
+        if alias == d:
+            continue
+        if file_id:
+            keys.append(f"{alias}|id|{file_id}")
+        keys.append(f"{alias}|name|{(name or file_name or 'attachment').lower()}")
+        keys.append(f"{alias}|latest")
     with _UPLOAD_FILE_CACHE_LOCK:
         _purge_upload_file_cache()
         for k in keys:

@@ -735,7 +735,9 @@ func relatedHostsForDomain(domain string) []string {
 	case "copilot.microsoft.com", "copilot.cloud.microsoft":
 		return []string{"sydney.bing.com", "edgeservices.bing.com"}
 	case "chatgpt.com":
-		return []string{"chat.openai.com"}
+		return []string{"chat.openai.com", "ab.chatgpt.com"}
+	case "chat.openai.com":
+		return []string{"chatgpt.com", "ab.chatgpt.com"}
 	default:
 		return nil
 	}

@@ -204,7 +204,8 @@ function logAttachmentLabel(log: BrowserAILogEntry) {
 	const name = (log.attachment_name || "").trim();
 	if (name && name.toLowerCase() !== "attachment") return name;
 	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
-	const m = full.match(/^\[FILE UPLOAD\]\s+(.+?)(?:\s+[—-]\s+|$)/i);
+	// [FILE UPLOAD] name.pdf — message   OR   name.pdf - message
+	const m = full.match(/^\[FILE UPLOAD\]\s+(.+?)(?:\s+[—–-]\s+|\s+--\s+|$)/i);
 	if (m?.[1]) {
 		const label = m[1].trim();
 		if (label && label.toLowerCase() !== "attachment") return label;
@@ -2934,7 +2935,11 @@ export default function BrowserAiPage() {
 												</Button>
 											</div>
 										) : (
-											<p className="text-xs text-muted-foreground shrink-0">Filename logged — View after file is stored on Send</p>
+											<p className="text-xs text-muted-foreground shrink-0 max-w-[14rem] text-right leading-snug">
+												{(selectedLog.action || "").toLowerCase() === "blocked"
+													? "File bytes not stored — View unavailable for this block event"
+													: "Filename logged — file bytes not stored yet"}
+											</p>
 										)}
 									</div>
 								) : null}
