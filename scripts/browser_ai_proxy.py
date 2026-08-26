@@ -1065,111 +1065,185 @@ def _extract_from_json(data) -> str | None:
 
 
 def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str]:
-    """Detect real file upload attempts — not chat JSON / + menu handshakes."""
+    """Detect real file upload attempts — not chat JSON / + menu / Gemini prompt posts."""
     headers = flow.request.headers
     content_type = (headers.get("content-type", "") or "").lower()
     path = (flow.request.path or "").lower()
     method = (flow.request.method or "").upper()
     host = (flow.request.pretty_host or "").lower()
-    chat_submit = is_chat_path(path, host)
     body_len = len(flow.request.content or b"")
     path_only = path.split("?", 1)[0]
+    raw = raw_content or ""
+
+    # ── Never treat real chat Send as a file upload ──
+    if is_gemini_host(host) and is_gemini_chat_submit(path, raw):
+        return False, ""
+    # Claude / ChatGPT / generic chat completion paths (JSON text prompts)
+    chat_path_markers = (
+        "/conversation", "/completion", "/completions", "/append_message",
+        "/chat_conversations", "/backend-api/f/conversation", "/v1/messages",
+        "/streamgenerate", "/generatecontent", "/chat/completions",
+    )
+    if any(m in path_only for m in chat_path_markers):
+        # Only if this request is clearly a binary/multipart file body
+        if "multipart/form-data" not in content_type and "octet-stream" not in content_type:
+            return False, ""
+        if "filename=" not in raw.lower() and "filename*=" not in raw.lower():
+            if body_len < 8192:
+                return False, ""
 
     # Google resumable: only real byte transfer / finalize — not session "start"/"query"
     goog_cmd = (headers.get("x-goog-upload-command", "") or "").lower()
     if goog_cmd:
-        if any(x in goog_cmd for x in ("upload", "finalize", "append")):
+        if any(x in goog_cmd for x in ("upload", "finalize", "append")) and body_len >= 64:
             return True, f"Google Resumable Upload ({goog_cmd})"
-        # start / query / cancel = picker open or handshake, not a file yet
-    else:
-        for hk, hv in headers.items():
-            hk_l = (hk or "").lower()
-            hv_l = (hv or "").lower()
-            if hk_l.startswith("x-goog-upload") and body_len >= 512:
-                return True, f"Google Resumable Upload ({hk}={hv_l[:40]})"
-            if "upload" in hk_l and ("file" in hk_l or "content" in hk_l) and body_len >= 512:
-                return True, f"Upload header ({hk})"
+        return False, ""  # start / query / cancel = not a file
+    for hk, hv in headers.items():
+        hk_l = (hk or "").lower()
+        hv_l = (hv or "").lower()
+        if hk_l.startswith("x-goog-upload") and body_len >= 2048:
+            if "start" in hv_l or "query" in hv_l or "cancel" in hv_l:
+                continue
+            return True, f"Google Resumable Upload ({hk}={hv_l[:40]})"
 
-    # Real multipart / binary body
-    if "multipart/form-data" in content_type or "webkitformboundary" in (raw_content or "")[:300].lower():
-        # Empty multipart from opening the picker — require a filename= part
-        if "filename=" in (raw_content or "") or "filename*=" in (raw_content or "").lower():
-            return True, f"File content-type ({(content_type or 'multipart').split(';')[0]})"
-        if body_len >= 800:
-            return True, f"File content-type ({(content_type or 'multipart').split(';')[0]})"
+    # Real multipart with an actual filename= part (picker-open empty multipart ≠ upload)
+    if "multipart/form-data" in content_type or "webkitformboundary" in raw[:300].lower():
+        if "filename=" in raw or "filename*=" in raw.lower():
+            # Empty filename="" is not a real file
+            if re.search(r'filename\*?=(?:UTF-8\'\')?["\'][^"\']+', raw[:12000], re.I):
+                empty = re.search(r'filename\*?=(?:UTF-8\'\')?["\']["\']', raw[:12000], re.I)
+                named = re.search(r'filename\*?=(?:UTF-8\'\')?["\']([^"\']+)["\']', raw[:12000], re.I)
+                if named and (named.group(1) or "").strip():
+                    return True, f"File content-type ({(content_type or 'multipart').split(';')[0]})"
+                if empty and not named:
+                    return False, ""
+                return True, f"File content-type ({(content_type or 'multipart').split(';')[0]})"
         return False, ""
+
+    # Upload URL paths — require binary / large non-JSON (ChatGPT /files JSON handshake ≠ upload)
+    path_looks_upload = any(
+        x in path_only
+        for x in (
+            "/attachments", "/attachment", "/convert_document", "/upload_document",
+            "/upload", "/files", "/filepush", "/m365copilot", "/media", "/mms",
+        )
+    )
+    for ep in UPLOAD_ENDPOINTS:
+        if ep in path_only:
+            path_looks_upload = True
+            break
+    if path_looks_upload:
+        if any(x in path_only for x in ("/files/library", "/files/process", "/files/download", "/files/list")):
+            return False, ""
+        is_json_body = "json" in content_type or raw.lstrip()[:1] in ("{", "[")
+        if "multipart/form-data" in content_type or "octet-stream" in content_type:
+            if body_len >= 64:
+                return True, f"File Upload Endpoint ({path_only[:80]})"
+        if not is_json_body and body_len >= 1024:
+            return True, f"File Upload Endpoint ({path_only[:80]})"
+        if is_json_body and body_len >= 80_000:
+            # Huge JSON sometimes wraps base64 file — rare
+            if any(k in raw for k in ('"bytes"', '"data":', "base64", '"fileData"', '"inline_data"')):
+                return True, f"File Upload Endpoint large JSON ({path_only[:80]})"
+        return False, ""
+
+    # Binary content-type on non-chat hosts — require real size + magic / upload header
+    chat_submit = is_chat_path(path, host, raw)
     if not chat_submit:
         for prefix in UPLOAD_CONTENT_TYPES:
-            if prefix in content_type and body_len >= 64:
-                return True, f"File content-type ({content_type.split(';')[0]})"
-    else:
-        # Copilot/Claude: is_chat_path is loose — still treat upload paths + binary as uploads
-        path_looks_upload = any(
-            x in path_only
-            for x in (
-                "/attachments", "/attachment", "/convert_document", "/upload_document",
-                "/upload", "/files", "/filepush", "/m365copilot",
-            )
-        )
-        if path_looks_upload and body_len >= 64:
-            for prefix in UPLOAD_CONTENT_TYPES:
-                if prefix in content_type:
+            if prefix in content_type and body_len >= 512:
+                # Skip generic application/json mistaken as upload
+                if prefix in ("application/pdf", "image/", "audio/", "video/", "application/octet-stream",
+                              "application/msword", "application/vnd."):
                     return True, f"File content-type ({content_type.split(';')[0]})"
 
-    # Upload URL paths — ChatGPT "+" hits /files JSON handshake before any file is chosen
-    for ep in UPLOAD_ENDPOINTS:
-        if ep not in path_only:
-            continue
-        # Ignore library / list / process-status style GETs (method already POST-only upstream)
-        if any(x in path_only for x in ("/files/library", "/files/process", "/files/download")):
-            continue
-        is_json_body = "json" in content_type or (raw_content or "").lstrip()[:1] in ("{", "[")
-        # Real upload: binary, multipart, or large non-JSON body
-        if "multipart/form-data" in content_type or "octet-stream" in content_type:
-            return True, f"File Upload Endpoint ({path_only[:80]})"
-        if not is_json_body and body_len >= 512:
-            return True, f"File Upload Endpoint ({path_only[:80]})"
-        if is_json_body and body_len >= 50_000:
-            return True, f"File Upload Endpoint large JSON ({path_only[:80]})"
-        # Small JSON to /files = create upload session / open + menu — NOT an upload
-        continue
-
-    if method in ("POST", "PUT", "PATCH") and body_len >= 2048:
-        if any(
-            x in host
-            for x in (
-                "upload.google", "drive.google", "docs.google", "clients6.google",
-                "googleapis.com", "claude.ai", "anthropic.com", "copilot.microsoft",
-                "sydney.bing", "substrate.office",
-            )
-        ):
-            if "json" not in content_type or body_len >= 50_000:
-                return True, f"Large upload body on {host} ({body_len} bytes)"
-
-    # JSON attachment heuristics: NEVER on chat submit; NEVER tiny metadata-only bodies
-    if raw_content and not chat_submit and body_len >= 256:
+    # JSON attachment heuristics: NEVER on chat submit
+    if raw and not chat_submit and body_len >= 2048:
         strong = any(
-            k in raw_content
+            k in raw
             for k in (
                 '"file_name"', '"fileName"', '"mime_type"', '"mimeType"',
                 '"fileData"', '"inline_data"', '"inlineData"',
-                "application/vnd.openxmlformats", "multipart/form-data",
+                "application/vnd.openxmlformats",
             )
         )
-        # file_id / asset_pointer alone are prior-turn chat metadata — not a new upload
         if strong and (
-            "filename=" in raw_content.lower()
-            or body_len >= 2048
-            or any(x in raw_content for x in ('"bytes"', '"data":', "base64", "octet-stream"))
+            "filename=" in raw.lower()
+            or body_len >= 8192
+            or any(x in raw for x in ('"bytes"', "base64", "octet-stream"))
         ):
             return True, "File Attachment Payload in Request"
-        low = raw_content.lower()
-        if "filename" in low and "content-type" in low and any(
-            x in low for x in (".docx", ".pdf", ".xlsx", ".pptx", ".png", ".jpg")
-        ):
-            return True, "Multipart-like file attachment payload"
 
     return False, ""
+
+
+_FAKE_UPLOAD_NAMES = frozenset({
+    "", "attachment", "attachment.txt", "attachment.bin", "blob", "blob.txt",
+    "file", "file.txt", "upload", "untitled", "document", "document.txt",
+    "image", "image.png", "audio", "video", "media", "unknown", "null", "undefined",
+})
+
+
+def is_confident_file_upload(
+    *,
+    fname: str,
+    content_type: str,
+    raw_bytes: bytes,
+    raw_text: str,
+    upload_reason: str = "",
+) -> bool:
+    """Block Upload / FILE log only when we are sure a real file is present.
+
+    Stops Gemini/Claude/WhatsApp chat noise from becoming automatic
+    '[FILE UPLOAD] attachment' Blocked rows when the user did not attach anything.
+    """
+    name = (fname or "").strip()
+    name_l = name.lower()
+    ct = (content_type or "").lower()
+    data = raw_bytes or b""
+    reason = (upload_reason or "").lower()
+    raw = raw_text or ""
+
+    # Google resumable finalize/upload with bytes — confident
+    if "google resumable" in reason and len(data) >= 64:
+        return True
+
+    # Real filename with extension (not placeholder names)
+    if name and name_l not in _FAKE_UPLOAD_NAMES and "." in name:
+        ext = name_l.rsplit(".", 1)[-1]
+        if 1 <= len(ext) <= 5 and ext.isalnum():
+            return True
+
+    # Magic bytes / known file shapes
+    if data:
+        if data[:5] == b"%PDF-" or b"%PDF-" in data[:4096]:
+            return True
+        if _looks_like_image(data, ct, name):
+            return True
+        if _looks_like_audio(data, ct, name):
+            return True
+        if data[:2] == b"PK" and len(data) >= 256:  # zip/office
+            return True
+
+    # Multipart with non-empty filename=
+    if "filename=" in raw.lower() or "filename*=" in raw.lower():
+        m = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';\r\n]+)["\']?', raw[:16000], re.I)
+        if m:
+            got = (m.group(1) or "").strip().strip('"\'')
+            if got and got.lower() not in _FAKE_UPLOAD_NAMES:
+                return True
+
+    # Explicit binary upload content-types with meaningful size
+    if len(data) >= 1024 and any(
+        x in ct
+        for x in (
+            "octet-stream", "application/pdf", "image/", "audio/", "video/",
+            "msword", "officedocument",
+        )
+    ):
+        return True
+
+    return False
 
 
 def extract_filename_from_upload(flow: http.HTTPFlow, raw_text: str = "") -> str:
@@ -1181,23 +1255,34 @@ def extract_filename_from_upload(flow: http.HTTPFlow, raw_text: str = "") -> str
     if "filename" in cd:
         m = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';\r\n]+)["\']?', cd, re.I)
         if m:
-            return m.group(1).strip().strip('"\'')
+            name = m.group(1).strip().strip('"\'')
+            if name.lower() not in _FAKE_UPLOAD_NAMES:
+                return name
 
     # 2. X-File-Name or upload headers
     for hk in ("x-file-name", "x-goog-upload-file-name", "x-filename", "x-upload-filename"):
         val = headers.get(hk)
         if val:
-            return str(val).strip().strip('"\'')
+            name = str(val).strip().strip('"\'')
+            if name.lower() not in _FAKE_UPLOAD_NAMES:
+                return name
 
     # 3. JSON body fields (e.g. {"file_name": "data.pdf"} or {"fileName": "..."})
     if raw_text:
-        m = re.search(r'["\'](?:file_name|fileName|name|title|filename)["\']\s*:\s*["\']([^"\']+\.[a-zA-Z0-9]{2,6})["\']', raw_text)
+        m = re.search(
+            r'["\'](?:file_name|fileName|filename)["\']\s*:\s*["\']([^"\']+\.[a-zA-Z0-9]{2,6})["\']',
+            raw_text,
+        )
         if m:
-            return m.group(1).strip()
-        # Multipart filename inside raw_text body
+            name = m.group(1).strip()
+            if name.lower() not in _FAKE_UPLOAD_NAMES:
+                return name
+        # Do NOT use generic "name"/"title" — WhatsApp/Gemini metadata often has junk like attachment.txt
         m = re.search(r'filename\s*=\s*["\']([^"\';\r\n]+\.[a-zA-Z0-9]{2,6})["\']', raw_text[:8000], re.I)
         if m:
-            return m.group(1).strip()
+            name = m.group(1).strip()
+            if name.lower() not in _FAKE_UPLOAD_NAMES:
+                return name
 
     # 4. Path parameter if it ends with a file extension
     path_clean = (flow.request.path or "").split("?", 1)[0]
@@ -1205,8 +1290,11 @@ def extract_filename_from_upload(flow: http.HTTPFlow, raw_text: str = "") -> str
     if "." in last_seg and any(last_seg.lower().endswith(ext) for ext in (
         ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".csv", ".json",
         ".png", ".jpg", ".jpeg", ".zip", ".tar", ".gz", ".py", ".js",
+        ".wav", ".mp3", ".m4a", ".webm",
     )):
-        return urllib.parse.unquote(last_seg)
+        name = urllib.parse.unquote(last_seg)
+        if name.lower() not in _FAKE_UPLOAD_NAMES:
+            return name
 
     return ""
 
@@ -1636,14 +1724,17 @@ def enforce_file_send_policy(
             if cand and "." in cand and cand.lower() not in ("attachment", "file", "document"):
                 fname = cand
                 break
-    # Markers without a real name/cache:
-    # - Block Upload ON → still fail-closed (block + log) so AI sites cannot Send a file past Guard
-    # - Block Upload OFF and no cache → do not invent a fake "[FILE UPLOAD] attachment" row
-    if not fname and not cached:
-        if not controls_active("block_upload"):
-            return False, ""
-        fname = "attachment"
-    file_label = fname or "attachment"
+    # Markers without a real name/cache → typed chat, not a file (never invent "attachment")
+    if (not fname or fname.lower() in _FAKE_UPLOAD_NAMES) and not cached:
+        return False, ""
+    if fname.lower() in _FAKE_UPLOAD_NAMES and cached:
+        fname = (cached.get("file_name") or "").strip() or fname
+    file_label = fname if fname and fname.lower() not in _FAKE_UPLOAD_NAMES else (
+        (cached.get("file_name") if cached else "") or "attachment"
+    )
+    if file_label.lower() in _FAKE_UPLOAD_NAMES and not cached:
+        return False, ""
+    file_label = file_label or "attachment"
     upload_warn = (get_control_settings().get("upload_warning") or "").strip()
     base_upload_msg = upload_warn or "Upload block"
 
@@ -3584,16 +3675,81 @@ class BrowserAIInterceptor:
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
         if is_upload:
             fname = extract_filename_from_upload(flow, raw_text)
-            upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, fname)
-            file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
-            file_ids = _extract_file_ids_from_chat(raw_text)
-            file_rule_action = (file_rule_action or "").upper()
-            block_all = controls_active("block_upload")
-            block_for_rule = bool(file_rule_hit and file_rule_action in ("BLOCK", "REDACT", "WARN"))
+            # Gemini/Claude/WhatsApp chat noise often looks like "upload" — only act when sure
+            if not is_confident_file_upload(
+                fname=fname,
+                content_type=content_type,
+                raw_bytes=raw_bytes,
+                raw_text=raw_text,
+                upload_reason=upload_reason or "",
+            ):
+                print(
+                    f"[UnifAI Proxy] Ignoring weak upload signal | {host} | "
+                    f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
+                )
+                # Fall through to normal prompt intercept (do not Block / FILE log)
+            else:
+                upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, fname)
+                file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
+                file_ids = _extract_file_ids_from_chat(raw_text)
+                file_rule_action = (file_rule_action or "").upper()
+                block_all = controls_active("block_upload")
+                block_for_rule = bool(file_rule_hit and file_rule_action in ("BLOCK", "REDACT", "WARN"))
 
-            # Block Upload / file-content rule: stop bytes from reaching the AI provider NOW
-            # (not only on later Send). Still cache for Prompt Log / View.
-            if block_all or block_for_rule:
+                # Block Upload / file-content rule: stop bytes from reaching the AI provider NOW
+                if block_all or block_for_rule:
+                    cache_upload_file(
+                        domain,
+                        file_name=fname or "attachment",
+                        raw_bytes=raw_bytes,
+                        content_type=content_type,
+                        upload_reason=upload_reason or "",
+                        rule_hit=file_rule_hit,
+                        rule_name=file_rule_name,
+                        rule_action=file_rule_action,
+                        file_id=file_ids[0] if file_ids else "",
+                    )
+                    upload_warn = (get_control_settings().get("upload_warning") or "").strip()
+                    base_upload_msg = upload_warn or "Upload block"
+                    blocked_reason = "Block Upload"
+                    file_label = fname or "attachment"
+                    tag = _upload_log_tag(fname, content_type, raw_bytes)
+                    excerpt = re.sub(r"\s+", " ", (upload_text or "")).strip()[:180]
+                    prompt_log = f"{tag} {file_label} — {base_upload_msg}"
+                    if excerpt:
+                        prompt_log = f"{prompt_log} | {excerpt}"
+                    msg = base_upload_msg
+                    if block_for_rule:
+                        blocked_reason = file_rule_name or "Guard Rule (file content)"
+                        rule_warn = _warning_for_rule_name(file_rule_name)
+                        left = (rule_warn or base_upload_msg).strip() or "Upload block"
+                        prompt_log = f"{tag} {file_label} — {left}" + (
+                            f" -- {file_rule_name}" if file_rule_name else ""
+                        )
+                        if excerpt:
+                            prompt_log = f"{prompt_log} | {excerpt}"
+                        msg = f"{left} -- {file_rule_name}" if file_rule_name else left
+                    dedupe_key = f"upload-time-block|{blocked_reason}|{file_label}"
+                    if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                        print(f"[UnifAI Proxy] FILE UPLOAD BLOCKED | {client_ip} → {host} | {file_label}")
+                        ok = post_upload_intercept(
+                            platform=platform,
+                            prompt=prompt_log,
+                            client_ip=client_ip,
+                            domain=domain,
+                            url=flow.request.url,
+                            method=flow.request.method,
+                            file_name=fname or "attachment",
+                            is_blocked=True,
+                            blocked_reason=blocked_reason,
+                            raw_bytes=raw_bytes,
+                            content_type=content_type,
+                        )
+                        if ok:
+                            mark_duplicate_event(domain, dedupe_key)
+                    make_blocked_response(flow, blocked_reason, host, reply_text=msg)
+                    return
+
                 cache_upload_file(
                     domain,
                     file_name=fname or "attachment",
@@ -3605,60 +3761,8 @@ class BrowserAIInterceptor:
                     rule_action=file_rule_action,
                     file_id=file_ids[0] if file_ids else "",
                 )
-                upload_warn = (get_control_settings().get("upload_warning") or "").strip()
-                base_upload_msg = upload_warn or "Upload block"
-                blocked_reason = "Block Upload"
-                file_label = fname or "attachment"
-                tag = _upload_log_tag(fname, content_type, raw_bytes)
-                excerpt = re.sub(r"\s+", " ", (upload_text or "")).strip()[:180]
-                prompt_log = f"{tag} {file_label} — {base_upload_msg}"
-                if excerpt:
-                    prompt_log = f"{prompt_log} | {excerpt}"
-                msg = base_upload_msg
-                if block_for_rule:
-                    blocked_reason = file_rule_name or "Guard Rule (file content)"
-                    rule_warn = _warning_for_rule_name(file_rule_name)
-                    left = (rule_warn or base_upload_msg).strip() or "Upload block"
-                    prompt_log = f"{tag} {file_label} — {left}" + (
-                        f" -- {file_rule_name}" if file_rule_name else ""
-                    )
-                    if excerpt:
-                        prompt_log = f"{prompt_log} | {excerpt}"
-                    msg = f"{left} -- {file_rule_name}" if file_rule_name else left
-                dedupe_key = f"upload-time-block|{blocked_reason}|{file_label}"
-                if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
-                    print(f"[UnifAI Proxy] FILE UPLOAD BLOCKED | {client_ip} → {host} | {file_label}")
-                    ok = post_upload_intercept(
-                        platform=platform,
-                        prompt=prompt_log,
-                        client_ip=client_ip,
-                        domain=domain,
-                        url=flow.request.url,
-                        method=flow.request.method,
-                        file_name=fname or "attachment",
-                        is_blocked=True,
-                        blocked_reason=blocked_reason,
-                        raw_bytes=raw_bytes,
-                        content_type=content_type,
-                    )
-                    if ok:
-                        mark_duplicate_event(domain, dedupe_key)
-                make_blocked_response(flow, blocked_reason, host, reply_text=msg)
+                # Allowed upload — cache for Send-time audit; do not Prompt Log until Send.
                 return
-
-            cache_upload_file(
-                domain,
-                file_name=fname or "attachment",
-                raw_bytes=raw_bytes,
-                content_type=content_type,
-                upload_reason=upload_reason or "",
-                rule_hit=file_rule_hit,
-                rule_name=file_rule_name,
-                rule_action=file_rule_action,
-                file_id=file_ids[0] if file_ids else "",
-            )
-            # Allowed upload — cache for Send-time audit; do not Prompt Log until Send.
-            return
 
         # Also drop multipart noise that slipped past upload detection
         if "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower():
