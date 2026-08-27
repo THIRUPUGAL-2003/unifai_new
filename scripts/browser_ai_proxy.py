@@ -278,7 +278,6 @@ def make_site_blocked_response(flow: http.HTTPFlow, domain: str, platform: str) 
   <div class="card">
     <h1>Website blocked by UnifAI Guard</h1>
     <p>Access to <strong>{title}</strong> (<code>{domain}</code>) is not allowed by your company policy.</p>
-    <p>This is a full-site lock (not only prompt filtering). Contact your UnifAI admin to change Target Websites settings.</p>
   </div>
 </body>
 </html>"""
@@ -1702,6 +1701,45 @@ def take_cached_upload_for_send(
     return None
 
 
+def take_recent_confident_cache_for_send(domain: str) -> dict | None:
+    """If user uploaded a real file moments ago, bind it on chat Send even when
+    the Send JSON has weak attachment markers (common on Claude / some ChatGPT builds).
+    Never returns fake-named / empty caches (avoids false 'attachment' rows).
+    """
+    aliases = upload_domain_aliases(domain)
+    now = time.time()
+    with _UPLOAD_FILE_CACHE_LOCK:
+        _purge_upload_file_cache()
+        for alias in aliases:
+            key = f"{alias}|latest"
+            latest = _UPLOAD_FILE_CACHE.get(key)
+            if not latest:
+                continue
+            age = now - float(latest.get("ts") or 0)
+            if age > _UPLOAD_LATEST_MATCH_TTL:
+                continue
+            name = (latest.get("file_name") or "").strip()
+            if not name or name.lower() in _FAKE_UPLOAD_NAMES:
+                continue
+            raw = latest.get("raw_bytes") or b""
+            if not is_confident_file_upload(
+                fname=name,
+                content_type=(latest.get("content_type") or ""),
+                raw_bytes=raw if isinstance(raw, (bytes, bytearray)) else b"",
+                raw_text="",
+                upload_reason=(latest.get("upload_reason") or ""),
+                host=alias,
+                path="/files",
+            ):
+                continue
+            latest = _UPLOAD_FILE_CACHE.pop(key, None)
+            if latest:
+                name_key = f"{alias}|name|{name.lower()}"
+                _UPLOAD_FILE_CACHE.pop(name_key, None)
+                return latest
+    return None
+
+
 def enforce_file_send_policy(
     *,
     platform: str,
@@ -1713,27 +1751,27 @@ def enforce_file_send_policy(
     raw_text: str,
     content_type: str = "",
     file_name_hint: str = "",
+    path: str = "",
 ) -> tuple[bool, str]:
     """
-    On chat Send with an attachment: Block Upload / file-content rules / Prompt Log.
-    Returns (should_block, block_reply_text). should_block=True → stop the site AI request.
+    On chat Send with a real attached file:
+      - Block Upload ON  → always Block + Prompt Log
+      - Block Upload OFF → extract PDF/image/Office/voice text → Guard Rules → Block or Allowed + Prompt Log
 
-    Typed-only prompts must return (False, "") so normal Guard Rules still run.
+    Typed-only prompts return (False, "") so normal text Guard Rules still run.
     """
     has_attach = chat_carries_attachment(raw_text) or bool((file_name_hint or "").strip())
-    # Bind cache only when THIS Send looks like a file send — never steal an old
-    # upload for a typed Claude/Copilot "hi" (that logged as "[FILE UPLOAD] attachment").
-    cached = (
-        take_cached_upload_for_send(domain, raw_text, allow_latest=True)
-        if has_attach
-        else None
-    )
+    # Prefer id/name from this Send; then latest if markers present; then recent confident cache
+    cached = take_cached_upload_for_send(domain, raw_text, allow_latest=False)
+    if not cached and has_attach:
+        cached = take_cached_upload_for_send(domain, raw_text, allow_latest=True)
+    if not cached and is_chat_path(path or "", host, raw_text or ""):
+        cached = take_recent_confident_cache_for_send(domain)
 
-    # No real attachment evidence → normal text prompt path (Guard Rules / AI Bot)
-    if not has_attach:
+    if not has_attach and not cached:
         return False, ""
 
-    # WhatsApp: never invent file blocks from chat noise without a real cached upload
+    # WhatsApp: only with a real cached upload
     if "whatsapp" in (domain or "").lower() or "whatsapp" in (host or "").lower():
         if not cached:
             return False, ""
@@ -1752,54 +1790,66 @@ def enforce_file_send_policy(
                 fname = cand
                 break
 
-    # MUST have either a real cached file from upload, or a real filename on this Send.
-    # Markers alone (no cache / fake name) → not a user file+Send event.
     cached_name = ((cached.get("file_name") if cached else "") or "").strip()
-    real_cached = bool(cached and (cached.get("raw_bytes") or cached_name.lower() not in _FAKE_UPLOAD_NAMES))
+    real_cached = bool(
+        cached
+        and (
+            (cached.get("raw_bytes") and len(cached.get("raw_bytes") or b"") >= 32)
+            or (cached_name and cached_name.lower() not in _FAKE_UPLOAD_NAMES)
+        )
+    )
     real_name = bool(fname and fname.lower() not in _FAKE_UPLOAD_NAMES)
     if not real_cached and not real_name:
         return False, ""
 
-    file_label = fname if real_name else (cached_name if cached_name.lower() not in _FAKE_UPLOAD_NAMES else "attachment")
+    file_label = fname if real_name else (
+        cached_name if cached_name and cached_name.lower() not in _FAKE_UPLOAD_NAMES else "attachment"
+    )
     if not file_label:
         file_label = "attachment"
+
     upload_warn = (get_control_settings().get("upload_warning") or "").strip()
     base_upload_msg = upload_warn or "Upload block"
 
-    rule_hit = bool(cached and cached.get("rule_hit"))
-    rule_name = (cached.get("rule_name") if cached else "") or ""
-    rule_action = ((cached.get("rule_action") if cached else "") or "").upper()
+    # Always re-extract + re-scan on Send (PDF / Office / image OCR / voice)
     cached_bytes = (cached.get("raw_bytes") if cached else b"") or b""
     cached_ct = (cached.get("content_type") if cached else "") or content_type
-    if cached_bytes and not rule_hit:
-        ut = extract_upload_text_for_rules(cached_bytes, cached_ct, "", fname)
-        rule_hit, rule_name, rule_action = match_guard_rules_on_text(ut)
-        rule_action = (rule_action or "").upper()
+    rule_hit = False
+    rule_name = ""
+    rule_action = ""
+    excerpt = ""
+    scanned = ""
+    if cached_bytes:
+        scanned = extract_upload_text_for_rules(cached_bytes, cached_ct, raw_text or "", file_label)
+        if scanned:
+            excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
+            rule_hit, rule_name, rule_action = match_guard_rules_on_text(scanned)
+            rule_action = (rule_action or "").upper()
+    elif cached:
+        # Use pre-scan from upload-time if bytes missing
+        rule_hit = bool(cached.get("rule_hit"))
+        rule_name = (cached.get("rule_name") or "") or ""
+        rule_action = ((cached.get("rule_action") or "") or "").upper()
 
     block_all = controls_active("block_upload")
+    # WARN/REDACT/BLOCK on file content → treat as block for DLP (file must not go through clean)
     block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT", "WARN"))
-    tag = _upload_log_tag(fname, cached_ct, cached_bytes)
-    # Include short extracted voice/file text in the log so admins see what was spoken/scanned
-    excerpt = ""
-    if cached_bytes or rule_hit:
-        try:
-            scanned = extract_upload_text_for_rules(cached_bytes, cached_ct, raw_text or "", fname)
-            if scanned:
-                excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
-        except Exception:
-            excerpt = ""
+    tag = _upload_log_tag(file_label, cached_ct, cached_bytes)
+
     if block_all or block_for_rule:
-        blocked_reason = "Block Upload"
-        prompt_log = f"{tag} {file_label} — {base_upload_msg}"
-        if excerpt:
-            prompt_log = f"{prompt_log} | {excerpt}"
-        if block_for_rule:
-            blocked_reason = rule_name or "Guard Rule (file content)"
-            rule_warn = _warning_for_rule_name(rule_name)
-            left = (rule_warn or base_upload_msg).strip() or "Upload block"
-            prompt_log = f"{tag} {file_label} — {left}" + (f" -- {rule_name}" if rule_name else "")
+        blocked_reason = "Block Upload" if block_all else (rule_name or "Guard Rule (file content)")
+        if block_all:
+            prompt_log = f"{tag} {file_label} — Blocked (Block Upload)"
             if excerpt:
                 prompt_log = f"{prompt_log} | {excerpt}"
+            msg = base_upload_msg
+        else:
+            rule_warn = _warning_for_rule_name(rule_name)
+            left = (rule_warn or base_upload_msg).strip() or "Upload block"
+            prompt_log = f"{tag} {file_label} — Blocked ({rule_name or 'policy'})"
+            if excerpt:
+                prompt_log = f"{prompt_log} | {excerpt}"
+            msg = f"{left} -- {rule_name}" if rule_name else left
         dedupe_key = f"upload-send-block|{blocked_reason}|{file_label}"
         if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
             print(f"[UnifAI Proxy] FILE SEND BLOCKED | {client_ip} → {host} | {file_label}")
@@ -1810,7 +1860,7 @@ def enforce_file_send_policy(
                 domain=domain,
                 url=url,
                 method=method,
-                file_name=fname,
+                file_name=file_label,
                 is_blocked=True,
                 blocked_reason=blocked_reason,
                 raw_bytes=cached_bytes,
@@ -1818,35 +1868,33 @@ def enforce_file_send_policy(
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
-        msg = base_upload_msg
-        if block_for_rule:
-            rule_warn = _warning_for_rule_name(rule_name)
-            left = (rule_warn or base_upload_msg).strip() or "Upload block"
-            msg = f"{left} -- {rule_name}" if rule_name else left
         return True, msg
 
-    # Allowed file send — audit log only when we truly have a file (cache or named attach)
-    if cached or fname:
-        clean_log = f"{tag} {file_label}"
-        if excerpt:
-            clean_log = f"{clean_log} | {excerpt}"
-        dedupe_key = f"upload-send-allowed|{file_label}"
-        if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
-            print(f"[UnifAI Proxy] FILE SEND ALLOWED | {client_ip} → {host} | {clean_log}")
-            ok = post_upload_intercept(
-                platform=platform,
-                prompt=clean_log,
-                client_ip=client_ip,
-                domain=domain,
-                url=url,
-                method=method,
-                file_name=fname,
-                is_blocked=False,
-                raw_bytes=cached_bytes,
-                content_type=cached_ct,
-            )
-            if ok:
-                mark_duplicate_event(domain, dedupe_key)
+    # Block Upload OFF + no policy hit → Allowed file upload MUST appear in Prompt Log
+    clean_log = f"{tag} {file_label} — Allowed"
+    if excerpt:
+        clean_log = f"{clean_log} | {excerpt}"
+    elif scanned == "" and cached_bytes:
+        clean_log = f"{clean_log} | (no text extracted — file allowed)"
+    dedupe_key = f"upload-send-allowed|{file_label}"
+    if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+        print(f"[UnifAI Proxy] FILE SEND ALLOWED | {client_ip} → {host} | {clean_log}")
+        ok = post_upload_intercept(
+            platform=platform,
+            prompt=clean_log,
+            client_ip=client_ip,
+            domain=domain,
+            url=url,
+            method=method,
+            file_name=file_label,
+            is_blocked=False,
+            raw_bytes=cached_bytes,
+            content_type=cached_ct,
+        )
+        if ok:
+            mark_duplicate_event(domain, dedupe_key)
+        else:
+            print(f"[UnifAI Proxy WARNING] Allowed file log failed to post | {file_label}")
     return False, ""
 
 
@@ -3768,6 +3816,7 @@ class BrowserAIInterceptor:
             raw_text=raw_text,
             content_type=content_type,
             file_name_hint=extract_filename_from_upload(flow, raw_text) if chat_carries_attachment(raw_text) else "",
+            path=path,
         )
         if should_block_file:
             make_blocked_response(flow, "Block Upload", host, reply_text=file_block_msg)
@@ -3875,6 +3924,7 @@ class BrowserAIInterceptor:
             method="WS",
             raw_text=content,
             content_type="application/json",
+            path=flow.request.path or "",
         )
         if should_block_file:
             try:

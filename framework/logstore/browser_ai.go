@@ -975,7 +975,8 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 	if v, ok := metadata["upload_scan"].(bool); ok && v {
 		uploadScan = true
 	}
-	if strings.HasPrefix(strings.TrimSpace(promptFull), "[FILE UPLOAD]") {
+	if strings.HasPrefix(strings.TrimSpace(promptFull), "[FILE UPLOAD]") ||
+		strings.HasPrefix(strings.TrimSpace(promptFull), "[VOICE UPLOAD]") {
 		uploadScan = true
 	}
 

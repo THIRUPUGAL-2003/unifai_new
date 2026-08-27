@@ -193,7 +193,7 @@ function isFileUploadLog(log: BrowserAILogEntry | null | undefined) {
 	if (!log) return false;
 	if (log.attachment_name || log.attachment_stored_name) return true;
 	const p = (log.user_prompt_full || log.user_prompt_preview || "").trim();
-	return p.startsWith("[FILE UPLOAD]");
+	return p.startsWith("[FILE UPLOAD]") || p.startsWith("[VOICE UPLOAD]");
 }
 
 function logHasStoredAttachment(log: BrowserAILogEntry | null | undefined) {
@@ -205,7 +205,7 @@ function logAttachmentLabel(log: BrowserAILogEntry) {
 	if (name && name.toLowerCase() !== "attachment") return name;
 	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
 	// [FILE UPLOAD] name.pdf — message   OR   name.pdf - message
-	const m = full.match(/^\[FILE UPLOAD\]\s+(.+?)(?:\s+[—–-]\s+|\s+--\s+|$)/i);
+	const m = full.match(/^\[(?:FILE|VOICE) UPLOAD\]\s+(.+?)(?:\s+[—–-]\s+|\s+--\s+|$)/i);
 	if (m?.[1]) {
 		const label = m[1].trim();
 		if (label && label.toLowerCase() !== "attachment") return label;
