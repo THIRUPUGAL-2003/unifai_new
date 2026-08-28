@@ -39,13 +39,6 @@ function escapeHtml(s: string): string {
 		.replace(/"/g, "&quot;");
 }
 
-/** Office Open XML (.docx/.xlsx) are ZIP archives — reject HTML/JSON error bodies early. */
-async function looksLikeZip(blob: Blob): Promise<boolean> {
-	if (!blob.size) return false;
-	const head = new Uint8Array(await blob.slice(0, 4).arrayBuffer());
-	return head.length >= 4 && head[0] === 0x50 && head[1] === 0x4b;
-}
-
 export async function buildAttachmentPreview(
 	blob: Blob,
 	name?: string,
@@ -77,44 +70,34 @@ export async function buildAttachmentPreview(
 	}
 
 	if (ext === ".docx" || (contentType || "").includes("wordprocessingml")) {
-		if (!(await looksLikeZip(blob))) return { kind: "unsupported" };
-		try {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const mammoth: any = await import("mammoth");
-			const api = mammoth.default ?? mammoth;
-			const buf = await blob.arrayBuffer();
-			const result = await api.convertToHtml({ arrayBuffer: buf });
-			const html = result.value?.trim()
-				? `<div class="prose prose-invert max-w-none text-sm leading-relaxed p-2">${result.value}</div>`
-				: `<p class="text-muted-foreground text-sm">Empty document.</p>`;
-			return { kind: "html", html };
-		} catch {
-			return { kind: "unsupported" };
-		}
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const mammoth: any = await import("mammoth");
+		const api = mammoth.default ?? mammoth;
+		const buf = await blob.arrayBuffer();
+		const result = await api.convertToHtml({ arrayBuffer: buf });
+		const html = result.value?.trim()
+			? `<div class="prose prose-invert max-w-none text-sm leading-relaxed p-2">${result.value}</div>`
+			: `<p class="text-muted-foreground text-sm">Empty document.</p>`;
+		return { kind: "html", html };
 	}
 
 	if ([".xlsx", ".xls"].includes(ext) || (contentType || "").includes("spreadsheetml")) {
-		if (!(await looksLikeZip(blob))) return { kind: "unsupported" };
-		try {
-			// eslint-disable-next-line @typescript-eslint/no-explicit-any
-			const XLSXmod: any = await import("xlsx");
-			const XLSX = XLSXmod.default ?? XLSXmod;
-			const buf = await blob.arrayBuffer();
-			const wb = XLSX.read(buf, { type: "array" });
-			const sheetName = wb.SheetNames[0];
-			if (!sheetName) {
-				return { kind: "html", html: `<p class="text-sm text-muted-foreground">Workbook has no sheets.</p>` };
-			}
-			const sheet = wb.Sheets[sheetName];
-			const htmlTable = XLSX.utils.sheet_to_html(sheet, { id: "unifai-xlsx-preview", editable: false });
-			const wrapped = `<div class="overflow-auto text-xs [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted/40">
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		const XLSXmod: any = await import("xlsx");
+		const XLSX = XLSXmod.default ?? XLSXmod;
+		const buf = await blob.arrayBuffer();
+		const wb = XLSX.read(buf, { type: "array" });
+		const sheetName = wb.SheetNames[0];
+		if (!sheetName) {
+			return { kind: "html", html: `<p class="text-sm text-muted-foreground">Workbook has no sheets.</p>` };
+		}
+		const sheet = wb.Sheets[sheetName];
+		const htmlTable = XLSX.utils.sheet_to_html(sheet, { id: "unifai-xlsx-preview", editable: false });
+		const wrapped = `<div class="overflow-auto text-xs [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted/40">
 			<p class="text-[11px] text-muted-foreground mb-2">Sheet: ${escapeHtml(sheetName)}${wb.SheetNames.length > 1 ? ` (+${wb.SheetNames.length - 1} more)` : ""}</p>
 			${htmlTable}
 		</div>`;
-			return { kind: "html", html: wrapped };
-		} catch {
-			return { kind: "unsupported" };
-		}
+		return { kind: "html", html: wrapped };
 	}
 
 	return { kind: "unsupported" };
