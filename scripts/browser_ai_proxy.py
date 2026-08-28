@@ -554,12 +554,16 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
         return False
     if p and NOISE_EXTENSIONS.search(p):
         return False
-    if "chatgpt.com" in h or "chat.openai.com" in h:
+    if is_chatgpt_host(h):
         if not p:
             return True
         if "prepare" in p or "autocomplet" in p or "implicit" in p:
             return False
-        return "/conversation" in p or "/messages" in p or "/chat/completions" in p
+        if _path_has_ignore_pattern(p):
+            return False
+        if p and NOISE_EXTENSIONS.search(p):
+            return False
+        return is_chatgpt_submit_path(p)
     # Gemini: only the real chat submit URL — never analytics / batchexecute noise
     if is_gemini_host(h):
         if not p:
@@ -1065,7 +1069,30 @@ def is_duplicate_prompt(domain: str, prompt: str) -> bool:
 
 def is_chatgpt_host(host: str) -> bool:
     h = (host or "").lower()
-    return "chatgpt.com" in h or "chat.openai.com" in h
+    return "chatgpt.com" in h or "chat.openai.com" in h or "oaiusercontent.com" in h
+
+
+def is_chatgpt_submit_path(path: str) -> bool:
+    """True for ChatGPT Enter/send endpoints — not prepare/autocomplete noise."""
+    p = (path or "").lower().split("?", 1)[0]
+    if not p:
+        return False
+    if "prepare" in p or "autocomplet" in p or "implicit" in p:
+        return False
+    if _path_has_ignore_pattern(p):
+        return False
+    if any(m in p for m in CHAT_PATH_MARKERS):
+        return True
+    if "/backend-api/" in p and not any(x in p for x in ("/files/library", "/files/process", "/files/download", "/files/list")):
+        return True
+    return "/conversation" in p or "/messages" in p or "/chat/completions" in p or "/v1/responses" in p
+
+
+def should_skip_as_typing_draft(domain: str, prompt: str, path: str, host: str) -> bool:
+    """Composer keystroke filter — never drop a confirmed ChatGPT send."""
+    if is_chatgpt_host(host) and is_chatgpt_submit_path(path):
+        return False
+    return is_composer_typing_draft(domain, prompt)
 
 
 def is_unsubmitted_chat_body(path: str, body: str) -> bool:
@@ -4246,7 +4273,7 @@ class BrowserAIInterceptor:
         prompt = extract_prompt(raw_bytes, content_type, host=host)
         if not prompt or len(prompt.strip()) < 1:
             # Help debug Gemini/Copilot misses without flooding logs
-            if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6", "claude")) and len(raw_text) > 20:
+            if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6", "claude", "chatgpt", "openai")) and len(raw_text) > 20:
                 print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
             # Attachment-only send already logged above (real file markers only)
             if chat_carries_attachment(raw_text):
@@ -4261,7 +4288,7 @@ class BrowserAIInterceptor:
             return
 
         # ChatGPT fires POSTs while typing. Predict only after Enter/send.
-        if is_unsubmitted_chat_body(path, raw_text) or is_composer_typing_draft(domain, prompt):
+        if is_unsubmitted_chat_body(path, raw_text) or should_skip_as_typing_draft(domain, prompt, path, host):
             return
 
         # Skip duplicate / typing-repeat submissions
@@ -4377,7 +4404,8 @@ class BrowserAIInterceptor:
         if _is_opaque_wire_blob(prompt):
             return
 
-        if is_unsubmitted_chat_body(flow.request.path, content) or is_composer_typing_draft(domain, prompt):
+        ws_path = flow.request.path or ""
+        if is_unsubmitted_chat_body(ws_path, content) or should_skip_as_typing_draft(domain, prompt, ws_path, host):
             return
 
         if is_duplicate_prompt(domain, prompt):
