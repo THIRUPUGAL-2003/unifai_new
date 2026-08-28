@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { collectGuardrailIds, mergeGuardrailsConfig, nextGuardrailId } from "./utils";
+import { collectGuardrailIds, mergeGuardrailsConfig, nextGuardrailId, toastGuardrailsSave } from "./utils";
 
 export default function GuardrailsProviderView() {
 	const { data: config, isLoading, isError, error, refetch } = useGetGuardrailsConfigQuery();

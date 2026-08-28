@@ -24,6 +24,12 @@ export interface GuardrailsConfig {
 	guardrail_providers: GuardrailProvider[];
 }
 
+export interface GuardrailsUpdateResult {
+	success?: boolean;
+	persisted?: boolean;
+	reloaded?: boolean;
+}
+
 export function emptyGuardrailsConfig(): GuardrailsConfig {
 	return { guardrail_rules: [], guardrail_providers: [] };
 }
@@ -44,7 +50,7 @@ export const guardrailsApi = baseApi.injectEndpoints({
 			transformResponse: (response: GuardrailsConfig | null) => normalizeGuardrailsConfig(response),
 			providesTags: ["Guardrails"],
 		}),
-		updateGuardrailsConfig: builder.mutation<null, GuardrailsConfig>({
+		updateGuardrailsConfig: builder.mutation<GuardrailsUpdateResult, GuardrailsConfig>({
 			query: (data) => ({
 				url: "/guardrails/config",
 				method: "PUT",

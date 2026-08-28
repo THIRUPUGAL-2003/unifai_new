@@ -1,4 +1,10 @@
-import type { GuardrailProvider, GuardrailRule, GuardrailsConfig } from "@/lib/store/apis/guardrailsApi";
+import { toast } from "sonner";
+import type {
+	GuardrailProvider,
+	GuardrailRule,
+	GuardrailsConfig,
+	GuardrailsUpdateResult,
+} from "@/lib/store/apis/guardrailsApi";
 import { normalizeGuardrailsConfig } from "@/lib/store/apis/guardrailsApi";
 
 export function nextGuardrailId(existingIds: number[]): number {
@@ -63,4 +69,11 @@ export function mergeGuardrailsConfig(
 		guardrail_rules: patch.guardrail_rules ?? current.guardrail_rules,
 		guardrail_providers: patch.guardrail_providers ?? current.guardrail_providers,
 	};
+}
+
+export function toastGuardrailsSave(message: string, result?: GuardrailsUpdateResult | null) {
+	toast.success(message);
+	if (result?.persisted === false) {
+		toast.warning("Saved for this session only. Disk write failed — this change is lost if the container restarts.");
+	}
 }

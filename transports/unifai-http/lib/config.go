@@ -4414,8 +4414,12 @@ func (c *Config) PersistGuardrailsConfig(cfg *GuardrailsConfig) error {
 	}
 
 	if err := c.persistGuardrailsIntoConfigJSON(cfg); err == nil {
+		// Overlay shadows config.json on boot; drop it after a successful write.
+		if path := c.guardrailsOverlayPath(); path != "" {
+			_ = os.Remove(path)
+		}
 		return nil
-	} else {
+	} else if logger != nil {
 		logger.Warn("could not write guardrails into config.json (%v); writing overlay file", err)
 	}
 
@@ -4483,7 +4487,9 @@ func loadGuardrailsOverlay(configFilePath string) *GuardrailsConfig {
 	}
 	var cfg GuardrailsConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		logger.Warn("failed to parse guardrails overlay %s: %v", path, err)
+		if logger != nil {
+			logger.Warn("failed to parse guardrails overlay %s: %v", path, err)
+		}
 		return nil
 	}
 	return &cfg
