@@ -4431,50 +4431,27 @@ func (c *Config) PersistGuardrailsConfig(cfg *GuardrailsConfig) error {
 	}
 	out = append(out, '\n')
 
-	if err := replaceFile(c.configPath, out, 0644); err != nil {
-		// Windows/OneDrive can lock the destination so rename fails even after remove.
-		// Overwrite in place as a last resort so UI saves still succeed.
-		if werr := os.WriteFile(c.configPath, out, 0644); werr != nil {
-			return fmt.Errorf("replace config file: %w", err)
-		}
+	if err := writeFileInPlace(c.configPath, out, 0644); err != nil {
+		return fmt.Errorf("write config file: %w", err)
 	}
 	return nil
 }
 
-// replaceFile writes data to path, replacing any existing file.
-// os.Rename cannot overwrite on Windows, so fall back to remove+rename.
-func replaceFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
+// writeFileInPlace truncates and overwrites path without replacing its inode.
+// Docker file bind-mounts (e.g. /app/data/config.json) and some Windows/OneDrive
+// locks reject os.Rename with "device or resource busy"; writing through the
+// existing file handle is the portable path.
+func writeFileInPlace(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
 	if err != nil {
-		return fmt.Errorf("create temp config file: %w", err)
+		return err
 	}
-	tmpName := tmp.Name()
-	cleanup := func() { _ = os.Remove(tmpName) }
-
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		cleanup()
-		return fmt.Errorf("write temp config file: %w", err)
+	defer f.Close()
+	if _, err := f.Write(data); err != nil {
+		return err
 	}
-	if err := tmp.Close(); err != nil {
-		cleanup()
-		return fmt.Errorf("close temp config file: %w", err)
-	}
-	if err := os.Chmod(tmpName, perm); err != nil {
-		cleanup()
-		return fmt.Errorf("chmod temp config file: %w", err)
-	}
-
-	if err := os.Rename(tmpName, path); err != nil {
-		if rmErr := os.Remove(path); rmErr != nil && !os.IsNotExist(rmErr) {
-			cleanup()
-			return err
-		}
-		if err := os.Rename(tmpName, path); err != nil {
-			cleanup()
-			return err
-		}
+	if err := f.Sync(); err != nil {
+		return err
 	}
 	return nil
 }
