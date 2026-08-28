@@ -2763,13 +2763,10 @@ export default function BrowserAiPage() {
 										<CardDescription>Download a ZIP with the Guard Windows installer only.</CardDescription>
 									</div>
 								</div>
-								<div className="flex items-center gap-2">
-									<Badge className="bg-emerald-950 text-emerald-400 border-emerald-700 px-3 py-1 text-xs">Status: Ready</Badge>
-									<Button onClick={handleDownloadSetupPackage} disabled={setupPackageDownloading} className="gap-2">
-										<Download className="h-4 w-4" />
-										{setupPackageDownloading ? "Preparing..." : "Download Setup ZIP"}
-									</Button>
-								</div>
+								<Button onClick={handleDownloadSetupPackage} disabled={setupPackageDownloading} className="gap-2 shrink-0">
+									<Download className="h-4 w-4" />
+									{setupPackageDownloading ? "Preparing..." : "Download Setup ZIP"}
+								</Button>
 							</div>
 						</CardHeader>
 						<CardContent className="pt-0">
