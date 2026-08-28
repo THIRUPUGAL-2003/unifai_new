@@ -6,46 +6,61 @@ import {
 	useUpdateGuardrailsConfigMutation,
 	GuardrailProvider,
 } from "@/lib/store/apis/guardrailsApi";
+import { getErrorMessage } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { collectGuardrailIds, nextGuardrailId } from "./utils";
+import { collectGuardrailIds, mergeGuardrailsConfig, nextGuardrailId } from "./utils";
 
 export default function GuardrailsProviderView() {
-	const { data: config, isLoading } = useGetGuardrailsConfigQuery();
-	const [updateConfig] = useUpdateGuardrailsConfigMutation();
+	const { data: config, isLoading, isError, error, refetch } = useGetGuardrailsConfigQuery();
+	const [updateConfig, { isLoading: isSaving }] = useUpdateGuardrailsConfigMutation();
 
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [editingProvider, setEditingProvider] = useState<Partial<GuardrailProvider> | null>(null);
 
-	if (isLoading) return <div className="p-4">Loading providers...</div>;
-
 	const providers = config?.guardrail_providers || [];
 	const rules = config?.guardrail_rules || [];
 
-	const handleDeleteProvider = async (providerId: number) => {
-		if (!config) return;
+	if (isLoading) return <div className="p-4">Loading providers...</div>;
 
+	if (isError) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center gap-3 p-6">
+				<ShieldAlert className="text-destructive h-8 w-8" />
+				<p className="text-destructive font-medium">Failed to load guardrail providers</p>
+				<p className="text-muted-foreground text-sm">{getErrorMessage(error)}</p>
+				<Button variant="outline" onClick={() => refetch()}>
+					Retry
+				</Button>
+			</div>
+		);
+	}
+
+	const persistProviders = async (nextProviders: GuardrailProvider[]) => {
+		await updateConfig(mergeGuardrailsConfig(config, { guardrail_providers: nextProviders })).unwrap();
+	};
+
+	const handleDeleteProvider = async (providerId: number) => {
 		const linkedRule = rules.find((rule) => (rule.provider_config_ids || []).includes(providerId));
 		if (linkedRule) {
 			toast.error(`Provider is linked to rule "${linkedRule.name}". Remove it from the rule first.`);
 			return;
 		}
 
-		const updatedProviders = providers.filter((p) => p.id !== providerId);
 		try {
-			await updateConfig({ ...config, guardrail_providers: updatedProviders }).unwrap();
+			await persistProviders(providers.filter((p) => p.id !== providerId));
 			toast.success("Provider deleted");
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to delete provider");
+		} catch (err) {
+			toast.error(getErrorMessage(err) || "Failed to delete provider");
 		}
 	};
 
 	const handleSaveProvider = async () => {
-		if (!config || !editingProvider || !editingProvider.policy_name || !editingProvider.id) return;
+		if (!editingProvider || !editingProvider.policy_name || !editingProvider.id) return;
 
 		const patternText = getRegexPatterns(editingProvider);
 		if (!patternText.trim()) {
@@ -56,14 +71,13 @@ export default function GuardrailsProviderView() {
 		const providerToSave: GuardrailProvider = {
 			id: editingProvider.id,
 			provider_name: "regex",
-			policy_name: editingProvider.policy_name,
+			policy_name: editingProvider.policy_name.trim(),
 			enabled: editingProvider.enabled ?? true,
 			config: editingProvider.config || { patterns: [] },
 		};
 
-		let updatedProviders = [...providers];
+		const updatedProviders = [...providers];
 		const existingIndex = updatedProviders.findIndex((p) => p.id === providerToSave.id);
-
 		if (existingIndex >= 0) {
 			updatedProviders[existingIndex] = providerToSave;
 		} else {
@@ -71,12 +85,12 @@ export default function GuardrailsProviderView() {
 		}
 
 		try {
-			await updateConfig({ ...config, guardrail_providers: updatedProviders }).unwrap();
+			await persistProviders(updatedProviders);
 			toast.success(existingIndex >= 0 ? "Provider updated" : "Provider created");
 			setIsModalOpen(false);
 			setEditingProvider(null);
-		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to save provider");
+		} catch (err) {
+			toast.error(getErrorMessage(err) || "Failed to save provider");
 		}
 	};
 
@@ -128,7 +142,7 @@ export default function GuardrailsProviderView() {
 					<h1 className="text-2xl font-bold tracking-tight">Guardrail Providers</h1>
 					<p className="text-muted-foreground mt-1">Configure backend providers like Regex matchers to evaluate rules.</p>
 				</div>
-				<Button onClick={openCreateProvider} data-testid="guardrails-create-provider-button">
+				<Button onClick={openCreateProvider} disabled={isSaving} data-testid="guardrails-create-provider-button">
 					<Plus className="mr-2 h-4 w-4" />
 					Create Provider
 				</Button>
@@ -164,6 +178,7 @@ export default function GuardrailsProviderView() {
 										<Button
 											variant="ghost"
 											size="icon"
+											disabled={isSaving}
 											onClick={() => {
 												setEditingProvider(provider);
 												setIsModalOpen(true);
@@ -171,7 +186,12 @@ export default function GuardrailsProviderView() {
 										>
 											<Edit className="h-4 w-4" />
 										</Button>
-										<Button variant="ghost" size="icon" onClick={() => handleDeleteProvider(provider.id)}>
+										<Button
+											variant="ghost"
+											size="icon"
+											disabled={isSaving}
+											onClick={() => handleDeleteProvider(provider.id)}
+										>
 											<Trash className="text-destructive h-4 w-4" />
 										</Button>
 									</TableCell>
@@ -226,7 +246,7 @@ export default function GuardrailsProviderView() {
 						</Button>
 						<Button
 							onClick={handleSaveProvider}
-							disabled={!editingProvider?.id || !editingProvider?.policy_name}
+							disabled={isSaving || !editingProvider?.id || !editingProvider?.policy_name}
 							data-testid="guardrails-provider-save-button"
 						>
 							Save Provider

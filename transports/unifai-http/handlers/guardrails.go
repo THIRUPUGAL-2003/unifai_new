@@ -75,14 +75,19 @@ func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	h.store.Mu.Unlock()
 
 	// InstantiatePlugin(guardrails) reads unifaiConfig.GuardrailsConfig — reload so CEL/providers apply now.
+	reloaded := true
 	if h.configManager != nil {
-		if err := h.configManager.ReloadPlugin(ctx, guardrails.PluginName, nil, nil, nil, nil); err != nil {
-			SendError(ctx, fasthttp.StatusInternalServerError, "Guardrails config saved but plugin reload failed: "+err.Error())
-			return
+		placement := schemas.PluginPlacementBuiltin
+		order := 9
+		if err := h.configManager.ReloadPlugin(ctx, guardrails.PluginName, nil, nil, &placement, &order); err != nil {
+			// Config is already persisted; do not fail the save. The new config is in memory
+			// and will load on the next process start even if live reload fails.
+			logger.Warn("guardrails plugin reload failed after save: %v", err)
+			reloaded = false
 		}
 	}
 
-	SendJSON(ctx, map[string]any{"success": true, "reloaded": true})
+	SendJSON(ctx, map[string]any{"success": true, "reloaded": reloaded})
 }
 
 func cloneGuardrailsConfig(cfg *lib.GuardrailsConfig) lib.GuardrailsConfig {

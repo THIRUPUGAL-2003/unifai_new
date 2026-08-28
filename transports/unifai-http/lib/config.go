@@ -4432,7 +4432,11 @@ func (c *Config) PersistGuardrailsConfig(cfg *GuardrailsConfig) error {
 	out = append(out, '\n')
 
 	if err := replaceFile(c.configPath, out, 0644); err != nil {
-		return fmt.Errorf("replace config file: %w", err)
+		// Windows/OneDrive can lock the destination so rename fails even after remove.
+		// Overwrite in place as a last resort so UI saves still succeed.
+		if werr := os.WriteFile(c.configPath, out, 0644); werr != nil {
+			return fmt.Errorf("replace config file: %w", err)
+		}
 	}
 	return nil
 }
