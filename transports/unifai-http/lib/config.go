@@ -4399,6 +4399,46 @@ func (c *Config) GetRawConfigString() string {
 	return string(data)
 }
 
+// PersistGuardrailsConfig writes guardrails_config to config.json when a config file path is configured.
+func (c *Config) PersistGuardrailsConfig(cfg *GuardrailsConfig) error {
+	if c.configPath == "" {
+		return nil
+	}
+
+	var root map[string]json.RawMessage
+	data, err := os.ReadFile(c.configPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("read config file: %w", err)
+		}
+		root = map[string]json.RawMessage{}
+	} else if err := json.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("parse config file: %w", err)
+	}
+
+	section, err := json.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal guardrails config: %w", err)
+	}
+	root["guardrails_config"] = section
+
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config file: %w", err)
+	}
+	out = append(out, '\n')
+
+	tmpPath := c.configPath + ".tmp"
+	if err := os.WriteFile(tmpPath, out, 0644); err != nil {
+		return fmt.Errorf("write temp config file: %w", err)
+	}
+	if err := os.Rename(tmpPath, c.configPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return fmt.Errorf("replace config file: %w", err)
+	}
+	return nil
+}
+
 // GetProviderConfigRaw retrieves the raw, unredacted provider configuration from memory.
 // This method is for internal use only, particularly by the account implementation.
 //

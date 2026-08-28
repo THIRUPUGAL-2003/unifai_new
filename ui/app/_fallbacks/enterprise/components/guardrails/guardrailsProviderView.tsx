@@ -1,12 +1,18 @@
 import React, { useState } from "react";
 import { Plus, Trash, Edit, ShieldAlert } from "lucide-react";
-import { useGetGuardrailsConfigQuery, useUpdateGuardrailsConfigMutation, GuardrailProvider } from "@/lib/store/apis/guardrailsApi";
+import { toast } from "sonner";
+import {
+	useGetGuardrailsConfigQuery,
+	useUpdateGuardrailsConfigMutation,
+	GuardrailProvider,
+} from "@/lib/store/apis/guardrailsApi";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { collectGuardrailIds, nextGuardrailId } from "./utils";
 
 export default function GuardrailsProviderView() {
 	const { data: config, isLoading } = useGetGuardrailsConfigQuery();
@@ -18,37 +24,62 @@ export default function GuardrailsProviderView() {
 	if (isLoading) return <div className="p-4">Loading providers...</div>;
 
 	const providers = config?.guardrail_providers || [];
+	const rules = config?.guardrail_rules || [];
 
 	const handleDeleteProvider = async (providerId: number) => {
 		if (!config) return;
+
+		const linkedRule = rules.find((rule) => (rule.provider_config_ids || []).includes(providerId));
+		if (linkedRule) {
+			toast.error(`Provider is linked to rule "${linkedRule.name}". Remove it from the rule first.`);
+			return;
+		}
+
 		const updatedProviders = providers.filter((p) => p.id !== providerId);
-		await updateConfig({ ...config, guardrail_providers: updatedProviders });
+		try {
+			await updateConfig({ ...config, guardrail_providers: updatedProviders }).unwrap();
+			toast.success("Provider deleted");
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Failed to delete provider");
+		}
 	};
 
 	const handleSaveProvider = async () => {
 		if (!config || !editingProvider || !editingProvider.policy_name || !editingProvider.id) return;
 
-		let updatedProviders = [...providers];
-
-		// If we are editing an existing one, replace it
-		const existingIndex = updatedProviders.findIndex((p) => p.id === editingProvider.id);
-
-		if (existingIndex >= 0) {
-			updatedProviders[existingIndex] = editingProvider as GuardrailProvider;
-		} else {
-			updatedProviders.push({
-				...editingProvider,
-				id: Math.floor(Math.random() * 100000), // Random int ID
-				enabled: true,
-			} as GuardrailProvider);
+		const patternText = getRegexPatterns(editingProvider);
+		if (!patternText.trim()) {
+			toast.error("Add at least one regex pattern");
+			return;
 		}
 
-		await updateConfig({ ...config, guardrail_providers: updatedProviders });
-		setIsModalOpen(false);
-		setEditingProvider(null);
+		const providerToSave: GuardrailProvider = {
+			id: editingProvider.id,
+			provider_name: "regex",
+			policy_name: editingProvider.policy_name,
+			enabled: editingProvider.enabled ?? true,
+			config: editingProvider.config || { patterns: [] },
+		};
+
+		let updatedProviders = [...providers];
+		const existingIndex = updatedProviders.findIndex((p) => p.id === providerToSave.id);
+
+		if (existingIndex >= 0) {
+			updatedProviders[existingIndex] = providerToSave;
+		} else {
+			updatedProviders.push(providerToSave);
+		}
+
+		try {
+			await updateConfig({ ...config, guardrail_providers: updatedProviders }).unwrap();
+			toast.success(existingIndex >= 0 ? "Provider updated" : "Provider created");
+			setIsModalOpen(false);
+			setEditingProvider(null);
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Failed to save provider");
+		}
 	};
 
-	// Plugin expects [{ pattern, description?, flags? }] (also accepts plain strings).
 	const getRegexPatterns = (provider: Partial<GuardrailProvider>) => {
 		const raw = provider.config?.patterns;
 		if (!Array.isArray(raw)) return "";
@@ -69,12 +100,26 @@ export default function GuardrailsProviderView() {
 			.split("\n")
 			.map((p) => p.trim())
 			.filter((p) => p !== "")
-			.map((pattern) => ({ pattern, description: "", flags: "i" }));
+			.map((pattern) => ({ pattern, description: pattern, flags: "i" }));
 		setEditingProvider((prev) => ({
 			...prev,
 			config: { ...(prev?.config || {}), patterns },
 		}));
 	};
+
+	const openCreateProvider = () => {
+		const nextId = nextGuardrailId(collectGuardrailIds(rules, providers));
+		setEditingProvider({
+			id: nextId,
+			provider_name: "regex",
+			policy_name: "",
+			enabled: true,
+			config: { patterns: [] },
+		});
+		setIsModalOpen(true);
+	};
+
+	const isEditingExisting = editingProvider?.id != null && providers.some((provider) => provider.id === editingProvider.id);
 
 	return (
 		<div className="flex h-full flex-col gap-6 p-6">
@@ -83,12 +128,7 @@ export default function GuardrailsProviderView() {
 					<h1 className="text-2xl font-bold tracking-tight">Guardrail Providers</h1>
 					<p className="text-muted-foreground mt-1">Configure backend providers like Regex matchers to evaluate rules.</p>
 				</div>
-				<Button
-					onClick={() => {
-						setEditingProvider({ provider_name: "regex", config: { patterns: [] } });
-						setIsModalOpen(true);
-					}}
-				>
+				<Button onClick={openCreateProvider} data-testid="guardrails-create-provider-button">
 					<Plus className="mr-2 h-4 w-4" />
 					Create Provider
 				</Button>
@@ -107,7 +147,7 @@ export default function GuardrailsProviderView() {
 					<TableBody>
 						{providers.length === 0 ? (
 							<TableRow>
-								<TableCell colSpan={5} className="text-muted-foreground h-32 text-center">
+								<TableCell colSpan={4} className="text-muted-foreground h-32 text-center">
 									<div className="flex flex-col items-center justify-center">
 										<ShieldAlert className="text-muted-foreground/50 mb-2 h-8 w-8" />
 										<p>No guardrail providers configured yet.</p>
@@ -145,18 +185,13 @@ export default function GuardrailsProviderView() {
 			<Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
 				<DialogContent className="sm:max-w-[500px]">
 					<DialogHeader>
-						<DialogTitle>{providers.find((p) => p.id === editingProvider?.id) ? "Edit Provider" : "Create Provider"}</DialogTitle>
+						<DialogTitle>{isEditingExisting ? "Edit Provider" : "Create Provider"}</DialogTitle>
 					</DialogHeader>
 					<div className="grid gap-4 py-4">
 						<div className="grid gap-2">
 							<Label htmlFor="id">Provider ID</Label>
-							<Input
-								id="id"
-								value={editingProvider?.id || ""}
-								onChange={(e) => setEditingProvider({ ...editingProvider, id: parseInt(e.target.value) || 0 })}
-								placeholder="e.g. 1"
-								disabled={!!providers.find((p) => p.id === editingProvider?.id)}
-							/>
+							<Input id="id" value={editingProvider?.id ?? ""} disabled className="font-mono" />
+							<p className="text-muted-foreground text-xs">Auto-generated ID used when linking providers to rules.</p>
 						</div>
 						<div className="grid gap-2">
 							<Label htmlFor="policy_name">Policy Name</Label>
@@ -164,7 +199,8 @@ export default function GuardrailsProviderView() {
 								id="policy_name"
 								value={editingProvider?.policy_name || ""}
 								onChange={(e) => setEditingProvider({ ...editingProvider, policy_name: e.target.value })}
-								placeholder="e.g. PII Regex Matcher"
+								placeholder="e.g. PAN Regex Matcher"
+								data-testid="guardrails-provider-policy-name-input"
 							/>
 						</div>
 						<div className="grid gap-2">
@@ -177,9 +213,10 @@ export default function GuardrailsProviderView() {
 								id="patterns"
 								value={getRegexPatterns(editingProvider || {})}
 								onChange={(e) => setRegexPatterns(e.target.value)}
-								placeholder="\b\d{3}-\d{2}-\d{4}\b"
+								placeholder="[A-Z]{5}[0-9]{4}[A-Z]"
 								className="font-mono text-sm"
 								rows={4}
+								data-testid="guardrails-provider-patterns-input"
 							/>
 						</div>
 					</div>
@@ -187,7 +224,11 @@ export default function GuardrailsProviderView() {
 						<Button variant="outline" onClick={() => setIsModalOpen(false)}>
 							Cancel
 						</Button>
-						<Button onClick={handleSaveProvider} disabled={!editingProvider?.id || !editingProvider?.policy_name}>
+						<Button
+							onClick={handleSaveProvider}
+							disabled={!editingProvider?.id || !editingProvider?.policy_name}
+							data-testid="guardrails-provider-save-button"
+						>
 							Save Provider
 						</Button>
 					</DialogFooter>

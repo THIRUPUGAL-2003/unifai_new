@@ -52,9 +52,29 @@ func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	pluginCfg := &guardrails.Config{}
+	cfgBytes, err := json.Marshal(payload)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid guardrails configuration")
+		return
+	}
+	if err := json.Unmarshal(cfgBytes, pluginCfg); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid guardrails configuration")
+		return
+	}
+	if err := guardrails.ValidateConfig(pluginCfg); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
+		return
+	}
+
 	h.store.Mu.Lock()
 	h.store.GuardrailsConfig = &payload
 	h.store.Mu.Unlock()
+
+	if err := h.store.PersistGuardrailsConfig(&payload); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Guardrails config updated in memory but failed to persist to config file: "+err.Error())
+		return
+	}
 
 	// InstantiatePlugin(guardrails) reads unifaiConfig.GuardrailsConfig — reload so CEL/providers apply now.
 	if h.configManager != nil {

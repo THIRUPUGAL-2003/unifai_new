@@ -162,18 +162,8 @@ func (p *GuardrailsPlugin) PreLLMHook(ctx *schemas.UnifAIContext, req *schemas.U
 				}
 				
 				if err := provider.ValidateInput(ctx, req); err != nil {
-					// Block request
-					statusCode := 400
-					code := "guardrail_violation"
 					return req, &schemas.LLMPluginShortCircuit{
-						Error: &schemas.UnifAIError{
-							IsUnifAIError: true,
-							StatusCode:     &statusCode,
-							Error: &schemas.ErrorField{
-								Message: err.Error(),
-								Code:    &code,
-							},
-						},
+						Error: guardrailViolationError(err.Error()),
 					}, nil
 				}
 			}
@@ -184,7 +174,68 @@ func (p *GuardrailsPlugin) PreLLMHook(ctx *schemas.UnifAIContext, req *schemas.U
 }
 
 func (p *GuardrailsPlugin) PostLLMHook(ctx *schemas.UnifAIContext, resp *schemas.UnifAIResponse, err *schemas.UnifAIError) (*schemas.UnifAIResponse, *schemas.UnifAIError, error) {
-	// Not fully implemented for MVP output validation to save time.
-	// But it follows the exact same pattern as PreLLMHook
+	if p.config == nil || err != nil || resp == nil {
+		return resp, err, nil
+	}
+
+	vars := map[string]interface{}{
+		"request.model": modelNameFromResponse(resp),
+	}
+
+	for _, rule := range p.config.GuardrailRules {
+		if !rule.Enabled || (rule.ApplyTo != "output" && rule.ApplyTo != "both") {
+			continue
+		}
+
+		prg, ok := p.celPrograms[rule.ID]
+		if !ok {
+			continue
+		}
+
+		out, _, evalErr := prg.Eval(vars)
+		if evalErr != nil {
+			continue
+		}
+
+		if match, ok := out.Value().(bool); ok && match {
+			for _, providerID := range rule.ProviderConfigIDs {
+				provider, ok := p.providers[providerID]
+				if !ok {
+					continue
+				}
+
+				if validateErr := provider.ValidateOutput(ctx, nil, resp); validateErr != nil {
+					return nil, guardrailViolationError(validateErr.Error()), nil
+				}
+			}
+		}
+	}
+
 	return resp, err, nil
+}
+
+func modelNameFromResponse(resp *schemas.UnifAIResponse) string {
+	if resp == nil {
+		return ""
+	}
+	if resp.ChatResponse != nil && resp.ChatResponse.Model != "" {
+		return resp.ChatResponse.Model
+	}
+	if resp.ResponsesResponse != nil && resp.ResponsesResponse.Model != "" {
+		return resp.ResponsesResponse.Model
+	}
+	return ""
+}
+
+func guardrailViolationError(message string) *schemas.UnifAIError {
+	statusCode := 400
+	code := "guardrail_violation"
+	return &schemas.UnifAIError{
+		IsUnifAIError: true,
+		StatusCode:    &statusCode,
+		Error: &schemas.ErrorField{
+			Message: message,
+			Code:    &code,
+		},
+	}
 }
