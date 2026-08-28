@@ -41,7 +41,7 @@ export default function GuardrailsProviderView() {
 	}
 
 	const persistProviders = async (nextProviders: GuardrailProvider[]) => {
-		await updateConfig(mergeGuardrailsConfig(config, { guardrail_providers: nextProviders })).unwrap();
+		return updateConfig(mergeGuardrailsConfig(config, { guardrail_providers: nextProviders })).unwrap();
 	};
 
 	const handleDeleteProvider = async (providerId: number) => {
@@ -52,8 +52,8 @@ export default function GuardrailsProviderView() {
 		}
 
 		try {
-			await persistProviders(providers.filter((p) => p.id !== providerId));
-			toast.success("Provider deleted");
+			const result = await persistProviders(providers.filter((p) => p.id !== providerId));
+			toastGuardrailsSave("Provider deleted", result);
 		} catch (err) {
 			toast.error(getErrorMessage(err) || "Failed to delete provider");
 		}
@@ -85,8 +85,8 @@ export default function GuardrailsProviderView() {
 		}
 
 		try {
-			await persistProviders(updatedProviders);
-			toast.success(existingIndex >= 0 ? "Provider updated" : "Provider created");
+			const result = await persistProviders(updatedProviders);
+			toastGuardrailsSave(existingIndex >= 0 ? "Provider updated" : "Provider created", result);
 			setIsModalOpen(false);
 			setEditingProvider(null);
 		} catch (err) {
