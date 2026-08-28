@@ -1396,6 +1396,26 @@ func (m *BrowserAIManager) ListAgents(ctx context.Context, status, search string
 	return agents, total, err
 }
 
+func (m *BrowserAIManager) DeleteAgent(ctx context.Context, agentID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	agentID = strings.TrimSpace(agentID)
+	if agentID == "" {
+		return fmt.Errorf("agent id is required")
+	}
+	res := m.db.WithContext(ctx).Where("id = ?", agentID).Delete(&BrowserAIAgent{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("agent not found")
+	}
+	return nil
+}
+
 func (m *BrowserAIManager) MarkAgentUninstalled(ctx context.Context, agentID string) (*BrowserAIAgent, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

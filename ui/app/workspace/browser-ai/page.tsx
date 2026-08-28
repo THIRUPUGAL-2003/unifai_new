@@ -65,6 +65,7 @@ import {
 	useGetBrowserAiAgentsQuery,
 	useGetBrowserAiAgentSettingsQuery,
 	useSaveBrowserAiUninstallKeyMutation,
+	useDeleteBrowserAiAgentMutation,
 	BrowserAILogEntry,
 	BrowserGuardRule,
 	BrowserControlSettings,
@@ -454,6 +455,7 @@ export default function BrowserAiPage() {
 	);
 	const { data: agentSettingsData, refetch: refetchAgentSettings } = useGetBrowserAiAgentSettingsQuery();
 	const [saveUninstallKey, { isLoading: savingUninstallKey }] = useSaveBrowserAiUninstallKeyMutation();
+	const [deleteAgent, { isLoading: deletingAgent }] = useDeleteBrowserAiAgentMutation();
 
 	const controls: BrowserControlSettings = controlsData?.controls || {
 		id: "browser-controls-default",
@@ -615,6 +617,20 @@ export default function BrowserAiPage() {
 	const [createTarget] = useCreateBrowserAiTargetMutation();
 	const [updateTarget] = useUpdateBrowserAiTargetMutation();
 	const [deleteTarget] = useDeleteBrowserAiTargetMutation();
+
+	const handleDeleteAgent = async (agent: BrowserAIAgent) => {
+		const label = agent.hostname || agent.id;
+		const stillInstalled = agent.status === "active" || agent.status === "uninstall_pending";
+		const message = stillInstalled
+			? `Remove "${label}" from this list? Guard stays installed on the laptop and will reappear on the next heartbeat.`
+			: `Remove "${label}" from this list?`;
+		if (!window.confirm(message)) return;
+		try {
+			await deleteAgent(agent.id).unwrap();
+		} catch {
+			window.alert("Failed to delete Guard agent. Try again.");
+		}
+	};
 
 	const patchControl = async (patch: Partial<BrowserControlSettings>) => {
 		try {
@@ -2493,7 +2509,7 @@ export default function BrowserAiPage() {
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="p-0">
-							<Table className="table-fixed min-w-[1100px]">
+							<Table className="table-fixed min-w-[1180px]">
 								<TableHeader>
 									<TableRow className="hover:bg-transparent border-border">
 										<TableHead className="w-[160px]">Laptop</TableHead>
@@ -2505,6 +2521,7 @@ export default function BrowserAiPage() {
 										<TableHead className="w-[120px]">Status</TableHead>
 										<TableHead className="w-[150px]">Last seen</TableHead>
 										<TableHead className="w-[150px]">Installed</TableHead>
+										<TableHead className="w-[80px] text-right">Actions</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -2534,11 +2551,24 @@ export default function BrowserAiPage() {
 											<TableCell className="text-xs text-muted-foreground truncate">
 												{agent.installed_at ? new Date(agent.installed_at).toLocaleString() : "—"}
 											</TableCell>
+											<TableCell className="text-right">
+												<Button
+													variant="ghost"
+													size="icon"
+													onClick={() => handleDeleteAgent(agent)}
+													disabled={deletingAgent}
+													className="h-8 w-8 text-muted-foreground hover:text-destructive"
+													title="Remove from this list"
+													data-testid="guard-agent-delete"
+												>
+													<Trash2 className="h-4 w-4" />
+												</Button>
+											</TableCell>
 										</TableRow>
 									))}
 									{agents.length === 0 && (
 										<TableRow>
-											<TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
+											<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
 												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe on employee laptops.
 											</TableCell>
 										</TableRow>

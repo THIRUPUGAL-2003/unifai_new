@@ -82,6 +82,7 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.POST("/api/browser-ai/agents/uninstall", lib.ChainMiddlewares(h.uninstallAgent, middlewares...))
 	r.POST("/api/browser-ai/agents/uninstall-ack", lib.ChainMiddlewares(h.ackRemoteUninstall, middlewares...))
 	r.POST("/api/browser-ai/agents/{id}/remote-uninstall", lib.ChainMiddlewares(h.remoteUninstallAgent, middlewares...))
+	r.DELETE("/api/browser-ai/agents/{id}", lib.ChainMiddlewares(h.deleteAgent, middlewares...))
 
 	r.POST("/api/browser-ai/intercept", lib.ChainMiddlewares(h.intercept, middlewares...))
 	r.POST("/api/browser-ai/intercept-file", lib.ChainMiddlewares(h.interceptFile, middlewares...))
@@ -510,6 +511,24 @@ func (h *BrowserAIHandler) uninstallAgent(ctx *fasthttp.RequestCtx) {
 		"agent":    agent,
 		"settings": settings,
 	})
+}
+
+func (h *BrowserAIHandler) deleteAgent(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+	id, ok := ctx.UserValue("id").(string)
+	if !ok || id == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "Missing agent ID")
+		return
+	}
+	if err := h.manager.DeleteAgent(ctx, id); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			SendError(ctx, fasthttp.StatusNotFound, err.Error())
+			return
+		}
+		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{"status": "success"})
 }
 
 func (h *BrowserAIHandler) remoteUninstallAgent(ctx *fasthttp.RequestCtx) {

@@ -27,6 +27,7 @@ import {
 	nextGuardrailId,
 	normalizeRuleModels,
 	providerLabel,
+	toastGuardrailsSave,
 } from "./utils";
 
 export default function GuardrailsConfigurationView() {
@@ -69,7 +70,7 @@ export default function GuardrailsConfigurationView() {
 	}
 
 	const persistConfig = async (patch: { guardrail_rules?: GuardrailRule[] }) => {
-		await updateConfig(mergeGuardrailsConfig(config, patch)).unwrap();
+		return updateConfig(mergeGuardrailsConfig(config, patch)).unwrap();
 	};
 
 	const handleToggleGuardrails = async (checked: boolean) => {
@@ -85,8 +86,8 @@ export default function GuardrailsConfigurationView() {
 			}
 		}
 		try {
-			await persistConfig({ guardrail_rules: rules.map((rule) => ({ ...rule, enabled: checked })) });
-			toast.success(checked ? "Guardrails enabled" : "Guardrails disabled");
+			const result = await persistConfig({ guardrail_rules: rules.map((rule) => ({ ...rule, enabled: checked })) });
+			toastGuardrailsSave(checked ? "Guardrails enabled" : "Guardrails disabled", result);
 		} catch (err) {
 			toast.error(getErrorMessage(err) || "Failed to update guardrails");
 		}
@@ -108,8 +109,8 @@ export default function GuardrailsConfigurationView() {
 
 	const handleDeleteRule = async (ruleId: number) => {
 		try {
-			await persistConfig({ guardrail_rules: rules.filter((r) => r.id !== ruleId) });
-			toast.success("Rule deleted");
+			const result = await persistConfig({ guardrail_rules: rules.filter((r) => r.id !== ruleId) });
+			toastGuardrailsSave("Rule deleted", result);
 		} catch (err) {
 			toast.error(getErrorMessage(err) || "Failed to delete rule");
 		}
@@ -142,8 +143,8 @@ export default function GuardrailsConfigurationView() {
 		}
 
 		try {
-			await persistConfig({ guardrail_rules: updatedRules });
-			toast.success(editingRule.id ? "Rule updated" : "Rule created");
+			const result = await persistConfig({ guardrail_rules: updatedRules });
+			toastGuardrailsSave(editingRule.id ? "Rule updated" : "Rule created", result);
 			setIsModalOpen(false);
 			setEditingRule(null);
 		} catch (err) {
