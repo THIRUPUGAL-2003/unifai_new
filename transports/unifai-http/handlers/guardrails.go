@@ -63,31 +63,30 @@ func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Persist first so a disk failure does not leave memory ahead of the file.
-	if err := h.store.PersistGuardrailsConfig(&payload); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to persist guardrails config: "+err.Error())
-		return
-	}
-
+	// Apply in memory first so the UI save succeeds even when config.json is a
+	// read-only Docker bind mount.
 	h.store.Mu.Lock()
 	copied := payload
 	h.store.GuardrailsConfig = &copied
 	h.store.Mu.Unlock()
 
-	// InstantiatePlugin(guardrails) reads unifaiConfig.GuardrailsConfig — reload so CEL/providers apply now.
+	persisted := true
+	if err := h.store.PersistGuardrailsConfig(&payload); err != nil {
+		logger.Warn("failed to persist guardrails config to disk: %v", err)
+		persisted = false
+	}
+
 	reloaded := true
 	if h.configManager != nil {
 		placement := schemas.PluginPlacementBuiltin
 		order := 9
 		if err := h.configManager.ReloadPlugin(ctx, guardrails.PluginName, nil, nil, &placement, &order); err != nil {
-			// Config is already persisted; do not fail the save. The new config is in memory
-			// and will load on the next process start even if live reload fails.
 			logger.Warn("guardrails plugin reload failed after save: %v", err)
 			reloaded = false
 		}
 	}
 
-	SendJSON(ctx, map[string]any{"success": true, "reloaded": reloaded})
+	SendJSON(ctx, map[string]any{"success": true, "persisted": persisted, "reloaded": reloaded})
 }
 
 func cloneGuardrailsConfig(cfg *lib.GuardrailsConfig) lib.GuardrailsConfig {
