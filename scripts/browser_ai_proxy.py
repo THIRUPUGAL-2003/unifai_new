@@ -2995,7 +2995,7 @@ def _audio_to_wav_path(data: bytes, content_type: str = "", file_name: str = "")
             proc = subprocess.run(
                 [ffmpeg, "-y", "-i", path, "-ac", "1", "-ar", "16000", wav_path],
                 capture_output=True,
-                timeout=45,
+                timeout=20,
             )
             if proc.returncode == 0 and os.path.isfile(wav_path) and os.path.getsize(wav_path) > 64:
                 try:
@@ -3058,7 +3058,7 @@ try {{
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
             capture_output=True,
-            timeout=60,
+            timeout=15,
             text=True,
             encoding="utf-8",
             errors="ignore",
