@@ -42,6 +42,7 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 				"copilot.cloud.microsoft",
 				"m365.cloud.microsoft",
 				"substrate.office.com",
+				"edge.microsoft.com",
 			],
 		};
 	}

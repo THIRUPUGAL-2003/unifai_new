@@ -629,6 +629,21 @@ func (m *BrowserAIManager) BuildProxyPAC(ctx context.Context, proxyAddr string) 
 		seen[d] = true
 		hosts = append(hosts, d)
 	}
+	// Upload/CDN hosts (files.oaiusercontent.com, clients6.google.com, edge.microsoft.com, …)
+	// must route through Guard or file uploads bypass the proxy on every browser.
+	expanded := make([]string, 0, len(hosts)*2)
+	expanded = append(expanded, hosts...)
+	for _, d := range hosts {
+		for _, alias := range relatedHostsForDomain(d) {
+			alias = NormalizeDomain(alias)
+			if alias == "" || seen[alias] || !pacHostSafe.MatchString(alias) {
+				continue
+			}
+			seen[alias] = true
+			expanded = append(expanded, alias)
+		}
+	}
+	hosts = expanded
 	sort.Strings(hosts)
 
 	var b strings.Builder
@@ -762,6 +777,7 @@ func relatedHostsForDomain(domain string) []string {
 			"sydney.bing.com", "edgeservices.bing.com", "bing.com", "business.bing.com",
 			"substrate.office.com", "m365.cloud.microsoft",
 			"copilot.microsoft.com", "copilot.cloud.microsoft",
+			"edge.microsoft.com",
 		}
 	case "gemini.google.com", "bard.google.com":
 		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"}

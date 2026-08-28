@@ -37,7 +37,7 @@ from mitmproxy.tools.main import mitmdump
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifai.dev-yp.com"
-AGENT_VERSION = "1.5.0"
+AGENT_VERSION = "1.5.1"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
@@ -466,7 +466,7 @@ def maybe_first_run_prompt() -> None:
         "UnifAI Guard installed",
         "UnifAI Guard is running.\n\n"
         "For Browser AI monitoring & predict to work:\n"
-        "1) Fully quit Chrome and Edge (all windows)\n"
+        "1) Fully quit Chrome and Edge (Task Manager → end all browser processes)\n"
         "2) Fully quit & reopen browsers (Chrome, Edge, Brave, Opera, Vivaldi, Firefox)\n"
         "3) Open a monitored AI site and send a test prompt\n\n"
         f"Version {AGENT_VERSION}\n"
@@ -854,7 +854,8 @@ def set_browser_pac_policy(enable: bool, pac_url: str | None = None) -> None:
     """Force Chromium browsers (Chrome/Edge/Brave/Opera/Vivaldi) onto Guard PAC."""
     if pac_url is None:
         pac_url = pac_http_url()
-    policy_only = (
+    # Policies\* is authoritative; Software\* is a fallback some Edge/Chrome profiles read on launch.
+    pac_paths = (
         r"Software\Policies\Google\Chrome",
         r"Software\Policies\Microsoft\Edge",
         r"Software\Policies\BraveSoftware\Brave",
@@ -864,22 +865,42 @@ def set_browser_pac_policy(enable: bool, pac_url: str | None = None) -> None:
         r"Software\Policies\Opera Software\Opera GX",
         r"Software\Policies\Vivaldi",
         r"Software\Policies\Chromium",
+        r"Software\Google\Chrome",
+        r"Software\Microsoft\Edge",
+        r"Software\BraveSoftware\Brave",
+        r"Software\Opera Software\Opera Stable",
+        r"Software\Vivaldi",
     )
-    for path in policy_only:
-        try:
-            key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE)
-            if enable:
-                winreg.SetValueEx(key, "ProxyMode", 0, winreg.REG_SZ, "pac_script")
-                winreg.SetValueEx(key, "ProxyPacUrl", 0, winreg.REG_SZ, pac_url)
-            else:
-                for name in ("ProxyMode", "ProxyPacUrl"):
-                    try:
-                        winreg.DeleteValue(key, name)
-                    except FileNotFoundError:
-                        pass
-            winreg.CloseKey(key)
-        except Exception as e:
-            print(f"[UnifAI Guard WARNING] Could not set browser PAC policy on {path}: {e}")
+    ok = False
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        for path in pac_paths:
+            try:
+                key = winreg.CreateKeyEx(root, path, 0, winreg.KEY_SET_VALUE)
+                if enable:
+                    winreg.SetValueEx(key, "ProxyMode", 0, winreg.REG_SZ, "pac_script")
+                    winreg.SetValueEx(key, "ProxyPacUrl", 0, winreg.REG_SZ, pac_url)
+                    # Stale manual proxy overrides PAC on some Chromium builds (common on Edge).
+                    for stale in ("ProxyServer", "ProxyBypassList"):
+                        try:
+                            winreg.DeleteValue(key, stale)
+                        except FileNotFoundError:
+                            pass
+                else:
+                    for name in ("ProxyMode", "ProxyPacUrl", "ProxyServer", "ProxyBypassList"):
+                        try:
+                            winreg.DeleteValue(key, name)
+                        except FileNotFoundError:
+                            pass
+                winreg.CloseKey(key)
+                ok = True
+            except Exception as e:
+                if root == winreg.HKEY_CURRENT_USER:
+                    print(f"[UnifAI Guard WARNING] Could not set browser PAC policy on {path}: {e}")
+    if enable and not ok:
+        print("[UnifAI Guard WARNING] Could not set Chromium PAC policy in registry.")
+    if enable:
+        # Edge/Chrome only pick up HKCU policy changes after a full quit — nudge the user once.
+        print("[UnifAI Guard] If Edge/Brave/Firefox still bypass Guard: Task Manager → end ALL browser processes → reopen.")
     set_firefox_proxy_policy(enable=enable, pac_url=pac_url)
 
 
@@ -1137,6 +1158,28 @@ def check_backend() -> bool:
     return False
 
 
+def _pac_related_hosts(domain: str) -> list[str]:
+    """Upload/CDN hosts that must be in PAC for file uploads (mirrors backend relatedHostsForDomain)."""
+    d = (domain or "").strip().lower().lstrip(".")
+    families = {
+        "chatgpt.com": ("chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"),
+        "chat.openai.com": ("chatgpt.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"),
+        "claude.ai": ("www.claude.ai",),
+        "www.claude.ai": ("claude.ai",),
+        "copilot.microsoft.com": (
+            "copilot.cloud.microsoft", "sydney.bing.com", "edgeservices.bing.com", "bing.com",
+            "business.bing.com", "substrate.office.com", "m365.cloud.microsoft", "edge.microsoft.com",
+        ),
+        "copilot.cloud.microsoft": (
+            "copilot.microsoft.com", "sydney.bing.com", "edgeservices.bing.com", "bing.com",
+            "business.bing.com", "substrate.office.com", "m365.cloud.microsoft", "edge.microsoft.com",
+        ),
+        "gemini.google.com": ("bard.google.com", "clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"),
+        "bard.google.com": ("gemini.google.com", "clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"),
+    }
+    return list(families.get(d, ()))
+
+
 def build_pac_from_targets(proxy_addr: str) -> str | None:
     body = _http_get_text(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets", "application/json")
     if not body:
@@ -1166,7 +1209,16 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         seen.add(d)
         hosts.append(d)
 
-    hosts.sort()
+    # Include upload/CDN hosts (oaiusercontent.com, clients6.google.com, etc.) so file
+    # uploads route through the proxy even when only the parent domain was added.
+    expanded: list[str] = []
+    for d in hosts:
+        expanded.append(d)
+        for alias in _pac_related_hosts(d):
+            if alias and alias not in seen:
+                seen.add(alias)
+                expanded.append(alias)
+    hosts = sorted(expanded)
     lines = [
         "// UnifAI Browser AI Guard — built on agent from Target Websites",
         "function FindProxyForURL(url, host) {",

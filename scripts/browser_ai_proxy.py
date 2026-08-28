@@ -165,6 +165,12 @@ _cached_controls: dict = {
 }
 _controls_fetched_at: float = 0
 _controls_from_backend = False
+_controls_cache_path = os.path.join(
+    os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
+    "UnifAI",
+    "Guard",
+    "controls_cache.json",
+)
 
 # File bytes cached at upload-time; Prompt Log + allow/block happen only on chat Send.
 _UPLOAD_FILE_CACHE: dict[str, dict] = {}
@@ -396,11 +402,38 @@ def _fail_open() -> bool:
     return os.getenv("UNIFAI_FAIL_OPEN", "").strip() in ("1", "true", "TRUE", "yes", "YES")
 
 
+def _load_controls_cache_from_disk() -> dict | None:
+    try:
+        if not os.path.isfile(_controls_cache_path):
+            return None
+        with open(_controls_cache_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict):
+            return None
+        return {
+            "enabled": bool(data.get("enabled", False)),
+            "block_upload": bool(data.get("block_upload", False)),
+            "upload_warning": (data.get("upload_warning") or "").strip(),
+        }
+    except Exception:
+        return None
+
+
+def _save_controls_cache_to_disk(controls: dict) -> None:
+    try:
+        os.makedirs(os.path.dirname(_controls_cache_path), exist_ok=True)
+        with open(_controls_cache_path, "w", encoding="utf-8") as f:
+            json.dump(controls, f, indent=2)
+            f.write("\n")
+    except Exception:
+        pass
+
+
 def get_control_settings() -> dict:
     """Fetch browser interaction controls from backend every CACHE_TTL seconds."""
     global _cached_controls, _controls_fetched_at, _controls_from_backend
     now = time.time()
-    if now - _controls_fetched_at < CACHE_TTL and _cached_controls:
+    if now - _controls_fetched_at < CACHE_TTL and _cached_controls and _controls_from_backend:
         return _cached_controls
 
     data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/controls")
@@ -413,11 +446,29 @@ def get_control_settings() -> dict:
         }
         _controls_fetched_at = now
         _controls_from_backend = True
+        _save_controls_cache_to_disk(_cached_controls)
         print(
             "[UnifAI Proxy] Controls refreshed | "
             f"enabled={_cached_controls['enabled']} "
             f"upload={_cached_controls['block_upload']}"
         )
+        return _cached_controls
+
+    disk = _load_controls_cache_from_disk()
+    if disk is not None:
+        _cached_controls = disk
+        _controls_fetched_at = now
+        _controls_from_backend = True
+        print(
+            "[UnifAI Proxy WARNING] Controls API unreachable — using last saved policy | "
+            f"enabled={disk['enabled']} upload={disk['block_upload']}"
+        )
+        return _cached_controls
+
+    print(
+        "[UnifAI Proxy WARNING] Upload policy unknown (backend down, no cache) — "
+        "uploads allowed until /api/browser-ai/controls is reachable"
+    )
     return _cached_controls
 
 
@@ -954,9 +1005,19 @@ def detect_target(host: str) -> tuple[bool, str, str]:
     """Check if host matches any monitored domain. Returns (is_target, domain, platform)."""
     domains_map = get_target_domains()
     host_lower = (host or "").lower().strip(".")
+    if not host_lower:
+        return False, "", ""
     for domain, platform in domains_map.items():
-        if host_lower == domain or host_lower.endswith("." + domain):
+        d = (domain or "").lower().strip(".")
+        if not d:
+            continue
+        if host_lower == d or host_lower.endswith("." + d):
             return True, domain, platform
+        # Upload/CDN hosts (files.oaiusercontent.com, clients6.google.com, …) share a product family.
+        for alias in upload_domain_aliases(d):
+            al = alias.lower().strip(".")
+            if host_lower == al or host_lower.endswith("." + al):
+                return True, domain, platform
     return False, "", ""
 
 
@@ -1698,7 +1759,7 @@ def upload_domain_aliases(domain: str) -> list[str]:
         {
             "copilot.microsoft.com", "copilot.cloud.microsoft", "sydney.bing.com",
             "edgeservices.bing.com", "bing.com", "m365.cloud.microsoft",
-            "substrate.office.com",
+            "substrate.office.com", "edge.microsoft.com",
         },
         {"claude.ai", "www.claude.ai", "api.anthropic.com"},
     ]
@@ -2198,7 +2259,7 @@ def enforce_file_send_policy(
     upload_warn = (get_control_settings().get("upload_warning") or "").strip()
     base_upload_msg = upload_warn or "Upload block"
 
-  # Always re-extract + re-scan on Send (PDF / Office / image OCR / voice)
+    # Always re-extract + re-scan on Send (PDF / Office / image OCR / voice)
     cached_bytes = (cached.get("raw_bytes") if cached else b"") or b""
     cached_ct = (cached.get("content_type") if cached else "") or content_type
     if not cached_bytes and has_attach:
@@ -2226,8 +2287,8 @@ def enforce_file_send_policy(
         rule_action = ((cached.get("rule_action") or "") or "").upper()
 
     block_all = controls_active("block_upload")
-    # WARN/REDACT/BLOCK on file content → treat as block for DLP (file must not go through clean)
-    block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT", "WARN"))
+    # WARN on file content logs a warning but must not block when uploads are allowed.
+    block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT"))
     tag = _upload_log_tag(file_label, cached_ct, cached_bytes)
 
     if block_all or block_for_rule:
