@@ -17,6 +17,8 @@ type GuardrailRule struct {
 	SamplingRate      int      `json:"sampling_rate,omitempty"`
 	Timeout           int      `json:"timeout,omitempty"`
 	ProviderConfigIDs []int    `json:"provider_config_ids,omitempty"`
+	// Models lists catalog model names this rule applies to. Empty or ["*"] means all models.
+	Models []string `json:"models,omitempty"`
 }
 
 // GuardrailProvider defines the configuration for a guardrail provider (e.g., regex).

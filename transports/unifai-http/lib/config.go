@@ -193,9 +193,10 @@ type SkillsRegistryConfig struct {
 }
 
 // GuardrailsConfig defines the root configuration for the Guardrails feature.
+// Empty slices are serialized as [] (not omitted) so the UI always receives arrays.
 type GuardrailsConfig struct {
-	GuardrailRules     []GuardrailRule     `json:"guardrail_rules,omitempty"`
-	GuardrailProviders []GuardrailProvider `json:"guardrail_providers,omitempty"`
+	GuardrailRules     []GuardrailRule     `json:"guardrail_rules"`
+	GuardrailProviders []GuardrailProvider `json:"guardrail_providers"`
 }
 
 // GuardrailRule defines a single rule with a CEL expression to evaluate.
@@ -209,6 +210,8 @@ type GuardrailRule struct {
 	SamplingRate      int      `json:"sampling_rate,omitempty"`
 	Timeout           int      `json:"timeout,omitempty"`
 	ProviderConfigIDs []int    `json:"provider_config_ids,omitempty"`
+	// Models lists catalog model names this rule applies to. Empty or ["*"] means all models.
+	Models []string `json:"models,omitempty"`
 }
 
 // GuardrailProvider defines the configuration for a guardrail provider (e.g., regex).
@@ -4428,13 +4431,46 @@ func (c *Config) PersistGuardrailsConfig(cfg *GuardrailsConfig) error {
 	}
 	out = append(out, '\n')
 
-	tmpPath := c.configPath + ".tmp"
-	if err := os.WriteFile(tmpPath, out, 0644); err != nil {
+	if err := replaceFile(c.configPath, out, 0644); err != nil {
+		return fmt.Errorf("replace config file: %w", err)
+	}
+	return nil
+}
+
+// replaceFile writes data to path, replacing any existing file.
+// os.Rename cannot overwrite on Windows, so fall back to remove+rename.
+func replaceFile(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".config-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create temp config file: %w", err)
+	}
+	tmpName := tmp.Name()
+	cleanup := func() { _ = os.Remove(tmpName) }
+
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		cleanup()
 		return fmt.Errorf("write temp config file: %w", err)
 	}
-	if err := os.Rename(tmpPath, c.configPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("replace config file: %w", err)
+	if err := tmp.Close(); err != nil {
+		cleanup()
+		return fmt.Errorf("close temp config file: %w", err)
+	}
+	if err := os.Chmod(tmpName, perm); err != nil {
+		cleanup()
+		return fmt.Errorf("chmod temp config file: %w", err)
+	}
+
+	if err := os.Rename(tmpName, path); err != nil {
+		if rmErr := os.Remove(path); rmErr != nil && !os.IsNotExist(rmErr) {
+			cleanup()
+			return err
+		}
+		if err := os.Rename(tmpName, path); err != nil {
+			cleanup()
+			return err
+		}
 	}
 	return nil
 }

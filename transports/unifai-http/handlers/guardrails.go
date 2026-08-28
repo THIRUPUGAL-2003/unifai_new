@@ -34,12 +34,7 @@ func (h *GuardrailsHandler) RegisterRoutes(r *router.Router, middlewares ...sche
 func (h *GuardrailsHandler) getConfig(ctx *fasthttp.RequestCtx) {
 	h.store.Mu.RLock()
 	defer h.store.Mu.RUnlock()
-
-	if h.store.GuardrailsConfig == nil {
-		SendJSON(ctx, &lib.GuardrailsConfig{})
-		return
-	}
-	SendJSON(ctx, h.store.GuardrailsConfig)
+	SendJSON(ctx, cloneGuardrailsConfig(h.store.GuardrailsConfig))
 }
 
 // updateConfig handles PUT /api/guardrails/config - Updates the guardrails configuration
@@ -51,6 +46,7 @@ func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
 		return
 	}
+	payload = cloneGuardrailsConfig(&payload)
 
 	pluginCfg := &guardrails.Config{}
 	cfgBytes, err := json.Marshal(payload)
@@ -67,14 +63,16 @@ func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	h.store.Mu.Lock()
-	h.store.GuardrailsConfig = &payload
-	h.store.Mu.Unlock()
-
+	// Persist first so a disk failure does not leave memory ahead of the file.
 	if err := h.store.PersistGuardrailsConfig(&payload); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "Guardrails config updated in memory but failed to persist to config file: "+err.Error())
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to persist guardrails config: "+err.Error())
 		return
 	}
+
+	h.store.Mu.Lock()
+	copied := payload
+	h.store.GuardrailsConfig = &copied
+	h.store.Mu.Unlock()
 
 	// InstantiatePlugin(guardrails) reads unifaiConfig.GuardrailsConfig — reload so CEL/providers apply now.
 	if h.configManager != nil {
@@ -85,4 +83,21 @@ func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	}
 
 	SendJSON(ctx, map[string]any{"success": true, "reloaded": true})
+}
+
+func cloneGuardrailsConfig(cfg *lib.GuardrailsConfig) lib.GuardrailsConfig {
+	out := lib.GuardrailsConfig{
+		GuardrailRules:     []lib.GuardrailRule{},
+		GuardrailProviders: []lib.GuardrailProvider{},
+	}
+	if cfg == nil {
+		return out
+	}
+	if cfg.GuardrailRules != nil {
+		out.GuardrailRules = cfg.GuardrailRules
+	}
+	if cfg.GuardrailProviders != nil {
+		out.GuardrailProviders = cfg.GuardrailProviders
+	}
+	return out
 }
