@@ -77,6 +77,11 @@ func validateCircuitBreakerPolicy(policy *circuitBreakerPolicyPayload) string {
 	if len(policy.Condition.Signals) == 0 {
 		return "condition.signals is required"
 	}
+	for i, sig := range policy.Condition.Signals {
+		if strings.TrimSpace(sig.HeaderName) == "" {
+			return fmt.Sprintf("condition.signals[%d].header_name is required", i)
+		}
+	}
 	if policy.Condition.Operator == "" {
 		policy.Condition.Operator = "OR"
 	}

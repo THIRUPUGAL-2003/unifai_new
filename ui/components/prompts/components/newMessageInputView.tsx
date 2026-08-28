@@ -1,9 +1,10 @@
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Message, type MessageContent } from "@/lib/message";
+import { Message, type MessageContent, extractVariablesFromMessages, mergeVariables } from "@/lib/message";
 import { Paperclip, Play, Plus, Square } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { usePromptContext } from "../context";
 import { fileToAttachment } from "../utils/attachment";
 import { AttachmentBadge } from "./messagesView/attachmentViews";
@@ -19,6 +20,9 @@ export function NewMessageInputView() {
 		supportsVision,
 		provider,
 		model,
+		requiredHeaders,
+		customHeaders,
+		setVariables,
 	} = usePromptContext();
 	const [userInput, setUserInput] = useState("");
 	const [inputRole, setInputRole] = useState<string>("user");
@@ -26,11 +30,19 @@ export function NewMessageInputView() {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const userInputRef = useRef<HTMLTextAreaElement>(null);
 
+	const missingRequiredHeaders = useMemo(
+		() => requiredHeaders.filter((name) => !(customHeaders[name] ?? "").trim()),
+		[requiredHeaders, customHeaders],
+	);
+
 	const handleAddMessage = useCallback(() => {
 		if (isStreaming) return;
 		const input = userInput.trim();
 		const currentAttachments = attachments.length > 0 ? [...attachments] : undefined;
-		if (!input && !currentAttachments) return;
+		if (!input && !currentAttachments) {
+			toast.error("Type a message or attach a file before adding");
+			return;
+		}
 		setUserInput("");
 		setAttachments([]);
 		let msg: Message;
@@ -41,13 +53,26 @@ export function NewMessageInputView() {
 		} else {
 			msg = Message.response(input);
 		}
-		onUpdateMessages([...messages, msg]);
-	}, [userInput, attachments, isStreaming, inputRole, onUpdateMessages, messages]);
+		onUpdateMessages((prev) => {
+			const next = [...prev, msg];
+			const varNames = extractVariablesFromMessages(next);
+			setVariables((vars) => mergeVariables(vars, varNames));
+			return next;
+		});
+		toast.success("Message added");
+		setTimeout(() => userInputRef.current?.focus(), 0);
+	}, [userInput, attachments, isStreaming, inputRole, onUpdateMessages, setVariables]);
 
 	const canRun = !!(provider && model);
 
 	const handleRun = useCallback(async () => {
 		if (isStreaming || !provider || !model) return;
+		if (missingRequiredHeaders.length > 0) {
+			toast.error("Fill required headers in Settings before running", {
+				description: missingRequiredHeaders.join(", "),
+			});
+			return;
+		}
 		const input = userInput.trim();
 		const currentAttachments = attachments.length > 0 ? [...attachments] : undefined;
 		if (input || currentAttachments) {
@@ -68,7 +93,7 @@ export function NewMessageInputView() {
 		setTimeout(() => {
 			userInputRef.current?.focus();
 		}, 100);
-	}, [userInput, attachments, isStreaming, inputRole, onSendMessage, provider, model]);
+	}, [userInput, attachments, isStreaming, inputRole, onSendMessage, provider, model, missingRequiredHeaders]);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {

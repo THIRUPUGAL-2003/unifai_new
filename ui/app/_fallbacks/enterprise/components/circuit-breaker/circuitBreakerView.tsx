@@ -17,7 +17,7 @@ import {
 } from "@enterprise/lib/store/apis/circuitBreakerApi";
 import { CircuitBreakerPolicy } from "@enterprise/lib/types/workspace";
 import { Plus, RotateCcw, Shield, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 const emptyPolicy = (): CircuitBreakerPolicy => ({
@@ -31,25 +31,89 @@ const emptyPolicy = (): CircuitBreakerPolicy => ({
 	default_cooldown: "30s",
 });
 
+function validatePolicyForm(form: CircuitBreakerPolicy): string | null {
+	if (!form.name.trim()) return "Policy name is required";
+	if (!form.primary_provider.trim() || !form.primary_model.trim()) {
+		return "Primary provider and model are required";
+	}
+	if (!form.fallback_provider.trim() || !form.fallback_model.trim()) {
+		return "Fallback provider and model are required";
+	}
+	const headerName = form.condition.signals[0]?.header_name?.trim();
+	if (!headerName) {
+		return "Header name is required — this is the provider response header that trips the circuit";
+	}
+	return null;
+}
+
 export default function CircuitBreakerView() {
 	const [open, setOpen] = useState(false);
 	const [form, setForm] = useState<CircuitBreakerPolicy>(emptyPolicy());
 	const [editing, setEditing] = useState(false);
 	const { data: policyData, isLoading: loading } = useGetCircuitBreakerPoliciesQuery();
 	const { data: stateData } = useGetCircuitBreakerStateQuery(undefined, { pollingInterval: 8000 });
-	const [createPolicy] = useCreateCircuitBreakerPolicyMutation();
-	const [updatePolicy] = useUpdateCircuitBreakerPolicyMutation();
+	const [createPolicy, { isLoading: creating }] = useCreateCircuitBreakerPolicyMutation();
+	const [updatePolicy, { isLoading: updating }] = useUpdateCircuitBreakerPolicyMutation();
 	const [deletePolicy] = useDeleteCircuitBreakerPolicyMutation();
 	const [resetPolicy] = useResetCircuitBreakerPolicyMutation();
 	const policies = policyData?.policies || [];
 	const states = stateData?.circuits || {};
 
+	const formError = useMemo(() => validatePolicyForm(form), [form]);
+	const saving = creating || updating;
+
+	const updatePrimarySignal = useCallback(
+		(patch: Partial<CircuitBreakerPolicy["condition"]["signals"][number]>) => {
+			setForm((prev) => {
+				const current = prev.condition.signals[0] ?? { source: "response_header", header_name: "" };
+				return {
+					...prev,
+					condition: {
+						...prev.condition,
+						operator: prev.condition.operator || "OR",
+						signals: [{ ...current, ...patch, source: "response_header" }],
+					},
+				};
+			});
+		},
+		[],
+	);
+
 	const save = async () => {
+		const validationError = validatePolicyForm(form);
+		if (validationError) {
+			toast.error(validationError);
+			return;
+		}
+		const payload: CircuitBreakerPolicy = {
+			...form,
+			name: form.name.trim(),
+			primary_provider: form.primary_provider.trim(),
+			primary_model: form.primary_model.trim(),
+			fallback_provider: form.fallback_provider.trim(),
+			fallback_model: form.fallback_model.trim(),
+			default_cooldown: (form.default_cooldown || "30s").trim(),
+			condition: {
+				operator: form.condition.operator || "OR",
+				signals: [
+					{
+						source: "response_header",
+						header_name: form.condition.signals[0]?.header_name?.trim() || "",
+						...(form.condition.signals[0]?.header_value?.trim()
+							? { header_value: form.condition.signals[0]?.header_value?.trim() }
+							: {}),
+						...(form.condition.signals[0]?.header_contains?.trim()
+							? { header_contains: form.condition.signals[0]?.header_contains?.trim() }
+							: {}),
+					},
+				],
+			},
+		};
 		try {
 			if (editing) {
-				await updatePolicy(form).unwrap();
+				await updatePolicy(payload).unwrap();
 			} else {
-				await createPolicy(form).unwrap();
+				await createPolicy(payload).unwrap();
 			}
 			toast.success(editing ? "Policy updated" : "Policy created");
 			setOpen(false);
@@ -140,7 +204,13 @@ export default function CircuitBreakerView() {
 										{policy.fallback_provider}/{policy.fallback_model}
 									</TableCell>
 									<TableCell className="text-xs">
-										{policy.condition.signals.map((signal) => signal.header_name).join(", ")}
+										{policy.condition.signals
+											.map((signal) => {
+												if (!signal.header_name) return "—";
+												if (signal.header_value) return `${signal.header_name}=${signal.header_value}`;
+												return signal.header_name;
+											})
+											.join(", ")}
 									</TableCell>
 									<TableCell>
 										<Badge variant={state?.status === "open" ? "destructive" : "secondary"}>{state?.status || "closed"}</Badge>
@@ -206,40 +276,36 @@ export default function CircuitBreakerView() {
 						<div className="space-y-1">
 							<Label>Header name</Label>
 							<Input
+								placeholder="e.g. x-circuit-breaker or X-Ms-Is-Spilled-Over"
 								value={form.condition.signals[0]?.header_name || ""}
-								onChange={(e) =>
-									setForm({
-										...form,
-										condition: { ...form.condition, signals: [{ source: "response_header", header_name: e.target.value }] },
-									})
-								}
+								onChange={(e) => updatePrimarySignal({ header_name: e.target.value })}
 							/>
+							<p className="text-muted-foreground text-xs">
+								UnifAI watches this header on the primary provider response. When it matches, traffic fails over to the fallback until cooldown
+								expires.
+							</p>
 						</div>
 						<div className="space-y-1">
 							<Label>Header value (optional)</Label>
 							<Input
+								placeholder="Leave empty to trip when the header exists"
 								value={form.condition.signals[0]?.header_value || ""}
-								onChange={(e) =>
-									setForm({
-										...form,
-										condition: {
-											...form.condition,
-											signals: [{ source: "response_header", header_name: form.condition.signals[0]?.header_name || "", header_value: e.target.value }],
-										},
-									})
-								}
+								onChange={(e) => updatePrimarySignal({ header_value: e.target.value })}
 							/>
 						</div>
 						<div className="space-y-1">
 							<Label>Default cooldown</Label>
 							<Input value={form.default_cooldown || "30s"} onChange={(e) => setForm({ ...form, default_cooldown: e.target.value })} />
 						</div>
+						{formError ? <p className="text-destructive text-xs">{formError}</p> : null}
 					</div>
 					<DialogFooter>
 						<Button variant="outline" onClick={() => setOpen(false)}>
 							Cancel
 						</Button>
-						<Button onClick={() => void save()}>Save policy</Button>
+						<Button disabled={!!formError || saving} onClick={() => void save()}>
+							{saving ? "Saving…" : "Save policy"}
+						</Button>
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>

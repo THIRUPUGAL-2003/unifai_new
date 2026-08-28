@@ -185,6 +185,9 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 	const [isStreaming, setIsStreaming] = useState(false);
 	const activeRunRef = useRef<symbol | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
+	// Tracks which session/version/prompt was last loaded into the playground.
+	// Prevents RTK refetches from wiping locally added messages (Add button).
+	const loadedPlaygroundKeyRef = useRef<string>("");
 	const [variables, setVariables] = useState<VariableMap>({});
 	const [customHeaders, setCustomHeaders] = useState<Record<string, string>>({});
 
@@ -253,11 +256,19 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			(sessions.length > 0 && !selectedSessionId && !selectedVersionId))
 	);
 
-	// Load session or version data when selection changes
+	// Load session or version data when selection changes — not on every refetch.
 	useEffect(() => {
 		// Don't reset state while waiting for data that hasn't arrived yet
 		if (selectedSessionId && !selectedSession) return;
 		if (selectedVersionId && !selectedVersion) return;
+
+		const playgroundKey = selectedSessionId
+			? `session:${selectedSessionId}`
+			: selectedVersionId
+				? `version:${selectedVersionId}`
+				: selectedPromptId
+					? `prompt:${selectedPromptId}`
+					: "empty";
 
 		const loadFromParams = (params: ModelParams, prov: string, mod: string) => {
 			const { api_key_id, ...rest } = params || ({} as ModelParams);
@@ -273,6 +284,11 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			setVariables((prev) => mergeVariables(prev, varNames));
 		};
 
+		// Same session/version still selected — keep local edits (Add / inline edits).
+		if (loadedPlaygroundKeyRef.current === playgroundKey) {
+			return;
+		}
+
 		if (selectedSession) {
 			const raw = (selectedSession.messages ?? []).map((m) => m.message);
 			const loaded = Message.fromLegacyAll(raw);
@@ -282,6 +298,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			if (selectedSession.variables && Object.keys(selectedSession.variables).length > 0) {
 				setVariables(selectedSession.variables);
 			}
+			loadedPlaygroundKeyRef.current = playgroundKey;
 		} else if (selectedVersion) {
 			// If sessions are still loading and no session is explicitly selected,
 			// wait — a session may auto-select and take priority
@@ -294,6 +311,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			if (selectedVersion.variables && Object.keys(selectedVersion.variables).length > 0) {
 				setVariables((prev) => mergeVariables(prev, Object.keys(selectedVersion.variables!)));
 			}
+			loadedPlaygroundKeyRef.current = playgroundKey;
 		} else if (selectedPrompt?.latest_version) {
 			// Only fall back to latest_version after sessions have settled
 			// to avoid racing with the session auto-select effect
@@ -310,17 +328,20 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			if (sessions.length === 0) {
 				setUrlState({ versionId: version.id });
 			}
+			loadedPlaygroundKeyRef.current = playgroundKey;
 		} else {
-			setMessages([Message.system("")]);
+			loadMessages([Message.system("")]);
 			setProvider("");
 			setModel("");
 			setModelParams({ stream: true });
 			setApiKeyId("__auto__");
+			loadedPlaygroundKeyRef.current = playgroundKey;
 		}
 	}, [
 		selectedSession,
 		selectedVersion,
 		selectedPrompt,
+		selectedPromptId,
 		selectedSessionId,
 		selectedVersionId,
 		setUrlState,
@@ -426,6 +447,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 	// Handlers
 	const handleSelectPrompt = useCallback(
 		(id: string) => {
+			loadedPlaygroundKeyRef.current = "";
 			setMessages([Message.system("")]);
 			setProvider("");
 			setModel("");

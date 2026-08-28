@@ -565,6 +565,8 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
         if not p:
             return False
         return is_gemini_chat_submit(p, body or "")
+    if is_copilot_host(h):
+        return is_copilot_chat_submit(p, body or "")
     if not p:
         return True
     return True
@@ -634,9 +636,218 @@ def _is_google_wire_blob(text: str) -> bool:
         if has_u and has_l and has_d:
             return True
     if len(t) >= 24 and re.fullmatch(r"[A-Za-z0-9_\-+/=]+", t):
-        if any(c.isupper() for c in t) and any(c.islower() for c in t) and ("-" in t or "_" in t):
+        if any(c.isupper() for c in t) and any(c.islower() for c in t):
+            if "/" in t or "+" in t or "-" in t or "_" in t or t.endswith("="):
+                return True
+    return False
+
+
+def _is_opaque_wire_blob(text: str) -> bool:
+    """Encoded wire/session tokens (Copilot/Bing base64url, Gemini blobs) — not typed chat."""
+    if _is_google_wire_blob(text):
+        return True
+    t = (text or "").strip()
+    if not t or " " in t or "\n" in t or len(t) < 20:
+        return False
+    # Copilot / Sydney / Edge often ship conversation tokens as base64url (with / + =).
+    if re.fullmatch(r"[A-Za-z0-9_\-+/=]+", t):
+        if "/" in t or "+" in t or t.endswith("="):
+            return True
+        if len(t) >= 32 and not re.search(r"[aeiouAEIOU]{2}", t):
             return True
     return False
+
+
+def is_copilot_host(host: str) -> bool:
+    h = (host or "").lower()
+    return any(
+        x in h
+        for x in (
+            "copilot.microsoft.",
+            "copilot.cloud.microsoft",
+            "sydney.bing.",
+            "edgeservices.bing.",
+            "substrate.office.",
+            "m365.cloud.microsoft",
+            "business.bing.",
+            "bing.com",
+        )
+    )
+
+
+def is_copilot_chat_submit(path: str, body: str = "") -> bool:
+    """True only for Copilot/Bing/Edge chat submit — not telemetry or sync frames."""
+    path_l = (path or "").lower().split("?", 1)[0]
+    body_l = (body or "").lower()
+    if not path_l:
+        if not body_l:
+            return False
+        return (
+            '"event":"send"' in body_l
+            or '"event": "send"' in body_l
+            or '"target":"chat"' in body_l
+            or '"target": "chat"' in body_l
+            or (('"type":4' in body_l or '"type": 4' in body_l) and "chat" in body_l)
+        )
+    markers = (
+        "chathub", "sydney", "chatoverstream", "getresponse", "/c/api/",
+        "copilot", "turing/conversation", "createconversation", "/api/copilot",
+        "edgesvc", "edgechat",
+    )
+    if any(m in path_l for m in markers):
+        return True
+    if "/chat" in path_l and "telemetry" not in path_l and "analytics" not in path_l:
+        return True
+    if body_l and (
+        '"event":"send"' in body_l
+        or '"event": "send"' in body_l
+        or '"target":"chat"' in body_l
+        or '"target": "chat"' in body_l
+    ):
+        return True
+    return False
+
+
+def is_copilot_noise_content(content: str) -> bool:
+    """Copilot SignalR / Sydney frames that are not a user chat submit."""
+    if not content:
+        return True
+    cl = content.lower()
+    if '"target":"metrics"' in cl or '"target": "metrics"' in cl:
+        return True
+    if '"type":6' in cl or '"type": 6' in cl:
+        return True
+    if '"event":"typing"' in cl or '"event": "typing"' in cl:
+        return True
+    if '"event":"ping"' in cl or '"event": "ping"' in cl:
+        return True
+    if "messagetype\":\"internal" in cl or "messagetype\": \"internal" in cl:
+        return True
+    if '"event":"send"' not in cl and '"event": "send"' not in cl:
+        if '"target":"chat"' not in cl and '"target": "chat"' not in cl:
+            if ('"type":4' not in cl and '"type": 4' not in cl) or "chat" not in cl:
+                if len(content) > 40 and _is_opaque_wire_blob(content.strip()):
+                    return True
+    return False
+
+
+def _parse_signalr_frames(text: str) -> list:
+    """Split SignalR JSON frames (0x1e record separator)."""
+    out = []
+    for part in re.split(r"\x1e", text or ""):
+        part = part.strip()
+        if not part or part[0] not in "{[":
+            continue
+        try:
+            out.append(json.loads(part))
+        except Exception:
+            continue
+    return out
+
+
+def extract_copilot_prompt(content: str) -> str:
+    """Extract user-typed text from Copilot / Bing Sydney / Edge / M365 SignalR payloads."""
+
+    def _pick_text(val: str) -> str:
+        if not val or not isinstance(val, str):
+            return ""
+        got = val.strip()
+        if not got or _is_opaque_wire_blob(got):
+            return ""
+        if looks_like_user_prompt(got):
+            return got
+        return ""
+
+    def _from_message_dict(msg: dict) -> str:
+        if not isinstance(msg, dict):
+            return ""
+        author = str(msg.get("author") or msg.get("role") or "").lower()
+        if author and author not in ("user", "human", "customer", "client", "sender"):
+            return ""
+        for key in ("text", "hiddenText", "rawText", "input", "query", "prompt", "utterance"):
+            got = _pick_text(msg.get(key) or "")
+            if got:
+                return got
+        return ""
+
+    def _from_obj(obj) -> str:
+        if isinstance(obj, str):
+            return _pick_text(obj)
+        if not isinstance(obj, dict):
+            return ""
+
+        # SignalR StreamInvocation: type 4, target chat
+        if obj.get("type") == 4 and str(obj.get("target", "")).lower() == "chat":
+            for arg in obj.get("arguments") or []:
+                if not isinstance(arg, dict):
+                    continue
+                got = _from_message_dict(arg.get("message") or {})
+                if got:
+                    return got
+                for key in ("text", "query", "prompt", "rawUserQuery", "utterance", "userMessage"):
+                    got = _pick_text(arg.get(key) or "")
+                    if got:
+                        return got
+
+        event = str(obj.get("event", "")).lower()
+        if event in ("send", "message", "chat"):
+            got = _from_message_dict(obj.get("message") or {})
+            if got:
+                return got
+            for key in ("text", "query", "prompt", "rawUserQuery", "utterance", "userMessage"):
+                got = _pick_text(obj.get(key) or "")
+                if got:
+                    return got
+            return ""
+
+        got = _from_message_dict(obj.get("message") or {})
+        if got:
+            return got
+        for key in ("text", "query", "prompt", "rawUserQuery", "utterance", "userMessage", "input"):
+            got = _pick_text(obj.get(key) or "")
+            if got:
+                return got
+        for nest in ("arguments", "params", "payload", "data", "body", "request"):
+            nested = obj.get(nest)
+            if isinstance(nested, list):
+                for item in nested:
+                    got = _from_obj(item)
+                    if got:
+                        return got
+            elif isinstance(nested, dict):
+                got = _from_obj(nested)
+                if got:
+                    return got
+        return ""
+
+    if not content:
+        return ""
+
+    if "\x1e" in content:
+        for frame in reversed(_parse_signalr_frames(content)):
+            got = _from_obj(frame)
+            if got:
+                return got
+
+    try:
+        data = json.loads(content)
+        got = _from_obj(data)
+        if got:
+            return got
+    except Exception:
+        pass
+
+    for line in (content or "").splitlines():
+        line = line.strip()
+        if not line or line[0] not in "{[":
+            continue
+        try:
+            got = _from_obj(json.loads(line))
+            if got:
+                return got
+        except Exception:
+            continue
+    return ""
 
 
 def _is_ai_chrome_url(text: str) -> bool:
@@ -686,7 +897,7 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
     if _is_ai_chrome_url(t):
         return False
-    if _is_google_wire_blob(t):
+    if _is_opaque_wire_blob(t):
         return False
     if t.startswith("gAAAA") or '"p":"gAAAA' in t:
         return False
@@ -794,6 +1005,9 @@ def is_noise(path: str, content: str = "") -> bool:
         # Copilot websocket send events
         if '"event":"send"' in content or '"event": "send"' in content:
             return False
+        # Copilot SignalR / sync noise — not user prompts
+        if is_copilot_noise_content(content):
+            return True
         # Cloudflare challenge bodies (non-JSON)
         if not cl.startswith(("{", "[")) and not looks_like_user_prompt(content[:200]):
             if len(content) > 40 and content.count(" ") < 2 and not any(ch.isdigit() for ch in content):
@@ -952,7 +1166,10 @@ def _extract_from_message_obj(msg: dict) -> str | None:
     ):
         val = msg.get(key)
         if isinstance(val, (str, int, float)):
-            got = _clean_prompt_text(str(val))
+            sval = str(val)
+            if _is_opaque_wire_blob(sval):
+                continue
+            got = _clean_prompt_text(sval)
             if got:
                 return got
     return None
@@ -976,7 +1193,7 @@ def _extract_from_json(data) -> str | None:
                 return got
             if isinstance(item, str):
                 # Raw array slots are often request ids; never save mixed-case RPC tokens.
-                if _is_google_wire_blob(item):
+                if _is_opaque_wire_blob(item):
                     continue
                 got = _clean_prompt_text(item)
                 if got:
@@ -1018,7 +1235,10 @@ def _extract_from_json(data) -> str | None:
     ):
         val = data.get(key)
         if isinstance(val, (str, int, float)):
-            got = _clean_prompt_text(str(val))
+            sval = str(val)
+            if _is_opaque_wire_blob(sval):
+                continue
+            got = _clean_prompt_text(sval)
             if got:
                 return got
         elif isinstance(val, list):
@@ -1031,13 +1251,21 @@ def _extract_from_json(data) -> str | None:
                 return got
             for nk in ("query", "text", "prompt", "question", "rawUserQuery", "content", "input", "message"):
                 if isinstance(val.get(nk), (str, int, float)):
-                    got = _clean_prompt_text(str(val[nk]))
+                    sval = str(val[nk])
+                    if _is_opaque_wire_blob(sval):
+                        continue
+                    got = _clean_prompt_text(sval)
                     if got:
                         return got
 
-    # Copilot / Sydney send events
+    # Copilot / Sydney send events — message.text only; content is often an encrypted token.
     if str(data.get("event", "")).lower() in ("send", "message", "chat"):
-        for key in ("content", "message", "parts", "attachments", "input"):
+        msg = data.get("message")
+        if isinstance(msg, dict):
+            got = _extract_from_message_obj(msg)
+            if got:
+                return got
+        for key in ("parts", "attachments", "input"):
             val = data.get(key)
             if isinstance(val, list):
                 got = _parts_to_text(val)
@@ -1048,7 +1276,17 @@ def _extract_from_json(data) -> str | None:
                 if got:
                     return got
             if isinstance(val, (str, int, float)):
-                got = _clean_prompt_text(str(val))
+                sval = str(val)
+                if _is_opaque_wire_blob(sval):
+                    continue
+                got = _clean_prompt_text(sval)
+                if got:
+                    return got
+        val = data.get("content")
+        if isinstance(val, (str, int, float)):
+            sval = str(val)
+            if not _is_opaque_wire_blob(sval):
+                got = _clean_prompt_text(sval)
                 if got:
                     return got
 
@@ -1144,6 +1382,10 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
             # Huge JSON sometimes wraps base64 file — rare
             if any(k in raw for k in ('"bytes"', '"data":', "base64", '"fileData"', '"inline_data"')):
                 return True, f"File Upload Endpoint large JSON ({path_only[:80]})"
+        if is_json_body and body_len >= 80 and any(
+            k in raw for k in ('"file_name"', '"fileName"', '"filename"', '"mime_type"', '"mimeType"', '"bytes"')
+        ):
+            return True, f"File Upload Endpoint JSON ({path_only[:80]})"
         return False, ""
 
     # Binary content-type on non-chat hosts — require real size + magic / upload header
@@ -1448,7 +1690,7 @@ def upload_domain_aliases(domain: str) -> list[str]:
     if not d:
         return []
     families = [
-        {"chatgpt.com", "chat.openai.com", "ab.chatgpt.com"},
+        {"chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"},
         {
             "gemini.google.com", "bard.google.com", "clients6.google.com",
             "drive.google.com", "docs.google.com", "upload.google.com",
@@ -1528,6 +1770,7 @@ def _extract_file_ids_from_chat(raw_text: str) -> list[str]:
         r'"attachmentId"\s*:\s*"([^"]+)"',
         r'file-service://file-([a-zA-Z0-9_-]+)',
         r'asset_pointer"\s*:\s*"[^"]*file-([a-zA-Z0-9_-]+)',
+        r'"id"\s*:\s*"(file-[a-zA-Z0-9_-]+)"',
     ):
         for m in re.finditer(pat, raw_text):
             ids.append(m.group(1))
@@ -1649,7 +1892,147 @@ def chat_carries_attachment(raw_text: str) -> bool:
     if "drive.google.com" in low and ("file/" in low or "open?id=" in low):
         return True
 
+    # ChatGPT / OpenAI file pointers
+    if re.search(r'"id"\s*:\s*"file-[a-zA-Z0-9_-]+"', low):
+        return True
+    if re.search(r'"mime_type"\s*:\s*"(?:application/|image/|audio/|video/)', low):
+        if '"attachments"' in low or '"files"' in low or '"content_type"' in low:
+            return True
+
+    # Copilot / Sydney image or file payloads (base64 in send frame)
+    if copilot_carries_binary_attach(raw_text):
+        return True
+
     return False
+
+
+def copilot_carries_binary_attach(raw_text: str) -> bool:
+    """Copilot/Edge image or file sends often embed base64 instead of file_id."""
+    if not raw_text:
+        return False
+    low = raw_text.lower()
+    if any(
+        x in low
+        for x in (
+            '"messagetype":"image"',
+            '"messagetype": "image"',
+            '"inputimage"',
+            '"input_image"',
+            '"imageurl"',
+            '"image_url"',
+            '"binarydata"',
+            '"binary_data"',
+        )
+    ):
+        return True
+    if re.search(r'"(?:data|image|bytes|content)"\s*:\s*"[A-Za-z0-9+/=\s]{500,}"', raw_text):
+        return True
+    if re.search(r'"type"\s*:\s*"(?:image|input_image|input_file|file|document)"', low):
+        if re.search(r'"(?:data|source|url)"\s*:\s*', low):
+            return True
+    return False
+
+
+def extract_attachment_filename_from_send(raw_text: str) -> str:
+    """Best-effort filename from a chat Send JSON body."""
+    if not raw_text:
+        return ""
+    for pat in (
+        r'["\'](?:file_name|fileName|filename)["\']\s*:\s*["\']([^"\']+)["\']',
+        r'"attachments"\s*:\s*\[\s*\{[^}]*"name"\s*:\s*"([^"]+)"',
+        r'"files"\s*:\s*\[\s*\{[^}]*"name"\s*:\s*"([^"]+)"',
+        r'"name"\s*:\s*"([^"]+\.(?:pdf|docx?|xlsx?|pptx?|csv|txt|png|jpe?g|gif|webp|zip))"',
+    ):
+        m = re.search(pat, raw_text, re.I)
+        if m:
+            name = (m.group(1) or "").strip()
+            if name and name.lower() not in _FAKE_UPLOAD_NAMES:
+                return name
+    return ""
+
+
+def extract_inline_attachment_bytes(raw_text: str) -> tuple[bytes, str, str]:
+    """Pull inline base64 file/image bytes from a chat Send body for rule scanning."""
+    if not raw_text:
+        return b"", "", ""
+    import base64
+
+    mime = ""
+    m_mime = re.search(r'"(?:mime_type|mimeType|media_type|content_type)"\s*:\s*"([^"]+)"', raw_text, re.I)
+    if m_mime:
+        mime = (m_mime.group(1) or "").strip()
+    fname = extract_attachment_filename_from_send(raw_text)
+
+    for pat in (
+        r'"(?:data|bytes|content|image|binary|base64)"\s*:\s*"([A-Za-z0-9+/=\s\\]{200,})"',
+    ):
+        m = re.search(pat, raw_text)
+        if not m:
+            continue
+        blob = (m.group(1) or "").replace("\\n", "").replace("\\r", "").replace(" ", "")
+        if len(blob) < 200:
+            continue
+        try:
+            data = base64.b64decode(blob, validate=False)
+        except Exception:
+            continue
+        if len(data) >= 32:
+            if not mime:
+                if data[:5] == b"%PDF-":
+                    mime = "application/pdf"
+                elif data[:2] == b"PK":
+                    mime = "application/vnd.openxmlformats-officedocument"
+                elif data[:3] == b"\xff\xd8\xff":
+                    mime = "image/jpeg"
+                elif data[:8] == b"\x89PNG\r\n\x1a\n":
+                    mime = "image/png"
+            return data[:20 * 1024 * 1024], mime, fname
+    return b"", "", ""
+
+
+def block_upload_request_now(
+    flow: http.HTTPFlow,
+    *,
+    platform: str,
+    domain: str,
+    host: str,
+    client_ip: str,
+    fname: str,
+    raw_bytes: bytes,
+    content_type: str,
+    raw_text: str = "",
+) -> None:
+    """Stop an upload request immediately and log it as blocked."""
+    upload_warn = (get_control_settings().get("upload_warning") or "").strip() or "Upload block"
+    label = (fname or "attachment").strip() or "attachment"
+    tag = _upload_log_tag(label, content_type, raw_bytes)
+    excerpt = ""
+    if raw_bytes:
+        scanned = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, label)
+        if scanned:
+            excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
+    prompt_log = f"{tag} {label} — Blocked (Block Upload)"
+    if excerpt:
+        prompt_log = f"{prompt_log} | {excerpt}"
+    dedupe_key = f"upload-req-block|{label}"
+    if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+        print(f"[UnifAI Proxy] UPLOAD BLOCKED (request) | {client_ip} → {host} | {label}")
+        ok = post_upload_intercept(
+            platform=platform,
+            prompt=prompt_log,
+            client_ip=client_ip,
+            domain=domain,
+            url=flow.request.url,
+            method=flow.request.method,
+            file_name=label,
+            is_blocked=True,
+            blocked_reason="Block Upload",
+            raw_bytes=raw_bytes,
+            content_type=content_type,
+        )
+        if ok:
+            mark_duplicate_event(domain, dedupe_key)
+    make_blocked_response(flow, "Block Upload", host, reply_text=upload_warn)
 
 
 def take_cached_upload_for_send(
@@ -1760,7 +2143,11 @@ def enforce_file_send_policy(
 
     Typed-only prompts return (False, "") so normal text Guard Rules still run.
     """
-    has_attach = chat_carries_attachment(raw_text) or bool((file_name_hint or "").strip())
+    has_attach = (
+        chat_carries_attachment(raw_text)
+        or bool((file_name_hint or "").strip())
+        or copilot_carries_binary_attach(raw_text)
+    )
     # Prefer id/name from this Send; then latest if markers present; then recent confident cache
     cached = take_cached_upload_for_send(domain, raw_text, allow_latest=False)
     if not cached and has_attach:
@@ -1777,7 +2164,7 @@ def enforce_file_send_policy(
             return False, ""
 
     get_control_settings()
-    fname = (file_name_hint or "").strip()
+    fname = (file_name_hint or "").strip() or extract_attachment_filename_from_send(raw_text or "")
     if cached:
         fname = fname or (cached.get("file_name") or "").strip()
     if not fname:
@@ -1799,7 +2186,7 @@ def enforce_file_send_policy(
         )
     )
     real_name = bool(fname and fname.lower() not in _FAKE_UPLOAD_NAMES)
-    if not real_cached and not real_name:
+    if not real_cached and not real_name and not has_attach:
         return False, ""
 
     file_label = fname if real_name else (
@@ -1811,9 +2198,16 @@ def enforce_file_send_policy(
     upload_warn = (get_control_settings().get("upload_warning") or "").strip()
     base_upload_msg = upload_warn or "Upload block"
 
-    # Always re-extract + re-scan on Send (PDF / Office / image OCR / voice)
+  # Always re-extract + re-scan on Send (PDF / Office / image OCR / voice)
     cached_bytes = (cached.get("raw_bytes") if cached else b"") or b""
     cached_ct = (cached.get("content_type") if cached else "") or content_type
+    if not cached_bytes and has_attach:
+        inline_bytes, inline_ct, inline_name = extract_inline_attachment_bytes(raw_text or "")
+        if inline_bytes:
+            cached_bytes = inline_bytes
+            cached_ct = inline_ct or content_type
+            if inline_name and inline_name.lower() not in _FAKE_UPLOAD_NAMES:
+                file_label = inline_name
     rule_hit = False
     rule_name = ""
     rule_action = ""
@@ -3051,6 +3445,11 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
             gemini_prompt = extract_gemini_prompt(text)
             return _clean_prompt_text(gemini_prompt) if gemini_prompt else None
 
+        # Copilot / Bing / Edge: only message.text paths — never raw content tokens.
+        if is_copilot_host(host):
+            copilot_prompt = extract_copilot_prompt(text)
+            return _clean_prompt_text(copilot_prompt) if copilot_prompt else None
+
         # URL-encoded form bodies (Copilot / misc — not Gemini)
         if "application/x-www-form-urlencoded" in ct or (
             "%" in text and not text.lstrip().startswith(("{", "["))
@@ -3739,7 +4138,7 @@ class BrowserAIInterceptor:
         path = flow.request.path
         client_ip = get_client_ip(flow)
 
-        # ── File Upload: cache only (no Prompt Log / no block until chat Send) ──
+        # ── File Upload: block immediately when policy ON; otherwise cache for Send-time scan ──
         raw_bytes = flow.request.content or b""
         content_type = flow.request.headers.get("content-type", "")
 
@@ -3751,8 +4150,7 @@ class BrowserAIInterceptor:
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
         if is_upload:
             fname = extract_filename_from_upload(flow, raw_text)
-            # Only CACHE real files here. Never Prompt Log / never Block until chat Send.
-            if is_confident_file_upload(
+            confident = is_confident_file_upload(
                 fname=fname,
                 content_type=content_type,
                 raw_bytes=raw_bytes,
@@ -3760,7 +4158,23 @@ class BrowserAIInterceptor:
                 upload_reason=upload_reason or "",
                 host=host,
                 path=path,
-            ):
+            )
+            # Block all uploads immediately when admin policy is ON — do not let bytes reach the AI site.
+            if controls_active("block_upload"):
+                block_upload_request_now(
+                    flow,
+                    platform=platform,
+                    domain=domain,
+                    host=host,
+                    client_ip=client_ip,
+                    fname=fname or "attachment",
+                    raw_bytes=raw_bytes,
+                    content_type=content_type,
+                    raw_text=raw_text,
+                )
+                return
+            # Only CACHE real files here. Prompt Log / block-on-rule waits for chat Send.
+            if confident:
                 upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, fname)
                 file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
                 file_ids = _extract_file_ids_from_chat(raw_text)
@@ -3794,6 +4208,9 @@ class BrowserAIInterceptor:
         if is_gemini_host(host) and not is_gemini_chat_submit(path, raw_text):
             return
 
+        if is_copilot_host(host) and is_copilot_noise_content(raw_text):
+            return
+
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
         if not is_chat_path(path, host, raw_text):
             return
@@ -3815,7 +4232,11 @@ class BrowserAIInterceptor:
             method=flow.request.method,
             raw_text=raw_text,
             content_type=content_type,
-            file_name_hint=extract_filename_from_upload(flow, raw_text) if chat_carries_attachment(raw_text) else "",
+            file_name_hint=(
+                extract_filename_from_upload(flow, raw_text)
+                if chat_carries_attachment(raw_text)
+                else extract_attachment_filename_from_send(raw_text)
+            ),
             path=path,
         )
         if should_block_file:
@@ -3833,7 +4254,7 @@ class BrowserAIInterceptor:
             return
         if not looks_like_user_prompt(prompt):
             return
-        if _is_google_wire_blob(prompt):
+        if _is_opaque_wire_blob(prompt):
             return
         # Skip duplicate FILE UPLOAD lines if extract_prompt somehow returned that
         if prompt.strip().startswith("[FILE UPLOAD"):
@@ -3911,6 +4332,13 @@ class BrowserAIInterceptor:
             if ws_path and not is_gemini_chat_submit(ws_path, content):
                 return
 
+        if is_copilot_host(host):
+            ws_path = flow.request.path or ""
+            if not is_copilot_chat_submit(ws_path, content):
+                return
+            if is_copilot_noise_content(content):
+                return
+
         if is_noise(flow.request.path, content):
             return
 
@@ -3937,10 +4365,16 @@ class BrowserAIInterceptor:
             inject_websocket_reply(flow, host, file_block_msg)
             return
 
+        # Copilot/Edge image or file frames must not fall through as garbled text prompts.
+        if copilot_carries_binary_attach(content) or chat_carries_attachment(content):
+            return
+
         prompt = extract_prompt(content.encode("utf-8"), "application/json", host=host)
         if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
             return
         if not looks_like_user_prompt(prompt):
+            return
+        if _is_opaque_wire_blob(prompt):
             return
 
         if is_unsubmitted_chat_body(flow.request.path, content) or is_composer_typing_draft(domain, prompt):

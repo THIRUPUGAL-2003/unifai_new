@@ -752,9 +752,9 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 func relatedHostsForDomain(domain string) []string {
 	switch NormalizeDomain(domain) {
 	case "chatgpt.com":
-		return []string{"chat.openai.com", "ab.chatgpt.com"}
+		return []string{"chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
 	case "chat.openai.com":
-		return []string{"chatgpt.com", "ab.chatgpt.com"}
+		return []string{"chatgpt.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
 	case "claude.ai", "www.claude.ai":
 		return []string{"claude.ai", "www.claude.ai"}
 	case "copilot.microsoft.com", "copilot.cloud.microsoft":
