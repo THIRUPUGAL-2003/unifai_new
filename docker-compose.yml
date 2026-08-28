@@ -16,7 +16,7 @@ services:
       - "8080:8080"
     volumes:
       - ./data:/app/data
-      - ./config.json:/app/config.json
+      - ./config.json:/app/data/config.json
     restart: unless-stopped
 
   # LAB ONLY: manual browser proxy to host:8087. Employee Guard EXE does NOT use this container.
