@@ -24,8 +24,6 @@ export default function GuardrailsConfigurationView() {
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [editingRule, setEditingRule] = useState<Partial<GuardrailRule> | null>(null);
 
-	if (isLoading) return <div className="p-4">Loading guardrails configuration...</div>;
-
 	const rules = config?.guardrail_rules || [];
 	const providers = config?.guardrail_providers || [];
 	const isEnabled = rules.length > 0 && rules.some((r) => r.enabled);
@@ -40,6 +38,8 @@ export default function GuardrailsConfigurationView() {
 	);
 
 	const selectedProviderIds = (editingRule?.provider_config_ids || []).map(String);
+
+	if (isLoading) return <div className="p-4">Loading guardrails configuration...</div>;
 
 	const handleToggleGuardrails = async (checked: boolean) => {
 		if (!config) return;
