@@ -81,6 +81,8 @@ console.log(response.choices[0].message.content);`
 	};
 
 	const companyLogoSrc = "/yes-panchi-logo.png";
+	const companyName = "YesPanchi";
+	const companyFullName = "YesPanchi Group of Companies";
 
 	return (
 		<div className="bg-[#0b0c10] text-[#c5c6c7] min-h-screen font-sans selection:bg-[#45f3ff]/30 selection:text-white overflow-x-hidden">
@@ -92,11 +94,10 @@ console.log(response.choices[0].message.content);`
 			<nav className="sticky top-0 z-50 border-b border-[#1f2833]/60 bg-[#0b0c10]/80 backdrop-blur-md transition-all duration-300">
 				<div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
 					<div className="flex items-center gap-3">
-						<img src={companyLogoSrc} alt="Yes Panchi Private Limited" className="h-10 w-auto object-contain" />
-						<div className="flex flex-col items-start leading-tight">
-							<span className="text-lg font-bold tracking-tight text-white">Yes Panchi</span>
-							<span className="text-[10px] font-semibold tracking-[0.18em] text-[#c5a962] uppercase">Private Limited</span>
+						<div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg border border-[#c5a962]/30 bg-[#0b0c10] shadow-[0_0_15px_rgba(197,169,98,0.2)]">
+							<img src={companyLogoSrc} alt="" className="h-full w-full object-contain p-0.5" />
 						</div>
+						<span className="text-xl font-bold tracking-tight text-white">{companyName}</span>
 					</div>
 
 					{/* Desktop Nav */}
@@ -184,11 +185,11 @@ console.log(response.choices[0].message.content);`
 				<div className="flex flex-col items-center gap-3 mb-8">
 					<img
 						src={companyLogoSrc}
-						alt="Yes Panchi Private Limited"
-						className="h-20 sm:h-24 w-auto max-w-[min(100%,320px)] object-contain"
+						alt={companyFullName}
+						className="h-20 sm:h-28 w-auto max-w-[min(100%,420px)] object-contain"
 					/>
 					<p className="text-sm sm:text-base font-semibold tracking-[0.22em] text-[#c5a962] uppercase">
-						Yes Panchi Private Limited
+						{companyFullName}
 					</p>
 				</div>
 
@@ -246,7 +247,7 @@ console.log(response.choices[0].message.content);`
 					<div className="p-1 sm:p-2 bg-gradient-to-b from-[#12141c] to-[#0b0c10]">
 						<img
 							src="/static/mockup.png"
-							alt="Yes Panchi Gateway Dashboard"
+							alt="YesPanchi Gateway Dashboard"
 							className="w-full h-auto rounded-lg border border-[#1f2833]/20 object-cover"
 							onError={(e) => {
 								// Fallback: If image fails to load, replace it with a styled grid dashboard skeleton
@@ -467,13 +468,10 @@ console.log(response.choices[0].message.content);`
 			<footer className="border-t border-[#1f2833]/60 bg-[#0b0c10] py-12 px-6">
 				<div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6 text-sm text-[#8b949e]">
 					<div className="flex items-center gap-3">
-						<img src={companyLogoSrc} alt="Yes Panchi Private Limited" className="h-8 w-auto object-contain" />
-						<div className="flex flex-col items-start leading-tight">
-							<span className="font-bold text-white">Yes Panchi</span>
-							<span className="text-[10px] tracking-[0.16em] text-[#c5a962] uppercase">Private Limited</span>
-						</div>
+						<img src={companyLogoSrc} alt={companyFullName} className="h-8 w-auto object-contain" />
+						<span className="font-bold text-white">{companyFullName}</span>
 					</div>
-					<span>&copy; 2026 Yes Panchi Private Limited. All rights reserved.</span>
+					<span>&copy; 2026 {companyFullName}. All rights reserved.</span>
 				</div>
 			</footer>
 		</div>
