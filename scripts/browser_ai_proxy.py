@@ -51,9 +51,6 @@ UPLOAD_ENDPOINTS = [
     "/convert_document", "/upload_document", "/api/organizations", "/chat_conversations",
     # Copilot / M365
     "/c/api/attachments", "/api/attachments", "/m365copilot/uploadfile", "/uploadfile",
-    # ChatGPT / Perplexity voice + files
-    "/backend-api/files", "/audio", "/transcribe", "/voice", "/rest/uploads",
-    "/rest/file", "/rest/files",
 ]
 
 # Upload payload field indicators
@@ -109,7 +106,7 @@ CHAT_PATH_MARKERS = [
     "/query", "/ask", "/generate", "/stream", "/batchexecute",
     "/backend-api/f/conversation", "/v1/messages", "/v1/chat",
     "/rest/prompts", "/api/chat", "/api/ask", "/api/query",
-    "/api/openai/chat", "/perplexity_ask", "/rest/sse", "/graphql",
+    "/api/openai/chat", "/perplexity_ask", "/rest/sse",
     "/api/copilot", "/chat", "/rest/thread", "/rest/entrypoint",
     "/computer/", "/rest/uploads",  # uploads still handled separately
     # Copilot / Bing Sydney
@@ -168,12 +165,6 @@ _cached_controls: dict = {
 }
 _controls_fetched_at: float = 0
 _controls_from_backend = False
-_controls_cache_path = os.path.join(
-    os.environ.get("LOCALAPPDATA") or os.path.expanduser("~"),
-    "UnifAI",
-    "Guard",
-    "controls_cache.json",
-)
 
 # File bytes cached at upload-time; Prompt Log + allow/block happen only on chat Send.
 _UPLOAD_FILE_CACHE: dict[str, dict] = {}
@@ -405,38 +396,11 @@ def _fail_open() -> bool:
     return os.getenv("UNIFAI_FAIL_OPEN", "").strip() in ("1", "true", "TRUE", "yes", "YES")
 
 
-def _load_controls_cache_from_disk() -> dict | None:
-    try:
-        if not os.path.isfile(_controls_cache_path):
-            return None
-        with open(_controls_cache_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return None
-        return {
-            "enabled": bool(data.get("enabled", False)),
-            "block_upload": bool(data.get("block_upload", False)),
-            "upload_warning": (data.get("upload_warning") or "").strip(),
-        }
-    except Exception:
-        return None
-
-
-def _save_controls_cache_to_disk(controls: dict) -> None:
-    try:
-        os.makedirs(os.path.dirname(_controls_cache_path), exist_ok=True)
-        with open(_controls_cache_path, "w", encoding="utf-8") as f:
-            json.dump(controls, f, indent=2)
-            f.write("\n")
-    except Exception:
-        pass
-
-
 def get_control_settings() -> dict:
     """Fetch browser interaction controls from backend every CACHE_TTL seconds."""
     global _cached_controls, _controls_fetched_at, _controls_from_backend
     now = time.time()
-    if now - _controls_fetched_at < CACHE_TTL and _cached_controls and _controls_from_backend:
+    if now - _controls_fetched_at < CACHE_TTL and _cached_controls:
         return _cached_controls
 
     data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/controls")
@@ -449,29 +413,11 @@ def get_control_settings() -> dict:
         }
         _controls_fetched_at = now
         _controls_from_backend = True
-        _save_controls_cache_to_disk(_cached_controls)
         print(
             "[UnifAI Proxy] Controls refreshed | "
             f"enabled={_cached_controls['enabled']} "
             f"upload={_cached_controls['block_upload']}"
         )
-        return _cached_controls
-
-    disk = _load_controls_cache_from_disk()
-    if disk is not None:
-        _cached_controls = disk
-        _controls_fetched_at = now
-        _controls_from_backend = True
-        print(
-            "[UnifAI Proxy WARNING] Controls API unreachable — using last saved policy | "
-            f"enabled={disk['enabled']} upload={disk['block_upload']}"
-        )
-        return _cached_controls
-
-    print(
-        "[UnifAI Proxy WARNING] Upload policy unknown (backend down, no cache) — "
-        "uploads allowed until /api/browser-ai/controls is reachable"
-    )
     return _cached_controls
 
 
@@ -613,13 +559,7 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
             return True
         if "prepare" in p or "autocomplet" in p or "implicit" in p:
             return False
-        return (
-            "/conversation" in p
-            or "/messages" in p
-            or "/chat/completions" in p
-            or "/backend-api/f/" in p
-            or "/audio" in p
-        )
+        return "/conversation" in p or "/messages" in p or "/chat/completions" in p
     # Gemini: only the real chat submit URL — never analytics / batchexecute noise
     if is_gemini_host(h):
         if not p:
@@ -1014,19 +954,9 @@ def detect_target(host: str) -> tuple[bool, str, str]:
     """Check if host matches any monitored domain. Returns (is_target, domain, platform)."""
     domains_map = get_target_domains()
     host_lower = (host or "").lower().strip(".")
-    if not host_lower:
-        return False, "", ""
     for domain, platform in domains_map.items():
-        d = (domain or "").lower().strip(".")
-        if not d:
-            continue
-        if host_lower == d or host_lower.endswith("." + d):
+        if host_lower == domain or host_lower.endswith("." + domain):
             return True, domain, platform
-        # Upload/CDN hosts (files.oaiusercontent.com, clients6.google.com, …) share a product family.
-        for alias in upload_domain_aliases(d):
-            al = alias.lower().strip(".")
-            if host_lower == al or host_lower.endswith("." + al):
-                return True, domain, platform
     return False, "", ""
 
 
@@ -1135,20 +1065,7 @@ def is_duplicate_prompt(domain: str, prompt: str) -> bool:
 
 def is_chatgpt_host(host: str) -> bool:
     h = (host or "").lower()
-    return "chatgpt.com" in h or "chat.openai.com" in h or "oaiusercontent.com" in h or "oaistatic.com" in h
-
-
-def is_perplexity_host(host: str) -> bool:
-    h = (host or "").lower()
-    return "perplexity.ai" in h or "pplx.ai" in h
-
-
-def _is_graphql_document(text: str) -> bool:
-    t = (text or "").strip()
-    if len(t) < 8:
-        return False
-    head = t[:80].lstrip()
-    return bool(re.match(r"(query|mutation|subscription|fragment)\s", head, re.I)) or head.startswith("{") and "subscription" in t[:200].lower()
+    return "chatgpt.com" in h or "chat.openai.com" in h
 
 
 def is_unsubmitted_chat_body(path: str, body: str) -> bool:
@@ -1179,28 +1096,10 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
     return False
 
 
-def _looks_like_typed_number_or_symbols(text: str) -> bool:
-    """Digits / phone / math / symbol-only input — not composer keystroke noise."""
-    t = (text or "").strip()
-    if not t:
-        return False
-    if re.fullmatch(r"\d+", t):
-        return True
-    if re.search(r"\d", t) and re.fullmatch(r"[\d\s\-\+\(\)\.\,\;\:\/]+", t):
-        return True
-    if re.fullmatch(r"[^\w\s]+", t, re.UNICODE):
-        return True
-    return False
-
-
 def is_composer_typing_draft(domain: str, prompt: str) -> bool:
     """Skip growing/shrinking composer text (keystrokes). Intercept the finished submit."""
     text = (prompt or "").strip()
     if not text or not domain:
-        return False
-    # ChatGPT sends one POST per digit while typing; the final number looked like a
-    # "growing draft" and was skipped — never predict/log phone IDs or symbol-only sends.
-    if _looks_like_typed_number_or_symbols(text):
         return False
     now = time.time()
     prev = _composer_draft.get(domain)
@@ -1337,7 +1236,7 @@ def _extract_from_json(data) -> str | None:
         val = data.get(key)
         if isinstance(val, (str, int, float)):
             sval = str(val)
-            if _is_opaque_wire_blob(sval) or _is_graphql_document(sval):
+            if _is_opaque_wire_blob(sval):
                 continue
             got = _clean_prompt_text(sval)
             if got:
@@ -1353,7 +1252,7 @@ def _extract_from_json(data) -> str | None:
             for nk in ("query", "text", "prompt", "question", "rawUserQuery", "content", "input", "message"):
                 if isinstance(val.get(nk), (str, int, float)):
                     sval = str(val[nk])
-                    if _is_opaque_wire_blob(sval) or _is_graphql_document(sval):
+                    if _is_opaque_wire_blob(sval):
                         continue
                     got = _clean_prompt_text(sval)
                     if got:
@@ -1791,48 +1690,22 @@ def upload_domain_aliases(domain: str) -> list[str]:
     if not d:
         return []
     families = [
-        {"chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com", "oaistatic.com"},
+        {"chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"},
         {
             "gemini.google.com", "bard.google.com", "clients6.google.com",
             "drive.google.com", "docs.google.com", "upload.google.com",
-            "generativelanguage.googleapis.com",
         },
         {
             "copilot.microsoft.com", "copilot.cloud.microsoft", "sydney.bing.com",
             "edgeservices.bing.com", "bing.com", "m365.cloud.microsoft",
-            "substrate.office.com", "edge.microsoft.com",
+            "substrate.office.com",
         },
         {"claude.ai", "www.claude.ai", "api.anthropic.com"},
-        {"perplexity.ai", "www.perplexity.ai", "api.perplexity.ai"},
     ]
     for fam in families:
         if d in fam or any(d.endswith("." + x) for x in fam):
             return sorted(fam)
     return [d]
-
-
-def _fallback_upload_name(file_name: str, raw_bytes: bytes, content_type: str) -> str:
-    """ChatGPT screenshots/voice often arrive as image.png / audio / blob — still real files."""
-    n = (file_name or "").strip()
-    if n and n.lower() not in _FAKE_UPLOAD_NAMES:
-        return n
-    data = raw_bytes or b""
-    ct = (content_type or "").lower()
-    if _looks_like_audio(data, ct, n):
-        if "webm" in ct or (data[:4] == b"\x1aE\xdf\xa3"):
-            return "voice-note.webm"
-        return "voice-note.wav"
-    if _looks_like_image(data, ct, n):
-        if data[:3] == b"\xff\xd8\xff" or "jpeg" in ct:
-            return "uploaded-image.jpg"
-        if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-            return "uploaded-image.webp"
-        return "uploaded-image.png"
-    if data[:5] == b"%PDF-" or b"%PDF-" in data[:4096]:
-        return "uploaded.pdf"
-    if n:
-        return n
-    return "uploaded-file.bin"
 
 
 def cache_upload_file(
@@ -1853,7 +1726,6 @@ def cache_upload_file(
     stored = payload if payload else (raw_bytes or b"")
     if len(stored) > 20 * 1024 * 1024:
         stored = stored[: 20 * 1024 * 1024]
-    name = _fallback_upload_name(name or file_name, stored, ctype or content_type)
     entry = {
         "ts": time.time(),
         "domain": domain,
@@ -1937,16 +1809,12 @@ def chat_carries_attachment(raw_text: str) -> bool:
             "file-service://",
             "attachment://",
             "asset_pointer",
-            "image_asset_pointer",
-            "multimodal_text",
             "converted_file",
             "convert_document",
             "/c/api/attachments",
             '"messagetype":"image"',
             "input_file",
             "input_image",
-            "input_audio",
-            '"content_type":"image',
         )
     ):
         return True
@@ -2234,6 +2102,8 @@ def take_recent_confident_cache_for_send(domain: str) -> dict | None:
             if age > _UPLOAD_LATEST_MATCH_TTL:
                 continue
             name = (latest.get("file_name") or "").strip()
+            if not name or name.lower() in _FAKE_UPLOAD_NAMES:
+                continue
             raw = latest.get("raw_bytes") or b""
             if not is_confident_file_upload(
                 fname=name,
@@ -2328,7 +2198,7 @@ def enforce_file_send_policy(
     upload_warn = (get_control_settings().get("upload_warning") or "").strip()
     base_upload_msg = upload_warn or "Upload block"
 
-    # Always re-extract + re-scan on Send (PDF / Office / image OCR / voice)
+  # Always re-extract + re-scan on Send (PDF / Office / image OCR / voice)
     cached_bytes = (cached.get("raw_bytes") if cached else b"") or b""
     cached_ct = (cached.get("content_type") if cached else "") or content_type
     if not cached_bytes and has_attach:
@@ -2356,8 +2226,8 @@ def enforce_file_send_policy(
         rule_action = ((cached.get("rule_action") or "") or "").upper()
 
     block_all = controls_active("block_upload")
-    # WARN on file content logs a warning but must not block when uploads are allowed.
-    block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT"))
+    # WARN/REDACT/BLOCK on file content → treat as block for DLP (file must not go through clean)
+    block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT", "WARN"))
     tag = _upload_log_tag(file_label, cached_ct, cached_bytes)
 
     if block_all or block_for_rule:
@@ -2497,7 +2367,7 @@ def post_upload_intercept(
                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=20) as resp:
+            with urllib.request.urlopen(req, timeout=8) as resp:
                 if 200 <= getattr(resp, "status", 200) < 300:
                     return True
         except Exception as e:
@@ -3064,7 +2934,7 @@ def _audio_to_wav_path(data: bytes, content_type: str = "", file_name: str = "")
             proc = subprocess.run(
                 [ffmpeg, "-y", "-i", path, "-ac", "1", "-ar", "16000", wav_path],
                 capture_output=True,
-                timeout=20,
+                timeout=45,
             )
             if proc.returncode == 0 and os.path.isfile(wav_path) and os.path.getsize(wav_path) > 64:
                 try:
@@ -3127,7 +2997,7 @@ try {{
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
             capture_output=True,
-            timeout=15,
+            timeout=60,
             text=True,
             encoding="utf-8",
             errors="ignore",
@@ -3551,158 +3421,6 @@ def extract_gemini_prompt(content: str) -> str:
     return ""
 
 
-def is_perplexity_noise_content(content: str) -> bool:
-    """Skip GraphQL-WS keepalives — not a user Ask submit."""
-    if not content:
-        return True
-    t = content.strip()
-    if t in ("{}", "[]", "ping", "pong", "ka"):
-        return True
-    if t[:1] in ("{", "["):
-        try:
-            data = json.loads(t.split("\x1e")[0])
-        except Exception:
-            data = None
-        if isinstance(data, dict):
-            typ = str(data.get("type") or data.get("event") or "").lower()
-            if typ in (
-                "connection_init", "connection_ack", "connection_error",
-                "ping", "pong", "ka", "complete", "stop", "ack",
-            ):
-                return True
-            if not data.get("payload") and not data.get("variables") and typ in ("start", "subscribe", ""):
-                if not any(k in data for k in ("query", "query_str", "question", "prompt")):
-                    if typ in ("start", "subscribe"):
-                        return False
-    return False
-
-
-def extract_perplexity_prompt(content: str) -> str:
-    """User Ask text from Perplexity GraphQL-WS, SSE, or socket.io frames."""
-
-    def _pick(val) -> str:
-        if isinstance(val, (int, float)) and not isinstance(val, bool):
-            val = str(val)
-        if not isinstance(val, str):
-            return ""
-        got = val.strip()
-        if not got or _is_graphql_document(got) or _is_opaque_wire_blob(got):
-            return ""
-        if looks_like_user_prompt(got):
-            return got
-        return ""
-
-    def _from_vars(obj) -> str:
-        if not isinstance(obj, dict):
-            return ""
-        for key in (
-            "query_str", "raw_query", "display_query", "user_query", "last_query",
-            "question", "prompt", "query", "text", "input", "ask", "q",
-        ):
-            got = _pick(obj.get(key))
-            if got:
-                return got
-        params = obj.get("params") if isinstance(obj.get("params"), dict) else {}
-        data = obj.get("data") if isinstance(obj.get("data"), dict) else {}
-        inp = obj.get("input") if isinstance(obj.get("input"), dict) else {}
-        for nest in (params, data, inp, obj.get("variables") if isinstance(obj.get("variables"), dict) else {}):
-            if nest is obj:
-                continue
-            got = _from_vars(nest) if nest else ""
-            if got:
-                return got
-        return ""
-
-    def _from_obj(obj, depth: int = 0) -> str:
-        if depth > 8:
-            return ""
-        if isinstance(obj, str):
-            s = obj.strip()
-            if s[:1] in ("{", "["):
-                try:
-                    return _from_obj(json.loads(s), depth + 1)
-                except Exception:
-                    return _pick(s)
-            return _pick(s)
-        if isinstance(obj, list):
-            # socket.io: ["perplexity_ask", "hi", {...}]
-            if len(obj) >= 2 and str(obj[0]).lower() in ("perplexity_ask", "ask", "query"):
-                got = _pick(obj[1])
-                if got:
-                    return got
-            for item in reversed(obj):
-                got = _from_obj(item, depth + 1)
-                if got:
-                    return got
-            return ""
-        if not isinstance(obj, dict):
-            return ""
-        payload = obj.get("payload")
-        if isinstance(payload, dict):
-            got = _from_vars(payload)
-            if got:
-                return got
-            vars_ = payload.get("variables")
-            if isinstance(vars_, dict):
-                got = _from_vars(vars_)
-                if got:
-                    return got
-            got = _from_obj(payload, depth + 1)
-            if got:
-                return got
-        got = _from_vars(obj)
-        if got:
-            return got
-        for nest in ("variables", "data", "params", "input", "body", "request", "arguments"):
-            nested = obj.get(nest)
-            if nested is not None:
-                got = _from_obj(nested, depth + 1)
-                if got:
-                    return got
-        return ""
-
-    if not content:
-        return ""
-    text = content.strip()
-    # Socket.IO engine.io prefix: 42["perplexity_ask", ...]
-    m = re.match(r"^\d+", text)
-    if m and text[m.end():].lstrip()[:1] in ("[", "{"):
-        text = text[m.end():]
-
-    if "\x1e" in text:
-        for part in reversed(text.split("\x1e")):
-            part = part.strip()
-            if not part:
-                continue
-            try:
-                got = _from_obj(json.loads(part))
-            except Exception:
-                got = _from_obj(part)
-            if got:
-                return got
-
-    try:
-        got = _from_obj(json.loads(text))
-        if got:
-            return got
-    except Exception:
-        pass
-
-    for line in text.splitlines():
-        line = line.strip()
-        if line.startswith("data:"):
-            line = line[5:].strip()
-        if not line or line[0] not in "{[":
-            continue
-        try:
-            got = _from_obj(json.loads(line))
-            if got:
-                return got
-        except Exception:
-            continue
-    return ""
-
-
 def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") -> str | None:
     """
     Extract ONLY the exact user-typed prompt text from a request body.
@@ -3722,24 +3440,10 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
         if "multipart/form-data" in ct or "webkitformboundary" in text[:200].lower() or text.lstrip().startswith("------"):
             return None
 
-        # Gemini: f.req / StreamGenerate first; GenerateContent JSON contents[] as fallback.
+        # Gemini: never walk generic JSON/form fields — those are request ids.
         if is_gemini_host(host) or "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
             gemini_prompt = extract_gemini_prompt(text)
-            if gemini_prompt:
-                return _clean_prompt_text(gemini_prompt)
-            if "json" in ct or text.lstrip().startswith("{"):
-                try:
-                    data = json.loads(text)
-                except Exception:
-                    return None
-                if isinstance(data, dict) and (data.get("contents") or data.get("messages")):
-                    return _extract_from_json(data)
-            return None
-
-        # Perplexity Ask: GraphQL-WS / SSE — generic JSON would steal the GQL document.
-        if is_perplexity_host(host):
-            pplx = extract_perplexity_prompt(text)
-            return _clean_prompt_text(pplx) if pplx else None
+            return _clean_prompt_text(gemini_prompt) if gemini_prompt else None
 
         # Copilot / Bing / Edge: only message.text paths — never raw content tokens.
         if is_copilot_host(host):
@@ -4633,10 +4337,6 @@ class BrowserAIInterceptor:
             if not is_copilot_chat_submit(ws_path, content):
                 return
             if is_copilot_noise_content(content):
-                return
-
-        if is_perplexity_host(host):
-            if is_perplexity_noise_content(content):
                 return
 
         if is_noise(flow.request.path, content):

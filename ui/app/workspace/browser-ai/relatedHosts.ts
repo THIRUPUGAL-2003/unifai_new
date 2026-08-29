@@ -27,7 +27,7 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 		return {
 			label: "Gemini related hosts",
 			reason: "Chat prompts usually go through clients6.google.com — add it or Gemini logs stay empty. Subdomains of gemini.google.com are already covered.",
-			hosts: ["clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com", "generativelanguage.googleapis.com"],
+			hosts: ["clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"],
 		};
 	}
 	if (d === "copilot.microsoft.com" || d === "copilot.cloud.microsoft") {
@@ -42,7 +42,6 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 				"copilot.cloud.microsoft",
 				"m365.cloud.microsoft",
 				"substrate.office.com",
-				"edge.microsoft.com",
 			],
 		};
 	}
@@ -50,7 +49,7 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 		return {
 			label: "ChatGPT related hosts",
 			reason: "Chat and upload traffic can use chatgpt.com or chat.openai.com — keep both monitored for file View/logs.",
-			hosts: ["chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com", "oaistatic.com"],
+			hosts: ["chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"],
 		};
 	}
 	if (d === "claude.ai" || d === "www.claude.ai") {
@@ -58,13 +57,6 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 			label: "Claude related hosts",
 			reason: "Keep claude.ai monitored so document convert/upload and chat Send are both visible to Guard.",
 			hosts: ["claude.ai", "www.claude.ai"],
-		};
-	}
-	if (d === "perplexity.ai" || d === "www.perplexity.ai") {
-		return {
-			label: "Perplexity related hosts",
-			reason: "Ask traffic uses www.perplexity.ai GraphQL/SSE — keep the API host monitored too.",
-			hosts: ["www.perplexity.ai", "api.perplexity.ai"],
 		};
 	}
 	return null;

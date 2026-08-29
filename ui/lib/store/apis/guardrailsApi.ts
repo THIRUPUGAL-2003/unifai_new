@@ -8,7 +8,6 @@ export interface GuardrailRule {
 	apply_to: "input" | "output" | "both";
 	enabled: boolean;
 	provider_config_ids: number[]; // List of provider IDs
-	models?: string[]; // Empty or ["*"] = all models
 }
 
 export interface GuardrailProvider {
@@ -24,39 +23,21 @@ export interface GuardrailsConfig {
 	guardrail_providers: GuardrailProvider[];
 }
 
-export interface GuardrailsUpdateResult {
-	success?: boolean;
-	persisted?: boolean;
-	reloaded?: boolean;
-}
-
-export function emptyGuardrailsConfig(): GuardrailsConfig {
-	return { guardrail_rules: [], guardrail_providers: [] };
-}
-
-export function normalizeGuardrailsConfig(config?: Partial<GuardrailsConfig> | null): GuardrailsConfig {
-	return {
-		guardrail_rules: config?.guardrail_rules ?? [],
-		guardrail_providers: config?.guardrail_providers ?? [],
-	};
-}
-
 export const guardrailsApi = baseApi.injectEndpoints({
 	endpoints: (builder) => ({
 		getGuardrailsConfig: builder.query<GuardrailsConfig, void>({
 			query: () => ({
 				url: "/guardrails/config",
 			}),
-			transformResponse: (response: GuardrailsConfig | null) => normalizeGuardrailsConfig(response),
-			providesTags: ["Guardrails"],
+			providesTags: ["GuardrailsConfig" as any], // Cast as any if TagTypes doesn't have GuardrailsConfig yet
 		}),
-		updateGuardrailsConfig: builder.mutation<GuardrailsUpdateResult, GuardrailsConfig>({
+		updateGuardrailsConfig: builder.mutation<null, GuardrailsConfig>({
 			query: (data) => ({
 				url: "/guardrails/config",
 				method: "PUT",
-				body: normalizeGuardrailsConfig(data),
+				body: data,
 			}),
-			invalidatesTags: ["Guardrails"],
+			invalidatesTags: ["GuardrailsConfig" as any],
 		}),
 	}),
 });

@@ -257,14 +257,6 @@ export const browserAiApi = baseApi.injectEndpoints({
 			}),
 			invalidatesTags: ["BrowserAiAgents" as any],
 		}),
-
-		deleteBrowserAiAgent: builder.mutation<{ status: string }, string>({
-			query: (id) => ({
-				url: `/browser-ai/agents/${encodeURIComponent(id)}`,
-				method: "DELETE",
-			}),
-			invalidatesTags: ["BrowserAiAgents" as any],
-		}),
 	}),
 });
 
@@ -286,5 +278,4 @@ export const {
 	useGetBrowserAiAgentSettingsQuery,
 	useSaveBrowserAiUninstallKeyMutation,
 	useRemoteUninstallBrowserAiAgentMutation,
-	useDeleteBrowserAiAgentMutation,
 } = browserAiApi;

@@ -629,21 +629,6 @@ func (m *BrowserAIManager) BuildProxyPAC(ctx context.Context, proxyAddr string) 
 		seen[d] = true
 		hosts = append(hosts, d)
 	}
-	// Upload/CDN hosts (files.oaiusercontent.com, clients6.google.com, edge.microsoft.com, …)
-	// must route through Guard or file uploads bypass the proxy on every browser.
-	expanded := make([]string, 0, len(hosts)*2)
-	expanded = append(expanded, hosts...)
-	for _, d := range hosts {
-		for _, alias := range relatedHostsForDomain(d) {
-			alias = NormalizeDomain(alias)
-			if alias == "" || seen[alias] || !pacHostSafe.MatchString(alias) {
-				continue
-			}
-			seen[alias] = true
-			expanded = append(expanded, alias)
-		}
-	}
-	hosts = expanded
 	sort.Strings(hosts)
 
 	var b strings.Builder
@@ -767,9 +752,9 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 func relatedHostsForDomain(domain string) []string {
 	switch NormalizeDomain(domain) {
 	case "chatgpt.com":
-		return []string{"chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com", "oaistatic.com"}
+		return []string{"chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
 	case "chat.openai.com":
-		return []string{"chatgpt.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com", "oaistatic.com"}
+		return []string{"chatgpt.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
 	case "claude.ai", "www.claude.ai":
 		return []string{"claude.ai", "www.claude.ai"}
 	case "copilot.microsoft.com", "copilot.cloud.microsoft":
@@ -777,12 +762,9 @@ func relatedHostsForDomain(domain string) []string {
 			"sydney.bing.com", "edgeservices.bing.com", "bing.com", "business.bing.com",
 			"substrate.office.com", "m365.cloud.microsoft",
 			"copilot.microsoft.com", "copilot.cloud.microsoft",
-			"edge.microsoft.com",
 		}
 	case "gemini.google.com", "bard.google.com":
-		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com", "generativelanguage.googleapis.com"}
-	case "perplexity.ai", "www.perplexity.ai":
-		return []string{"www.perplexity.ai", "api.perplexity.ai"}
+		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"}
 	default:
 		return nil
 	}
@@ -1412,26 +1394,6 @@ func (m *BrowserAIManager) ListAgents(ctx context.Context, status, search string
 	}
 	err := query.Order("last_seen_at DESC").Limit(limit).Offset(offset).Find(&agents).Error
 	return agents, total, err
-}
-
-func (m *BrowserAIManager) DeleteAgent(ctx context.Context, agentID string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.db == nil {
-		return fmt.Errorf("database not initialized")
-	}
-	agentID = strings.TrimSpace(agentID)
-	if agentID == "" {
-		return fmt.Errorf("agent id is required")
-	}
-	res := m.db.WithContext(ctx).Where("id = ?", agentID).Delete(&BrowserAIAgent{})
-	if res.Error != nil {
-		return res.Error
-	}
-	if res.RowsAffected == 0 {
-		return fmt.Errorf("agent not found")
-	}
-	return nil
 }
 
 func (m *BrowserAIManager) MarkAgentUninstalled(ctx context.Context, agentID string) (*BrowserAIAgent, error) {

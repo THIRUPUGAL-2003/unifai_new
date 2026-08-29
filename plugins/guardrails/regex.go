@@ -1,7 +1,6 @@
 package guardrails
 
 import (
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -26,9 +25,9 @@ func NewRegexProvider(config GuardrailProvider) (*RegexProvider, error) {
 		id: config.ID,
 	}
 
-	patternsRaw, err := extractRegexPatterns(config.Config)
-	if err != nil {
-		return nil, err
+	patternsRaw, ok := config.Config["patterns"].([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("patterns configuration missing or invalid")
 	}
 
 	for _, pRaw := range patternsRaw {
@@ -68,33 +67,7 @@ func NewRegexProvider(config GuardrailProvider) (*RegexProvider, error) {
 		})
 	}
 
-	if len(provider.patterns) == 0 {
-		return nil, fmt.Errorf("add at least one valid regex pattern")
-	}
-
 	return provider, nil
-}
-
-func extractRegexPatterns(config map[string]interface{}) ([]interface{}, error) {
-	if config == nil {
-		return nil, fmt.Errorf("patterns configuration missing or invalid")
-	}
-	raw, ok := config["patterns"]
-	if !ok || raw == nil {
-		return nil, fmt.Errorf("patterns configuration missing or invalid")
-	}
-	if arr, ok := raw.([]interface{}); ok {
-		return arr, nil
-	}
-	encoded, err := json.Marshal(raw)
-	if err != nil {
-		return nil, fmt.Errorf("patterns configuration missing or invalid")
-	}
-	var arr []interface{}
-	if err := json.Unmarshal(encoded, &arr); err != nil {
-		return nil, fmt.Errorf("patterns configuration missing or invalid")
-	}
-	return arr, nil
 }
 
 func (p *RegexProvider) ValidateInput(ctx *schemas.UnifAIContext, req *schemas.UnifAIRequest) error {

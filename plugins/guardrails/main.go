@@ -3,7 +3,6 @@ package guardrails
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/google/cel-go/cel"
 	"github.com/unifai/unifai/core/schemas"
@@ -80,10 +79,9 @@ func (p *GuardrailsPlugin) compileRules() error {
 		return nil
 	}
 	
-	// request is a map so expressions like request.model == "gpt-4" compile.
-	// A dotted variable name ("request.model") is not a valid CEL identifier.
+	// Create a CEL environment with variables for the request
 	env, err := cel.NewEnv(
-		cel.Variable("request", cel.MapType(cel.StringType, cel.DynType)),
+		cel.Variable("request.model", cel.StringType),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create CEL env: %w", err)
@@ -94,11 +92,7 @@ func (p *GuardrailsPlugin) compileRules() error {
 			continue
 		}
 		
-		expr := strings.TrimSpace(rule.CELExpression)
-		if expr == "" {
-			expr = "true"
-		}
-		ast, issues := env.Compile(expr)
+		ast, issues := env.Compile(rule.CELExpression)
 		if issues != nil && issues.Err() != nil {
 			return fmt.Errorf("invalid CEL expression for rule %d: %w", rule.ID, issues.Err())
 		}
@@ -133,26 +127,45 @@ func (p *GuardrailsPlugin) PreLLMHook(ctx *schemas.UnifAIContext, req *schemas.U
 		return nil, nil, nil
 	}
 
-	modelName := modelNameFromRequest(req)
+	// Prepare CEL variables
+	modelName := ""
+	if req.ChatRequest != nil {
+		modelName = req.ChatRequest.Model
+	}
+	
+	vars := map[string]interface{}{
+		"request.model": modelName,
+	}
 
 	for _, rule := range p.config.GuardrailRules {
 		if !rule.Enabled || (rule.ApplyTo != "input" && rule.ApplyTo != "both") {
 			continue
 		}
-		if !p.ruleMatches(rule, modelName) {
+
+		prg, ok := p.celPrograms[rule.ID]
+		if !ok {
 			continue
 		}
 
-		for _, providerID := range rule.ProviderConfigIDs {
-			provider, ok := p.providers[providerID]
-			if !ok {
-				continue
-			}
+		out, _, err := prg.Eval(vars)
+		if err != nil {
+			// Log error but don't block on evaluation failures
+			continue
+		}
 
-			if err := provider.ValidateInput(ctx, req); err != nil {
-				return req, &schemas.LLMPluginShortCircuit{
-					Error: guardrailViolationError(err.Error()),
-				}, nil
+		if match, ok := out.Value().(bool); ok && match {
+			// Rule matched, run configured providers
+			for _, providerID := range rule.ProviderConfigIDs {
+				provider, ok := p.providers[providerID]
+				if !ok {
+					continue
+				}
+				
+				if err := provider.ValidateInput(ctx, req); err != nil {
+					return req, &schemas.LLMPluginShortCircuit{
+						Error: guardrailViolationError(err.Error()),
+					}, nil
+				}
 			}
 		}
 	}
@@ -165,96 +178,40 @@ func (p *GuardrailsPlugin) PostLLMHook(ctx *schemas.UnifAIContext, resp *schemas
 		return resp, err, nil
 	}
 
-	modelName := modelNameFromResponse(resp)
+	vars := map[string]interface{}{
+		"request.model": modelNameFromResponse(resp),
+	}
 
 	for _, rule := range p.config.GuardrailRules {
 		if !rule.Enabled || (rule.ApplyTo != "output" && rule.ApplyTo != "both") {
 			continue
 		}
-		if !p.ruleMatches(rule, modelName) {
+
+		prg, ok := p.celPrograms[rule.ID]
+		if !ok {
 			continue
 		}
 
-		for _, providerID := range rule.ProviderConfigIDs {
-			provider, ok := p.providers[providerID]
-			if !ok {
-				continue
-			}
+		out, _, evalErr := prg.Eval(vars)
+		if evalErr != nil {
+			continue
+		}
 
-			if validateErr := provider.ValidateOutput(ctx, nil, resp); validateErr != nil {
-				return nil, guardrailViolationError(validateErr.Error()), nil
+		if match, ok := out.Value().(bool); ok && match {
+			for _, providerID := range rule.ProviderConfigIDs {
+				provider, ok := p.providers[providerID]
+				if !ok {
+					continue
+				}
+
+				if validateErr := provider.ValidateOutput(ctx, nil, resp); validateErr != nil {
+					return nil, guardrailViolationError(validateErr.Error()), nil
+				}
 			}
 		}
 	}
 
 	return resp, err, nil
-}
-
-func (p *GuardrailsPlugin) ruleMatches(rule GuardrailRule, model string) bool {
-	if !ruleAppliesToModel(rule.Models, model) {
-		return false
-	}
-	prg, ok := p.celPrograms[rule.ID]
-	if !ok {
-		return false
-	}
-	out, _, err := prg.Eval(map[string]interface{}{
-		"request": map[string]interface{}{"model": model},
-	})
-	if err != nil {
-		return false
-	}
-	match, ok := out.Value().(bool)
-	return ok && match
-}
-
-func ruleAppliesToModel(selected []string, requestModel string) bool {
-	if len(selected) == 0 {
-		return true
-	}
-	for _, model := range selected {
-		if model == "" || model == "*" {
-			return true
-		}
-		if modelMatches(model, requestModel) {
-			return true
-		}
-	}
-	return false
-}
-
-func modelMatches(selected, requestModel string) bool {
-	if selected == "" || requestModel == "" {
-		return selected == requestModel
-	}
-	if selected == requestModel {
-		return true
-	}
-	_, selectedBare := schemas.ParseModelString(selected, "")
-	_, requestBare := schemas.ParseModelString(requestModel, "")
-	if selectedBare != "" && selectedBare == requestBare {
-		return true
-	}
-	if selectedBare != "" && selectedBare == requestModel {
-		return true
-	}
-	if requestBare != "" && requestBare == selected {
-		return true
-	}
-	return strings.HasSuffix(requestModel, "/"+selected) || strings.HasSuffix(selected, "/"+requestModel)
-}
-
-func modelNameFromRequest(req *schemas.UnifAIRequest) string {
-	if req == nil {
-		return ""
-	}
-	if req.ChatRequest != nil && req.ChatRequest.Model != "" {
-		return req.ChatRequest.Model
-	}
-	if req.ResponsesRequest != nil && req.ResponsesRequest.Model != "" {
-		return req.ResponsesRequest.Model
-	}
-	return ""
 }
 
 func modelNameFromResponse(resp *schemas.UnifAIResponse) string {

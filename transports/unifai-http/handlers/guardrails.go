@@ -34,7 +34,12 @@ func (h *GuardrailsHandler) RegisterRoutes(r *router.Router, middlewares ...sche
 func (h *GuardrailsHandler) getConfig(ctx *fasthttp.RequestCtx) {
 	h.store.Mu.RLock()
 	defer h.store.Mu.RUnlock()
-	SendJSON(ctx, cloneGuardrailsConfig(h.store.GuardrailsConfig))
+
+	if h.store.GuardrailsConfig == nil {
+		SendJSON(ctx, &lib.GuardrailsConfig{})
+		return
+	}
+	SendJSON(ctx, h.store.GuardrailsConfig)
 }
 
 // updateConfig handles PUT /api/guardrails/config - Updates the guardrails configuration
@@ -46,7 +51,6 @@ func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
 		return
 	}
-	payload = cloneGuardrailsConfig(&payload)
 
 	pluginCfg := &guardrails.Config{}
 	cfgBytes, err := json.Marshal(payload)
@@ -63,45 +67,22 @@ func (h *GuardrailsHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Apply in memory first so the UI save succeeds even when config.json is a
-	// read-only Docker bind mount.
 	h.store.Mu.Lock()
-	copied := payload
-	h.store.GuardrailsConfig = &copied
+	h.store.GuardrailsConfig = &payload
 	h.store.Mu.Unlock()
 
-	persisted := true
 	if err := h.store.PersistGuardrailsConfig(&payload); err != nil {
-		logger.Warn("failed to persist guardrails config to disk: %v", err)
-		persisted = false
+		SendError(ctx, fasthttp.StatusInternalServerError, "Guardrails config updated in memory but failed to persist to config file: "+err.Error())
+		return
 	}
 
-	reloaded := true
+	// InstantiatePlugin(guardrails) reads unifaiConfig.GuardrailsConfig — reload so CEL/providers apply now.
 	if h.configManager != nil {
-		placement := schemas.PluginPlacementBuiltin
-		order := 9
-		if err := h.configManager.ReloadPlugin(ctx, guardrails.PluginName, nil, nil, &placement, &order); err != nil {
-			logger.Warn("guardrails plugin reload failed after save: %v", err)
-			reloaded = false
+		if err := h.configManager.ReloadPlugin(ctx, guardrails.PluginName, nil, nil, nil, nil); err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "Guardrails config saved but plugin reload failed: "+err.Error())
+			return
 		}
 	}
 
-	SendJSON(ctx, map[string]any{"success": true, "persisted": persisted, "reloaded": reloaded})
-}
-
-func cloneGuardrailsConfig(cfg *lib.GuardrailsConfig) lib.GuardrailsConfig {
-	out := lib.GuardrailsConfig{
-		GuardrailRules:     []lib.GuardrailRule{},
-		GuardrailProviders: []lib.GuardrailProvider{},
-	}
-	if cfg == nil {
-		return out
-	}
-	if cfg.GuardrailRules != nil {
-		out.GuardrailRules = cfg.GuardrailRules
-	}
-	if cfg.GuardrailProviders != nil {
-		out.GuardrailProviders = cfg.GuardrailProviders
-	}
-	return out
+	SendJSON(ctx, map[string]any{"success": true, "reloaded": true})
 }

@@ -1,5 +1,4 @@
 import React, { useMemo, useState } from "react";
-import { Link } from "@tanstack/react-router";
 import { Plus, Trash, Edit, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -7,7 +6,6 @@ import {
 	useUpdateGuardrailsConfigMutation,
 	GuardrailRule,
 } from "@/lib/store/apis/guardrailsApi";
-import { getErrorMessage } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -17,22 +15,11 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { MultiSelect } from "@/components/ui/multiSelect";
-import { ModelMultiselect } from "@/components/ui/modelMultiselect";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import {
-	collectGuardrailIds,
-	formatLinkedProviders,
-	formatRuleModels,
-	mergeGuardrailsConfig,
-	nextGuardrailId,
-	normalizeRuleModels,
-	providerLabel,
-	toastGuardrailsSave,
-} from "./utils";
+import { collectGuardrailIds, formatLinkedProviders, nextGuardrailId, providerLabel } from "./utils";
 
 export default function GuardrailsConfigurationView() {
-	const { data: config, isLoading, isError, error, refetch } = useGetGuardrailsConfigQuery();
-	const [updateConfig, { isLoading: isSaving }] = useUpdateGuardrailsConfigMutation();
+	const { data: config, isLoading } = useGetGuardrailsConfigQuery();
+	const [updateConfig] = useUpdateGuardrailsConfigMutation();
 
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [editingRule, setEditingRule] = useState<Partial<GuardrailRule> | null>(null);
@@ -51,119 +38,63 @@ export default function GuardrailsConfigurationView() {
 	);
 
 	const selectedProviderIds = (editingRule?.provider_config_ids || []).map(String);
-	const selectedModels = normalizeRuleModels(editingRule?.models);
-	const modelDropdownValue = selectedModels.length === 0 ? ["*"] : selectedModels;
 
 	if (isLoading) return <div className="p-4">Loading guardrails configuration...</div>;
 
-	if (isError) {
-		return (
-			<div className="flex h-full flex-col items-center justify-center gap-3 p-6">
-				<ShieldAlert className="text-destructive h-8 w-8" />
-				<p className="text-destructive font-medium">Failed to load guardrail rules</p>
-				<p className="text-muted-foreground text-sm">{getErrorMessage(error)}</p>
-				<Button variant="outline" onClick={() => refetch()}>
-					Retry
-				</Button>
-			</div>
-		);
-	}
-
-	const persistConfig = async (patch: { guardrail_rules?: GuardrailRule[] }) => {
-		return updateConfig(mergeGuardrailsConfig(config, patch)).unwrap();
-	};
-
 	const handleToggleGuardrails = async (checked: boolean) => {
-		if (rules.length === 0) {
-			toast.error("Create a guardrail rule before enabling guardrails");
-			return;
-		}
-		if (checked) {
-			const missingProvider = rules.find((rule) => (rule.provider_config_ids || []).length === 0);
-			if (missingProvider) {
-				toast.error(`Rule "${missingProvider.name}" must link at least one provider`);
-				return;
-			}
-		}
+		if (!config) return;
+		const updatedRules = rules.map((r) => ({ ...r, enabled: checked }));
 		try {
-			const result = await persistConfig({ guardrail_rules: rules.map((rule) => ({ ...rule, enabled: checked })) });
-			toastGuardrailsSave(checked ? "Guardrails enabled" : "Guardrails disabled", result);
-		} catch (err) {
-			toast.error(getErrorMessage(err) || "Failed to update guardrails");
-		}
-	};
-
-	const handleToggleRule = async (rule: GuardrailRule, enabled: boolean) => {
-		if (enabled && (rule.provider_config_ids || []).length === 0) {
-			toast.error(`Rule "${rule.name}" must link at least one provider`);
-			return;
-		}
-		try {
-			await persistConfig({
-				guardrail_rules: rules.map((item) => (item.id === rule.id ? { ...item, enabled } : item)),
-			});
-		} catch (err) {
-			toast.error(getErrorMessage(err) || "Failed to update rule");
+			await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
+			toast.success(checked ? "Guardrails enabled" : "Guardrails disabled");
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Failed to update guardrails");
 		}
 	};
 
 	const handleDeleteRule = async (ruleId: number) => {
+		if (!config) return;
+		const updatedRules = rules.filter((r) => r.id !== ruleId);
 		try {
-			const result = await persistConfig({ guardrail_rules: rules.filter((r) => r.id !== ruleId) });
-			toastGuardrailsSave("Rule deleted", result);
-		} catch (err) {
-			toast.error(getErrorMessage(err) || "Failed to delete rule");
+			await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
+			toast.success("Rule deleted");
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Failed to delete rule");
 		}
 	};
 
 	const handleSaveRule = async () => {
-		if (!editingRule || !editingRule.name) return;
+		if (!config || !editingRule || !editingRule.name || !editingRule.cel_expression) return;
 
 		if ((editingRule.provider_config_ids || []).length === 0) {
 			toast.error("Select at least one guardrail provider for this rule");
 			return;
 		}
 
-		const ruleToSave: GuardrailRule = {
-			id: editingRule.id || nextGuardrailId(collectGuardrailIds(rules, providers)),
-			name: editingRule.name,
-			description: editingRule.description || "",
-			cel_expression: editingRule.cel_expression?.trim() || "true",
-			apply_to: editingRule.apply_to || "input",
-			enabled: editingRule.enabled ?? true,
-			provider_config_ids: editingRule.provider_config_ids || [],
-			models: normalizeRuleModels(editingRule.models),
-		};
-
 		let updatedRules = [...rules];
 		if (editingRule.id) {
-			updatedRules = updatedRules.map((r) => (r.id === editingRule.id ? ruleToSave : r));
+			updatedRules = updatedRules.map((r) => (r.id === editingRule.id ? (editingRule as GuardrailRule) : r));
 		} else {
-			updatedRules.push(ruleToSave);
+			updatedRules.push({
+				...editingRule,
+				id: nextGuardrailId(collectGuardrailIds(rules, providers)),
+				provider_config_ids: editingRule.provider_config_ids || [],
+				enabled: true,
+			} as GuardrailRule);
 		}
 
 		try {
-			const result = await persistConfig({ guardrail_rules: updatedRules });
-			toastGuardrailsSave(editingRule.id ? "Rule updated" : "Rule created", result);
+			await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
+			toast.success(editingRule.id ? "Rule updated" : "Rule created");
 			setIsModalOpen(false);
 			setEditingRule(null);
-		} catch (err) {
-			toast.error(getErrorMessage(err) || "Failed to save rule");
+		} catch (error) {
+			toast.error(error instanceof Error ? error.message : "Failed to save rule");
 		}
 	};
 
 	const openCreateRule = () => {
-		if (providers.length === 0) {
-			toast.error("Create a guardrail provider before adding rules");
-			return;
-		}
-		setEditingRule({
-			apply_to: "input",
-			provider_config_ids: [],
-			models: ["*"],
-			cel_expression: "true",
-			enabled: true,
-		});
+		setEditingRule({ apply_to: "input", provider_config_ids: [], enabled: true });
 		setIsModalOpen(true);
 	};
 
@@ -176,24 +107,12 @@ export default function GuardrailsConfigurationView() {
 				</div>
 				<div className="flex items-center gap-4">
 					<div className="flex items-center gap-2">
-						<Tooltip>
-							<TooltipTrigger asChild>
-								<span>
-									<Switch
-										id="guardrails-enabled"
-										checked={isEnabled}
-										disabled={isSaving || rules.length === 0}
-										onAsyncCheckedChange={handleToggleGuardrails}
-									/>
-								</span>
-							</TooltipTrigger>
-							{rules.length === 0 && <TooltipContent>Create a rule before enabling guardrails</TooltipContent>}
-						</Tooltip>
+						<Switch id="guardrails-enabled" checked={isEnabled} onCheckedChange={handleToggleGuardrails} />
 						<Label htmlFor="guardrails-enabled" className="font-medium">
 							Enable Guardrails
 						</Label>
 					</div>
-					<Button onClick={openCreateRule} disabled={isSaving} data-testid="guardrails-create-rule-button">
+					<Button onClick={openCreateRule} data-testid="guardrails-create-rule-button">
 						<Plus className="mr-2 h-4 w-4" />
 						Create Rule
 					</Button>
@@ -204,11 +123,9 @@ export default function GuardrailsConfigurationView() {
 				<Table>
 					<TableHeader>
 						<TableRow>
-							<TableHead className="w-[90px]">Enabled</TableHead>
 							<TableHead>Rule Name</TableHead>
 							<TableHead>Description</TableHead>
 							<TableHead>Apply To</TableHead>
-							<TableHead>Models</TableHead>
 							<TableHead>Providers</TableHead>
 							<TableHead>Expression</TableHead>
 							<TableHead className="text-right">Actions</TableHead>
@@ -217,52 +134,33 @@ export default function GuardrailsConfigurationView() {
 					<TableBody>
 						{rules.length === 0 ? (
 							<TableRow>
-								<TableCell colSpan={8} className="text-muted-foreground h-32 text-center">
-									<div className="flex flex-col items-center justify-center gap-1">
+								<TableCell colSpan={6} className="text-muted-foreground h-32 text-center">
+									<div className="flex flex-col items-center justify-center">
 										<ShieldAlert className="text-muted-foreground/50 mb-2 h-8 w-8" />
 										<p>No guardrail rules configured yet.</p>
-										{providers.length === 0 ? (
-											<p className="text-sm">
-												<Link to="/workspace/guardrails/providers" className="text-primary underline">
-													Create a provider
-												</Link>{" "}
-												first, then add a rule.
-											</p>
-										) : (
-											<p className="text-sm">Click Create Rule to inspect prompts and responses.</p>
-										)}
 									</div>
 								</TableCell>
 							</TableRow>
 						) : (
 							rules.map((rule) => (
 								<TableRow key={rule.id}>
-									<TableCell>
-										<Switch
-											checked={rule.enabled}
-											disabled={isSaving}
-											onAsyncCheckedChange={(checked) => handleToggleRule(rule, checked)}
-										/>
-									</TableCell>
 									<TableCell className="font-medium">{rule.name}</TableCell>
 									<TableCell>{rule.description}</TableCell>
 									<TableCell className="capitalize">{rule.apply_to}</TableCell>
-									<TableCell>{formatRuleModels(rule)}</TableCell>
 									<TableCell>{formatLinkedProviders(rule, providers)}</TableCell>
 									<TableCell className="max-w-[300px] truncate font-mono text-xs">{rule.cel_expression}</TableCell>
 									<TableCell className="text-right">
 										<Button
 											variant="ghost"
 											size="icon"
-											disabled={isSaving}
 											onClick={() => {
-												setEditingRule({ ...rule, models: normalizeRuleModels(rule.models) });
+												setEditingRule(rule);
 												setIsModalOpen(true);
 											}}
 										>
 											<Edit className="h-4 w-4" />
 										</Button>
-										<Button variant="ghost" size="icon" disabled={isSaving} onClick={() => handleDeleteRule(rule.id)}>
+										<Button variant="ghost" size="icon" onClick={() => handleDeleteRule(rule.id)}>
 											<Trash className="text-destructive h-4 w-4" />
 										</Button>
 									</TableCell>
@@ -274,7 +172,7 @@ export default function GuardrailsConfigurationView() {
 			</div>
 
 			<Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-				<DialogContent className="sm:max-w-[640px]">
+				<DialogContent className="sm:max-w-[560px]">
 					<DialogHeader>
 						<DialogTitle>{editingRule?.id ? "Edit Rule" : "Create Rule"}</DialogTitle>
 					</DialogHeader>
@@ -315,31 +213,9 @@ export default function GuardrailsConfigurationView() {
 							</Select>
 						</div>
 						<div className="grid gap-2">
-							<Label>Models</Label>
-							<ModelMultiselect
-								value={modelDropdownValue}
-								onChange={(models) => setEditingRule({ ...editingRule, models: normalizeRuleModels(models) })}
-								placeholder="All models"
-								loadModelsOnEmptyProvider
-								allowAllOption
-								unfiltered
-								menuPosition="absolute"
-								className="!min-h-9"
-								data-testid="guardrails-rule-models-select"
-							/>
-							<p className="text-muted-foreground text-xs">
-								Leave as All models to scan every request, or pick specific catalog models.
-							</p>
-						</div>
-						<div className="grid gap-2">
 							<Label>Providers</Label>
 							{providerOptions.length === 0 ? (
-								<p className="text-muted-foreground text-sm">
-									<Link to="/workspace/guardrails/providers" className="text-primary underline">
-										Create a guardrail provider
-									</Link>{" "}
-									before adding rules.
-								</p>
+								<p className="text-muted-foreground text-sm">Create a guardrail provider before adding rules.</p>
 							) : (
 								<MultiSelect
 									options={providerOptions}
@@ -360,7 +236,7 @@ export default function GuardrailsConfigurationView() {
 								/>
 							)}
 							<p className="text-muted-foreground text-xs">
-								Selected providers scan the prompt or response when the rule matches the selected models.
+								Selected providers scan the prompt or response when the CEL expression matches.
 							</p>
 						</div>
 						<div className="grid gap-2">
@@ -369,14 +245,13 @@ export default function GuardrailsConfigurationView() {
 								id="expression"
 								value={editingRule?.cel_expression || ""}
 								onChange={(e) => setEditingRule({ ...editingRule, cel_expression: e.target.value })}
-								placeholder="true"
+								placeholder="e.g. request.model == 'gpt-4' or true"
 								className="font-mono text-sm"
-								rows={3}
+								rows={4}
 								data-testid="guardrails-rule-expression-input"
 							/>
 							<p className="text-muted-foreground text-xs">
-								Optional extra filter. Model targeting uses the dropdown above. Use <code>true</code> to run on every
-								selected model.
+								Use CEL to define when this rule runs. Use <code>true</code> to apply on every request for the selected model path.
 							</p>
 						</div>
 					</div>
@@ -387,8 +262,8 @@ export default function GuardrailsConfigurationView() {
 						<Button
 							onClick={handleSaveRule}
 							disabled={
-								isSaving ||
 								!editingRule?.name ||
+								!editingRule?.cel_expression ||
 								(editingRule.provider_config_ids || []).length === 0 ||
 								providerOptions.length === 0
 							}
