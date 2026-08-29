@@ -71,42 +71,34 @@ func NewRegexProvider(config GuardrailProvider) (*RegexProvider, error) {
 }
 
 func (p *RegexProvider) ValidateInput(ctx *schemas.UnifAIContext, req *schemas.UnifAIRequest) error {
-	if req.ChatRequest == nil {
-		return nil // Only scanning chat requests for MVP
-	}
-
-	for _, msg := range req.ChatRequest.Input {
-		if msg.Content != nil && msg.Content.ContentStr != nil {
-			content := *msg.Content.ContentStr
-			for _, pattern := range p.patterns {
-				if pattern.compiled.MatchString(content) {
-					return fmt.Errorf("input matches blocked pattern: %s", pattern.Description)
-				}
-			}
+	for _, content := range collectRequestTexts(req) {
+		if err := p.match(content); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
 func (p *RegexProvider) ValidateOutput(ctx *schemas.UnifAIContext, req *schemas.UnifAIRequest, resp *schemas.UnifAIResponse) error {
-	if resp.ChatResponse == nil || len(resp.ChatResponse.Choices) == 0 {
-		return nil
+	for _, content := range collectResponseTexts(resp) {
+		if err := p.match(content); err != nil {
+			return err
+		}
 	}
-	
-	choice := resp.ChatResponse.Choices[0]
-	if choice.ChatNonStreamResponseChoice == nil || choice.ChatNonStreamResponseChoice.Message == nil {
-		return nil
-	}
-	
-	msg := choice.ChatNonStreamResponseChoice.Message
-	if msg.Content == nil || msg.Content.ContentStr == nil {
-		return nil
-	}
+	return nil
+}
 
-	content := *msg.Content.ContentStr
+func (p *RegexProvider) match(content string) error {
+	if content == "" {
+		return nil
+	}
 	for _, pattern := range p.patterns {
-		if pattern.compiled.MatchString(content) {
-			return fmt.Errorf("output matches blocked pattern: %s", pattern.Description)
+		if pattern.compiled != nil && pattern.compiled.MatchString(content) {
+			label := pattern.Description
+			if label == "" {
+				label = pattern.Pattern
+			}
+			return fmt.Errorf("matches blocked pattern: %s", label)
 		}
 	}
 	return nil
