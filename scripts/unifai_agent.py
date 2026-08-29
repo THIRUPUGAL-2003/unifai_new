@@ -466,9 +466,9 @@ def maybe_first_run_prompt() -> None:
         "UnifAI Guard installed",
         "UnifAI Guard is running.\n\n"
         "For Browser AI monitoring & predict to work:\n"
-        "1) Fully quit Chrome and Edge (all windows)\n"
-        "2) Fully quit & reopen browsers (Chrome, Edge, Brave, Opera, Vivaldi, Firefox)\n"
-        "3) Open a monitored AI site and send a test prompt\n\n"
+        "1) Fully quit every browser you use (Chrome, Edge, Brave, Opera, Vivaldi, Firefox)\n"
+        "2) Reopen the browser and visit a monitored AI site\n"
+        "3) Send a test prompt\n\n"
         f"Version {AGENT_VERSION}\n"
         f"Backend: {UNIFAI_BACKEND_URL}",
         0x40,
@@ -481,7 +481,7 @@ def maybe_first_run_prompt() -> None:
 
 
 def apply_pac_with_bust(silent: bool = False) -> bool:
-    """Enable PAC with cache-busting query so Chrome picks up Target Website changes fast."""
+    """Enable PAC with cache-busting query so all browsers pick up Target Website changes fast."""
     global _LAST_PAC_BUST
     try:
         content = ""
@@ -738,7 +738,7 @@ table{{width:100%;border-collapse:collapse;margin-top:12px}} td,th{{border-botto
 <p>Local status API: <code>/status</code></p>
 <table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>{rows}</tbody></table>
 <p style="margin-top:16px;font-size:12px;color:#94a3b8">Details: {det}</p>
-<p style="font-size:12px;color:#94a3b8">Windows: Chrome, Edge, Brave, Opera, Vivaldi, Firefox. Quit &amp; reopen after install. Safari is not supported on Windows Guard.</p>
+<p style="font-size:12px;color:#94a3b8">Chrome, Edge, Brave, Opera, Vivaldi, and Firefox use the same Guard PAC. Fully quit &amp; reopen after install. Safari is macOS-only (not supported by Windows Guard).</p>
 </div></body></html>"""
             body = html.encode("utf-8")
             self.send_response(200)
@@ -805,7 +805,13 @@ def start_local_pac_http_server() -> str:
 # Chromium-family policy keys (PAC + QuicAllowed). Safari is macOS-only — not on Windows Guard.
 _CHROMIUM_POLICY_PATHS = (
     r"Software\Policies\Google\Chrome",
+    r"Software\Policies\Google\Chrome Beta",
+    r"Software\Policies\Google\Chrome Dev",
+    r"Software\Policies\Google\Chrome SxS",
     r"Software\Policies\Microsoft\Edge",
+    r"Software\Policies\Microsoft\Edge Beta",
+    r"Software\Policies\Microsoft\Edge Dev",
+    r"Software\Policies\Microsoft\Edge SxS",
     r"Software\Policies\BraveSoftware\Brave",
     r"Software\Policies\BraveSoftware\Brave-Browser",
     r"Software\Policies\Opera Software\Opera",
@@ -839,6 +845,48 @@ def _set_reg_dword(root, path: str, name: str, value: int) -> bool:
         return False
 
 
+def _set_reg_sz(root, path: str, name: str, value: str) -> bool:
+    try:
+        key = winreg.CreateKeyEx(root, path, 0, winreg.KEY_SET_VALUE)
+        winreg.SetValueEx(key, name, 0, winreg.REG_SZ, value)
+        winreg.CloseKey(key)
+        return True
+    except Exception:
+        return False
+
+
+def _delete_reg_value(root, path: str, name: str) -> None:
+    try:
+        key = winreg.OpenKey(root, path, 0, winreg.KEY_SET_VALUE)
+        winreg.DeleteValue(key, name)
+        winreg.CloseKey(key)
+    except Exception:
+        pass
+
+
+def _apply_chromium_browser_policies(enable: bool, pac_url: str | None = None) -> int:
+    """Apply the same PAC + QUIC/DoH settings Chrome uses to every Chromium-family browser."""
+    if pac_url is None:
+        pac_url = pac_http_url()
+    applied = 0
+    for root in (winreg.HKEY_CURRENT_USER, winreg.HKEY_LOCAL_MACHINE):
+        for path in _CHROMIUM_POLICY_PATHS:
+            try:
+                if enable:
+                    if _set_reg_sz(root, path, "ProxyMode", "pac_script"):
+                        applied += 1
+                    _set_reg_sz(root, path, "ProxyPacUrl", pac_url)
+                    _set_reg_dword(root, path, "QuicAllowed", 0)
+                    # Keep DNS-over-HTTPS off so Edge/Brave/Opera route like Chrome through PAC.
+                    _set_reg_sz(root, path, "DnsOverHttpsMode", "off")
+                else:
+                    for name in ("ProxyMode", "ProxyPacUrl", "DnsOverHttpsMode"):
+                        _delete_reg_value(root, path, name)
+            except Exception as e:
+                print(f"[UnifAI Guard WARNING] Could not update browser policy on {path}: {e}")
+    return applied
+
+
 def set_browser_quic(enable_quic: bool) -> None:
     value = 1 if enable_quic else 0
     ok = False
@@ -851,36 +899,21 @@ def set_browser_quic(enable_quic: bool) -> None:
 
 
 def set_browser_pac_policy(enable: bool, pac_url: str | None = None) -> None:
-    """Force Chromium browsers (Chrome/Edge/Brave/Opera/Vivaldi) onto Guard PAC."""
+    """Force Chromium browsers (Chrome/Edge/Brave/Opera/Vivaldi) onto the same Guard PAC as Chrome."""
     if pac_url is None:
         pac_url = pac_http_url()
-    policy_only = (
-        r"Software\Policies\Google\Chrome",
-        r"Software\Policies\Microsoft\Edge",
-        r"Software\Policies\BraveSoftware\Brave",
-        r"Software\Policies\BraveSoftware\Brave-Browser",
-        r"Software\Policies\Opera Software\Opera",
-        r"Software\Policies\Opera Software\Opera Stable",
-        r"Software\Policies\Opera Software\Opera GX",
-        r"Software\Policies\Vivaldi",
-        r"Software\Policies\Chromium",
-    )
-    for path in policy_only:
-        try:
-            key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE)
-            if enable:
-                winreg.SetValueEx(key, "ProxyMode", 0, winreg.REG_SZ, "pac_script")
-                winreg.SetValueEx(key, "ProxyPacUrl", 0, winreg.REG_SZ, pac_url)
-            else:
-                for name in ("ProxyMode", "ProxyPacUrl"):
-                    try:
-                        winreg.DeleteValue(key, name)
-                    except FileNotFoundError:
-                        pass
-            winreg.CloseKey(key)
-        except Exception as e:
-            print(f"[UnifAI Guard WARNING] Could not set browser PAC policy on {path}: {e}")
+    applied = _apply_chromium_browser_policies(enable=enable, pac_url=pac_url)
     set_firefox_proxy_policy(enable=enable, pac_url=pac_url)
+    if enable:
+        if applied:
+            print(
+                "[UnifAI Guard] PAC applied to Chrome, Edge, Brave, Opera, Vivaldi (+ Firefox profiles). "
+                "Fully quit & reopen each browser once."
+            )
+        else:
+            print("[UnifAI Guard WARNING] Could not set Chromium PAC policy — try restarting Guard as admin.")
+    else:
+        print("[UnifAI Guard] Browser PAC policies cleared.")
 
 
 def _firefox_profiles_dirs() -> list[str]:
@@ -1378,8 +1411,8 @@ def main() -> None:
     start_local_pac_http_server()
     apply_pac_with_bust(silent=False)
     set_browser_quic(enable_quic=False)
-    print("[UnifAI Guard] Browser HTTP/3 (QUIC) disabled (Chrome/Edge/Brave/Opera/Vivaldi) so Target Websites use the proxy.")
-    print("[UnifAI Guard] PAC policies: Chrome, Edge, Brave, Opera, Vivaldi + Firefox profiles. Safari is not supported on Windows.")
+    print("[UnifAI Guard] Browser HTTP/3 (QUIC) disabled for Chromium browsers so Target Websites use the proxy.")
+    print("[UnifAI Guard] PAC policies: Chrome, Edge, Brave, Opera, Vivaldi + Firefox (same intercept as Chrome). Safari is macOS-only.")
     if not install_ca_certificate():
         print("[UnifAI Guard ERROR] CA trust failed — open %LOCALAPPDATA%\\UnifAI\\Guard\\ca_install_status.txt")
         print("[UnifAI Guard ERROR] Without CA trust, browsers will not accept MITM HTTPS. Fix cert then restart Guard.")

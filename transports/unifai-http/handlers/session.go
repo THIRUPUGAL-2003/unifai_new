@@ -84,6 +84,7 @@ func (h *SessionHandler) isAuthEnabled(ctx *fasthttp.RequestCtx) {
 	hasValidToken := false
 	role := ""
 	username := ""
+	allowedSections := ""
 	if token != "" {
 		session, err := h.configStore.GetSession(ctx, token)
 		if err == nil && session != nil && session.ExpiresAt.After(time.Now()) {
@@ -96,14 +97,20 @@ func (h *SessionHandler) isAuthEnabled(ctx *fasthttp.RequestCtx) {
 			if username == "" {
 				username = "admin"
 			}
+			if role == "user" && username != "" {
+				if dbUser, err := h.configStore.GetUserByUsername(ctx, username); err == nil && dbUser != nil {
+					allowedSections = dbUser.AllowedSections
+				}
+			}
 		}
 	}
 	SendJSON(ctx, map[string]any{
-		"is_auth_enabled": authConfig.IsEnabled,
-		"has_valid_token": hasValidToken,
-		"auth_type":       dashboardAuthType(authConfig.IsEnabled),
-		"role":            role,
-		"username":        username,
+		"is_auth_enabled":  authConfig.IsEnabled,
+		"has_valid_token":  hasValidToken,
+		"auth_type":        dashboardAuthType(authConfig.IsEnabled),
+		"role":             role,
+		"username":         username,
+		"allowed_sections": allowedSections,
 	})
 }
 
@@ -385,6 +392,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		Budget             float64 `json:"budget"`
 		RateLimit          int     `json:"rate_limit"`
 		AllowedPromptRepos string  `json:"allowed_prompt_repos"`
+		AllowedSections    string  `json:"allowed_sections"`
 	}
 	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
@@ -418,6 +426,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		existing.Budget = payload.Budget
 		existing.RateLimit = payload.RateLimit
 		existing.AllowedPromptRepos = payload.AllowedPromptRepos
+		existing.AllowedSections = payload.AllowedSections
 		existing.ReviewedAt = &now
 		existing.UpdatedAt = now
 		if err := h.configStore.UpdateUser(ctx, existing); err != nil {
@@ -438,6 +447,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		Budget:             payload.Budget,
 		RateLimit:          payload.RateLimit,
 		AllowedPromptRepos: payload.AllowedPromptRepos,
+		AllowedSections:    payload.AllowedSections,
 		CreatedAt:          now,
 		UpdatedAt:          now,
 	}
@@ -485,6 +495,7 @@ func (h *SessionHandler) updateUser(ctx *fasthttp.RequestCtx) {
 		Budget             float64 `json:"budget"`
 		RateLimit          int     `json:"rate_limit"`
 		AllowedPromptRepos *string `json:"allowed_prompt_repos"`
+		AllowedSections    *string `json:"allowed_sections"`
 	}
 	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
@@ -509,6 +520,9 @@ func (h *SessionHandler) updateUser(ctx *fasthttp.RequestCtx) {
 	existingUser.RateLimit = payload.RateLimit
 	if payload.AllowedPromptRepos != nil {
 		existingUser.AllowedPromptRepos = *payload.AllowedPromptRepos
+	}
+	if payload.AllowedSections != nil {
+		existingUser.AllowedSections = *payload.AllowedSections
 	}
 	existingUser.UpdatedAt = time.Now()
 

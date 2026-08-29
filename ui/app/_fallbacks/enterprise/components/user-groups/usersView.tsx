@@ -6,6 +6,13 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import {
+	WORKSPACE_SECTIONS,
+	DEFAULT_USER_SECTIONS,
+	parseAllowedSections,
+	allowedSectionsToString,
+	type WorkspaceSectionKey,
+} from "@/lib/constants/workspaceSections";
 
 interface User {
 	id: string;
@@ -16,6 +23,7 @@ interface User {
 	budget: number;
 	rate_limit: number;
 	allowed_prompt_repos?: string;
+	allowed_sections?: string;
 	created_at: string;
 }
 
@@ -39,6 +47,43 @@ export default function UsersView() {
 	const [budget, setBudget] = useState(0);
 	const [rateLimit, setRateLimit] = useState(0);
 	const [allowedPromptRepos, setAllowedPromptRepos] = useState("");
+	const [allowedSections, setAllowedSections] = useState<Set<WorkspaceSectionKey>>(
+		new Set([DEFAULT_USER_SECTIONS]),
+	);
+
+	const toggleSection = (key: WorkspaceSectionKey, checked: boolean) => {
+		setAllowedSections((prev) => {
+			const next = new Set(prev);
+			if (checked) {
+				next.add(key);
+			} else {
+				next.delete(key);
+			}
+			return next;
+		});
+	};
+
+	const workspaceAccessPicker = role === "user" ? (
+		<div className="space-y-2">
+			<label className="text-muted-foreground text-sm font-medium">Workspace Access</label>
+			<p className="text-muted-foreground text-xs">Choose which sidebar sections this user can see.</p>
+			<div className="border-border/50 bg-muted/10 max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
+				{WORKSPACE_SECTIONS.map((section) => (
+					<label key={section.key} className="text-foreground flex cursor-pointer items-center gap-2 text-sm select-none">
+						<input
+							type="checkbox"
+							checked={allowedSections.has(section.key)}
+							onChange={(e) => toggleSection(section.key, e.target.checked)}
+							className="border-border mr-1 rounded text-teal-500 focus:ring-teal-500/50"
+						/>
+						{section.label}
+					</label>
+				))}
+			</div>
+		</div>
+	) : (
+		<p className="text-muted-foreground text-xs">Admins have full workspace access to all sections.</p>
+	);
 
 	// Fetch users from API
 	const fetchUsers = async () => {
@@ -85,11 +130,23 @@ export default function UsersView() {
 			toast.error("Username and password are required");
 			return;
 		}
+		if (role === "user" && allowedSections.size === 0) {
+			toast.error("Select at least one workspace section for this user");
+			return;
+		}
 		try {
 			const res = await fetch(`${getApiBaseUrl()}/session/users`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ username, password, role, budget, rate_limit: rateLimit, allowed_prompt_repos: allowedPromptRepos }),
+				body: JSON.stringify({
+					username,
+					password,
+					role,
+					budget,
+					rate_limit: rateLimit,
+					allowed_prompt_repos: allowedPromptRepos,
+					allowed_sections: role === "user" ? allowedSectionsToString(allowedSections) : "",
+				}),
 				credentials: "include",
 			});
 			if (res.ok) {
@@ -109,6 +166,10 @@ export default function UsersView() {
 	const handleEditUser = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!selectedUser) return;
+		if (role === "user" && allowedSections.size === 0) {
+			toast.error("Select at least one workspace section for this user");
+			return;
+		}
 		try {
 			const res = await fetch(`${getApiBaseUrl()}/session/users/${selectedUser.id}`, {
 				method: "PUT",
@@ -120,6 +181,7 @@ export default function UsersView() {
 					budget,
 					rate_limit: rateLimit,
 					allowed_prompt_repos: allowedPromptRepos,
+					allowed_sections: role === "user" ? allowedSectionsToString(allowedSections) : "",
 				}),
 				credentials: "include",
 			});
@@ -206,6 +268,7 @@ export default function UsersView() {
 		setBudget(0);
 		setRateLimit(0);
 		setAllowedPromptRepos("");
+		setAllowedSections(new Set([DEFAULT_USER_SECTIONS]));
 		setSelectedUser(null);
 	};
 
@@ -217,6 +280,7 @@ export default function UsersView() {
 		setBudget(user.budget);
 		setRateLimit(user.rate_limit);
 		setAllowedPromptRepos(user.allowed_prompt_repos || "");
+		setAllowedSections(parseAllowedSections(user.allowed_sections));
 		setIsEditOpen(true);
 	};
 
@@ -454,7 +518,7 @@ export default function UsersView() {
 
 			{/* Create User Dialog */}
 			<Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-				<DialogContent className="bg-background border-border/80 text-foreground sm:max-w-[425px]">
+				<DialogContent className="bg-background border-border/80 text-foreground sm:max-w-[520px]">
 					<DialogHeader>
 						<DialogTitle className="flex items-center gap-2 text-teal-400">
 							<Users className="h-5 w-5" /> Add New User
@@ -486,13 +550,20 @@ export default function UsersView() {
 							<label className="text-muted-foreground text-sm font-medium">Role</label>
 							<select
 								value={role}
-								onChange={(e) => setRole(e.target.value)}
+								onChange={(e) => {
+									const nextRole = e.target.value;
+									setRole(nextRole);
+									if (nextRole === "user" && allowedSections.size === 0) {
+										setAllowedSections(new Set([DEFAULT_USER_SECTIONS]));
+									}
+								}}
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
 							>
 								<option value="user">User (Basic Access)</option>
 								<option value="admin">Admin (Full Workspace Access)</option>
 							</select>
 						</div>
+						{workspaceAccessPicker}
 						<div className="grid grid-cols-2 gap-4">
 							<div className="space-y-2">
 								<label className="text-muted-foreground flex items-center gap-1 text-sm font-medium">
@@ -573,7 +644,7 @@ export default function UsersView() {
 
 			{/* Edit User Dialog */}
 			<Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
-				<DialogContent className="bg-background border-border/80 text-foreground sm:max-w-[425px]">
+				<DialogContent className="bg-background border-border/80 text-foreground sm:max-w-[520px]">
 					<DialogHeader>
 						<DialogTitle className="flex items-center gap-2 text-teal-400">
 							<Key className="h-5 w-5" /> Edit User Settings
@@ -604,13 +675,20 @@ export default function UsersView() {
 							<label className="text-muted-foreground text-sm font-medium">Role</label>
 							<select
 								value={role}
-								onChange={(e) => setRole(e.target.value)}
+								onChange={(e) => {
+									const nextRole = e.target.value;
+									setRole(nextRole);
+									if (nextRole === "user" && allowedSections.size === 0) {
+										setAllowedSections(new Set([DEFAULT_USER_SECTIONS]));
+									}
+								}}
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
 							>
 								<option value="user">User (Basic Access)</option>
 								<option value="admin">Admin (Full Workspace Access)</option>
 							</select>
 						</div>
+						{workspaceAccessPicker}
 						<div className="grid grid-cols-2 gap-4">
 							<div className="space-y-2">
 								<label className="text-muted-foreground flex items-center gap-1 text-sm font-medium">

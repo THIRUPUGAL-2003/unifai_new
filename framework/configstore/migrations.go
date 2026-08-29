@@ -438,6 +438,7 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"add_virtual_key_expires_at_column"}, run: migrationAddVirtualKeyExpiresAtColumn},
 	{IDs: []string{"add_users_table"}, run: migrationAddUsersTable},
 	{IDs: []string{"add_allowed_prompt_repos_to_users"}, run: migrationAddAllowedPromptReposToUsers},
+	{IDs: []string{"add_allowed_sections_to_users"}, run: migrationAddAllowedSectionsToUsers},
 	{IDs: []string{"add_user_registration_status"}, run: migrationAddUserRegistrationStatus},
 	{IDs: []string{"ensure_user_registration_columns"}, run: migrationEnsureUserRegistrationColumns},
 	{IDs: []string{"add_oauth_resource_indicator"}, run: migrationAddOAuthResourceIndicator},
@@ -10456,6 +10457,30 @@ func migrationAddAllowedPromptReposToUsers(ctx context.Context, db *gorm.DB, log
 		Rollback: func(tx *gorm.DB) error {
 			tx = tx.WithContext(ctx)
 			return dropColumnIfExists(tx, logger, &tables.TableUser{}, "allowed_prompt_repos")
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+func migrationAddAllowedSectionsToUsers(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_allowed_sections_to_users"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, "allowed_sections"); err != nil {
+				return fmt.Errorf("add allowed_sections to users: %w", err)
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			return dropColumnIfExists(tx, logger, &tables.TableUser{}, "allowed_sections")
 		},
 	}})
 	if err := m.Migrate(); err != nil {

@@ -66,6 +66,12 @@ import {
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { IS_ENTERPRISE } from "@/lib/constants/config";
 import { useGetCoreConfigQuery, useGetLatestReleaseQuery, useGetVersionQuery, useLogoutMutation, useIsAuthEnabledQuery } from "@/lib/store";
+import {
+	parseAllowedSections,
+	SECTION_KEY_BY_TITLE,
+	isPathAllowedForUser,
+	getDefaultPathForSections,
+} from "@/lib/constants/workspaceSections";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import type { UserInfo } from "@enterprise/lib/store/utils/tokenManager";
 import { getUserInfo } from "@enterprise/lib/store/utils/tokenManager";
@@ -512,6 +518,10 @@ const compareVersions = (v1: string, v2: string): number => {
 export default function AppSidebar() {
 	const { data: authStatus } = useIsAuthEnabledQuery();
 	const isAuthEnabled = authStatus?.is_auth_enabled || authStatus?.has_valid_token || false;
+	const userAllowedSections = useMemo(() => {
+		if (authStatus?.role !== "user") return null;
+		return parseAllowedSections(authStatus.allowed_sections);
+	}, [authStatus?.role, authStatus?.allowed_sections]);
 	const pathname = useLocation({ select: (l) => l.pathname });
 	const search = useLocation({ select: (l) => l.searchStr ?? "" });
 	const tsNavigate = useNavigate();
@@ -962,8 +972,8 @@ export default function AppSidebar() {
 				],
 			},
 		];
-		if (authStatus?.role === "user") {
-			return allItems.filter((item) => item.title === "Prompt Repository");
+		if (userAllowedSections) {
+			return allItems.filter((item) => userAllowedSections.has(SECTION_KEY_BY_TITLE[item.title] || ""));
 		}
 		return allItems;
 	}, [
@@ -997,7 +1007,7 @@ export default function AppSidebar() {
 		hasSkillsRepositoryAccess,
 		hasAccessProfilesAccess,
 		isDbConnected,
-		authStatus?.role,
+		userAllowedSections,
 	]);
 
 	const accessibleItems: SidebarItem[] = useMemo(() => {
@@ -1063,14 +1073,12 @@ export default function AppSidebar() {
 	}, []);
 
 	useEffect(() => {
-		if (authStatus?.role === "user") {
-			const allowedPaths = ["/workspace/prompt-repo"];
-			const isAllowed = allowedPaths.some((p) => pathname.startsWith(p));
-			if (!isAllowed) {
-				navigate("/workspace/prompt-repo");
+		if (userAllowedSections) {
+			if (!isPathAllowedForUser(pathname, userAllowedSections)) {
+				navigate(getDefaultPathForSections(userAllowedSections));
 			}
 		}
-	}, [authStatus, pathname, navigate]);
+	}, [userAllowedSections, pathname, navigate]);
 
 	// Auto-expand items when their subitems are active
 	useEffect(() => {

@@ -1490,3 +1490,29 @@ func (m *BrowserAIManager) AckRemoteUninstall(ctx context.Context, agentID strin
 	}
 	return &agent, nil
 }
+
+func (m *BrowserAIManager) DeleteAgents(ctx context.Context, ids []string) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+	unique := make([]string, 0, len(ids))
+	seen := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	if len(unique) == 0 {
+		return 0, fmt.Errorf("at least one agent id is required")
+	}
+	result := m.db.WithContext(ctx).Where("id IN ?", unique).Delete(&BrowserAIAgent{})
+	return result.RowsAffected, result.Error
+}

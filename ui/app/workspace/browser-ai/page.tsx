@@ -37,6 +37,17 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alertDialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ComboboxSelect } from "@/components/ui/combobox";
@@ -65,6 +76,7 @@ import {
 	useGetBrowserAiAgentsQuery,
 	useGetBrowserAiAgentSettingsQuery,
 	useSaveBrowserAiUninstallKeyMutation,
+	useBulkDeleteBrowserAiAgentsMutation,
 	BrowserAILogEntry,
 	BrowserGuardRule,
 	BrowserControlSettings,
@@ -330,6 +342,10 @@ export default function BrowserAiPage() {
 	const [agentStatusFilter, setAgentStatusFilter] = useState("all");
 	const [agentPageOffset, setAgentPageOffset] = useState(0);
 	const agentPageLimit = 50;
+	const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
+	const [showAgentDeleteDialog, setShowAgentDeleteDialog] = useState(false);
+	const [agentDeleteError, setAgentDeleteError] = useState("");
+	const [agentBulkAction, setAgentBulkAction] = useState("");
 
 	// Dialog states
 	const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
@@ -474,6 +490,19 @@ export default function BrowserAiPage() {
 	const totalAgents = agentsData?.total || 0;
 	const activeAgentsCount = agents.filter((a) => a.status === "active").length;
 	const agentSettings = agentSettingsData?.settings;
+	const visibleAgentIds = useMemo(() => agents.map((a) => a.id), [agents]);
+	const selectedVisibleAgentIds = useMemo(
+		() => visibleAgentIds.filter((id) => selectedAgentIds.has(id)),
+		[selectedAgentIds, visibleAgentIds],
+	);
+	const selectedAgentCount = selectedAgentIds.size;
+	const allVisibleAgentsSelected = visibleAgentIds.length > 0 && selectedVisibleAgentIds.length === visibleAgentIds.length;
+	const someVisibleAgentsSelected = selectedVisibleAgentIds.length > 0 && selectedVisibleAgentIds.length < visibleAgentIds.length;
+
+	useEffect(() => {
+		setSelectedAgentIds(new Set());
+		setAgentBulkAction("");
+	}, [agentPageOffset, agentSearch, agentStatusFilter]);
 
 	// --- Detect new blocked violations and fire notifications ---
 	useEffect(() => {
@@ -615,6 +644,60 @@ export default function BrowserAiPage() {
 	const [createTarget] = useCreateBrowserAiTargetMutation();
 	const [updateTarget] = useUpdateBrowserAiTargetMutation();
 	const [deleteTarget] = useDeleteBrowserAiTargetMutation();
+	const [bulkDeleteAgents, { isLoading: deletingAgents }] = useBulkDeleteBrowserAiAgentsMutation();
+
+	const toggleSelectAllVisibleAgents = (checked: boolean) => {
+		setSelectedAgentIds((prev) => {
+			const next = new Set(prev);
+			for (const id of visibleAgentIds) {
+				if (checked) {
+					next.add(id);
+				} else {
+					next.delete(id);
+				}
+			}
+			return next;
+		});
+	};
+
+	const toggleSelectAgent = (agentId: string, checked: boolean) => {
+		setSelectedAgentIds((prev) => {
+			const next = new Set(prev);
+			if (checked) {
+				next.add(agentId);
+			} else {
+				next.delete(agentId);
+			}
+			return next;
+		});
+	};
+
+	const handleAgentBulkAction = (action: string) => {
+		setAgentBulkAction(action);
+		if (action === "delete") {
+			if (selectedAgentCount === 0) {
+				setAgentBulkAction("");
+				return;
+			}
+			setAgentDeleteError("");
+			setShowAgentDeleteDialog(true);
+		}
+	};
+
+	const handleDeleteSelectedAgents = async () => {
+		const ids = Array.from(selectedAgentIds);
+		if (ids.length === 0) return;
+		setAgentDeleteError("");
+		try {
+			await bulkDeleteAgents({ ids }).unwrap();
+			setSelectedAgentIds(new Set());
+			setAgentBulkAction("");
+			setShowAgentDeleteDialog(false);
+			refetchAgents();
+		} catch {
+			setAgentDeleteError("Could not delete selected agents. Try again.");
+		}
+	};
 
 	const patchControl = async (patch: Partial<BrowserControlSettings>) => {
 		try {
@@ -2487,15 +2570,48 @@ export default function BrowserAiPage() {
 
 					<Card className="bg-card border-border">
 						<CardHeader>
-							<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
-							<CardDescription>
-								Windows: Chrome, Edge, Brave, Opera, Vivaldi, Firefox — fully quit & reopen after install. Safari is not on Windows Guard.
-							</CardDescription>
+							<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+								<div>
+									<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
+									<CardDescription>
+										Chrome, Edge, Brave, Opera, Vivaldi, and Firefox — same Guard behavior. Fully quit & reopen after install. Safari is macOS-only.
+									</CardDescription>
+								</div>
+								<div className="flex items-center gap-2">
+									{selectedAgentCount > 0 ? (
+										<span className="text-xs text-muted-foreground whitespace-nowrap">
+											{selectedAgentCount} selected
+										</span>
+									) : null}
+									<Select
+										value={agentBulkAction}
+										onValueChange={handleAgentBulkAction}
+										disabled={selectedAgentCount === 0 || deletingAgents}
+									>
+										<SelectTrigger className="w-[160px]">
+											<SelectValue placeholder="Choose option" />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="delete" className="text-destructive focus:text-destructive">
+												Delete
+											</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+							</div>
 						</CardHeader>
 						<CardContent className="p-0">
 							<Table className="table-fixed min-w-[1100px]">
 								<TableHeader>
 									<TableRow className="hover:bg-transparent border-border">
+										<TableHead className="w-[44px]">
+											<Checkbox
+												checked={allVisibleAgentsSelected || (someVisibleAgentsSelected ? "indeterminate" : false)}
+												onCheckedChange={(checked) => toggleSelectAllVisibleAgents(checked === true)}
+												aria-label="Select all Guard agents on this page"
+												disabled={agents.length === 0}
+											/>
+										</TableHead>
 										<TableHead className="w-[160px]">Laptop</TableHead>
 										<TableHead className="w-[100px]">User</TableHead>
 										<TableHead className="w-[120px]">IP</TableHead>
@@ -2510,6 +2626,13 @@ export default function BrowserAiPage() {
 								<TableBody>
 									{agents.map((agent) => (
 										<TableRow key={agent.id} className="border-border">
+											<TableCell>
+												<Checkbox
+													checked={selectedAgentIds.has(agent.id)}
+													onCheckedChange={(checked) => toggleSelectAgent(agent.id, checked === true)}
+													aria-label={`Select ${agent.hostname || agent.id}`}
+												/>
+											</TableCell>
 											<TableCell className="align-top whitespace-normal">
 												<div className="font-medium text-sm truncate" title={agent.hostname || ""}>
 													{agent.hostname || "—"}
@@ -2538,7 +2661,7 @@ export default function BrowserAiPage() {
 									))}
 									{agents.length === 0 && (
 										<TableRow>
-											<TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
+											<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
 												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe on employee laptops.
 											</TableCell>
 										</TableRow>
@@ -2571,6 +2694,41 @@ export default function BrowserAiPage() {
 							</Button>
 						</div>
 					)}
+
+					<AlertDialog
+						open={showAgentDeleteDialog}
+						onOpenChange={(open) => {
+							setShowAgentDeleteDialog(open);
+							if (!open) {
+								setAgentBulkAction("");
+								setAgentDeleteError("");
+							}
+						}}
+					>
+						<AlertDialogContent>
+							<AlertDialogHeader>
+								<AlertDialogTitle>Delete selected Guard agents?</AlertDialogTitle>
+								<AlertDialogDescription>
+									This removes {selectedAgentCount} selected {selectedAgentCount === 1 ? "record" : "records"} from the Guard Agents list.
+									Installed agents on employee laptops are not uninstalled automatically.
+								</AlertDialogDescription>
+							</AlertDialogHeader>
+							{agentDeleteError ? <p className="text-sm text-red-400">{agentDeleteError}</p> : null}
+							<AlertDialogFooter>
+								<AlertDialogCancel disabled={deletingAgents}>Cancel</AlertDialogCancel>
+								<AlertDialogAction
+									onClick={(e) => {
+										e.preventDefault();
+										void handleDeleteSelectedAgents();
+									}}
+									disabled={deletingAgents || selectedAgentCount === 0}
+									className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+								>
+									{deletingAgents ? "Deleting..." : "Delete"}
+								</AlertDialogAction>
+							</AlertDialogFooter>
+						</AlertDialogContent>
+					</AlertDialog>
 				</TabsContent>
 
 				{/* TAB 6: SETUP */}
@@ -2733,13 +2891,10 @@ export default function BrowserAiPage() {
 										<CardDescription>Download a ZIP with the Guard Windows installer only.</CardDescription>
 									</div>
 								</div>
-								<div className="flex items-center gap-2">
-									<Badge className="bg-emerald-950 text-emerald-400 border-emerald-700 px-3 py-1 text-xs">Status: Ready</Badge>
-									<Button onClick={handleDownloadSetupPackage} disabled={setupPackageDownloading} className="gap-2">
-										<Download className="h-4 w-4" />
-										{setupPackageDownloading ? "Preparing..." : "Download Setup ZIP"}
-									</Button>
-								</div>
+								<Button onClick={handleDownloadSetupPackage} disabled={setupPackageDownloading} className="gap-2">
+									<Download className="h-4 w-4" />
+									{setupPackageDownloading ? "Preparing..." : "Download Setup ZIP"}
+								</Button>
 							</div>
 						</CardHeader>
 						<CardContent className="pt-0">

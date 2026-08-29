@@ -15,6 +15,7 @@ export interface IsAuthEnabledResponse {
 	auth_type?: "sso" | "password" | "none";
 	role?: string;
 	username?: string;
+	allowed_sections?: string;
 }
 
 export interface LogoutResponse {
