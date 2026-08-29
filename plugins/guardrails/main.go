@@ -82,7 +82,6 @@ func (p *GuardrailsPlugin) compileRules() error {
 	// Create a CEL environment with variables for the request
 	env, err := cel.NewEnv(
 		cel.Variable("request.model", cel.StringType),
-		cel.Variable("request.provider", cel.StringType),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create CEL env: %w", err)
@@ -128,10 +127,14 @@ func (p *GuardrailsPlugin) PreLLMHook(ctx *schemas.UnifAIContext, req *schemas.U
 		return nil, nil, nil
 	}
 
-	provider, modelName, _ := req.GetRequestFields()
+	// Prepare CEL variables
+	modelName := ""
+	if req.ChatRequest != nil {
+		modelName = req.ChatRequest.Model
+	}
+	
 	vars := map[string]interface{}{
-		"request.model":    modelName,
-		"request.provider": string(provider),
+		"request.model": modelName,
 	}
 
 	for _, rule := range p.config.GuardrailRules {
@@ -176,8 +179,7 @@ func (p *GuardrailsPlugin) PostLLMHook(ctx *schemas.UnifAIContext, resp *schemas
 	}
 
 	vars := map[string]interface{}{
-		"request.model":    modelNameFromResponse(resp),
-		"request.provider": providerNameFromResponse(resp),
+		"request.model": modelNameFromResponse(resp),
 	}
 
 	for _, rule := range p.config.GuardrailRules {
@@ -221,16 +223,6 @@ func modelNameFromResponse(resp *schemas.UnifAIResponse) string {
 	}
 	if resp.ResponsesResponse != nil && resp.ResponsesResponse.Model != "" {
 		return resp.ResponsesResponse.Model
-	}
-	return ""
-}
-
-func providerNameFromResponse(resp *schemas.UnifAIResponse) string {
-	if resp == nil {
-		return ""
-	}
-	if extra := resp.GetExtraFields(); extra != nil {
-		return string(extra.Provider)
 	}
 	return ""
 }

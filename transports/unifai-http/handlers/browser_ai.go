@@ -81,9 +81,7 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.POST("/api/browser-ai/agents/uninstall-verify", lib.ChainMiddlewares(h.verifyUninstall, middlewares...))
 	r.POST("/api/browser-ai/agents/uninstall", lib.ChainMiddlewares(h.uninstallAgent, middlewares...))
 	r.POST("/api/browser-ai/agents/uninstall-ack", lib.ChainMiddlewares(h.ackRemoteUninstall, middlewares...))
-	r.POST("/api/browser-ai/agents/bulk-delete", lib.ChainMiddlewares(h.bulkDeleteAgents, middlewares...))
 	r.POST("/api/browser-ai/agents/{id}/remote-uninstall", lib.ChainMiddlewares(h.remoteUninstallAgent, middlewares...))
-	r.DELETE("/api/browser-ai/agents/{id}", lib.ChainMiddlewares(h.deleteAgent, middlewares...))
 
 	r.POST("/api/browser-ai/intercept", lib.ChainMiddlewares(h.intercept, middlewares...))
 	r.POST("/api/browser-ai/intercept-file", lib.ChainMiddlewares(h.interceptFile, middlewares...))
@@ -396,38 +394,6 @@ func (h *BrowserAIHandler) listAgents(ctx *fasthttp.RequestCtx) {
 		"limit":  limit,
 		"offset": offset,
 	})
-}
-
-func (h *BrowserAIHandler) deleteAgent(ctx *fasthttp.RequestCtx) {
-	h.ensureDB(ctx)
-	id, ok := ctx.UserValue("id").(string)
-	if !ok || strings.TrimSpace(id) == "" {
-		SendError(ctx, fasthttp.StatusBadRequest, "Missing agent ID")
-		return
-	}
-	n, err := h.manager.DeleteAgents(ctx, []string{id})
-	if err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
-		return
-	}
-	SendJSON(ctx, map[string]any{"status": "success", "deleted": n})
-}
-
-func (h *BrowserAIHandler) bulkDeleteAgents(ctx *fasthttp.RequestCtx) {
-	h.ensureDB(ctx)
-	var body struct {
-		IDs []string `json:"ids"`
-	}
-	if err := sonic.Unmarshal(ctx.PostBody(), &body); err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, "Invalid JSON payload")
-		return
-	}
-	n, err := h.manager.DeleteAgents(ctx, body.IDs)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
-		return
-	}
-	SendJSON(ctx, map[string]any{"status": "success", "deleted": n})
 }
 
 func (h *BrowserAIHandler) agentHeartbeat(ctx *fasthttp.RequestCtx) {

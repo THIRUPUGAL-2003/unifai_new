@@ -37,7 +37,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ComboboxSelect } from "@/components/ui/combobox";
@@ -66,8 +65,6 @@ import {
 	useGetBrowserAiAgentsQuery,
 	useGetBrowserAiAgentSettingsQuery,
 	useSaveBrowserAiUninstallKeyMutation,
-	useDeleteBrowserAiAgentMutation,
-	useBulkDeleteBrowserAiAgentsMutation,
 	BrowserAILogEntry,
 	BrowserGuardRule,
 	BrowserControlSettings,
@@ -332,7 +329,6 @@ export default function BrowserAiPage() {
 	const [agentSearch, setAgentSearch] = useState("");
 	const [agentStatusFilter, setAgentStatusFilter] = useState("all");
 	const [agentPageOffset, setAgentPageOffset] = useState(0);
-	const [selectedAgentIds, setSelectedAgentIds] = useState<string[]>([]);
 	const agentPageLimit = 50;
 
 	// Dialog states
@@ -458,8 +454,6 @@ export default function BrowserAiPage() {
 	);
 	const { data: agentSettingsData, refetch: refetchAgentSettings } = useGetBrowserAiAgentSettingsQuery();
 	const [saveUninstallKey, { isLoading: savingUninstallKey }] = useSaveBrowserAiUninstallKeyMutation();
-	const [deleteAgent, { isLoading: deletingAgent }] = useDeleteBrowserAiAgentMutation();
-	const [bulkDeleteAgents, { isLoading: bulkDeletingAgents }] = useBulkDeleteBrowserAiAgentsMutation();
 
 	const controls: BrowserControlSettings = controlsData?.controls || {
 		id: "browser-controls-default",
@@ -480,48 +474,6 @@ export default function BrowserAiPage() {
 	const totalAgents = agentsData?.total || 0;
 	const activeAgentsCount = agents.filter((a) => a.status === "active").length;
 	const agentSettings = agentSettingsData?.settings;
-	const pageAgentIds = useMemo(() => agents.map((a) => a.id), [agents]);
-	const allPageSelected = pageAgentIds.length > 0 && pageAgentIds.every((id) => selectedAgentIds.includes(id));
-	const somePageSelected = pageAgentIds.some((id) => selectedAgentIds.includes(id));
-
-	const toggleAgentSelected = (id: string, checked: boolean) => {
-		setSelectedAgentIds((prev) => {
-			if (checked) return prev.includes(id) ? prev : [...prev, id];
-			return prev.filter((x) => x !== id);
-		});
-	};
-
-	const toggleSelectAllPage = (checked: boolean) => {
-		setSelectedAgentIds((prev) => {
-			if (checked) {
-				const next = new Set(prev);
-				pageAgentIds.forEach((id) => next.add(id));
-				return Array.from(next);
-			}
-			return prev.filter((id) => !pageAgentIds.includes(id));
-		});
-	};
-
-	const handleDeleteAgents = async (ids: string[]) => {
-		const unique = [...new Set(ids.filter(Boolean))];
-		if (!unique.length) return;
-		const ok = window.confirm(
-			unique.length === 1
-				? "Remove this Guard agent from the list? The laptop keeps running until Guard is uninstalled there."
-				: `Remove ${unique.length} Guard agents from this list? Laptops keep running until Guard is uninstalled there.`
-		);
-		if (!ok) return;
-		try {
-			if (unique.length === 1) {
-				await deleteAgent(unique[0]).unwrap();
-			} else {
-				await bulkDeleteAgents({ ids: unique }).unwrap();
-			}
-			setSelectedAgentIds((prev) => prev.filter((id) => !unique.includes(id)));
-		} catch {
-			window.alert("Failed to delete Guard agent(s).");
-		}
-	};
 
 	// --- Detect new blocked violations and fire notifications ---
 	useEffect(() => {
@@ -2487,7 +2439,6 @@ export default function BrowserAiPage() {
 								onChange={(e) => {
 									setAgentSearch(e.target.value);
 									setAgentPageOffset(0);
-									setSelectedAgentIds([]);
 								}}
 							/>
 						</div>
@@ -2496,7 +2447,6 @@ export default function BrowserAiPage() {
 							onValueChange={(v) => {
 								setAgentStatusFilter(v);
 								setAgentPageOffset(0);
-								setSelectedAgentIds([]);
 							}}
 						>
 							<SelectTrigger className="w-[160px]">
@@ -2509,17 +2459,6 @@ export default function BrowserAiPage() {
 								<SelectItem value="uninstalled">Uninstalled</SelectItem>
 							</SelectContent>
 						</Select>
-						{selectedAgentIds.length > 0 && (
-							<Button
-								variant="destructive"
-								className="gap-2"
-								disabled={deletingAgent || bulkDeletingAgents}
-								onClick={() => handleDeleteAgents(selectedAgentIds)}
-							>
-								<Trash2 className="h-4 w-4" />
-								Delete selected ({selectedAgentIds.length})
-							</Button>
-						)}
 					</div>
 
 					<div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -2554,17 +2493,9 @@ export default function BrowserAiPage() {
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="p-0">
-							<Table className="table-fixed min-w-[1180px]">
+							<Table className="table-fixed min-w-[1100px]">
 								<TableHeader>
 									<TableRow className="hover:bg-transparent border-border">
-										<TableHead className="w-[44px] pr-0">
-											<Checkbox
-												aria-label="Select all Guard agents on this page"
-												checked={allPageSelected ? true : somePageSelected ? "indeterminate" : false}
-												onCheckedChange={(v) => toggleSelectAllPage(v === true)}
-												disabled={agents.length === 0}
-											/>
-										</TableHead>
 										<TableHead className="w-[160px]">Laptop</TableHead>
 										<TableHead className="w-[100px]">User</TableHead>
 										<TableHead className="w-[120px]">IP</TableHead>
@@ -2574,19 +2505,11 @@ export default function BrowserAiPage() {
 										<TableHead className="w-[120px]">Status</TableHead>
 										<TableHead className="w-[150px]">Last seen</TableHead>
 										<TableHead className="w-[150px]">Installed</TableHead>
-										<TableHead className="w-[56px]" />
 									</TableRow>
 								</TableHeader>
 								<TableBody>
 									{agents.map((agent) => (
 										<TableRow key={agent.id} className="border-border">
-											<TableCell className="pr-0">
-												<Checkbox
-													aria-label={`Select ${agent.hostname || agent.id}`}
-													checked={selectedAgentIds.includes(agent.id)}
-													onCheckedChange={(v) => toggleAgentSelected(agent.id, v === true)}
-												/>
-											</TableCell>
 											<TableCell className="align-top whitespace-normal">
 												<div className="font-medium text-sm truncate" title={agent.hostname || ""}>
 													{agent.hostname || "—"}
@@ -2611,23 +2534,11 @@ export default function BrowserAiPage() {
 											<TableCell className="text-xs text-muted-foreground truncate">
 												{agent.installed_at ? new Date(agent.installed_at).toLocaleString() : "—"}
 											</TableCell>
-											<TableCell>
-												<Button
-													variant="ghost"
-													size="icon"
-													className="h-8 w-8 text-muted-foreground hover:text-destructive"
-													title="Delete from list"
-													disabled={deletingAgent || bulkDeletingAgents}
-													onClick={() => handleDeleteAgents([agent.id])}
-												>
-													<Trash2 className="h-4 w-4" />
-												</Button>
-											</TableCell>
 										</TableRow>
 									))}
 									{agents.length === 0 && (
 										<TableRow>
-											<TableCell colSpan={11} className="text-center py-10 text-muted-foreground text-sm">
+											<TableCell colSpan={9} className="text-center py-10 text-muted-foreground text-sm">
 												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe on employee laptops.
 											</TableCell>
 										</TableRow>
@@ -2823,6 +2734,7 @@ export default function BrowserAiPage() {
 									</div>
 								</div>
 								<div className="flex items-center gap-2">
+									<Badge className="bg-emerald-950 text-emerald-400 border-emerald-700 px-3 py-1 text-xs">Status: Ready</Badge>
 									<Button onClick={handleDownloadSetupPackage} disabled={setupPackageDownloading} className="gap-2">
 										<Download className="h-4 w-4" />
 										{setupPackageDownloading ? "Preparing..." : "Download Setup ZIP"}

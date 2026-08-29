@@ -623,10 +623,6 @@ func (m *BrowserAIManager) BuildProxyPAC(ctx context.Context, proxyAddr string) 
 		if d == "" || seen[d] {
 			continue
 		}
-		// Auto-added Copilot related host bing.com would proxy Edge Bing search.
-		if (d == "bing.com" || d == "www.bing.com") && strings.TrimSpace(t.ParentID) != "" {
-			continue
-		}
 		if !pacHostSafe.MatchString(d) {
 			continue
 		}
@@ -756,19 +752,19 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 func relatedHostsForDomain(domain string) []string {
 	switch NormalizeDomain(domain) {
 	case "chatgpt.com":
-		return []string{"chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com", "oaistatic.com"}
+		return []string{"chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
 	case "chat.openai.com":
-		return []string{"chatgpt.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com", "oaistatic.com"}
+		return []string{"chatgpt.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
 	case "claude.ai", "www.claude.ai":
 		return []string{"claude.ai", "www.claude.ai"}
 	case "copilot.microsoft.com", "copilot.cloud.microsoft":
 		return []string{
-			"sydney.bing.com", "edgeservices.bing.com", "business.bing.com",
+			"sydney.bing.com", "edgeservices.bing.com", "bing.com", "business.bing.com",
 			"substrate.office.com", "m365.cloud.microsoft",
 			"copilot.microsoft.com", "copilot.cloud.microsoft",
 		}
 	case "gemini.google.com", "bard.google.com":
-		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com", "generativelanguage.googleapis.com"}
+		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"}
 	default:
 		return nil
 	}
@@ -1493,30 +1489,4 @@ func (m *BrowserAIManager) AckRemoteUninstall(ctx context.Context, agentID strin
 		return nil, err
 	}
 	return &agent, nil
-}
-
-func (m *BrowserAIManager) DeleteAgents(ctx context.Context, ids []string) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.db == nil {
-		return 0, fmt.Errorf("database not initialized")
-	}
-	clean := make([]string, 0, len(ids))
-	seen := map[string]bool{}
-	for _, raw := range ids {
-		id := strings.TrimSpace(raw)
-		if id == "" || seen[id] {
-			continue
-		}
-		seen[id] = true
-		clean = append(clean, id)
-	}
-	if len(clean) == 0 {
-		return 0, fmt.Errorf("agent id is required")
-	}
-	res := m.db.WithContext(ctx).Where("id IN ?", clean).Delete(&BrowserAIAgent{})
-	if res.Error != nil {
-		return 0, res.Error
-	}
-	return int(res.RowsAffected), nil
 }
