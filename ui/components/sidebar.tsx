@@ -1252,8 +1252,8 @@ export default function AppSidebar() {
 	};
 
 	// Always render the light theme version for SSR to avoid hydration mismatch
-	const logoSrc = "/header_logo.png";
-	const iconSrc = "/header_logo.png";
+	const logoSrc = "/yes-panchi-logo.png";
+	const iconSrc = "/yes-panchi-logo.png";
 
 	const { isConnected: isWebSocketConnected } = useWebSocket();
 
@@ -1349,7 +1349,7 @@ export default function AppSidebar() {
 				{/* Expanded state: horizontal layout */}
 				<div className="flex h-10 w-full items-center justify-between px-1.5 group-data-[collapsible=icon]:hidden">
 					<Link to="/workspace/logs" className="group flex items-center gap-2 pl-2">
-						<img className="h-[22px] w-auto" src={logoSrc} alt="UnifAI" width={70} height={70} />
+						<img className="h-8 w-auto max-w-[140px] object-contain" src={logoSrc} alt="Yes Panchi Private Limited" width={140} height={32} />
 					</Link>
 					<button
 						onClick={toggleSidebar}
@@ -1366,7 +1366,7 @@ export default function AppSidebar() {
 					className="hidden w-full cursor-pointer flex-col items-center gap-2 py-2 group-data-[collapsible=icon]:flex"
 					onClick={toggleSidebar}
 				>
-					<img className="h-[22px] w-auto" src={iconSrc} alt="UnifAI" width={22} height={22} style={{ width: 18 }} />
+					<img className="h-7 w-auto max-w-[28px] object-contain" src={iconSrc} alt="Yes Panchi" width={28} height={28} />
 				</div>
 			</SidebarHeader>
 			{envLabel && (

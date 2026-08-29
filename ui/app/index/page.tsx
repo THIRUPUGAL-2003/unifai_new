@@ -2,7 +2,6 @@ import { Button } from "@/components/ui/button";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
 	Zap,
-	Cpu,
 	Database,
 	Shield,
 	ArrowRight,
@@ -81,6 +80,8 @@ const response = await openai.chat.completions.create({
 console.log(response.choices[0].message.content);`
 	};
 
+	const companyLogoSrc = "/yes-panchi-logo.png";
+
 	return (
 		<div className="bg-[#0b0c10] text-[#c5c6c7] min-h-screen font-sans selection:bg-[#45f3ff]/30 selection:text-white overflow-x-hidden">
 			{/* Top glow effects */}
@@ -91,12 +92,11 @@ console.log(response.choices[0].message.content);`
 			<nav className="sticky top-0 z-50 border-b border-[#1f2833]/60 bg-[#0b0c10]/80 backdrop-blur-md transition-all duration-300">
 				<div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
 					<div className="flex items-center gap-3">
-						<div className="h-9 w-9 bg-gradient-to-tr from-[#45f3ff] to-[#1f2833] rounded-lg flex items-center justify-center shadow-[0_0_15px_rgba(69,243,255,0.2)]">
-							<Cpu className="h-5 w-5 text-[#0b0c10] stroke-[2.5]" />
+						<img src={companyLogoSrc} alt="Yes Panchi Private Limited" className="h-10 w-auto object-contain" />
+						<div className="flex flex-col items-start leading-tight">
+							<span className="text-lg font-bold tracking-tight text-white">Yes Panchi</span>
+							<span className="text-[10px] font-semibold tracking-[0.18em] text-[#c5a962] uppercase">Private Limited</span>
 						</div>
-						<span className="text-xl font-bold tracking-tight text-white">
-							UnifAI<span className="text-[#45f3ff]">.ai</span>
-						</span>
 					</div>
 
 					{/* Desktop Nav */}
@@ -181,6 +181,17 @@ console.log(response.choices[0].message.content);`
 
 			{/* Hero Section */}
 			<section className="relative pt-20 pb-24 md:pt-32 md:pb-36 flex flex-col items-center text-center px-6 max-w-5xl mx-auto">
+				<div className="flex flex-col items-center gap-3 mb-8">
+					<img
+						src={companyLogoSrc}
+						alt="Yes Panchi Private Limited"
+						className="h-20 sm:h-24 w-auto max-w-[min(100%,320px)] object-contain"
+					/>
+					<p className="text-sm sm:text-base font-semibold tracking-[0.22em] text-[#c5a962] uppercase">
+						Yes Panchi Private Limited
+					</p>
+				</div>
+
 				<div className="inline-flex items-center gap-2 px-3 py-1 bg-[#1f2833]/40 border border-[#1f2833] rounded-full text-xs font-semibold tracking-wide text-[#45f3ff] mb-8 shadow-[inset_0_1px_12px_rgba(69,243,255,0.05)]">
 					<Zap className="h-3.5 w-3.5 fill-[#45f3ff]" />
 					<span>Enterprise AI Gateway Platform</span>
@@ -231,14 +242,11 @@ console.log(response.choices[0].message.content);`
 						<div className="w-3.5 h-3.5 rounded-full bg-[#ff5f56]" />
 						<div className="w-3.5 h-3.5 rounded-full bg-[#ffbd2e]" />
 						<div className="w-3.5 h-3.5 rounded-full bg-[#27c93f]" />
-						<div className="h-5 w-72 bg-[#0b0c10]/60 rounded text-[10px] text-gray-500 flex items-center justify-center mx-auto border border-[#1f2833]/40">
-							http://localhost:8080/workspace/dashboard
-						</div>
 					</div>
 					<div className="p-1 sm:p-2 bg-gradient-to-b from-[#12141c] to-[#0b0c10]">
 						<img
 							src="/static/mockup.png"
-							alt="UnifAI Dashboard"
+							alt="Yes Panchi Gateway Dashboard"
 							className="w-full h-auto rounded-lg border border-[#1f2833]/20 object-cover"
 							onError={(e) => {
 								// Fallback: If image fails to load, replace it with a styled grid dashboard skeleton
@@ -458,13 +466,14 @@ console.log(response.choices[0].message.content);`
 			{/* Footer */}
 			<footer className="border-t border-[#1f2833]/60 bg-[#0b0c10] py-12 px-6">
 				<div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6 text-sm text-[#8b949e]">
-					<div className="flex items-center gap-2">
-						<div className="h-6 w-6 bg-gradient-to-tr from-[#45f3ff] to-[#1f2833] rounded flex items-center justify-center">
-							<Cpu className="h-3.5 w-3.5 text-[#0b0c10] stroke-[2.5]" />
+					<div className="flex items-center gap-3">
+						<img src={companyLogoSrc} alt="Yes Panchi Private Limited" className="h-8 w-auto object-contain" />
+						<div className="flex flex-col items-start leading-tight">
+							<span className="font-bold text-white">Yes Panchi</span>
+							<span className="text-[10px] tracking-[0.16em] text-[#c5a962] uppercase">Private Limited</span>
 						</div>
-						<span className="font-bold text-white">UnifAI.ai</span>
 					</div>
-					<span>&copy; 2026 UnifAI Systems Inc. All rights reserved.</span>
+					<span>&copy; 2026 Yes Panchi Private Limited. All rights reserved.</span>
 				</div>
 			</footer>
 		</div>
