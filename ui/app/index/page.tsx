@@ -81,7 +81,7 @@ console.log(response.choices[0].message.content);`
 	};
 
 	const companyLogoSrc = "/yes-panchi-logo.png";
-	const companyName = "YesPanchi";
+	const productName = "UniFAI";
 	const companyFullName = "YesPanchi Group of Companies";
 
 	return (
@@ -92,13 +92,15 @@ console.log(response.choices[0].message.content);`
 
 			{/* Navbar */}
 			<nav className="sticky top-0 z-50 border-b border-[#1f2833]/60 bg-[#0b0c10]/80 backdrop-blur-md transition-all duration-300">
-				<div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
-					<div className="flex items-center gap-3">
-						<div className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-lg border border-[#c5a962]/30 bg-[#0b0c10] shadow-[0_0_15px_rgba(197,169,98,0.2)]">
-							<img src={companyLogoSrc} alt="" className="h-full w-full object-contain p-0.5" />
-						</div>
-						<span className="text-xl font-bold tracking-tight text-white">{companyName}</span>
-					</div>
+				<div className="max-w-7xl mx-auto px-6 h-[4.5rem] flex items-center justify-between">
+					<a href="/" className="flex min-w-0 items-center gap-3" aria-label={productName}>
+						<img
+							src={companyLogoSrc}
+							alt={companyFullName}
+							className="h-11 sm:h-12 w-auto max-w-[min(46vw,220px)] shrink-0 object-contain object-left"
+						/>
+						<span className="text-xl font-bold tracking-tight text-white">{productName}</span>
+					</a>
 
 					{/* Desktop Nav */}
 					<div className="hidden md:flex items-center gap-8 text-sm font-medium">
