@@ -8,8 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "sonner";
 import {
 	WORKSPACE_SECTIONS,
-	DEFAULT_USER_SECTIONS,
-	parseAllowedSections,
+	adminSectionsFromStorage,
 	allowedSectionsToString,
 	type WorkspaceSectionKey,
 } from "@/lib/constants/workspaceSections";
@@ -47,9 +46,7 @@ export default function UsersView() {
 	const [budget, setBudget] = useState(0);
 	const [rateLimit, setRateLimit] = useState(0);
 	const [allowedPromptRepos, setAllowedPromptRepos] = useState("");
-	const [allowedSections, setAllowedSections] = useState<Set<WorkspaceSectionKey>>(
-		new Set([DEFAULT_USER_SECTIONS]),
-	);
+	const [allowedSections, setAllowedSections] = useState<Set<WorkspaceSectionKey>>(new Set());
 
 	const toggleSection = (key: WorkspaceSectionKey, checked: boolean) => {
 		setAllowedSections((prev) => {
@@ -63,27 +60,67 @@ export default function UsersView() {
 		});
 	};
 
-	const workspaceAccessPicker = role === "user" ? (
-		<div className="space-y-2">
-			<label className="text-muted-foreground text-sm font-medium">Workspace Access</label>
-			<p className="text-muted-foreground text-xs">Choose which sidebar sections this user can see.</p>
-			<div className="border-border/50 bg-muted/10 max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
-				{WORKSPACE_SECTIONS.map((section) => (
-					<label key={section.key} className="text-foreground flex cursor-pointer items-center gap-2 text-sm select-none">
-						<input
-							type="checkbox"
-							checked={allowedSections.has(section.key)}
-							onChange={(e) => toggleSection(section.key, e.target.checked)}
-							className="border-border mr-1 rounded text-teal-500 focus:ring-teal-500/50"
-						/>
-						{section.label}
-					</label>
-				))}
+	const workspaceAccessPicker =
+		role === "admin" ? (
+			<div className="space-y-2">
+				<label className="text-muted-foreground text-sm font-medium">Workspace Access</label>
+				<p className="text-muted-foreground text-xs">
+					Choose sidebar sections for this sub-admin. Leave all unchecked for full workspace access (super admin).
+				</p>
+				<div className="border-border/50 bg-muted/10 max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
+					{WORKSPACE_SECTIONS.map((section) => (
+						<label key={section.key} className="text-foreground flex cursor-pointer items-center gap-2 text-sm select-none">
+							<input
+								type="checkbox"
+								checked={allowedSections.has(section.key)}
+								onChange={(e) => toggleSection(section.key, e.target.checked)}
+								className="border-border mr-1 rounded text-teal-500 focus:ring-teal-500/50"
+							/>
+							{section.label}
+						</label>
+					))}
+				</div>
 			</div>
-		</div>
-	) : (
-		<p className="text-muted-foreground text-xs">Admins have full workspace access to all sections.</p>
-	);
+		) : null;
+
+	const promptReposPicker =
+		role === "user" ? (
+			<div className="space-y-2">
+				<label className="text-muted-foreground text-sm font-medium">Allowed Prompt Repositories</label>
+				<p className="text-muted-foreground text-xs">Basic users can only open Prompt Repository — pick which repos they may use.</p>
+				<div className="border-border/50 bg-muted/10 max-h-40 space-y-2 overflow-y-auto rounded-lg border p-3">
+					{allPrompts.map((p) => {
+						const isChecked = allowedPromptRepos
+							.split(",")
+							.map((id) => id.trim())
+							.includes(p.id);
+						return (
+							<label key={p.id} className="text-foreground flex cursor-pointer items-center gap-2 text-sm select-none">
+								<input
+									type="checkbox"
+									checked={isChecked}
+									onChange={(e) => {
+										let ids = allowedPromptRepos
+											.split(",")
+											.map((id) => id.trim())
+											.filter(Boolean);
+										if (e.target.checked) {
+											ids.push(p.id);
+										} else {
+											ids = ids.filter((id) => id !== p.id);
+										}
+										setAllowedPromptRepos(ids.join(","));
+									}}
+									className="border-border mr-1 rounded text-teal-500 focus:ring-teal-500/50"
+								/>
+								{p.name}
+							</label>
+						);
+					})}
+					{allPrompts.length === 0 && <p className="text-muted-foreground text-xs">No prompt repositories found</p>}
+				</div>
+			</div>
+		) : null;
 
 	// Fetch users from API
 	const fetchUsers = async () => {
@@ -130,10 +167,6 @@ export default function UsersView() {
 			toast.error("Username and password are required");
 			return;
 		}
-		if (role === "user" && allowedSections.size === 0) {
-			toast.error("Select at least one workspace section for this user");
-			return;
-		}
 		try {
 			const res = await fetch(`${getApiBaseUrl()}/session/users`, {
 				method: "POST",
@@ -144,8 +177,8 @@ export default function UsersView() {
 					role,
 					budget,
 					rate_limit: rateLimit,
-					allowed_prompt_repos: allowedPromptRepos,
-					allowed_sections: role === "user" ? allowedSectionsToString(allowedSections) : "",
+					allowed_prompt_repos: role === "user" ? allowedPromptRepos : "",
+					allowed_sections: role === "admin" ? allowedSectionsToString(allowedSections) : "",
 				}),
 				credentials: "include",
 			});
@@ -166,10 +199,6 @@ export default function UsersView() {
 	const handleEditUser = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!selectedUser) return;
-		if (role === "user" && allowedSections.size === 0) {
-			toast.error("Select at least one workspace section for this user");
-			return;
-		}
 		try {
 			const res = await fetch(`${getApiBaseUrl()}/session/users/${selectedUser.id}`, {
 				method: "PUT",
@@ -180,8 +209,8 @@ export default function UsersView() {
 					role,
 					budget,
 					rate_limit: rateLimit,
-					allowed_prompt_repos: allowedPromptRepos,
-					allowed_sections: role === "user" ? allowedSectionsToString(allowedSections) : "",
+					allowed_prompt_repos: role === "user" ? allowedPromptRepos : "",
+					allowed_sections: role === "admin" ? allowedSectionsToString(allowedSections) : "",
 				}),
 				credentials: "include",
 			});
@@ -268,7 +297,7 @@ export default function UsersView() {
 		setBudget(0);
 		setRateLimit(0);
 		setAllowedPromptRepos("");
-		setAllowedSections(new Set([DEFAULT_USER_SECTIONS]));
+		setAllowedSections(new Set());
 		setSelectedUser(null);
 	};
 
@@ -280,7 +309,7 @@ export default function UsersView() {
 		setBudget(user.budget);
 		setRateLimit(user.rate_limit);
 		setAllowedPromptRepos(user.allowed_prompt_repos || "");
-		setAllowedSections(parseAllowedSections(user.allowed_sections));
+		setAllowedSections(user.role === "admin" ? adminSectionsFromStorage(user.allowed_sections) : new Set());
 		setIsEditOpen(true);
 	};
 
@@ -553,17 +582,20 @@ export default function UsersView() {
 								onChange={(e) => {
 									const nextRole = e.target.value;
 									setRole(nextRole);
-									if (nextRole === "user" && allowedSections.size === 0) {
-										setAllowedSections(new Set([DEFAULT_USER_SECTIONS]));
+									if (nextRole === "admin") {
+										setAllowedPromptRepos("");
+									} else {
+										setAllowedSections(new Set());
 									}
 								}}
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
 							>
-								<option value="user">User (Basic Access)</option>
-								<option value="admin">Admin (Full Workspace Access)</option>
+								<option value="user">User (Prompt Repository only)</option>
+								<option value="admin">Admin (choose workspace sections)</option>
 							</select>
 						</div>
 						{workspaceAccessPicker}
+						{promptReposPicker}
 						<div className="grid grid-cols-2 gap-4">
 							<div className="space-y-2">
 								<label className="text-muted-foreground flex items-center gap-1 text-sm font-medium">
@@ -589,40 +621,6 @@ export default function UsersView() {
 									placeholder="RPM Limit"
 									className="bg-muted/20 border-border/50 focus:border-teal-500/50"
 								/>
-							</div>
-						</div>
-						<div className="space-y-2">
-							<label className="text-muted-foreground text-sm font-medium">Allowed Prompt Repositories</label>
-							<div className="border-border/50 bg-muted/10 max-h-40 space-y-2 overflow-y-auto rounded-lg border p-3">
-								{allPrompts.map((p) => {
-									const isChecked = allowedPromptRepos
-										.split(",")
-										.map((id) => id.trim())
-										.includes(p.id);
-									return (
-										<label key={p.id} className="text-foreground flex cursor-pointer items-center gap-2 text-sm select-none">
-											<input
-												type="checkbox"
-												checked={isChecked}
-												onChange={(e) => {
-													let ids = allowedPromptRepos
-														.split(",")
-														.map((id) => id.trim())
-														.filter(Boolean);
-													if (e.target.checked) {
-														ids.push(p.id);
-													} else {
-														ids = ids.filter((id) => id !== p.id);
-													}
-													setAllowedPromptRepos(ids.join(","));
-												}}
-												className="border-border mr-1 rounded text-teal-500 focus:ring-teal-500/50"
-											/>
-											{p.name}
-										</label>
-									);
-								})}
-								{allPrompts.length === 0 && <p className="text-muted-foreground text-xs">No prompt repositories found</p>}
 							</div>
 						</div>
 						<DialogFooter className="pt-4">
@@ -678,17 +676,20 @@ export default function UsersView() {
 								onChange={(e) => {
 									const nextRole = e.target.value;
 									setRole(nextRole);
-									if (nextRole === "user" && allowedSections.size === 0) {
-										setAllowedSections(new Set([DEFAULT_USER_SECTIONS]));
+									if (nextRole === "admin") {
+										setAllowedPromptRepos("");
+									} else {
+										setAllowedSections(new Set());
 									}
 								}}
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
 							>
-								<option value="user">User (Basic Access)</option>
-								<option value="admin">Admin (Full Workspace Access)</option>
+								<option value="user">User (Prompt Repository only)</option>
+								<option value="admin">Admin (choose workspace sections)</option>
 							</select>
 						</div>
 						{workspaceAccessPicker}
+						{promptReposPicker}
 						<div className="grid grid-cols-2 gap-4">
 							<div className="space-y-2">
 								<label className="text-muted-foreground flex items-center gap-1 text-sm font-medium">
@@ -714,40 +715,6 @@ export default function UsersView() {
 									placeholder="RPM Limit"
 									className="bg-muted/20 border-border/50 focus:border-teal-500/50"
 								/>
-							</div>
-						</div>
-						<div className="space-y-2">
-							<label className="text-muted-foreground text-sm font-medium">Allowed Prompt Repositories</label>
-							<div className="border-border/50 bg-muted/10 max-h-40 space-y-2 overflow-y-auto rounded-lg border p-3">
-								{allPrompts.map((p) => {
-									const isChecked = allowedPromptRepos
-										.split(",")
-										.map((id) => id.trim())
-										.includes(p.id);
-									return (
-										<label key={p.id} className="text-foreground flex cursor-pointer items-center gap-2 text-sm select-none">
-											<input
-												type="checkbox"
-												checked={isChecked}
-												onChange={(e) => {
-													let ids = allowedPromptRepos
-														.split(",")
-														.map((id) => id.trim())
-														.filter(Boolean);
-													if (e.target.checked) {
-														ids.push(p.id);
-													} else {
-														ids = ids.filter((id) => id !== p.id);
-													}
-													setAllowedPromptRepos(ids.join(","));
-												}}
-												className="border-border mr-1 rounded text-teal-500 focus:ring-teal-500/50"
-											/>
-											{p.name}
-										</label>
-									);
-								})}
-								{allPrompts.length === 0 && <p className="text-muted-foreground text-xs">No prompt repositories found</p>}
 							</div>
 						</div>
 						<DialogFooter className="pt-4">

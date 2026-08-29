@@ -97,7 +97,7 @@ func (h *SessionHandler) isAuthEnabled(ctx *fasthttp.RequestCtx) {
 			if username == "" {
 				username = "admin"
 			}
-			if role == "user" && username != "" {
+			if username != "" && (role == "admin" || role == "user") {
 				if dbUser, err := h.configStore.GetUserByUsername(ctx, username); err == nil && dbUser != nil {
 					allowedSections = dbUser.AllowedSections
 				}

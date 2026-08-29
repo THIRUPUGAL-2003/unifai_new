@@ -67,7 +67,8 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { IS_ENTERPRISE } from "@/lib/constants/config";
 import { useGetCoreConfigQuery, useGetLatestReleaseQuery, useGetVersionQuery, useLogoutMutation, useIsAuthEnabledQuery } from "@/lib/store";
 import {
-	parseAllowedSections,
+	parseAdminAllowedSections,
+	adminSectionsFromStorage,
 	SECTION_KEY_BY_TITLE,
 	isPathAllowedForUser,
 	getDefaultPathForSections,
@@ -518,9 +519,14 @@ const compareVersions = (v1: string, v2: string): number => {
 export default function AppSidebar() {
 	const { data: authStatus } = useIsAuthEnabledQuery();
 	const isAuthEnabled = authStatus?.is_auth_enabled || authStatus?.has_valid_token || false;
-	const userAllowedSections = useMemo(() => {
-		if (authStatus?.role !== "user") return null;
-		return parseAllowedSections(authStatus.allowed_sections);
+	const scopedSidebarSections = useMemo(() => {
+		if (authStatus?.role === "user") {
+			return null;
+		}
+		if (authStatus?.role === "admin") {
+			return parseAdminAllowedSections(authStatus.allowed_sections);
+		}
+		return null;
 	}, [authStatus?.role, authStatus?.allowed_sections]);
 	const pathname = useLocation({ select: (l) => l.pathname });
 	const search = useLocation({ select: (l) => l.searchStr ?? "" });
@@ -972,8 +978,11 @@ export default function AppSidebar() {
 				],
 			},
 		];
-		if (userAllowedSections) {
-			return allItems.filter((item) => userAllowedSections.has(SECTION_KEY_BY_TITLE[item.title] || ""));
+		if (authStatus?.role === "user") {
+			return allItems.filter((item) => item.title === "Prompt Repository");
+		}
+		if (scopedSidebarSections) {
+			return allItems.filter((item) => scopedSidebarSections.has(SECTION_KEY_BY_TITLE[item.title] || ""));
 		}
 		return allItems;
 	}, [
@@ -1007,7 +1016,8 @@ export default function AppSidebar() {
 		hasSkillsRepositoryAccess,
 		hasAccessProfilesAccess,
 		isDbConnected,
-		userAllowedSections,
+		authStatus?.role,
+		scopedSidebarSections,
 	]);
 
 	const accessibleItems: SidebarItem[] = useMemo(() => {
@@ -1073,12 +1083,18 @@ export default function AppSidebar() {
 	}, []);
 
 	useEffect(() => {
-		if (userAllowedSections) {
-			if (!isPathAllowedForUser(pathname, userAllowedSections)) {
-				navigate(getDefaultPathForSections(userAllowedSections));
+		if (authStatus?.role === "user") {
+			if (!pathname.startsWith("/workspace/prompt-repo")) {
+				navigate("/workspace/prompt-repo");
+			}
+			return;
+		}
+		if (scopedSidebarSections) {
+			if (!isPathAllowedForUser(pathname, scopedSidebarSections)) {
+				navigate(getDefaultPathForSections(scopedSidebarSections));
 			}
 		}
-	}, [userAllowedSections, pathname, navigate]);
+	}, [authStatus?.role, scopedSidebarSections, pathname, navigate]);
 
 	// Auto-expand items when their subitems are active
 	useEffect(() => {

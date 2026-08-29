@@ -1,4 +1,4 @@
-/** Sidebar sections admins can grant to non-admin users. Keys must stay stable in DB. */
+/** Sidebar sections super-admin can grant to sub-admins. Keys must stay stable in DB. */
 export const WORKSPACE_SECTIONS = [
 	{ key: "observability", label: "Observability", defaultPath: "/workspace/logs" },
 	{ key: "models", label: "Models", defaultPath: "/workspace/providers" },
@@ -67,6 +67,33 @@ export function parseAllowedSections(raw?: string | null): Set<WorkspaceSectionK
 		.map((s) => s.trim())
 		.filter(Boolean) as WorkspaceSectionKey[];
 	return new Set(keys.length > 0 ? keys : [DEFAULT_USER_SECTIONS]);
+}
+
+/** Sub-admin: empty/null stored value = full workspace access. Non-empty = limited sections. */
+export function parseAdminAllowedSections(raw?: string | null): Set<WorkspaceSectionKey> | null {
+	const trimmed = (raw || "").trim();
+	if (!trimmed) {
+		return null;
+	}
+	const keys = trimmed
+		.split(",")
+		.map((s) => s.trim())
+		.filter(Boolean) as WorkspaceSectionKey[];
+	return keys.length > 0 ? new Set(keys) : null;
+}
+
+/** Form state when editing an admin — unchecked = full access. */
+export function adminSectionsFromStorage(raw?: string | null): Set<WorkspaceSectionKey> {
+	const trimmed = (raw || "").trim();
+	if (!trimmed) {
+		return new Set();
+	}
+	return new Set(
+		trimmed
+			.split(",")
+			.map((s) => s.trim())
+			.filter(Boolean) as WorkspaceSectionKey[],
+	);
 }
 
 export function allowedSectionsToString(sections: Set<WorkspaceSectionKey>): string {
