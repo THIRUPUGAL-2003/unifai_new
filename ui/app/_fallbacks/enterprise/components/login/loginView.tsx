@@ -32,20 +32,20 @@ export default function LoginView() {
 	};
 
 	return (
-		<div className="relative min-h-screen overflow-hidden bg-[#07080c] font-sans text-[#c5c6c7]">
+		<div className="relative flex min-h-screen flex-col overflow-hidden bg-[#07080c] font-sans text-[#c5c6c7]">
 			<div className="ug-login-grid pointer-events-none absolute inset-0" />
 			<div className="pointer-events-none absolute -top-32 left-[-8%] h-[520px] w-[520px] rounded-full bg-[#45f3ff]/12 blur-[140px]" />
 			<div className="pointer-events-none absolute right-[-10%] bottom-[-18%] h-[480px] w-[480px] rounded-full bg-[#3b82f6]/16 blur-[150px]" />
 
-			<div className="relative z-10 mx-auto flex min-h-screen w-full max-w-[1440px] flex-col px-5 py-6 lg:px-10 lg:py-8">
+			<div className="relative z-10 mx-auto flex w-full max-w-[1440px] flex-1 flex-col px-5 py-6 lg:px-10 lg:py-8">
 				<header className="flex items-center justify-between">
-					<div className="flex items-center gap-3">
-						<div className="flex h-10 w-10 items-center justify-center rounded-xl border border-[#45f3ff]/20 bg-[#45f3ff]/10 text-[#45f3ff] shadow-[0_0_24px_rgba(69,243,255,0.18)]">
-							<Cpu className="h-5 w-5" />
+					<div className="flex items-center gap-3.5">
+						<div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#45f3ff]/25 bg-[#45f3ff]/10 text-[#45f3ff]">
+							<Cpu className="h-6 w-6" />
 						</div>
 						<div>
-							<p className="text-lg font-bold tracking-tight text-white">UnifAI Guard</p>
-							<p className="text-[11px] tracking-[0.18em] text-[#7d8896] uppercase">Enterprise control plane</p>
+							<p className="text-xl font-bold tracking-tight text-white">UnifAI Guard</p>
+							<p className="text-[11px] tracking-[0.16em] text-[#7d8896] uppercase">YesPanchi Group of Companies</p>
 						</div>
 					</div>
 					<div className="hidden items-center gap-2 rounded-full border border-[#1f2833] bg-[#12141c]/70 px-3 py-1.5 text-xs text-[#8b949e] sm:flex">
@@ -214,6 +214,12 @@ export default function LoginView() {
 					</section>
 				</main>
 			</div>
+
+			<footer className="relative z-10 mt-auto border-t border-[#1f2833]/80 bg-[#07080c]/85 backdrop-blur-md">
+				<p className="px-5 py-3.5 text-center text-[11px] font-medium tracking-[0.18em] text-[#7d8896] uppercase">
+					YesPanchi Group of Companies
+				</p>
+			</footer>
 		</div>
 	);
 }
