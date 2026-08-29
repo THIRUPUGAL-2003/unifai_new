@@ -51,6 +51,10 @@ UPLOAD_ENDPOINTS = [
     "/convert_document", "/upload_document", "/api/organizations", "/chat_conversations",
     # Copilot / M365
     "/c/api/attachments", "/api/attachments", "/m365copilot/uploadfile", "/uploadfile",
+    # Perplexity
+    "/rest/uploads", "/uploads", "/api/upload", "/file/upload",
+    # ChatGPT (2024+)
+    "/process_upload", "/fileupload", "/backend-analyse",
 ]
 
 # Upload payload field indicators
@@ -1068,6 +1072,81 @@ def is_chatgpt_host(host: str) -> bool:
     return "chatgpt.com" in h or "chat.openai.com" in h
 
 
+def is_oai_upload_host(host: str) -> bool:
+    h = (host or "").lower()
+    return (
+        is_chatgpt_host(h)
+        or "oaiusercontent.com" in h
+        or h.endswith(".openai.com")
+        or h == "openai.com"
+    )
+
+
+def chatgpt_carries_file(raw_text: str) -> bool:
+    """ChatGPT multimodal sends use content_type:file / file_id — not always attachments[]."""
+    if not raw_text:
+        return False
+    low = raw_text.lower()
+    if re.search(r'"content_type"\s*:\s*"file"', low):
+        return True
+    if "sediment://" in low or "file-service://" in low:
+        return True
+    if re.search(r'"file_id"\s*:\s*"file-[a-zA-Z0-9_-]+"', low):
+        return True
+    if re.search(r'"content_type"\s*:\s*"multimodal_text"', low):
+        if re.search(
+            r'"(?:file_id|asset_pointer|file-service://|sediment://|mime_type|file_name|filename)"',
+            low,
+        ):
+            return True
+        if re.search(
+            r'"name"\s*:\s*"[^"]+\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|webp|csv|txt|zip)"',
+            low,
+        ):
+            return True
+    if re.search(
+        r'"parts"\s*:\s*\[[\s\S]{0,4000}?"content_type"\s*:\s*"file"',
+        low,
+    ):
+        return True
+    return False
+
+
+def detect_chatgpt_file_upload(
+    host: str,
+    path: str,
+    method: str,
+    content_type: str,
+    body_len: int,
+    raw: bytes,
+) -> tuple[bool, str]:
+    """Catch ChatGPT / OpenAI CDN uploads that generic heuristics miss."""
+    if not is_oai_upload_host(host):
+        return False, ""
+    if (method or "").upper() not in ("POST", "PUT", "PATCH"):
+        return False, ""
+    path_l = (path or "").lower().split("?", 1)[0]
+    ct = (content_type or "").lower()
+    data = raw or b""
+
+    if "/backend-api/files" in path_l or "process_upload" in path_l:
+        if body_len >= 32:
+            return True, f"ChatGPT file API ({path_l[:80]})"
+    if "oaiusercontent.com" in (host or "").lower() and body_len >= 64:
+        return True, f"OpenAI file CDN ({path_l[:80]})"
+    if is_chatgpt_host(host) and "/backend-api/" in path_l:
+        if any(x in path_l for x in ("/sentinel/", "/prepare", "/autocomplet", "/me", "/settings")):
+            return False, ""
+        if body_len >= 64 and (
+            any(p in ct for p in UPLOAD_CONTENT_TYPES)
+            or data[:5] == b"%PDF-"
+            or (len(data) >= 2 and data[:2] == b"PK")
+            or b"filename=" in data[:16000].lower()
+        ):
+            return True, f"ChatGPT binary upload ({path_l[:80]})"
+    return False, ""
+
+
 def is_unsubmitted_chat_body(path: str, body: str) -> bool:
     """True for ChatGPT prepare/draft/in-progress payloads — not Enter/send."""
     path_l = (path or "").lower()
@@ -1312,6 +1391,11 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
     path_only = path.split("?", 1)[0]
     raw = raw_content or ""
 
+    # ChatGPT / OpenAI CDN — catch before chat-path exclusions swallow file POSTs
+    cgpt_up, cgpt_reason = detect_chatgpt_file_upload(host, path, method, content_type, body_len, flow.request.content or b"")
+    if cgpt_up:
+        return True, cgpt_reason
+
     # ── Never treat real chat Send as a file upload ──
     if is_gemini_host(host) and is_gemini_chat_submit(path, raw):
         return False, ""
@@ -1447,6 +1531,13 @@ def is_confident_file_upload(
     raw = raw_text or ""
     host_l = (host or "").lower()
     path_l = (path or "").lower().split("?", 1)[0]
+
+    # ChatGPT / OpenAI CDN uploads — always cache real bytes for Send-time scan
+    if is_oai_upload_host(host_l) and (
+        "/backend-api/files" in path_l or "oaiusercontent.com" in host_l or "process_upload" in path_l
+    ):
+        if len(data) >= 32:
+            return True
 
     # WhatsApp / web.whatsapp sends lots of media-sync binary — never treat as AI file
     # unless path clearly looks like a user media upload AND we have a real name/magic.
@@ -1701,6 +1792,7 @@ def upload_domain_aliases(domain: str) -> list[str]:
             "substrate.office.com",
         },
         {"claude.ai", "www.claude.ai", "api.anthropic.com"},
+        {"perplexity.ai", "www.perplexity.ai", "pplx.ai"},
     ]
     for fam in families:
         if d in fam or any(d.endswith("." + x) for x in fam):
@@ -1893,6 +1985,8 @@ def chat_carries_attachment(raw_text: str) -> bool:
         return True
 
     # ChatGPT / OpenAI file pointers
+    if chatgpt_carries_file(raw_text):
+        return True
     if re.search(r'"id"\s*:\s*"file-[a-zA-Z0-9_-]+"', low):
         return True
     if re.search(r'"mime_type"\s*:\s*"(?:application/|image/|audio/|video/)', low):
@@ -1942,6 +2036,7 @@ def extract_attachment_filename_from_send(raw_text: str) -> str:
         r'"attachments"\s*:\s*\[\s*\{[^}]*"name"\s*:\s*"([^"]+)"',
         r'"files"\s*:\s*\[\s*\{[^}]*"name"\s*:\s*"([^"]+)"',
         r'"name"\s*:\s*"([^"]+\.(?:pdf|docx?|xlsx?|pptx?|csv|txt|png|jpe?g|gif|webp|zip))"',
+        r'"parts"\s*:\s*\[[\s\S]{0,8000}?"name"\s*:\s*"([^"]+\.[a-zA-Z0-9]{2,8})"',
     ):
         m = re.search(pat, raw_text, re.I)
         if m:
@@ -2145,6 +2240,7 @@ def enforce_file_send_policy(
     """
     has_attach = (
         chat_carries_attachment(raw_text)
+        or chatgpt_carries_file(raw_text)
         or bool((file_name_hint or "").strip())
         or copilot_carries_binary_attach(raw_text)
     )
@@ -4366,7 +4462,7 @@ class BrowserAIInterceptor:
             return
 
         # Copilot/Edge image or file frames must not fall through as garbled text prompts.
-        if copilot_carries_binary_attach(content) or chat_carries_attachment(content):
+        if copilot_carries_binary_attach(content) or chat_carries_attachment(content) or chatgpt_carries_file(content):
             return
 
         prompt = extract_prompt(content.encode("utf-8"), "application/json", host=host)

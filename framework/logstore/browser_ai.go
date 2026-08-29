@@ -765,6 +765,8 @@ func relatedHostsForDomain(domain string) []string {
 		}
 	case "gemini.google.com", "bard.google.com":
 		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"}
+	case "perplexity.ai", "www.perplexity.ai", "pplx.ai":
+		return []string{"perplexity.ai", "www.perplexity.ai", "pplx.ai"}
 	default:
 		return nil
 	}

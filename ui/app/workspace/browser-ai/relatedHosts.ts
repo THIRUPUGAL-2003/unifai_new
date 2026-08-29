@@ -59,6 +59,13 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 			hosts: ["claude.ai", "www.claude.ai"],
 		};
 	}
+	if (d === "perplexity.ai" || d === "www.perplexity.ai" || d === "pplx.ai") {
+		return {
+			label: "Perplexity related hosts",
+			reason: "File uploads may use alternate Perplexity hosts — keep all monitored.",
+			hosts: ["perplexity.ai", "www.perplexity.ai", "pplx.ai"],
+		};
+	}
 	return null;
 }
 
