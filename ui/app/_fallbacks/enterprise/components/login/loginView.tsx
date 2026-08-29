@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getErrorMessage, useLoginMutation } from "@/lib/store/apis";
 import { resolvePostLoginPath } from "@/lib/utils/workspaceAccess";
-import { Activity, Cpu, Eye, EyeOff, Globe, Lock, Shield, ShieldAlert, Upload } from "lucide-react";
+import { Activity, Eye, EyeOff, Globe, Lock, Shield, ShieldAlert, Upload } from "lucide-react";
 import { useState } from "react";
 
 export default function LoginView() {
@@ -40,8 +40,12 @@ export default function LoginView() {
 			<div className="relative z-10 mx-auto flex w-full max-w-[1440px] flex-1 flex-col px-5 py-6 lg:px-10 lg:py-8">
 				<header className="flex items-center justify-between">
 					<div className="flex items-center gap-3.5">
-						<div className="flex h-12 w-12 items-center justify-center rounded-xl border border-[#45f3ff]/25 bg-[#45f3ff]/10 text-[#45f3ff]">
-							<Cpu className="h-6 w-6" />
+						<div className="relative h-14 w-14 shrink-0 overflow-hidden rounded-xl border border-[#c5a962]/30 bg-black">
+							<img
+								src="/yes-panchi-logo.png"
+								alt="YesPanchi"
+								className="absolute inset-0 h-full w-[240%] max-w-none object-cover object-left"
+							/>
 						</div>
 						<div>
 							<p className="text-xl font-bold tracking-tight text-white">UnifAI Guard</p>
