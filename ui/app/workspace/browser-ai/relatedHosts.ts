@@ -27,7 +27,7 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 		return {
 			label: "Gemini related hosts",
 			reason: "Chat prompts usually go through clients6.google.com — add it or Gemini logs stay empty. Subdomains of gemini.google.com are already covered.",
-			hosts: ["clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"],
+			hosts: ["clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com", "generativelanguage.googleapis.com"],
 		};
 	}
 	if (d === "copilot.microsoft.com" || d === "copilot.cloud.microsoft") {
@@ -36,7 +36,6 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 			reason: "Chat often uses sydney.bing.com; M365 uploads use substrate.office.com.",
 			hosts: [
 				"sydney.bing.com",
-				"bing.com",
 				"edgeservices.bing.com",
 				"business.bing.com",
 				"copilot.cloud.microsoft",
@@ -49,7 +48,7 @@ export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
 		return {
 			label: "ChatGPT related hosts",
 			reason: "Chat and upload traffic can use chatgpt.com or chat.openai.com — keep both monitored for file View/logs.",
-			hosts: ["chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"],
+			hosts: ["chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com", "oaistatic.com"],
 		};
 	}
 	if (d === "claude.ai" || d === "www.claude.ai") {

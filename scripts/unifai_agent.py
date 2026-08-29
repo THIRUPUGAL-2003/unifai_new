@@ -37,15 +37,20 @@ from mitmproxy.tools.main import mitmdump
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifai.dev-yp.com"
-AGENT_VERSION = "1.5.0"
+AGENT_VERSION = "1.5.3"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
 PAC_HTTP_PORT = 18085
 _FIRST_RUN_FLAG = "first_run_done.flag"
 _LAST_PAC_BUST = ""
+_LAST_APPLIED_PAC_HASH = ""
+_LAST_APPLIED_PAC_URL = ""
+_IS_ADMIN: bool | None = None
+_POLICY_WARNED: set[str] = set()
 _HEALTH_LOCK = threading.Lock()
 _LAST_HEALTH: dict = {}
+_QUIC_CYCLE = 0
 
 
 def exe_dir() -> str:
@@ -313,9 +318,8 @@ def heartbeat_loop(agent_id: str, stop_event: threading.Event) -> None:
         if heartbeat_wants_uninstall(data):
             apply_admin_uninstall(agent_id)
             return
-        # Sleep/wake must not drop PAC. Re-assert on every beat until uninstall.
-        apply_pac_with_bust(silent=True)
-        set_browser_quic(enable_quic=False)
+        # Do not rewrite PAC/QUIC every 30s — Edge/Chrome drop connections (search + AI tabs).
+        verify_pac_still_active()
         stop_event.wait(HEARTBEAT_SECONDS)
 
 
@@ -438,13 +442,16 @@ def time_iso() -> str:
 
 
 def health_loop(stop_event: threading.Event, proxy_port: int) -> None:
-    # First check shortly after proxy starts
+    global _QUIC_CYCLE
     stop_event.wait(4)
     while not stop_event.is_set():
         try:
             run_health_check(proxy_port)
-            apply_pac_with_bust(silent=True)
-            set_browser_quic(enable_quic=False)
+            verify_pac_still_active()
+            _QUIC_CYCLE += 1
+            if _QUIC_CYCLE >= 20:
+                _QUIC_CYCLE = 0
+                set_browser_quic(enable_quic=False)
         except Exception as e:
             print(f"[UnifAI Guard WARNING] Health loop: {e}")
         stop_event.wait(HEALTH_SECONDS)
@@ -480,9 +487,9 @@ def maybe_first_run_prompt() -> None:
         pass
 
 
-def apply_pac_with_bust(silent: bool = False) -> bool:
-    """Enable PAC with cache-busting query so Chrome picks up Target Website changes fast."""
-    global _LAST_PAC_BUST
+def apply_pac_with_bust(silent: bool = False, force: bool = False) -> bool:
+    """Enable PAC. Only rewrite Windows/browser PAC URL when content actually changes."""
+    global _LAST_PAC_BUST, _LAST_APPLIED_PAC_HASH, _LAST_APPLIED_PAC_URL
     try:
         content = ""
         path = local_pac_path()
@@ -491,11 +498,40 @@ def apply_pac_with_bust(silent: bool = False) -> bool:
                 content = f.read()
         bust = abs(hash(content or PROXY_ADDR)) % 1000000007
         pac_url = f"{pac_http_url()}?v={bust}"
+        pac_hash = str(bust)
+        if (
+            not force
+            and pac_hash == _LAST_APPLIED_PAC_HASH
+            and pac_url == _LAST_APPLIED_PAC_URL
+        ):
+            return True
         _LAST_PAC_BUST = pac_url
-        return set_windows_proxy_pac(enable=True, pac_url=pac_url, silent=silent)
+        ok = set_windows_proxy_pac(enable=True, pac_url=pac_url, silent=silent)
+        if ok:
+            _LAST_APPLIED_PAC_HASH = pac_hash
+            _LAST_APPLIED_PAC_URL = pac_url
+        return ok
     except Exception as e:
         print(f"[UnifAI Guard WARNING] PAC apply failed: {e}")
         return set_windows_proxy_pac(enable=True, pac_url=pac_http_url(), silent=silent)
+
+
+def verify_pac_still_active() -> None:
+    """Re-apply PAC only if Windows AutoConfigURL was cleared (sleep/VPN/policy)."""
+    key_path = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings"
+    try:
+        key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_READ)
+        try:
+            val, _ = winreg.QueryValueEx(key, "AutoConfigURL")
+        except FileNotFoundError:
+            val = ""
+        winreg.CloseKey(key)
+        current = str(val or "").strip()
+        if current and "127.0.0.1" in current and "proxy.pac" in current.lower():
+            return
+    except Exception:
+        pass
+    apply_pac_with_bust(silent=True, force=True)
 
 
 def clear_guard_runtime() -> None:
@@ -850,36 +886,56 @@ def set_browser_quic(enable_quic: bool) -> None:
         print("[UnifAI Guard WARNING] Could not disable browser HTTP/3 (QUIC). Some sites may bypass the proxy.")
 
 
+def _is_admin() -> bool:
+    global _IS_ADMIN
+    if _IS_ADMIN is None:
+        try:
+            _IS_ADMIN = bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            _IS_ADMIN = False
+    return bool(_IS_ADMIN)
+
+
+def _write_chromium_pac_key(root, path: str, enable: bool, pac_url: str) -> bool:
+    """Write PAC onto Chrome/Edge/Brave policy + user hives so Edge matches Chrome."""
+    try:
+        key = winreg.CreateKeyEx(root, path, 0, winreg.KEY_SET_VALUE)
+        if enable:
+            winreg.SetValueEx(key, "ProxyMode", 0, winreg.REG_SZ, "pac_script")
+            winreg.SetValueEx(key, "ProxyPacUrl", 0, winreg.REG_SZ, pac_url)
+            winreg.SetValueEx(
+                key,
+                "ProxySettings",
+                0,
+                winreg.REG_SZ,
+                json.dumps({"ProxyMode": "pac_script", "ProxyPacUrl": pac_url}),
+            )
+        else:
+            for name in ("ProxyMode", "ProxyPacUrl", "ProxySettings"):
+                try:
+                    winreg.DeleteValue(key, name)
+                except FileNotFoundError:
+                    pass
+        winreg.CloseKey(key)
+        return True
+    except Exception as e:
+        warn_key = f"{int(root)}:{path}"
+        if warn_key not in _POLICY_WARNED:
+            _POLICY_WARNED.add(warn_key)
+            print(f"[UnifAI Guard WARNING] Could not set browser PAC on {path}: {e}")
+        return False
+
+
 def set_browser_pac_policy(enable: bool, pac_url: str | None = None) -> None:
-    """Force Chromium browsers (Chrome/Edge/Brave/Opera/Vivaldi) onto Guard PAC."""
+    """Point Chrome, Edge, Brave, Opera, Vivaldi, Chromium, and Firefox at Guard PAC."""
     if pac_url is None:
         pac_url = pac_http_url()
-    policy_only = (
-        r"Software\Policies\Google\Chrome",
-        r"Software\Policies\Microsoft\Edge",
-        r"Software\Policies\BraveSoftware\Brave",
-        r"Software\Policies\BraveSoftware\Brave-Browser",
-        r"Software\Policies\Opera Software\Opera",
-        r"Software\Policies\Opera Software\Opera Stable",
-        r"Software\Policies\Opera Software\Opera GX",
-        r"Software\Policies\Vivaldi",
-        r"Software\Policies\Chromium",
-    )
-    for path in policy_only:
-        try:
-            key = winreg.CreateKeyEx(winreg.HKEY_CURRENT_USER, path, 0, winreg.KEY_SET_VALUE)
-            if enable:
-                winreg.SetValueEx(key, "ProxyMode", 0, winreg.REG_SZ, "pac_script")
-                winreg.SetValueEx(key, "ProxyPacUrl", 0, winreg.REG_SZ, pac_url)
-            else:
-                for name in ("ProxyMode", "ProxyPacUrl"):
-                    try:
-                        winreg.DeleteValue(key, name)
-                    except FileNotFoundError:
-                        pass
-            winreg.CloseKey(key)
-        except Exception as e:
-            print(f"[UnifAI Guard WARNING] Could not set browser PAC policy on {path}: {e}")
+    roots = [winreg.HKEY_CURRENT_USER]
+    if _is_admin():
+        roots.append(winreg.HKEY_LOCAL_MACHINE)
+    for root in roots:
+        for path in _CHROMIUM_POLICY_PATHS:
+            _write_chromium_pac_key(root, path, enable, pac_url)
     set_firefox_proxy_policy(enable=enable, pac_url=pac_url)
 
 
@@ -1163,6 +1219,10 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         d = str(t.get("domain") or "").strip().lower().lstrip(".")
         if not d or d in seen:
             continue
+        # Copilot related-host bing.com would capture Edge/Bing search. Skip unless admin added it.
+        parent = str(t.get("parent_id") or "").strip()
+        if d in ("bing.com", "www.bing.com") and parent:
+            continue
         seen.add(d)
         hosts.append(d)
 
@@ -1203,14 +1263,32 @@ def fetch_proxy_pac() -> str | None:
         seen.add(url)
         body = _http_get_text(url, "application/x-ns-proxy-autoconfig,*/*")
         if body and "FindProxyForURL" in body:
-            return body
+            return sanitize_pac_keep_search_direct(body)
     print("[UnifAI Guard] Server PAC unavailable — building PAC from /api/browser-ai/targets")
     return build_pac_from_targets(PROXY_ADDR)
+
+
+def sanitize_pac_keep_search_direct(content: str) -> str:
+    """Keep Bing/Google consumer search DIRECT. Copilot still uses sydney.bing.com."""
+    if not content:
+        return content
+    copilot = "copilot.microsoft.com" in content or "copilot.cloud.microsoft" in content
+    gemini = "gemini.google.com" in content or "bard.google.com" in content
+    out: list[str] = []
+    for line in content.splitlines(True):
+        token = line.strip().rstrip(",").strip()
+        if copilot and token in ('"bing.com"', '"www.bing.com"'):
+            continue
+        if gemini and token in ('"google.com"', '"www.google.com"'):
+            continue
+        out.append(line)
+    return "".join(out)
 
 
 def write_local_pac(content: str) -> None:
     path = local_pac_path()
     try:
+        content = sanitize_pac_keep_search_direct(content or "")
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
         print(f"[UnifAI Guard] Wrote local proxy.pac ({path})")

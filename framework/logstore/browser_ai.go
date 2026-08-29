@@ -623,6 +623,10 @@ func (m *BrowserAIManager) BuildProxyPAC(ctx context.Context, proxyAddr string) 
 		if d == "" || seen[d] {
 			continue
 		}
+		// Auto-added Copilot related host bing.com would proxy Edge Bing search.
+		if (d == "bing.com" || d == "www.bing.com") && strings.TrimSpace(t.ParentID) != "" {
+			continue
+		}
 		if !pacHostSafe.MatchString(d) {
 			continue
 		}
@@ -752,19 +756,19 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 func relatedHostsForDomain(domain string) []string {
 	switch NormalizeDomain(domain) {
 	case "chatgpt.com":
-		return []string{"chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
+		return []string{"chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com", "oaistatic.com"}
 	case "chat.openai.com":
-		return []string{"chatgpt.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
+		return []string{"chatgpt.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com", "oaistatic.com"}
 	case "claude.ai", "www.claude.ai":
 		return []string{"claude.ai", "www.claude.ai"}
 	case "copilot.microsoft.com", "copilot.cloud.microsoft":
 		return []string{
-			"sydney.bing.com", "edgeservices.bing.com", "bing.com", "business.bing.com",
+			"sydney.bing.com", "edgeservices.bing.com", "business.bing.com",
 			"substrate.office.com", "m365.cloud.microsoft",
 			"copilot.microsoft.com", "copilot.cloud.microsoft",
 		}
 	case "gemini.google.com", "bard.google.com":
-		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"}
+		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com", "generativelanguage.googleapis.com"}
 	default:
 		return nil
 	}
