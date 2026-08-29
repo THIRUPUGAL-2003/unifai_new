@@ -218,6 +218,7 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 
 	SendJSON(ctx, map[string]any{
 		"message": "Login successful",
+		"role":    sessionRole,
 	})
 }
 

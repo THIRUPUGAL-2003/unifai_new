@@ -1,3 +1,5 @@
+import FullPageLoader from "@/components/fullPageLoader";
+import { fetchSessionAuth, getWorkspaceAccessRedirect } from "@/lib/utils/workspaceAccess";
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import { ClientLayout } from "../clientLayout";
 
@@ -13,11 +15,19 @@ function RouteComponent() {
 	);
 }
 
+function PendingComponent() {
+	return <FullPageLoader />;
+}
+
 export const Route = createFileRoute("/workspace")({
-	beforeLoad: ({ location }) => {
-		if (location.pathname === "/workspace" || location.pathname === "/workspace/") {
-			throw redirect({ to: "/workspace/dashboard", replace: true });
+	beforeLoad: async ({ location }) => {
+		const auth = await fetchSessionAuth();
+		const redirectTo = getWorkspaceAccessRedirect(auth, location.pathname);
+		if (redirectTo) {
+			throw redirect({ to: redirectTo, replace: true });
 		}
 	},
+	pendingComponent: PendingComponent,
+	pendingMs: 0,
 	component: RouteComponent,
 });

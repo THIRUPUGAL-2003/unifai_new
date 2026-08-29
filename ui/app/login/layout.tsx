@@ -1,7 +1,7 @@
 import { ThemeProvider } from "@/components/themeProvider";
 import { ReduxProvider } from "@/lib/store/provider";
-import { DEFAULT_POST_LOGIN_PATH, getLoginGotoFromSearch } from "@/lib/utils/loginGoto";
-import { getApiBaseUrl } from "@/lib/utils/port";
+import { getLoginGotoFromSearch } from "@/lib/utils/loginGoto";
+import { fetchSessionAuth, resolvePostLoginPath } from "@/lib/utils/workspaceAccess";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { NuqsAdapter } from "nuqs/adapters/tanstack-router";
 import LoginPage from "./page";
@@ -41,20 +41,10 @@ function PendingComponent() {
 
 export const Route = createFileRoute("/login")({
 	loader: async ({ location }) => {
-		const postLoginPath = getLoginGotoFromSearch(location.searchStr) ?? DEFAULT_POST_LOGIN_PATH;
-		let data: { is_auth_enabled: boolean; has_valid_token: boolean } | null = null;
-		try {
-			const res = await fetch(`${getApiBaseUrl()}/session/is-auth-enabled`, {
-				credentials: "include",
-			});
-			if (res.ok) {
-				data = await res.json();
-			}
-		} catch {
-			// Fetch failed — fall through to login page
-		}
+		const goto = getLoginGotoFromSearch(location.searchStr);
+		const data = await fetchSessionAuth();
 		if (data && (!data.is_auth_enabled || data.has_valid_token)) {
-			throw redirect({ href: postLoginPath });
+			throw redirect({ href: resolvePostLoginPath(data, goto) });
 		}
 	},
 	pendingComponent: PendingComponent,

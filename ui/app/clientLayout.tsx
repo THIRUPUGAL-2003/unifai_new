@@ -34,6 +34,8 @@ function StoreSyncInitializer() {
 }
 
 function AppContent({ children }: { children: React.ReactNode }) {
+	const pathname = useLocation({ select: (l) => l.pathname });
+	const onWorkspace = pathname.startsWith("/workspace");
 	// Routes can declare `staticData: { tempTokenScoped: true }` to advertise that
 	// they're reachable via a server-emitted, temp-token-bearing URL by visitors
 	// without a dashboard session. The actual layout choice is made per-visitor:
@@ -51,7 +53,9 @@ function AppContent({ children }: { children: React.ReactNode }) {
 
 	// Probe dashboard auth state on opted-in routes. is-auth-enabled is whitelisted
 	// (no 401 risk) and returns whether the current cookie is a valid session.
-	const { data: authState, isLoading: authLoading } = useIsAuthEnabledQuery(undefined, { skip: !tempTokenScoped });
+	const { data: authState, isLoading: authLoading } = useIsAuthEnabledQuery(undefined, {
+		skip: !tempTokenScoped && !onWorkspace,
+	});
 
 	// Snapshot fragment presence at mount: TempTokenScope strips the fragment
 	// shortly after, so re-reading window.location.hash would flip false on
@@ -101,6 +105,10 @@ function AppContent({ children }: { children: React.ReactNode }) {
 	}
 
 	if (rbacLoading) {
+		return <FullPageLoader />;
+	}
+
+	if (onWorkspace && authLoading) {
 		return <FullPageLoader />;
 	}
 

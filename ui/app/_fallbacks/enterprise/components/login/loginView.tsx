@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { getErrorMessage, useLoginMutation } from "@/lib/store/apis";
+import { resolvePostLoginPath } from "@/lib/utils/workspaceAccess";
 import { Activity, Cpu, Eye, EyeOff, Globe, Lock, Shield, ShieldAlert, Upload } from "lucide-react";
 import { useState } from "react";
 
@@ -18,10 +19,11 @@ export default function LoginView() {
 		e.preventDefault();
 		setErrorMessage("");
 		try {
-			await login({ username, password }).unwrap();
+			const result = await login({ username, password }).unwrap();
 			const params = new URLSearchParams(window.location.search);
-			const goto = params.get("goto") || "/workspace";
-			window.location.assign(goto.startsWith("/") ? goto : "/workspace");
+			const goto = params.get("goto");
+			const target = resolvePostLoginPath({ role: result.role }, goto);
+			window.location.assign(target);
 		} catch (error) {
 			setErrorMessage(getErrorMessage(error));
 		} finally {

@@ -7,6 +7,7 @@ export interface LoginRequest {
 
 export interface LoginResponse {
 	message: string;
+	role?: string;
 }
 
 export interface IsAuthEnabledResponse {
