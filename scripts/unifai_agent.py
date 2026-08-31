@@ -37,7 +37,7 @@ from mitmproxy.tools.main import mitmdump
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
-AGENT_VERSION = "1.5.0"
+AGENT_VERSION = "1.5.1"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"

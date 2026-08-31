@@ -1308,6 +1308,39 @@ def _is_chat_send_context(data: dict) -> bool:
     return bool(data.get("parent_message_id") or data.get("conversation_id") or data.get("messages"))
 
 
+def _looks_like_chat_send_request(path: str, body: str) -> bool:
+    """True for Enter/send POSTs even when parent_message_id is missing (ChatGPT first/hi)."""
+    path_l = (path or "").lower().split("?", 1)[0]
+    if not any(
+        x in path_l
+        for x in (
+            "/f/conversation",
+            "/backend-api/f/conversation",
+            "/backend-api/conversation",
+            "/conversation",
+            "/chat_conversations",
+            "/completion",
+            "/completions",
+            "/append_message",
+            "/v1/messages",
+        )
+    ):
+        return False
+    if "prepare" in path_l or "autocomplet" in path_l or "implicit" in path_l:
+        return False
+    data = _parse_chat_json(body)
+    if not data:
+        return False
+    action = str(data.get("action") or "").strip().lower()
+    if action and not _is_send_action(action):
+        return False
+    if _body_has_sendable_user_turn(body):
+        return True
+    if data.get("parent_message_id") or data.get("conversation_id"):
+        return True
+    return False
+
+
 def is_confirmed_chat_submit(body: str) -> bool:
     """True when JSON body is a finished user Send (any monitored chat API shape)."""
     if not body or not body.lstrip().startswith("{"):
@@ -1373,6 +1406,8 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
         return False
     if is_conversation_final_send(path, body):
         return False
+    if _looks_like_chat_send_request(path, body):
+        return False
     path_l = (path or "").lower()
     if "/conversation/init" in path_l or "/backend-api/conversation/init" in path_l:
         if _body_has_sendable_user_turn(body):
@@ -1408,6 +1443,8 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
 def is_composer_typing_draft(domain: str, prompt: str, body: str = "", path: str = "") -> bool:
     """Skip mid-keystroke noise only — never skip a confirmed final Send."""
     if is_confirmed_chat_submit(body) or is_conversation_final_send(path, body):
+        return False
+    if _looks_like_chat_send_request(path, body):
         return False
     text = (prompt or "").strip()
     if not text or not domain:
