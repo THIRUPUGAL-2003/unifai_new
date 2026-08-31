@@ -143,6 +143,16 @@ NOISE_EXTENSIONS = re.compile(
     re.IGNORECASE
 )
 
+# Universal prompt field names — any admin-added domain, any JSON shape.
+_UNIVERSAL_PROMPT_KEYS = (
+    "query", "query_str", "prompt", "input", "input_text", "inputs", "text",
+    "message", "question", "user_input", "last_query", "user_query",
+    "rawUserQuery", "utterance", "userMessage", "content", "instruction",
+    "search_query", "q", "follow_up_input", "user_message", "dsl_query",
+    "search_focus", "user_text", "chat_input", "message_text", "entry",
+    "followup", "follow_up", "search", "ask", "query_text",
+)
+
 # Deduplicate identical events per domain within this window (seconds).
 # Keep short so intentional same-text resends (~1s later) still predict;
 # only collapses near-simultaneous browser double-submits.
@@ -796,9 +806,13 @@ def is_copilot_chat_submit(path: str, body: str = "") -> bool:
 def is_perplexity_chat_submit(path: str, body: str = "") -> bool:
     """True only for Perplexity chat submit — not feed, auth, or telemetry."""
     path_l = (path or "").lower().split("?", 1)[0]
-    if "perplexity_ask" in path_l or "/rest/sse" in path_l:
-        return True
-    if "/rest/thread" in path_l or "/rest/entrypoint" in path_l:
+    if any(
+        marker in path_l
+        for marker in (
+            "perplexity_ask", "/rest/sse", "/rest/thread", "/rest/entrypoint",
+            "/rest/search", "/rest/chat", "/api/chat", "/search",
+        )
+    ):
         return True
     if path_l.endswith("/chat") or "/api/chat" in path_l:
         return True
@@ -1508,6 +1522,113 @@ def _extract_from_json(data) -> str | None:
                 return got
 
     return None
+
+
+def _deep_extract_from_json(data, depth: int = 0, max_depth: int = 10) -> str | None:
+    """Recursive domain-agnostic JSON walk — finds user text in any nested shape."""
+    if depth > max_depth:
+        return None
+    if isinstance(data, dict):
+        role = str(data.get("role") or "").lower()
+        if role in ("user", "human", "customer", "client", "sender", ""):
+            got = _extract_from_message_obj(data)
+            if got:
+                return got
+        for key in _UNIVERSAL_PROMPT_KEYS:
+            val = data.get(key)
+            if isinstance(val, (str, int, float)):
+                sval = str(val)
+                if not _is_opaque_wire_blob(sval):
+                    got = _clean_prompt_text(sval)
+                    if got and looks_like_user_prompt(got):
+                        return got
+            elif isinstance(val, list):
+                got = _parts_to_text(val)
+                if got:
+                    return got
+            elif isinstance(val, dict):
+                got = _deep_extract_from_json(val, depth + 1, max_depth)
+                if got:
+                    return got
+        for nest_key in ("params", "data", "payload", "body", "request", "arguments", "input", "options", "message", "messages"):
+            nested = data.get(nest_key)
+            if isinstance(nested, (dict, list)):
+                got = _deep_extract_from_json(nested, depth + 1, max_depth)
+                if got:
+                    return got
+    elif isinstance(data, list):
+        for item in reversed(data):
+            if isinstance(item, (dict, list)):
+                got = _deep_extract_from_json(item, depth + 1, max_depth)
+                if got:
+                    return got
+            elif isinstance(item, (str, int, float)):
+                sval = str(item)
+                if not _is_opaque_wire_blob(sval):
+                    got = _clean_prompt_text(sval)
+                    if got and looks_like_user_prompt(got):
+                        return got
+    return None
+
+
+def _regex_extract_prompt_from_text(text: str) -> str | None:
+    """Last-resort: pull known JSON keys from raw text without full parse."""
+    if not text or len(text) < 2:
+        return None
+    for key in _UNIVERSAL_PROMPT_KEYS:
+        pat = rf'"{re.escape(key)}"\s*:\s*"((?:[^"\\]|\\.)*)"'
+        for m in re.finditer(pat, text):
+            cand = _clean_prompt_text(m.group(1).replace("\\n", "\n").replace('\\"', '"'))
+            if cand and looks_like_user_prompt(cand) and not _is_opaque_wire_blob(cand):
+                return cand
+    return None
+
+
+def extract_prompt_from_query_string(url: str) -> str | None:
+    """Extract prompt from GET query params on any monitored domain."""
+    try:
+        parsed = urllib.parse.urlparse(url or "")
+        qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=False)
+        for key in _UNIVERSAL_PROMPT_KEYS:
+            vals = qs.get(key) or qs.get(key.lower())
+            if vals and isinstance(vals[0], str):
+                got = _clean_prompt_text(vals[0])
+                if got and looks_like_user_prompt(got):
+                    return got
+    except Exception:
+        pass
+    return None
+
+
+def extract_prompt_universal(body_bytes: bytes, content_type: str = "", host: str = "", url: str = "") -> str | None:
+    """
+    Domain-agnostic prompt extraction for ANY admin Target Website.
+    Platform-specific parsers first, then deep JSON walk, query string, regex fallback.
+    """
+    got = extract_prompt(body_bytes, content_type, host=host)
+    if got:
+        return got
+    if url:
+        got = extract_prompt_from_query_string(url)
+        if got:
+            return got
+    if not body_bytes:
+        return None
+    try:
+        text = body_bytes.decode("utf-8", errors="ignore")
+    except Exception:
+        return None
+    if not text.strip():
+        return None
+    if text.lstrip().startswith(("{", "[")):
+        try:
+            data = json.loads(text)
+            got = _deep_extract_from_json(data)
+            if got:
+                return got
+        except Exception:
+            pass
+    return _regex_extract_prompt_from_text(text)
 
 
 def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str]:
@@ -4553,6 +4674,46 @@ class BrowserAIInterceptor:
         print(f"[UnifAI Proxy] Started. Backend: {UNIFAI_BACKEND_URL}")
         print(f"[UnifAI Proxy] Fetching target domains & guard rules every {CACHE_TTL}s from backend API.")
 
+    def _apply_http_prompt(
+        self,
+        flow: http.HTTPFlow,
+        domain: str,
+        platform: str,
+        prompt: str,
+        client_ip: str,
+        raw_text: str,
+    ) -> None:
+        """Common predict + block/warn for any monitored domain (HTTP)."""
+        host = flow.request.pretty_host
+        print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
+        mark_duplicate_event(domain, prompt)
+
+        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
+            platform=platform,
+            domain=domain,
+            prompt=prompt,
+            client_ip=client_ip,
+            url=flow.request.url,
+            method=flow.request.method,
+        )
+
+        if not allowed:
+            if (action or "").lower() in ("bot answered", "replied"):
+                print(f"[UnifAI Proxy] Reply Bot answered for {domain}")
+            else:
+                print(f"[UnifAI Proxy] BLOCKED prompt to {domain} → Rule: {rule_triggered}")
+            make_blocked_response(flow, rule_triggered, host, reply_text=reply_text)
+        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+            print(f"[UnifAI Proxy] WARNED prompt to {domain} → Rule: {rule_triggered} (prompt+warning forwarded)")
+            try:
+                new_content = inject_warned_prompt(raw_text, prompt, redacted_prompt)
+                if new_content:
+                    flow.request.content = new_content.encode("utf-8")
+                else:
+                    print(f"[UnifAI Proxy Warning] WARN inject miss | {domain} | could not rewrite body")
+            except Exception as e:
+                print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
+
     # ── HTTP Request Interception ──────────────
 
     def request(self, flow: http.HTTPFlow) -> None:
@@ -4603,11 +4764,23 @@ class BrowserAIInterceptor:
         # Keep control settings warm
         get_control_settings()
 
-        if flow.request.method not in ("POST", "PUT", "PATCH"):
-            return
-
         path = flow.request.path
         client_ip = get_client_ip(flow)
+        method = (flow.request.method or "").upper()
+
+        # ── Universal GET: query-string prompts on any monitored domain ──
+        if method == "GET":
+            qs_prompt = extract_prompt_from_query_string(flow.request.url)
+            if (
+                qs_prompt
+                and looks_like_user_prompt(qs_prompt)
+                and not is_duplicate_event(domain, qs_prompt, ttl=DEDUPE_TTL, mark=False)
+            ):
+                self._apply_http_prompt(flow, domain, platform, qs_prompt, client_ip, "")
+            return
+
+        if method not in ("POST", "PUT", "PATCH"):
+            return
 
         # ── File Upload: block immediately when policy ON; otherwise cache for Send-time scan ──
         raw_bytes = flow.request.content or b""
@@ -4661,6 +4834,21 @@ class BrowserAIInterceptor:
         if "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower():
             return
 
+        # ── Universal path: domain-agnostic extract + predict (any admin Target Website) ──
+        universal_prompt = extract_prompt_universal(
+            raw_bytes, content_type, host=host, url=flow.request.url,
+        )
+        if (
+            universal_prompt
+            and looks_like_user_prompt(universal_prompt)
+            and not _is_opaque_wire_blob(universal_prompt)
+            and not universal_prompt.strip().startswith("[FILE UPLOAD")
+            and not is_unsubmitted_chat_body(path, raw_text)
+            and not is_duplicate_event(domain, universal_prompt, ttl=DEDUPE_TTL, mark=False)
+        ):
+            self._apply_http_prompt(flow, domain, platform, universal_prompt, client_ip, raw_text)
+            return
+
         # Gemini batchexecute noise — only skip when body is not a chat submit.
         if "batchexecute" in (path or "").lower() and not is_gemini_chat_submit(path, raw_text):
             return
@@ -4702,7 +4890,7 @@ class BrowserAIInterceptor:
             make_blocked_response(flow, "Block Upload", host, reply_text=file_block_msg)
             return
 
-        prompt = extract_prompt(raw_bytes, content_type, host=host)
+        prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=flow.request.url)
         if not prompt or len(prompt.strip()) < 1:
             if len(raw_bytes) > 8:
                 print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
@@ -4787,6 +4975,44 @@ class BrowserAIInterceptor:
             return
 
         ws_path = flow.request.path or ""
+
+        # ── Universal WebSocket: domain-agnostic extract before path filters ──
+        ws_prompt = extract_prompt_universal(
+            content.encode("utf-8"), "application/json", host=host, url=flow.request.url,
+        )
+        if (
+            ws_prompt
+            and looks_like_user_prompt(ws_prompt)
+            and not _is_opaque_wire_blob(ws_prompt)
+            and not is_unsubmitted_chat_body(ws_path, content)
+            and not is_duplicate_event(domain, ws_prompt, ttl=DEDUPE_TTL, mark=False)
+        ):
+            client_ip = get_client_ip(flow)
+            print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {ws_prompt[:80]!r}")
+            mark_duplicate_event(domain, ws_prompt)
+            allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
+                platform=platform,
+                domain=domain,
+                prompt=ws_prompt,
+                client_ip=client_ip,
+                url=flow.request.url,
+                method="WS",
+            )
+            if not allowed:
+                try:
+                    msg.drop()
+                except Exception:
+                    try:
+                        msg.kill()
+                    except Exception:
+                        pass
+                inject_websocket_reply(flow, host, (reply_text or "").strip())
+            elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != ws_prompt:
+                new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
+                if new_content:
+                    msg.text = new_content
+            return
+
         if "batchexecute" in ws_path.lower() and not is_gemini_chat_submit(ws_path, content):
             return
         if is_copilot_noise_content(content):
@@ -4825,7 +5051,7 @@ class BrowserAIInterceptor:
         if copilot_carries_binary_attach(content) or chat_carries_attachment(content) or chatgpt_carries_file(content):
             return
 
-        prompt = extract_prompt(content.encode("utf-8"), "application/json", host=host)
+        prompt = extract_prompt_universal(content.encode("utf-8"), "application/json", host=host, url=flow.request.url)
         if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
             return
         if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip()):
