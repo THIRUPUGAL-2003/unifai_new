@@ -1419,6 +1419,9 @@ func (s *UnifAIHTTPServer) RegisterAPIRoutes(ctx context.Context, callbacks Serv
 	featureFlagsHandler := handlers.NewFeatureFlagsHandler(s.Config.FeatureFlags, s.Config.ConfigStore)
 	browserAIHandler := handlers.NewBrowserAIHandler(s.Config.ConfigStore, s.Config, s.Client)
 	workspaceHandler := handlers.NewWorkspaceHandler(s.Config)
+	if ws, ok := configstore.AsWorkspaceStore(s.Config.ConfigStore); ok && ws != nil {
+		handlers.ReloadCircuitBreakerPoliciesFromStore(ws)
+	}
 	// Going ahead with API handlers
 	oauth2DiscoveryHandler := handlers.NewOAuth2DiscoveryHandler(s.Config)
 	oauth2IssuanceHandler := handlers.NewOAuth2IssuanceHandler(s.Config, s.TempTokens, s.OAuth2IdentityResolver)

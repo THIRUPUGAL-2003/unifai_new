@@ -156,6 +156,8 @@ BLOCK_DEDUPE_TTL = 30
 
 _cached_domains: dict = DEFAULT_TARGET_DOMAINS.copy()
 _cached_blocked: dict = {}  # domain -> platform_name (full site lock)
+# Admin Target Websites grouped for file-upload cache sharing (platform_name + parent_id).
+_cached_families: dict[str, frozenset[str]] = {}
 _cached_rules: list = []   # list of {"name": str, "pattern": str, "action": str, "active": bool}
 _cached_has_ai_bot = False
 _domains_fetched_at: float = 0
@@ -172,9 +174,11 @@ _controls_from_backend = False
 
 # File bytes cached at upload-time; Prompt Log + allow/block happen only on chat Send.
 _UPLOAD_FILE_CACHE: dict[str, dict] = {}
+_UPLOAD_FILE_QUEUES: dict[str, list[dict]] = {}
 _UPLOAD_FILE_CACHE_LOCK = threading.Lock()
 _UPLOAD_FILE_CACHE_TTL = 15 * 60  # 15 minutes — keep bytes for View/Download
 _UPLOAD_FILE_CACHE_MAX = 40
+_UPLOAD_FILE_QUEUE_MAX = 12  # multiple files per chat Send → one log row each
 # Only treat "latest upload" as this Send's file if the upload was this recent.
 # Prevents typed prompts from becoming "[FILE UPLOAD] attachment" after an old pick.
 _UPLOAD_LATEST_MATCH_TTL = 5 * 60  # 5 min — upload then Send without matching id still binds
@@ -215,13 +219,75 @@ def _normalize_domain(raw: str) -> str:
     return domain
 
 
+def _build_target_families(targets: list) -> dict[str, frozenset[str]]:
+    """Group admin-added Target Websites for upload-cache sharing.
+
+    Same platform_name, parent_id tree, or subdomain overlap → one family.
+    No hardcoded product domain lists.
+    """
+    active: list[dict] = []
+    for t in targets or []:
+        d = _normalize_domain(t.get("domain", ""))
+        if not d:
+            continue
+        if not (t.get("monitored") or t.get("block_site")):
+            continue
+        active.append({**t, "_domain": d})
+
+    domains = [t["_domain"] for t in active]
+    if not domains:
+        return {}
+
+    parent: dict[str, str] = {d: d for d in domains}
+
+    def find(x: str) -> str:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: str, b: str) -> None:
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[rb] = ra
+
+    id_to_domain = {t["id"]: t["_domain"] for t in active if t.get("id")}
+
+    by_platform: dict[str, list[str]] = {}
+    for t in active:
+        d = t["_domain"]
+        pname = (t.get("platform_name") or d).strip().lower()
+        by_platform.setdefault(pname, []).append(d)
+    for group in by_platform.values():
+        for i in range(1, len(group)):
+            union(group[0], group[i])
+
+    for t in active:
+        d = t["_domain"]
+        pid = (t.get("parent_id") or "").strip()
+        if pid and pid in id_to_domain:
+            union(d, id_to_domain[pid])
+
+    for d in domains:
+        for other in domains:
+            if d != other and (d.endswith("." + other) or other.endswith("." + d)):
+                union(d, other)
+
+    groups: dict[str, set[str]] = {}
+    for d in domains:
+        groups.setdefault(find(d), set()).add(d)
+
+    return {d: frozenset(groups[find(d)]) for d in domains}
+
+
 def get_target_domains() -> dict:
     """
     Fetch target domains from UnifAI backend every CACHE_TTL seconds.
     Returns dict of {domain: platform_name} for PAC/monitor routing
-    (monitored OR block_site). Also refreshes _cached_blocked for full-site lock.
+    (monitored OR block_site). Also refreshes _cached_blocked for full-site lock
+    and _cached_families for upload-cache sharing across admin-added related hosts.
     """
-    global _cached_domains, _cached_blocked, _domains_fetched_at
+    global _cached_domains, _cached_blocked, _cached_families, _domains_fetched_at
     now = time.time()
     if now - _domains_fetched_at < CACHE_TTL:
         return _cached_domains
@@ -242,10 +308,11 @@ def get_target_domains() -> dict:
                 new_blocked[domain] = platform
         _cached_domains = new_map
         _cached_blocked = new_blocked
+        _cached_families = _build_target_families(targets)
         _domains_fetched_at = now
         print(
             f"[UnifAI Proxy] Refreshed {len(new_map)} target domains "
-            f"({len(new_blocked)} full-site locks) from backend."
+            f"({len(new_blocked)} full-site locks, {len(_cached_families)} upload families) from backend."
         )
 
     return _cached_domains
@@ -550,50 +617,75 @@ def _path_has_ignore_pattern(path: str) -> bool:
     return False
 
 
-def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
-    """True when URL path looks like an actual chat/prompt submit endpoint."""
+def _is_chatgpt_style_path(path: str) -> bool:
+    """ChatGPT/OpenAI-style API paths — hostname not required."""
     p = (path or "").lower().split("?", 1)[0]
-    h = (host or "").lower()
+    if "prepare" in p or "autocomplet" in p or "implicit" in p:
+        return False
+    return (
+        "/conversation" in p
+        or "/messages" in p
+        or "/chat/completions" in p
+        or "/backend-api/" in p
+        or "/backend-anon/" in p
+    )
+
+
+def _path_has_chat_marker(path: str) -> bool:
+    """True when path matches a generic chat-submit marker (any monitored domain)."""
+    p = (path or "").lower().split("?", 1)[0]
+    if not p:
+        return False
+    for marker in CHAT_PATH_MARKERS:
+        if marker.lower() in p:
+            return True
+    return False
+
+
+def _looks_like_chatgpt_body(text: str, body_bytes: bytes = b"") -> bool:
+    """ChatGPT/OpenAI conversation JSON or protobuf — detected from body, not hostname."""
+    t = (text or "").strip()
+    if t:
+        if '"conversation_id"' in t or '"parent_message_id"' in t:
+            return True
+        if '"messages"' in t and any(x in t for x in ('"author"', '"content_type"', '"parts"')):
+            return True
+    data = body_bytes or b""
+    if len(data) >= 8 and data[0] < 32 and data[0] not in (10, 13):
+        return True
+    return False
+
+
+def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
+    """True when URL path/body looks like a chat/prompt submit on an admin-monitored domain.
+
+    No product hostname lists — only path markers and request body shape.
+    Caller must already have verified the host via detect_target().
+    """
+    p = (path or "").lower().split("?", 1)[0]
+    body = body or ""
     if _path_has_ignore_pattern(p):
         return False
     if p and NOISE_EXTENSIONS.search(p):
         return False
-    if "chatgpt.com" in h or "chat.openai.com" in h or "openai.com" in h:
-        if not p:
-            return True
-        if "prepare" in p or "autocomplet" in p or "implicit" in p:
-            return False
-        return (
-            "/conversation" in p
-            or "/messages" in p
-            or "/chat/completions" in p
-            or "/backend-api/" in p
-            or "/backend-anon/" in p
-        )
-    # Gemini: only the real chat submit URL — never analytics / batchexecute noise
-    if is_gemini_host(h):
-        if not p:
-            return False
-        return is_gemini_chat_submit(p, body or "")
-    if is_copilot_host(h):
-        return is_copilot_chat_submit(p, body or "")
-    if not p:
+    if "prepare" in p or "autocomplet" in p or "implicit" in p:
+        return False
+
+    if is_gemini_chat_submit(p, body) or "f.req=" in body[:500]:
         return True
-    return True
+    if is_copilot_chat_submit(p, body):
+        return True
+    if is_perplexity_chat_submit(p, body):
+        return True
+    if _is_chatgpt_style_path(p) or _looks_like_chatgpt_body(body):
+        return True
+    if _path_has_chat_marker(p):
+        return True
 
-
-def is_gemini_host(host: str) -> bool:
-    h = (host or "").lower()
-    return any(
-        x in h
-        for x in (
-            "gemini.google.",
-            "bard.google.",
-            "generativelanguage.googleapis",
-            # Modern Gemini chat submit often goes here (admin related-host).
-            "clients6.google.",
-        )
-    )
+    # Custom / unknown AI site the admin added: allow POSTs that carry a body.
+    if body.strip():
+        return True
+    return not p or p == "/"
 
 
 def is_gemini_chat_submit(path: str, body: str = "") -> bool:
@@ -668,23 +760,6 @@ def _is_opaque_wire_blob(text: str) -> bool:
     return False
 
 
-def is_copilot_host(host: str) -> bool:
-    h = (host or "").lower()
-    return any(
-        x in h
-        for x in (
-            "copilot.microsoft.",
-            "copilot.cloud.microsoft",
-            "sydney.bing.",
-            "edgeservices.bing.",
-            "substrate.office.",
-            "m365.cloud.microsoft",
-            "business.bing.",
-            "bing.com",
-        )
-    )
-
-
 def is_copilot_chat_submit(path: str, body: str = "") -> bool:
     """True only for Copilot/Bing/Edge chat submit — not telemetry or sync frames."""
     path_l = (path or "").lower().split("?", 1)[0]
@@ -714,6 +789,52 @@ def is_copilot_chat_submit(path: str, body: str = "") -> bool:
         or '"target":"chat"' in body_l
         or '"target": "chat"' in body_l
     ):
+        return True
+    return False
+
+
+def is_perplexity_chat_submit(path: str, body: str = "") -> bool:
+    """True only for Perplexity chat submit — not feed, auth, or telemetry."""
+    path_l = (path or "").lower().split("?", 1)[0]
+    if "perplexity_ask" in path_l or "/rest/sse" in path_l:
+        return True
+    if "/rest/thread" in path_l or "/rest/entrypoint" in path_l:
+        return True
+    if path_l.endswith("/chat") or "/api/chat" in path_l:
+        return True
+    if body and body.lstrip().startswith("{"):
+        try:
+            data = json.loads(body)
+        except Exception:
+            data = None
+        if isinstance(data, dict):
+            if isinstance(data.get("query_str"), str) and data["query_str"].strip():
+                return True
+            params = data.get("params")
+            if isinstance(params, dict):
+                for key in ("query_str", "dsl_query", "query"):
+                    val = params.get(key)
+                    if isinstance(val, str) and val.strip():
+                        return True
+    return False
+
+
+def _is_claude_api_shape(path: str, body: str) -> bool:
+    """Detect Claude / Anthropic chat submit from request path or JSON body — not hostname."""
+    path_l = (path or "").lower()
+    if any(x in path_l for x in ("/v1/messages", "chat_conversations", "append_message", "/completion")):
+        return True
+    if not body or not body.lstrip().startswith("{"):
+        return False
+    try:
+        data = json.loads(body)
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    if "max_tokens" in data and isinstance(data.get("messages"), list):
+        return True
+    if isinstance(data.get("prompt"), str) and str(data.get("prompt", "")).strip():
         return True
     return False
 
@@ -872,16 +993,8 @@ def _is_ai_chrome_url(text: str) -> bool:
     host = (u.hostname or "").lower()
     path = (u.path or "").lower()
     query = (u.query or "").lower()
-    if "gemini.google." in host or "bard.google." in host:
-        return True
-    if "generativelanguage.googleapis" in host:
-        return True
-    if host in ("google.com", "www.google.com") and "gemini" in path:
-        return True
-    # Referrer-style ChatGPT app URLs (hl= locale) — not a user prompt
-    if ("chatgpt.com" in host or "chat.openai.com" in host) and (
-        "hl=" in query or path in ("", "/", "/app")
-    ):
+    # Page/navigation URLs on an admin-monitored host — not typed chat text.
+    if detect_target(host)[0] and (path in ("", "/", "/app") or "hl=" in query):
         return True
     return False
 
@@ -964,9 +1077,17 @@ def detect_target(host: str) -> tuple[bool, str, str]:
     """Check if host matches any monitored domain. Returns (is_target, domain, platform)."""
     domains_map = get_target_domains()
     host_lower = (host or "").lower().strip(".")
+    best_domain = ""
+    best_platform = ""
+    best_len = -1
     for domain, platform in domains_map.items():
         if host_lower == domain or host_lower.endswith("." + domain):
-            return True, domain, platform
+            if len(domain) > best_len:
+                best_len = len(domain)
+                best_domain = domain
+                best_platform = platform
+    if best_domain:
+        return True, best_domain, best_platform
     return False, "", ""
 
 
@@ -1006,19 +1127,20 @@ def is_noise(path: str, content: str = "") -> bool:
             return True
         if content.startswith('{"id":') and '"command":' in content and '"messages"' not in content:
             return True
-        # ChatGPT conversation can be protobuf (binary first byte) — do not drop it as noise.
+        # Protobuf / binary chat submit — do not drop as noise when path/body looks like chat.
         path_l = (path or "").lower()
-        chatgpt_submit = (
-            "chatgpt.com" in path_l
-            or "/conversation" in path_l
-            or "/backend-api/" in path_l
-            or "/backend-anon/" in path_l
+        chat_submit = (
+            _is_chatgpt_style_path(path_l)
+            or is_perplexity_chat_submit(path_l, content)
+            or is_gemini_chat_submit(path_l, content)
+            or is_copilot_chat_submit(path_l, content)
+            or _path_has_chat_marker(path_l)
         )
         if (
             len(content) > 0
             and ord(content[0]) < 32
             and ord(content[0]) not in (10, 13)
-            and not chatgpt_submit
+            and not chat_submit
         ):
             return True
         # Gemini / form chat bodies are valid (f.req=...)
@@ -1086,21 +1208,6 @@ def is_duplicate_prompt(domain: str, prompt: str) -> bool:
     return is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL)
 
 
-def is_chatgpt_host(host: str) -> bool:
-    h = (host or "").lower()
-    return "chatgpt.com" in h or "chat.openai.com" in h
-
-
-def is_oai_upload_host(host: str) -> bool:
-    h = (host or "").lower()
-    return (
-        is_chatgpt_host(h)
-        or "oaiusercontent.com" in h
-        or h.endswith(".openai.com")
-        or h == "openai.com"
-    )
-
-
 def chatgpt_carries_file(raw_text: str) -> bool:
     """ChatGPT multimodal sends use content_type:file / file_id — not always attachments[]."""
     if not raw_text:
@@ -1139,8 +1246,8 @@ def detect_chatgpt_file_upload(
     body_len: int,
     raw: bytes,
 ) -> tuple[bool, str]:
-    """Catch ChatGPT / OpenAI CDN uploads that generic heuristics miss."""
-    if not is_oai_upload_host(host):
+    """Catch file uploads on admin-monitored domains (path/body — no product hostname list)."""
+    if not detect_target(host or "")[0]:
         return False, ""
     if (method or "").upper() not in ("POST", "PUT", "PATCH"):
         return False, ""
@@ -1150,10 +1257,8 @@ def detect_chatgpt_file_upload(
 
     if any(x in path_l for x in ("/backend-api/files", "/files/", "process_upload", "/attachments", "/upload")):
         if body_len >= 8:
-            return True, f"ChatGPT file API ({path_l[:80]})"
-    if "oaiusercontent.com" in (host or "").lower() and body_len >= 8:
-        return True, f"OpenAI file CDN ({path_l[:80]})"
-    if is_chatgpt_host(host) and "/backend-api/" in path_l:
+            return True, f"File API ({path_l[:80]})"
+    if "/backend-api/" in path_l:
         if any(x in path_l for x in ("/sentinel/", "/prepare", "/autocomplet", "/me", "/settings")):
             return False, ""
         if body_len >= 64 and (
@@ -1162,7 +1267,7 @@ def detect_chatgpt_file_upload(
             or (len(data) >= 2 and data[:2] == b"PK")
             or b"filename=" in data[:16000].lower()
         ):
-            return True, f"ChatGPT binary upload ({path_l[:80]})"
+            return True, f"Binary upload ({path_l[:80]})"
     return False, ""
 
 
@@ -1422,7 +1527,9 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
         return True, cgpt_reason
 
     # ── Never treat real chat Send as a file upload ──
-    if is_gemini_host(host) and is_gemini_chat_submit(path, raw):
+    if is_gemini_chat_submit(path, raw) or "f.req=" in raw[:500]:
+        return False, ""
+    if is_perplexity_chat_submit(path, raw):
         return False, ""
     # Claude / ChatGPT / generic chat completion paths (JSON text prompts)
     chat_path_markers = (
@@ -1557,9 +1664,9 @@ def is_confident_file_upload(
     host_l = (host or "").lower()
     path_l = (path or "").lower().split("?", 1)[0]
 
-    # ChatGPT / OpenAI CDN uploads — always cache real bytes for Send-time scan
-    if is_oai_upload_host(host_l) and (
-        "/backend-api/files" in path_l or "oaiusercontent.com" in host_l or "process_upload" in path_l
+    # File API paths on admin-monitored domains — cache bytes for Send-time scan
+    if detect_target(host_l)[0] and (
+        "/backend-api/files" in path_l or "process_upload" in path_l or "/v1/files" in path_l
     ):
         if len(data) >= 32:
             return True
@@ -1803,30 +1910,68 @@ def _purge_upload_file_cache(now: float | None = None) -> None:
     while len(_UPLOAD_FILE_CACHE) > _UPLOAD_FILE_CACHE_MAX:
         oldest = min(_UPLOAD_FILE_CACHE.items(), key=lambda kv: float(kv[1].get("ts") or 0))
         _UPLOAD_FILE_CACHE.pop(oldest[0], None)
+    _purge_upload_queues(now)
+
+
+def _upload_queue_key(alias: str) -> str:
+    return f"{alias}::__queue__"
+
+
+def _purge_upload_queues(now: float | None = None) -> None:
+    now = now if now is not None else time.time()
+    for qkey in list(_UPLOAD_FILE_QUEUES.keys()):
+        q = _UPLOAD_FILE_QUEUES.get(qkey) or []
+        alive = [e for e in q if now - float(e.get("ts") or 0) <= _UPLOAD_FILE_CACHE_TTL]
+        if alive:
+            _UPLOAD_FILE_QUEUES[qkey] = alive[-_UPLOAD_FILE_QUEUE_MAX:]
+        else:
+            _UPLOAD_FILE_QUEUES.pop(qkey, None)
+
+
+def _remove_cache_keys_for_entry(entry: dict, aliases: list[str]) -> None:
+    fname = (entry.get("file_name") or "attachment").lower()
+    fid = entry.get("file_id") or ""
+    uid = entry.get("cache_uid")
+    for alias in aliases:
+        _UPLOAD_FILE_CACHE.pop(f"{alias}|latest", None)
+        _UPLOAD_FILE_CACHE.pop(f"{alias}|name|{fname}", None)
+        if fid:
+            _UPLOAD_FILE_CACHE.pop(f"{alias}|id|{fid}", None)
+            _UPLOAD_FILE_CACHE.pop(f"{alias}|id|file-{fid}", None)
+        if uid:
+            qkey = _upload_queue_key(alias)
+            if qkey in _UPLOAD_FILE_QUEUES:
+                _UPLOAD_FILE_QUEUES[qkey] = [
+                    e for e in _UPLOAD_FILE_QUEUES[qkey] if e.get("cache_uid") != uid
+                ]
 
 
 def upload_domain_aliases(domain: str) -> list[str]:
-    """Hosts that share one product family — upload may hit A, chat Send hits B."""
-    d = (domain or "").lower().strip()
+    """All admin-added Target Websites in the same family as `domain`.
+
+    Built from /api/browser-ai/targets (platform_name + parent_id + subdomain).
+    Upload may hit host A; chat Send hits host B — cache is shared across the family.
+    """
+    get_target_domains()
+    d = _normalize_domain(domain or "")
     if not d:
         return []
-    families = [
-        {"chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"},
-        {
-            "gemini.google.com", "bard.google.com", "clients6.google.com",
-            "drive.google.com", "docs.google.com", "upload.google.com",
-        },
-        {
-            "copilot.microsoft.com", "copilot.cloud.microsoft", "sydney.bing.com",
-            "edgeservices.bing.com", "bing.com", "m365.cloud.microsoft",
-            "substrate.office.com",
-        },
-        {"claude.ai", "www.claude.ai", "api.anthropic.com"},
-        {"perplexity.ai", "www.perplexity.ai", "pplx.ai"},
-    ]
-    for fam in families:
-        if d in fam or any(d.endswith("." + x) for x in fam):
-            return sorted(fam)
+
+    fam = _cached_families.get(d)
+    if fam:
+        return sorted(fam)
+
+    best: set[str] | None = None
+    best_len = -1
+    for key, fam_set in _cached_families.items():
+        if d == key or d.endswith("." + key):
+            if len(key) > best_len:
+                best_len = len(key)
+                best = set(fam_set)
+    if best:
+        return sorted(best)
+
+    # Single monitored domain with no siblings in Target Websites.
     return [d]
 
 
@@ -1866,9 +2011,11 @@ def cache_upload_file(
         "rule_action": (rule_action or "").upper(),
         "file_id": file_id or "",
     }
+    fname_key = (entry["file_name"] or "attachment").lower()
+    entry["cache_uid"] = f"{entry['ts']:.6f}|{fname_key}|{len(stored)}"
     keys: list[str] = []
-    fname_key = (name or file_name or "attachment").lower()
-    for alias in upload_domain_aliases(domain):
+    aliases = upload_domain_aliases(domain)
+    for alias in aliases:
         if file_id:
             keys.append(f"{alias}|id|{file_id}")
         keys.append(f"{alias}|name|{fname_key}")
@@ -1877,6 +2024,12 @@ def cache_upload_file(
         _purge_upload_file_cache()
         for k in keys:
             _UPLOAD_FILE_CACHE[k] = entry
+        for alias in aliases:
+            qkey = _upload_queue_key(alias)
+            q = _UPLOAD_FILE_QUEUES.setdefault(qkey, [])
+            q.append(entry)
+            if len(q) > _UPLOAD_FILE_QUEUE_MAX:
+                _UPLOAD_FILE_QUEUES[qkey] = q[-_UPLOAD_FILE_QUEUE_MAX:]
     print(
         f"[UnifAI Proxy] FILE CACHED (await Send) | {domain} | {entry['file_name']} | "
         f"{len(entry['raw_bytes'])} bytes | rule_hit={rule_hit} | aliases={len(keys)}"
@@ -2014,11 +2167,12 @@ def chat_carries_attachment(raw_text: str) -> bool:
         if any(x in low for x in ("audio", "voice", "speech", "dictation", "file_id", "attachment")):
             return True
 
-    # Gemini Drive / file URI refs on StreamGenerate (not empty placeholders)
+    # Cloud file URI refs on chat submits (not empty placeholders)
     if re.search(r'"(?:file_data|filedata|file_uri|fileuri)"\s*:\s*\{', low):
         return True
-    if "drive.google.com" in low and ("file/" in low or "open?id=" in low):
-        return True
+    if re.search(r'https?://[^"\']+/(?:file/|open\?id=)', low):
+        if re.search(r'"(?:file_data|filedata|file_uri|fileuri|uri|url)"\s*:', low):
+            return True
 
     # ChatGPT / OpenAI file pointers
     if chatgpt_carries_file(raw_text):
@@ -2176,26 +2330,33 @@ def block_upload_request_now(
     make_blocked_response(flow, reason_label, host, reply_text=reply_text)
 
 
-def take_cached_upload_for_send(
+def take_all_cached_uploads_for_send(
     domain: str,
     raw_text: str = "",
     *,
     allow_latest: bool = False,
-) -> dict | None:
-    """Pop the best matching cached upload for this chat Send (product-family aliases).
-
-    Prefer file-id / filename from the chat body. Only fall back to "|latest" when
-    allow_latest=True and the upload happened within _UPLOAD_LATEST_MATCH_TTL —
-    otherwise typed prompts steal an old cache and log as attachment.
-    """
+) -> list[dict]:
+    """Pop all matching cached uploads for this chat Send (one log row per file on Send)."""
     aliases = upload_domain_aliases(domain)
+    found: list[dict] = []
+    seen_uids: set[str] = set()
+
+    def add_entry(entry: dict) -> None:
+        uid = entry.get("cache_uid") or str(id(entry))
+        if uid in seen_uids:
+            return
+        seen_uids.add(uid)
+        found.append(entry)
+
     with _UPLOAD_FILE_CACHE_LOCK:
         _purge_upload_file_cache()
         for fid in _extract_file_ids_from_chat(raw_text):
             for alias in aliases:
                 for key in (f"{alias}|id|{fid}", f"{alias}|id|file-{fid}"):
                     if key in _UPLOAD_FILE_CACHE:
-                        return _UPLOAD_FILE_CACHE.pop(key)
+                        entry = _UPLOAD_FILE_CACHE.pop(key)
+                        add_entry(entry)
+                        _remove_cache_keys_for_entry(entry, aliases)
         for m in re.finditer(
             r'["\'](?:file_name|fileName|filename|name|title)["\']\s*:\s*["\']([^"\']+)["\']',
             raw_text or "",
@@ -2206,62 +2367,84 @@ def take_cached_upload_for_send(
             for alias in aliases:
                 key = f"{alias}|name|{name}"
                 if key in _UPLOAD_FILE_CACHE:
-                    return _UPLOAD_FILE_CACHE.pop(key)
-        if not allow_latest:
-            return None
-        now = time.time()
-        for alias in aliases:
-            latest = _UPLOAD_FILE_CACHE.get(f"{alias}|latest")
-            if not latest:
-                continue
-            age = now - float(latest.get("ts") or 0)
-            if age > _UPLOAD_LATEST_MATCH_TTL:
-                continue
-            latest = _UPLOAD_FILE_CACHE.pop(f"{alias}|latest", None)
-            if latest:
-                name_key = f"{alias}|name|{(latest.get('file_name') or '').lower()}"
-                _UPLOAD_FILE_CACHE.pop(name_key, None)
-                return latest
-    return None
+                    entry = _UPLOAD_FILE_CACHE.pop(key)
+                    add_entry(entry)
+                    _remove_cache_keys_for_entry(entry, aliases)
+        if allow_latest:
+            now = time.time()
+            for alias in aliases:
+                qkey = _upload_queue_key(alias)
+                for entry in list(_UPLOAD_FILE_QUEUES.get(qkey, [])):
+                    age = now - float(entry.get("ts") or 0)
+                    if age <= _UPLOAD_LATEST_MATCH_TTL:
+                        add_entry(entry)
+                        _remove_cache_keys_for_entry(entry, aliases)
+                if qkey in _UPLOAD_FILE_QUEUES:
+                    _UPLOAD_FILE_QUEUES[qkey] = [
+                        e for e in _UPLOAD_FILE_QUEUES[qkey]
+                        if e.get("cache_uid") not in seen_uids
+                    ]
+                latest = _UPLOAD_FILE_CACHE.get(f"{alias}|latest")
+                if latest and (now - float(latest.get("ts") or 0)) <= _UPLOAD_LATEST_MATCH_TTL:
+                    add_entry(latest)
+                    _remove_cache_keys_for_entry(latest, aliases)
+    return found
 
 
-def take_recent_confident_cache_for_send(domain: str) -> dict | None:
-    """If user uploaded a real file moments ago, bind it on chat Send even when
-    the Send JSON has weak attachment markers (common on Claude / some ChatGPT builds).
-    Never returns fake-named / empty caches (avoids false 'attachment' rows).
-    """
+def take_cached_upload_for_send(
+    domain: str,
+    raw_text: str = "",
+    *,
+    allow_latest: bool = False,
+) -> dict | None:
+    """Backward-compatible single-file helper."""
+    all_files = take_all_cached_uploads_for_send(domain, raw_text, allow_latest=allow_latest)
+    return all_files[0] if all_files else None
+
+
+def take_recent_confident_caches_for_send(domain: str) -> list[dict]:
+    """Bind recent real uploads on Send when attachment markers are weak."""
     aliases = upload_domain_aliases(domain)
     now = time.time()
+    out: list[dict] = []
+    seen: set[str] = set()
     with _UPLOAD_FILE_CACHE_LOCK:
         _purge_upload_file_cache()
         for alias in aliases:
-            key = f"{alias}|latest"
-            latest = _UPLOAD_FILE_CACHE.get(key)
-            if not latest:
-                continue
-            age = now - float(latest.get("ts") or 0)
-            if age > _UPLOAD_LATEST_MATCH_TTL:
-                continue
-            name = (latest.get("file_name") or "").strip()
-            if not name or name.lower() in _FAKE_UPLOAD_NAMES:
-                continue
-            raw = latest.get("raw_bytes") or b""
-            if not is_confident_file_upload(
-                fname=name,
-                content_type=(latest.get("content_type") or ""),
-                raw_bytes=raw if isinstance(raw, (bytes, bytearray)) else b"",
-                raw_text="",
-                upload_reason=(latest.get("upload_reason") or ""),
-                host=alias,
-                path="/files",
-            ):
-                continue
-            latest = _UPLOAD_FILE_CACHE.pop(key, None)
+            candidates: list[dict] = list(_UPLOAD_FILE_QUEUES.get(_upload_queue_key(alias), []))
+            latest = _UPLOAD_FILE_CACHE.get(f"{alias}|latest")
             if latest:
-                name_key = f"{alias}|name|{name.lower()}"
-                _UPLOAD_FILE_CACHE.pop(name_key, None)
-                return latest
-    return None
+                candidates.append(latest)
+            for entry in candidates:
+                uid = entry.get("cache_uid") or str(id(entry))
+                if uid in seen:
+                    continue
+                age = now - float(entry.get("ts") or 0)
+                if age > _UPLOAD_LATEST_MATCH_TTL:
+                    continue
+                name = (entry.get("file_name") or "").strip()
+                if not name or name.lower() in _FAKE_UPLOAD_NAMES:
+                    continue
+                raw = entry.get("raw_bytes") or b""
+                if not is_confident_file_upload(
+                    fname=name,
+                    content_type=(entry.get("content_type") or ""),
+                    raw_bytes=raw if isinstance(raw, (bytes, bytearray)) else b"",
+                    raw_text="",
+                    upload_reason=(entry.get("upload_reason") or ""),
+                    host=alias,
+                    path="/files",
+                ):
+                    continue
+                seen.add(uid)
+                out.append(entry)
+                _remove_cache_keys_for_entry(entry, aliases)
+    return out
+
+
+def take_recent_confident_cache_for_send(domain: str) -> dict | None:
+    all_files = take_recent_confident_caches_for_send(domain)
+    return all_files[0] if all_files else None
 
 
 def _scan_upload_for_rules(
@@ -2290,8 +2473,9 @@ def _scan_upload_for_rules(
     return scanned, rule_hit, rule_name, rule_action, excerpt
 
 
-def enforce_file_send_policy(
+def _process_one_cached_file_on_send(
     *,
+    cached: dict | None,
     platform: str,
     domain: str,
     host: str,
@@ -2301,40 +2485,9 @@ def enforce_file_send_policy(
     raw_text: str,
     content_type: str = "",
     file_name_hint: str = "",
-    path: str = "",
+    has_attach: bool = False,
 ) -> tuple[bool, str]:
-    """
-    On chat Send with a real attached file (any monitored AI domain):
-      - Block Upload ON  → block on Send only (file may attach in UI first)
-      - Block Upload OFF → extract PDF/image/Office/voice text → Guard Rules
-          BLOCK/REDACT → block Send
-          WARN         → log Warned, allow Send
-          no match     → Allowed
-
-    Typed-only prompts return (False, "") so normal text Guard Rules still run.
-    """
-    has_attach = (
-        chat_carries_attachment(raw_text)
-        or chatgpt_carries_file(raw_text)
-        or bool((file_name_hint or "").strip())
-        or copilot_carries_binary_attach(raw_text)
-    )
-    # Prefer id/name from this Send; then latest if markers present; then recent confident cache
-    cached = take_cached_upload_for_send(domain, raw_text, allow_latest=False)
-    if not cached and has_attach:
-        cached = take_cached_upload_for_send(domain, raw_text, allow_latest=True)
-    if not cached and is_chat_path(path or "", host, raw_text or ""):
-        cached = take_recent_confident_cache_for_send(domain)
-
-    if not has_attach and not cached:
-        return False, ""
-
-    # WhatsApp: only with a real cached upload
-    if "whatsapp" in (domain or "").lower() or "whatsapp" in (host or "").lower():
-        if not cached:
-            return False, ""
-
-    get_control_settings()
+    """Process one file on chat Send. Returns (should_block_send, block_message)."""
     fname = (file_name_hint or "").strip() or extract_attachment_filename_from_send(raw_text or "")
     if cached:
         fname = fname or (cached.get("file_name") or "").strip()
@@ -2397,7 +2550,6 @@ def enforce_file_send_policy(
     tag = _upload_log_tag(file_label, cached_ct, cached_bytes)
 
     if warn_for_rule:
-        rule_warn = _warning_for_rule_name(rule_name)
         warn_log = f"{tag} {file_label} — Warned ({rule_name or 'policy'})"
         if excerpt:
             warn_log = f"{warn_log} | {excerpt}"
@@ -2454,7 +2606,6 @@ def enforce_file_send_policy(
                 mark_duplicate_event(domain, dedupe_key)
         return True, msg
 
-    # Block Upload OFF + no policy hit → Allowed file upload MUST appear in Prompt Log
     clean_log = f"{tag} {file_label} — Allowed"
     if excerpt:
         clean_log = f"{clean_log} | {excerpt}"
@@ -2480,6 +2631,82 @@ def enforce_file_send_policy(
         else:
             print(f"[UnifAI Proxy WARNING] Allowed file log failed to post | {file_label}")
     return False, ""
+
+
+def enforce_file_send_policy(
+    *,
+    platform: str,
+    domain: str,
+    host: str,
+    client_ip: str,
+    url: str,
+    method: str,
+    raw_text: str,
+    content_type: str = "",
+    file_name_hint: str = "",
+    path: str = "",
+) -> tuple[bool, str]:
+    """
+    On chat Send with a real attached file (any monitored AI domain):
+      - Block Upload ON  → block on Send only (file may attach in UI first)
+      - Block Upload OFF → extract PDF/image/Office/voice text → Guard Rules
+          BLOCK/REDACT → block Send
+          WARN         → log Warned, allow Send
+          no match     → Allowed
+
+    Typed-only prompts return (False, "") so normal text Guard Rules still run.
+    """
+    has_attach = (
+        chat_carries_attachment(raw_text)
+        or chatgpt_carries_file(raw_text)
+        or bool((file_name_hint or "").strip())
+        or copilot_carries_binary_attach(raw_text)
+    )
+    cached_list = take_all_cached_uploads_for_send(domain, raw_text, allow_latest=False)
+    if not cached_list and has_attach:
+        cached_list = take_all_cached_uploads_for_send(domain, raw_text, allow_latest=True)
+    if not cached_list and is_chat_path(path or "", host, raw_text or ""):
+        cached_list = take_recent_confident_caches_for_send(domain)
+
+    if not has_attach and not cached_list:
+        return False, ""
+
+    if not cached_list and has_attach:
+        inline_bytes, inline_ct, inline_name = extract_inline_attachment_bytes(raw_text or "")
+        if inline_bytes:
+            cached_list = [{
+                "file_name": inline_name or "attachment",
+                "content_type": inline_ct or content_type,
+                "raw_bytes": inline_bytes,
+                "ts": time.time(),
+            }]
+
+    if not cached_list:
+        return False, ""
+
+    get_control_settings()
+    should_block = False
+    block_msg = ""
+    hint = (file_name_hint or "").strip()
+    for i, cached in enumerate(cached_list):
+        per_hint = (cached.get("file_name") or "").strip() or (hint if i == 0 else "")
+        sb, msg = _process_one_cached_file_on_send(
+            cached=cached,
+            platform=platform,
+            domain=domain,
+            host=host,
+            client_ip=client_ip,
+            url=url,
+            method=method,
+            raw_text=raw_text,
+            content_type=content_type,
+            file_name_hint=per_hint,
+            has_attach=has_attach,
+        )
+        if sb:
+            should_block = True
+            block_msg = msg or block_msg
+    return should_block, block_msg
 
 
 def _upload_log_tag(file_name: str = "", content_type: str = "", raw_bytes: bytes = b"") -> str:
@@ -3448,6 +3675,32 @@ def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
     return False, "", ""
 
 
+def extract_perplexity_prompt(content: str) -> str | None:
+    """Extract user query from Perplexity /rest/sse/perplexity_ask JSON bodies."""
+    if not content or not content.lstrip().startswith("{"):
+        return None
+    try:
+        data = json.loads(content)
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    qs = data.get("query_str")
+    if isinstance(qs, str) and qs.strip():
+        got = _clean_prompt_text(qs)
+        if got:
+            return got
+    params = data.get("params")
+    if isinstance(params, dict):
+        for key in ("query_str", "dsl_query", "query"):
+            val = params.get(key)
+            if isinstance(val, str) and val.strip():
+                got = _clean_prompt_text(val)
+                if got:
+                    return got
+    return None
+
+
 def extract_gemini_prompt(content: str) -> str:
     """
     Extract ONLY the user-typed prompt from Gemini/Bard requests.
@@ -3656,7 +3909,7 @@ def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
             continue
         if s.startswith("{") or s.startswith("["):
             continue
-        if any(x in s.lower() for x in ("text/event-stream", "authorization", "mozilla/", "chatgpt.com")):
+        if any(x in s.lower() for x in ("text/event-stream", "authorization", "mozilla/")):
             continue
         got = _clean_prompt_text(s)
         if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
@@ -3675,24 +3928,31 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
     try:
         text = body_bytes.decode("utf-8", errors="ignore")
         ct = (content_type or "").lower()
-        if not text.strip() and not is_chatgpt_host(host) and "openai.com" not in (host or "").lower():
+        if not text.strip():
+            if _looks_like_chatgpt_body("", body_bytes):
+                return extract_chatgpt_prompt(text, body_bytes)
             return None
 
         # Never treat raw multipart file bodies as chat prompts (logs WebKitFormBoundary junk).
         if "multipart/form-data" in ct or "webkitformboundary" in text[:200].lower() or text.lstrip().startswith("------"):
             return None
 
-        # Gemini: never walk generic JSON/form fields — those are request ids.
-        if is_gemini_host(host) or "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
+        # Body-shape parsers (any admin-monitored domain — no hostname lists).
+        if "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
             gemini_prompt = extract_gemini_prompt(text)
-            return _clean_prompt_text(gemini_prompt) if gemini_prompt else None
+            if gemini_prompt:
+                return _clean_prompt_text(gemini_prompt)
 
-        # Copilot / Bing / Edge: only message.text paths — never raw content tokens.
-        if is_copilot_host(host):
+        if is_copilot_chat_submit("", text) or '"event":"send"' in text or '"event": "send"' in text:
             copilot_prompt = extract_copilot_prompt(text)
-            return _clean_prompt_text(copilot_prompt) if copilot_prompt else None
+            if copilot_prompt:
+                return _clean_prompt_text(copilot_prompt)
 
-        if is_chatgpt_host(host) or "openai.com" in (host or "").lower():
+        pplx_prompt = extract_perplexity_prompt(text)
+        if pplx_prompt:
+            return pplx_prompt
+
+        if _looks_like_chatgpt_body(text, body_bytes):
             return extract_chatgpt_prompt(text, body_bytes)
 
         # URL-encoded form bodies (Copilot / misc — not Gemini)
@@ -3986,6 +4246,7 @@ def _ws_frames_universal(reply: str) -> list[bytes]:
 def inject_websocket_reply(flow: http.HTTPFlow, host: str, reply_text: str) -> None:
     """
     Push an in-chat assistant reply over WebSocket for ANY monitored Target Website.
+    Uses universal frame shapes — no hardcoded hostname routing.
     """
     reply = (reply_text or "").strip()
     if not reply or not flow.websocket:
@@ -3998,22 +4259,7 @@ def inject_websocket_reply(flow: http.HTTPFlow, host: str, reply_text: str) -> N
         return
 
     host_l = (host or "").lower()
-
-    if "copilot" in host_l or "bing.com" in host_l or "sydney" in host_l:
-        frames = _ws_frames_copilot(reply)
-    elif "claude.ai" in host_l or "anthropic.com" in host_l:
-        frames = _ws_frames_claude(reply)
-    elif "chatgpt.com" in host_l or "openai.com" in host_l or "deepseek.com" in host_l:
-        frames = _ws_frames_openai(reply)
-    elif "perplexity.ai" in host_l:
-        frames = _ws_frames_perplexity(reply)
-    elif "gemini.google.com" in host_l or "bard.google.com" in host_l or "googleapis.com" in host_l:
-        frames = _ws_frames_gemini(reply)
-    elif any(x in host_l for x in ("grok.", "x.ai", "poe.com", "mistral.ai", "huggingface.co")):
-        frames = _ws_frames_openai(reply)
-    else:
-        # Any other Target Website you add
-        frames = _ws_frames_universal(reply)
+    frames = _ws_frames_universal(reply)
 
     ok = 0
     for frame in frames:
@@ -4053,11 +4299,12 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         "Cache-Control": "no-cache",
     }
 
-    # Wire-format routing for in-chat replies. Any admin-added host can hit these
-    # when the request looks like that product's API (not a default target list).
+    raw_body = (flow.request.content or b"").decode("utf-8", errors="ignore")
+
+    # Wire-format routing: detect from REQUEST SHAPE (path/body/Accept) — not hostname lists.
     chatgpt_body = None
     try:
-        parsed = json.loads((flow.request.content or b"").decode("utf-8", errors="ignore") or "")
+        parsed = json.loads(raw_body or "")
         if isinstance(parsed, dict) and isinstance(parsed.get("messages"), list):
             if "conversation_id" in parsed or "parent_message_id" in parsed:
                 chatgpt_body = parsed
@@ -4066,8 +4313,8 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
     except Exception:
         chatgpt_body = None
 
-    # ── ChatGPT-shaped conversation APIs ──
-    if chatgpt_body is not None or "chatgpt.com" in host_l or "chat.openai.com" in host_l:
+    # ── ChatGPT-shaped conversation APIs (body shape, any monitored domain) ──
+    if chatgpt_body is not None:
         user_msg_id = ""
         conv_id = None
         req_data = chatgpt_body if isinstance(chatgpt_body, dict) else {}
@@ -4123,14 +4370,31 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         )
         return
 
-    # ── Claude.ai ──
-    if "claude.ai" in host_l:
-        claude_sse = (
-            "event: completion\n"
-            f"data: {json.dumps({'completion': msg, 'stop_reason': None, 'model': 'unifai-guard', 'stop': None, 'log_id': 'unifai_block'})}\n\n"
-            "event: completion\n"
-            f"data: {json.dumps({'completion': '', 'stop_reason': 'stop_sequence', 'model': 'unifai-guard', 'stop': '', 'log_id': 'unifai_block'})}\n\n"
-        )
+    # ── Claude / Anthropic chat APIs (path/body shape) ──
+    if _is_claude_api_shape(path, raw_body):
+        if "/v1/messages" in path:
+            claude_sse = (
+                'event: message_start\n'
+                'data: {"type":"message_start","message":{"id":"msg_unifai_block","type":"message",'
+                '"role":"assistant","content":[],"model":"unifai-guard","stop_reason":null}}\n\n'
+                'event: content_block_start\n'
+                'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n'
+                'event: content_block_delta\n'
+                f'data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{msg_json}}}}}\n\n'
+                'event: content_block_stop\n'
+                'data: {"type":"content_block_stop","index":0}\n\n'
+                'event: message_delta\n'
+                'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}\n\n'
+                'event: message_stop\n'
+                'data: {"type":"message_stop"}\n\n'
+            )
+        else:
+            claude_sse = (
+                "event: completion\n"
+                f"data: {json.dumps({'completion': msg, 'stop_reason': None, 'model': 'unifai-guard', 'stop': None, 'log_id': 'unifai_block'})}\n\n"
+                "event: completion\n"
+                f"data: {json.dumps({'completion': '', 'stop_reason': 'stop_sequence', 'model': 'unifai-guard', 'stop': '', 'log_id': 'unifai_block'})}\n\n"
+            )
         flow.response = http.Response.make(
             200,
             claude_sse.encode("utf-8"),
@@ -4142,35 +4406,8 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         )
         return
 
-    if "anthropic.com" in host_l:
-        claude_sse = (
-            'event: message_start\n'
-            'data: {"type":"message_start","message":{"id":"msg_unifai_block","type":"message",'
-            '"role":"assistant","content":[],"model":"unifai-guard","stop_reason":null}}\n\n'
-            'event: content_block_start\n'
-            'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n'
-            'event: content_block_delta\n'
-            f'data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{msg_json}}}}}\n\n'
-            'event: content_block_stop\n'
-            'data: {"type":"content_block_stop","index":0}\n\n'
-            'event: message_delta\n'
-            'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}\n\n'
-            'event: message_stop\n'
-            'data: {"type":"message_stop"}\n\n'
-        )
-        flow.response = http.Response.make(
-            200,
-            claude_sse.encode("utf-8"),
-            {
-                **common_headers,
-                "Content-Type": "text/event-stream; charset=utf-8",
-                "X-Accel-Buffering": "no",
-            },
-        )
-        return
-
-    # ── Microsoft Copilot / Bing (any host with copilot or bing in the name) ──
-    if "copilot" in host_l or "bing.com" in host_l or "sydney" in host_l:
+    # ── Microsoft Copilot / Bing (request shape) ──
+    if is_copilot_chat_submit(path, raw_body):
         copilot_sse = (
             "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":"
             f"{msg_json}"
@@ -4198,8 +4435,8 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         )
         return
 
-    # ── Perplexity ──
-    if "perplexity.ai" in host_l:
+    # ── Perplexity (request shape) ──
+    if is_perplexity_chat_submit(path, raw_body):
         pplx = (
             f'event: message\ndata: {{"text":{msg_json}}}\n\n'
             f'data: {{"status":"completed","text":{msg_json},"final":true}}\n\n'
@@ -4212,13 +4449,8 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         )
         return
 
-    # ── Gemini / Bard ──
-    if (
-        "gemini.google.com" in host_l
-        or "bard.google.com" in host_l
-        or "generativelanguage.googleapis.com" in host_l
-        or ("google.com" in host_l and "batchexecute" in path)
-    ):
+    # ── Gemini / Bard (request shape) ──
+    if is_gemini_chat_submit(path, raw_body) or "f.req=" in raw_body:
         path_compact = path.replace("_", "")
         # StreamGenerate expects progressive Google JSON lines — OpenAI-style SSE leaves the UI spinning.
         if "streamgenerate" in path_compact or "generatecontent" in path_compact or "bardfrontend" in path:
@@ -4248,14 +4480,8 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         )
         return
 
-    # ── Grok / Poe / Mistral / HuggingFace / DeepSeek — OpenAI-compatible SSE ──
-    if any(
-        x in host_l
-        for x in (
-            "deepseek.com", "poe.com", "mistral.ai", "huggingface.co",
-            "grok.com", "grok.x.ai", "x.ai",
-        )
-    ) or "event-stream" in accept or "chat" in path or "stream" in path or "completion" in path:
+    # ── OpenAI-compatible SSE (Accept/path shape — any admin-added domain) ──
+    if "event-stream" in accept or "chat/completions" in path or "stream" in path or "completion" in path:
         openai_sse = (
             'data: {"id":"unifai-reply","object":"chat.completion.chunk","choices":'
             '[{"index":0,"delta":{"role":"assistant","content":'
@@ -4435,20 +4661,19 @@ class BrowserAIInterceptor:
         if "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower():
             return
 
-        # Gemini fires many extra POSTs (session ids, counters). Log only the chat submit.
-        if is_gemini_host(host) and not is_gemini_chat_submit(path, raw_text):
+        # Gemini batchexecute noise — only skip when body is not a chat submit.
+        if "batchexecute" in (path or "").lower() and not is_gemini_chat_submit(path, raw_text):
             return
 
-        if is_copilot_host(host) and is_copilot_noise_content(raw_text):
+        if is_copilot_noise_content(raw_text):
             return
 
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
         if not is_chat_path(path, host, raw_text):
             return
 
-        chatgpt = is_chatgpt_host(host) or "openai.com" in (host or "").lower()
-        # ChatGPT conversation bodies are often protobuf / mixed JSON. Do not drop as noise.
-        if not chatgpt:
+        chatgpt_shaped = _looks_like_chatgpt_body(raw_text, raw_bytes)
+        if not chatgpt_shaped:
             if is_noise(path):
                 return
             if is_noise(path, raw_text):
@@ -4479,16 +4704,15 @@ class BrowserAIInterceptor:
 
         prompt = extract_prompt(raw_bytes, content_type, host=host)
         if not prompt or len(prompt.strip()) < 1:
-            # Help debug Gemini/Copilot/ChatGPT misses without flooding logs
-            if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6", "claude", "chatgpt", "openai")) and len(raw_bytes) > 8:
+            if len(raw_bytes) > 8:
                 print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
             # Attachment-only send already logged above (real file markers only)
             if chat_carries_attachment(raw_text):
                 return
             return
-        if not looks_like_user_prompt(prompt) and not (chatgpt and prompt.strip()):
+        if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip()):
             return
-        if _is_opaque_wire_blob(prompt) and not (chatgpt and len(prompt.strip()) < 32):
+        if _is_opaque_wire_blob(prompt) and not (chatgpt_shaped and len(prompt.strip()) < 32):
             return
         # Skip duplicate FILE UPLOAD lines if extract_prompt somehow returned that
         if prompt.strip().startswith("[FILE UPLOAD"):
@@ -4562,24 +4786,19 @@ class BrowserAIInterceptor:
         if not content or len(content.strip()) < 1:
             return
 
-        if is_gemini_host(host):
-            # HTTP path must be StreamGenerate; empty WS path relies on extract_gemini_prompt
-            ws_path = flow.request.path or ""
-            if ws_path and not is_gemini_chat_submit(ws_path, content):
-                return
-
-        if is_copilot_host(host):
-            ws_path = flow.request.path or ""
-            if not is_copilot_chat_submit(ws_path, content):
-                return
-            if is_copilot_noise_content(content):
-                return
-
-        chatgpt = is_chatgpt_host(host) or "openai.com" in (host or "").lower()
-        if not chatgpt and is_noise(flow.request.path, content):
+        ws_path = flow.request.path or ""
+        if "batchexecute" in ws_path.lower() and not is_gemini_chat_submit(ws_path, content):
+            return
+        if is_copilot_noise_content(content):
+            return
+        if not is_chat_path(ws_path, host, content):
             return
 
-        # Copilot (and other WS chat): file attachment Send must hit Block Upload / file rules
+        chatgpt_shaped = _looks_like_chatgpt_body(content)
+        if not chatgpt_shaped and is_noise(ws_path, content):
+            return
+
+        # File attachment Send must hit Block Upload / file rules
         should_block_file, file_block_msg = enforce_file_send_policy(
             platform=platform,
             domain=domain,
@@ -4609,9 +4828,9 @@ class BrowserAIInterceptor:
         prompt = extract_prompt(content.encode("utf-8"), "application/json", host=host)
         if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
             return
-        if not looks_like_user_prompt(prompt) and not (chatgpt and prompt.strip()):
+        if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip()):
             return
-        if _is_opaque_wire_blob(prompt) and not (chatgpt and len(prompt.strip()) < 32):
+        if _is_opaque_wire_blob(prompt) and not (chatgpt_shaped and len(prompt.strip()) < 32):
             return
 
         if is_unsubmitted_chat_body(flow.request.path, content):

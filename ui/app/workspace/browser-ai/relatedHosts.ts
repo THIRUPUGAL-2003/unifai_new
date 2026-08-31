@@ -1,4 +1,4 @@
-/** Suggested related hosts. Gemini/Copilot/ChatGPT also auto-added on CreateTarget in backend. */
+/** Target Website helpers — admin adds every hostname; no product default lists. */
 
 export type RelatedHostGroup = {
 	label: string;
@@ -18,69 +18,14 @@ export function isCoveredByAny(host: string, domains: string[]): boolean {
 	return domains.some((d) => isCoveredByDomain(host, d));
 }
 
-/** Names only. Empty unless the typed/listed domain is Gemini or Copilot. */
-export function relatedHostsForDomain(domain: string): RelatedHostGroup | null {
-	const d = normalizeTargetDomain(domain);
-	if (!d) return null;
-
-	if (d === "gemini.google.com" || d === "bard.google.com") {
-		return {
-			label: "Gemini related hosts",
-			reason: "Chat prompts usually go through clients6.google.com — add it or Gemini logs stay empty. Subdomains of gemini.google.com are already covered.",
-			hosts: ["clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"],
-		};
-	}
-	if (d === "copilot.microsoft.com" || d === "copilot.cloud.microsoft") {
-		return {
-			label: "Copilot related hosts",
-			reason: "Chat often uses sydney.bing.com; M365 uploads use substrate.office.com.",
-			hosts: [
-				"sydney.bing.com",
-				"bing.com",
-				"edgeservices.bing.com",
-				"business.bing.com",
-				"copilot.cloud.microsoft",
-				"m365.cloud.microsoft",
-				"substrate.office.com",
-			],
-		};
-	}
-	if (d === "chatgpt.com" || d === "chat.openai.com") {
-		return {
-			label: "ChatGPT related hosts",
-			reason: "Chat and upload traffic can use chatgpt.com or chat.openai.com — keep both monitored for file View/logs.",
-			hosts: ["chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"],
-		};
-	}
-	if (d === "claude.ai" || d === "www.claude.ai") {
-		return {
-			label: "Claude related hosts",
-			reason: "Keep claude.ai monitored so document convert/upload and chat Send are both visible to Guard.",
-			hosts: ["claude.ai", "www.claude.ai"],
-		};
-	}
-	if (d === "perplexity.ai" || d === "www.perplexity.ai" || d === "pplx.ai") {
-		return {
-			label: "Perplexity related hosts",
-			reason: "File uploads may use alternate Perplexity hosts — keep all monitored.",
-			hosts: ["perplexity.ai", "www.perplexity.ai", "pplx.ai"],
-		};
-	}
+/** No hardcoded product suggestions — admin adds related hosts manually. */
+export function relatedHostsForDomain(_domain: string): RelatedHostGroup | null {
 	return null;
 }
 
-export function relatedHostOptions(domain: string, alreadyAdded: string[]): string[] {
-	const group = relatedHostsForDomain(domain);
-	if (!group) return [];
-	const self = normalizeTargetDomain(domain);
-	return group.hosts.filter((h) => {
-		if (isCoveredByDomain(h, self)) return false;
-		if (isCoveredByAny(h, alreadyAdded)) return false;
-		return true;
-	});
+export function relatedHostOptions(_domain: string, _alreadyAdded: string[]): string[] {
+	return [];
 }
-
-/** Normalize a Target Website hostname. No product default lists. */
 
 export type TargetHostNode = {
 	id: string;

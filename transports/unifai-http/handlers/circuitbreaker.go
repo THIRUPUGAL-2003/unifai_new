@@ -1,11 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/unifai/unifai/framework/circuitbreaker"
+	"github.com/unifai/unifai/framework/configstore"
 	"github.com/unifai/unifai/framework/configstore/tables"
 	"github.com/valyala/fasthttp"
 )
@@ -131,6 +134,7 @@ func (h *WorkspaceHandler) createCircuitBreakerPolicy(ctx *fasthttp.RequestCtx) 
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save policy")
 		return
 	}
+	reloadCircuitBreakerPolicies(store)
 	SendJSONWithStatus(ctx, payload, fasthttp.StatusCreated)
 }
 
@@ -172,6 +176,7 @@ func (h *WorkspaceHandler) updateCircuitBreakerPolicy(ctx *fasthttp.RequestCtx) 
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to update policy")
 		return
 	}
+	reloadCircuitBreakerPolicies(store)
 	SendJSON(ctx, payload)
 }
 
@@ -188,28 +193,32 @@ func (h *WorkspaceHandler) deleteCircuitBreakerPolicy(ctx *fasthttp.RequestCtx) 
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to delete policy")
 		return
 	}
-	h.circuits.Delete(name)
+	circuitbreaker.Default.DeletePolicy(name)
+	reloadCircuitBreakerPolicies(store)
 	SendJSON(ctx, map[string]string{"message": "deleted"})
 }
 
 func (h *WorkspaceHandler) getCircuitBreakerState(ctx *fasthttp.RequestCtx) {
-	circuits := map[string]circuitState{}
-	h.circuits.Range(func(key, value any) bool {
-		state, ok := value.(circuitState)
-		if !ok {
-			return true
-		}
-		if time.Now().After(state.ExpiresAt) {
-			h.circuits.Delete(key)
-			return true
-		}
-		circuits[fmt.Sprint(key)] = state
-		return true
-	})
-	SendJSON(ctx, map[string]any{"circuits": circuits})
+	SendJSON(ctx, map[string]any{"circuits": circuitbreaker.Default.ListStates()})
 }
 
 func (h *WorkspaceHandler) resetCircuitBreakerPolicy(ctx *fasthttp.RequestCtx) {
-	h.circuits.Delete(pathID(ctx, "name"))
+	circuitbreaker.Default.Reset(pathID(ctx, "name"))
 	SendJSON(ctx, map[string]string{"message": "reset"})
+}
+
+func reloadCircuitBreakerPolicies(store configstore.WorkspaceStore) {
+	if store == nil {
+		return
+	}
+	rows, err := store.ListCircuitBreakerPolicies(context.Background())
+	if err != nil {
+		return
+	}
+	circuitbreaker.Default.LoadPolicies(rows)
+}
+
+// ReloadCircuitBreakerPoliciesFromStore refreshes runtime policies (server startup).
+func ReloadCircuitBreakerPoliciesFromStore(store configstore.WorkspaceStore) {
+	reloadCircuitBreakerPolicies(store)
 }

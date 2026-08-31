@@ -142,7 +142,7 @@ export default function CircuitBreakerView() {
 
 	return (
 		<div className="flex w-full flex-col gap-6 p-1">
-			<RuntimeLimitBanner description="Policies and manual reset work. Automatic trip / failover on live traffic requires the Enterprise circuit-breaker runtime." />
+			<RuntimeLimitBanner description="Policies trip on provider response headers and fail over to the configured fallback until cooldown expires." />
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="flex items-center gap-2 text-2xl font-semibold">

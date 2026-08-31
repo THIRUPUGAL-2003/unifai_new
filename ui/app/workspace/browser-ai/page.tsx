@@ -2024,12 +2024,12 @@ export default function BrowserAiPage() {
 													value={newTargetDomain}
 													onChange={(e) => setNewTargetDomain(e.target.value)}
 												/>
-												<p className="text-[11px] text-muted-foreground">Examples: gemini.google.com, copilot.microsoft.com, deepseek.com</p>
+												<p className="text-[11px] text-muted-foreground">Add only domains you want monitored. Subdomains of a parent domain are covered automatically.</p>
 											</div>
 											<div className="space-y-2 rounded-md border border-border p-3">
 												<p className="text-sm font-medium">Add related host</p>
 												<p className="text-[11px] text-muted-foreground">
-													Subdomains of the domain you add already get full Guard access. Add a related host only when it is a different hostname you want nested under this domain. Names below are suggestions — nothing is added until you choose it.
+													Subdomains of the domain you add are already covered. Add a related host only when chat or file traffic uses a different root hostname (e.g. upload CDN). You choose every hostname — nothing is auto-added.
 												</p>
 												{newTargetRelatedGroup ? (
 													<div className="space-y-1.5 rounded-md border border-dashed border-border bg-muted/20 p-2">

@@ -1,0 +1,72 @@
+package circuitbreaker
+
+import (
+	"testing"
+	"time"
+
+	"github.com/unifai/unifai/core/schemas"
+	configstoreTables "github.com/unifai/unifai/framework/configstore/tables"
+)
+
+func TestApplyFailoverWhenOpen(t *testing.T) {
+	r := &Runtime{}
+	r.LoadPolicies([]configstoreTables.TableCircuitBreakerPolicy{{
+		Name: "p1", Enabled: true,
+		PrimaryProvider: "openai", PrimaryModel: "gpt-4o",
+		FallbackProvider: "anthropic", FallbackModel: "claude-3-5-sonnet",
+		DefaultCooldown: "1m",
+		ParsedCondition: map[string]any{
+			"operator": "OR",
+			"signals": []map[string]any{{"header_name": "x-degraded", "source": "response_header"}},
+		},
+	}})
+	r.trip("p1", time.Minute, time.Now())
+
+	dec, ok := r.ApplyFailover(schemas.ModelProvider("openai"), "gpt-4o")
+	if !ok || dec == nil {
+		t.Fatal("expected failover")
+	}
+	if dec.ToProv != "anthropic" || dec.ToModel != "claude-3-5-sonnet" {
+		t.Fatalf("unexpected failover target: %+v", dec)
+	}
+}
+
+func TestEvaluateTripOnHeader(t *testing.T) {
+	r := &Runtime{}
+	r.LoadPolicies([]configstoreTables.TableCircuitBreakerPolicy{{
+		Name: "p1", Enabled: true,
+		PrimaryProvider: "openai", PrimaryModel: "gpt-4o",
+		FallbackProvider: "anthropic", FallbackModel: "claude-3-5-sonnet",
+		DefaultCooldown: "45s",
+		ParsedCondition: map[string]any{
+			"operator": "OR",
+			"signals": []map[string]any{{"header_name": "x-degraded", "header_value": "true", "source": "response_header"}},
+		},
+	}})
+
+	name, tripped := r.EvaluateTrip(schemas.ModelProvider("openai"), "gpt-4o", map[string]string{"X-Degraded": "true"})
+	if !tripped || name != "p1" {
+		t.Fatalf("expected trip, got tripped=%v name=%q", tripped, name)
+	}
+	states := r.ListStates()
+	if states["p1"].Status != "open" {
+		t.Fatalf("expected open circuit, got %+v", states["p1"])
+	}
+}
+
+func TestEvaluateTripDoesNotMatchFallback(t *testing.T) {
+	r := &Runtime{}
+	r.LoadPolicies([]configstoreTables.TableCircuitBreakerPolicy{{
+		Name: "p1", Enabled: true,
+		PrimaryProvider: "openai", PrimaryModel: "gpt-4o",
+		FallbackProvider: "anthropic", FallbackModel: "claude-3-5-sonnet",
+		ParsedCondition: map[string]any{
+			"operator": "OR",
+			"signals": []map[string]any{{"header_name": "x-degraded", "source": "response_header"}},
+		},
+	}})
+	_, tripped := r.EvaluateTrip(schemas.ModelProvider("anthropic"), "claude-3-5-sonnet", map[string]string{"x-degraded": "1"})
+	if tripped {
+		t.Fatal("fallback endpoint should not trip primary policy")
+	}
+}

@@ -1196,7 +1196,8 @@ func (p *GovernancePlugin) PreRequestHook(ctx *schemas.UnifAIContext, req *schem
 
 	virtualKeyValue := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyVirtualKey)
 	hasRoutingRules := p.store.HasRoutingRules(ctx)
-	if virtualKeyValue == "" && !hasRoutingRules {
+	hasCircuitPolicies := circuitBreakerPoliciesActive()
+	if virtualKeyValue == "" && !hasRoutingRules && !hasCircuitPolicies {
 		return nil
 	}
 
@@ -1235,6 +1236,8 @@ func (p *GovernancePlugin) PreRequestHook(ctx *schemas.UnifAIContext, req *schem
 			return err
 		}
 	}
+
+	p.applyCircuitBreakerFailover(ctx, req)
 
 	// Publish the VK provider allowlist for the (post routing-rules) model so downstream routing
 	// layers (load balancing, model-catalog resolution) and core enforcement intersect their
@@ -1339,6 +1342,11 @@ func (p *GovernancePlugin) PostLLMHook(ctx *schemas.UnifAIContext, result *schem
 	}
 
 	isFinalChunk := unifai.IsFinalChunk(ctx)
+
+	// Trip circuit breaker when a primary provider response carries configured header signals.
+	if isFinalChunk {
+		p.evaluateCircuitBreakerTrip(ctx, result, err)
+	}
 
 	// Build pricing scopes from context using the governance VK ID (not the raw VK token)
 	pricingScopes := modelcatalog.PricingLookupScopesFromContext(ctx, string(provider))

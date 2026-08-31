@@ -22,14 +22,6 @@ import (
 type WorkspaceHandler struct {
 	store     *lib.Config
 	workspace configstore.WorkspaceStore
-	circuits  sync.Map
-}
-
-type circuitState struct {
-	Status    string    `json:"status"`
-	OpenedAt  time.Time `json:"opened_at"`
-	Cooldown  int64     `json:"cooldown"`
-	ExpiresAt time.Time `json:"expires_at"`
 }
 
 func NewWorkspaceHandler(store *lib.Config) *WorkspaceHandler {
