@@ -1060,8 +1060,8 @@ def is_noise(path: str, content: str = "") -> bool:
     if _path_has_ignore_pattern(path_lower):
         return True
 
-    # Partial typing / autocomplete — not a submitted prompt
-    if path_lower.endswith("/prepare") or "/prepare" in path_lower or "partial_query" in (content or ""):
+    # Partial typing / autocomplete — path-based only (body may include leftover prepare fields)
+    if path_lower.endswith("/prepare") or "/prepare" in path_lower:
         return True
     if "autocomplet" in path_lower or "implicit_hint" in path_lower:
         return True
@@ -1069,20 +1069,29 @@ def is_noise(path: str, content: str = "") -> bool:
     if content:
         if content.startswith('{"counters":') or content.startswith('{"view":') or content.startswith('{"events":'):
             return True
-        if '{"prepare_token":' in content or '"prepare_token"' in content:
-            return True
         # ChatGPT encrypted sentinel / challenge blobs — not user text
         if '"p":"gAAAA' in content or content.strip().startswith('{"p":"gAAAA'):
             return True
-        if '"requested_default_model"' in content and '"messages"' not in content:
-            return True
+        # prepare_token / presence appear on real chat Send AND on typing drafts.
+        # Never drop /conversation|completion|messages bodies here — later
+        # in_progress / unsubmitted checks skip keystrokes without losing the text.
+        path_is_chat = any(
+            x in (path or "").lower()
+            for x in ("/conversation", "/completion", "/completions", "/messages", "/append_message")
+        )
+        chat_send = path_is_chat or is_conversation_final_send(path, content) or is_confirmed_chat_submit(content)
+        if not chat_send:
+            if '{"prepare_token":' in content or '"prepare_token"' in content:
+                return True
+            if '"presence"' in content and '"messages"' not in content:
+                return True
+            if '"requested_default_model"' in content and '"messages"' not in content:
+                return True
         if 'AttributionReporting' in content or 'googletagmanager' in content:
             return True
         if 'columnNumber' in content and 'lineNumber' in content and 'sourceFile' in content:
             return True
         if 'com.google.android.gms' in content:
-            return True
-        if '"presence"' in content:
             return True
         if content.startswith('{"id":') and '"command":' in content and '"messages"' not in content:
             return True
@@ -1282,6 +1291,10 @@ def is_confirmed_chat_submit(body: str) -> bool:
             if data.get("parent_message_id") or data.get("conversation_id"):
                 return True
 
+    # Empty-body Enter/send (messages omitted). Do NOT treat in-progress drafts
+    # as confirmed just because parent_message_id is present.
+    if msgs:
+        return False
     if data.get("parent_message_id") and action in ("next", "variant", "continue", "submit", "send", ""):
         return True
 
@@ -1379,10 +1392,19 @@ def is_conversation_final_send(path: str, body: str) -> bool:
     action = str(data.get("action") or "").strip().lower()
     if action and action not in ("next", "variant", "continue", "submit", "send", ""):
         return False
+    msgs = data.get("messages") if isinstance(data.get("messages"), list) else []
+    for m in msgs:
+        if not isinstance(m, dict):
+            continue
+        status = str(m.get("status") or "").lower()
+        if status in ("in_progress", "unfinished", "draft"):
+            return False
+        meta = m.get("metadata") if isinstance(m.get("metadata"), dict) else {}
+        if meta.get("is_complete") is False:
+            return False
     if data.get("parent_message_id") or data.get("conversation_id"):
         return True
-    msgs = data.get("messages")
-    if isinstance(msgs, list) and msgs:
+    if msgs:
         return True
     return False
 
@@ -1488,6 +1510,66 @@ def resolve_file_id_from_url(path: str) -> str:
     for m in re.finditer(r"(file-[a-zA-Z0-9_-]+)", path or ""):
         return m.group(1)
     return ""
+
+
+def _looks_like_binary_file_body(raw: bytes, content_type: str = "") -> bool:
+    data = raw or b""
+    if len(data) < 64:
+        return False
+    stripped = data.lstrip()[:1]
+    if stripped in (b"{", b"[") and len(data) < 65536 and data[:5] != b"%PDF-":
+        return False
+    ct = (content_type or "").lower()
+    if (
+        data[:5] == b"%PDF-"
+        or data[:2] == b"PK"
+        or extract_pdf_bytes(data)
+        or data[:8] == b"\x89PNG\r\n\x1a\n"
+        or (len(data) >= 3 and data[0] == 0xFF and data[1] == 0xD8 and data[2] == 0xFF)
+    ):
+        return True
+    if any(p in ct for p in ("application/pdf", "octet-stream", "officedocument", "image/", "msword")):
+        return True
+    return False
+
+
+def bind_pending_binary_upload(
+    host: str,
+    path: str,
+    url: str,
+    raw: bytes,
+    content_type: str = "",
+) -> tuple[str, str, str, str] | None:
+    """Bind storage-CDN file bytes to a recent handshake from a monitored Target Website.
+
+    No product hostnames are hardcoded. Matching is by pending file_id (URL/path)
+    or a single very-recent handshake from admin-added domains.
+    """
+    if not _looks_like_binary_file_body(raw, content_type):
+        return None
+    _purge_pending_prompts()
+    now = time.time()
+    fid = resolve_file_id_from_url(path or "") or resolve_file_id_from_url(url or "")
+    if fid:
+        meta = _UPLOAD_META_BY_ID.get(fid)
+        if meta and now - float(meta.get("ts") or 0) <= _UPLOAD_FILE_CACHE_TTL:
+            domain = (meta.get("domain") or "").strip()
+            platform = (meta.get("platform") or domain).strip()
+            if domain:
+                return domain, platform, fid, (meta.get("file_name") or "attachment")
+
+    recent: list[tuple[str, dict]] = []
+    for k, v in _UPLOAD_META_BY_ID.items():
+        if now - float(v.get("ts") or 0) <= 20:
+            recent.append((k, v))
+    if not recent:
+        return None
+    k, v = max(recent, key=lambda kv: float(kv[1].get("ts") or 0))
+    domain = (v.get("domain") or "").strip()
+    platform = (v.get("platform") or domain).strip()
+    if not domain:
+        return None
+    return domain, platform, k, (v.get("file_name") or "attachment")
 
 
 def cache_upload_with_meta(
@@ -1859,6 +1941,16 @@ def is_confident_file_upload(
     host_l = (host or "").lower()
     path_l = (path or "").lower().split("?", 1)[0]
 
+    # JSON register/handshake is never the file — even when the filename is real.
+    if data.lstrip()[:1] == b"{" and len(data) < 65536:
+        if not (
+            data[:5] == b"%PDF-"
+            or data[:2] == b"PK"
+            or extract_pdf_bytes(data)
+            or _looks_like_image(data, ct, name)
+        ):
+            return False
+
     # Monitored-domain file API uploads — cache real bytes for Send-time scan
     is_target, _, _ = detect_target(host_l)
     if is_target and (
@@ -1896,8 +1988,8 @@ def is_confident_file_upload(
             return True
         return False
 
-    # Real filename with extension (not placeholder names)
-    if name and name_l not in _FAKE_UPLOAD_NAMES and "." in name:
+    # Real filename with extension + real bytes (JSON handshake already rejected above)
+    if name and name_l not in _FAKE_UPLOAD_NAMES and "." in name and len(data) >= 64:
         ext = name_l.rsplit(".", 1)[-1]
         if 1 <= len(ext) <= 5 and ext.isalnum():
             return True
@@ -2032,6 +2124,11 @@ def _sniff_upload_content_type(data: bytes, file_name: str = "", hint: str = "")
         return "image/gif"
     if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp"
+    # Filename .pdf must not override a JSON handshake body
+    stripped = (data or b"").lstrip()[:1]
+    if stripped in (b"{", b"[") and len(data) < 65536:
+        if not (data[:5] == b"%PDF-" or data[:2] == b"PK"):
+            return "application/json"
     if data[:2] == b"PK":
         low = (file_name or "").lower()
         if low.endswith(".docx"):
@@ -2099,10 +2196,11 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
     # Direct binary body (resumable / octet-stream)
     if len(raw) >= 32:
         ctype = _sniff_upload_content_type(raw, name, content_type)
-        # Skip tiny JSON metadata
+        # Skip JSON metadata handshakes even when filename ends with .pdf
         stripped = raw.lstrip()
-        if stripped[:1] in (b"{", b"[") and len(raw) < 50_000 and ctype == "application/octet-stream":
-            return None, "", name
+        if stripped[:1] in (b"{", b"[") and len(raw) < 65_536:
+            if not extract_pdf_bytes(raw) and raw[:2] != b"PK":
+                return None, "", name
         data = raw if len(raw) <= 20 * 1024 * 1024 else raw[: 20 * 1024 * 1024]
         return data, ctype, name
     return None, "", name
@@ -4568,6 +4666,54 @@ class BrowserAIInterceptor:
         is_target, domain, platform = detect_target(host)
 
         if not is_target:
+            # File bytes often land on a storage host that was not added as a
+            # related Target Website. Bind by pending file_id from a monitored handshake.
+            if flow.request.method not in ("POST", "PUT", "PATCH"):
+                return
+            raw_probe = flow.request.content or b""
+            ct_probe = flow.request.headers.get("content-type", "")
+            bound = bind_pending_binary_upload(
+                host=host,
+                path=flow.request.path or "",
+                url=flow.request.url or "",
+                raw=raw_probe,
+                content_type=ct_probe,
+            )
+            if not bound:
+                return
+            domain, platform, bound_fid, bound_name = bound
+            client_ip = get_client_ip(flow)
+            print(
+                f"[UnifAI Proxy] FILE BYTES bound from storage host | {host} → {domain} | "
+                f"{bound_name} | {len(raw_probe)} bytes"
+            )
+            if controls_active("block_upload"):
+                block_upload_request_now(
+                    flow,
+                    platform=platform,
+                    domain=domain,
+                    host=host,
+                    client_ip=client_ip,
+                    fname=bound_name or "attachment",
+                    raw_bytes=raw_probe,
+                    content_type=ct_probe,
+                    raw_text="",
+                )
+                return
+            upload_text = extract_upload_text_for_rules(raw_probe, ct_probe, "", bound_name)
+            file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
+            cache_upload_with_meta(
+                domain,
+                platform,
+                file_name=bound_name or "attachment",
+                raw_bytes=raw_probe,
+                content_type=ct_probe,
+                upload_reason=f"Bound storage upload ({(flow.request.path or '')[:80]})",
+                rule_hit=file_rule_hit,
+                rule_name=file_rule_name,
+                rule_action=file_rule_action,
+                file_id=bound_fid,
+            )
             return
 
         # Keep control settings warm
