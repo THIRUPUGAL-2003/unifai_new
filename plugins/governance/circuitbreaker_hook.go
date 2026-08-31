@@ -62,8 +62,10 @@ func (p *GovernancePlugin) evaluateCircuitBreakerTrip(ctx *schemas.UnifAIContext
 }
 
 func collectProviderResponseHeaders(ctx *schemas.UnifAIContext, result *schemas.UnifAIResponse, err *schemas.UnifAIError) map[string]string {
-	if result != nil && result.ExtraFields.ProviderResponseHeaders != nil {
-		return result.ExtraFields.ProviderResponseHeaders
+	if result != nil {
+		if extra := result.GetExtraFields(); extra != nil && extra.ProviderResponseHeaders != nil {
+			return extra.ProviderResponseHeaders
+		}
 	}
 	if raw, ok := ctx.Value(schemas.UnifAIContextKeyProviderResponseHeaders).(map[string]string); ok && len(raw) > 0 {
 		return raw
