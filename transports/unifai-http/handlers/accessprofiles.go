@@ -272,6 +272,12 @@ func (h *WorkspaceHandler) setAccessProfileActive(ctx *fasthttp.RequestCtx, acti
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to update access profile")
 		return
 	}
+	if active && h.store != nil && h.store.ConfigStore != nil {
+		if err := propagateAccessProfile(ctx, h.store.ConfigStore, *row); err != nil {
+			SendError(ctx, fasthttp.StatusBadGateway, "profile activated but failed to propagate to virtual keys: "+err.Error())
+			return
+		}
+	}
 	SendJSON(ctx, map[string]any{"access_profile": accessProfileFromRow(*row)})
 }
 
@@ -326,5 +332,32 @@ func (h *WorkspaceHandler) cloneAccessProfile(ctx *fasthttp.RequestCtx) {
 }
 
 func (h *WorkspaceHandler) listUserAccessProfiles(ctx *fasthttp.RequestCtx) {
-	SendJSON(ctx, map[string]any{"access_profiles": []any{}})
+	store := h.requireStore(ctx)
+	if store == nil {
+		return
+	}
+	targetUserID := pathID(ctx, "target_user_id")
+	rows, err := store.ListAccessProfiles(ctx)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "failed to list access profiles")
+		return
+	}
+	items := make([]map[string]any, 0)
+	for _, row := range rows {
+		if !row.IsActive {
+			continue
+		}
+		spec := row.Spec()
+		item := map[string]any{
+			"id": row.ID, "name": row.Name, "is_active": row.IsActive,
+			"user_id": targetUserID, "parent_profile_id": row.ID,
+			"provider_configs": specMapSlice(spec, "provider_configs"),
+			"budgets":          specMapSlice(spec, "budgets"),
+			"rate_limit":       specMap(spec, "rate_limit"),
+			"virtual_key_ids":  specStringSlice(spec, "virtual_key_ids"),
+			"created_at":       row.CreatedAt, "updated_at": row.UpdatedAt,
+		}
+		items = append(items, item)
+	}
+	SendJSON(ctx, map[string]any{"access_profiles": items})
 }

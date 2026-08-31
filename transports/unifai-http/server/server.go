@@ -1421,7 +1421,7 @@ func (s *UnifAIHTTPServer) RegisterAPIRoutes(ctx context.Context, callbacks Serv
 	workspaceHandler := handlers.NewWorkspaceHandler(s.Config)
 	if ws, ok := configstore.AsWorkspaceStore(s.Config.ConfigStore); ok && ws != nil {
 		handlers.ReloadCircuitBreakerPoliciesFromStore(ws)
-		handlers.ReloadConnectorsFromStore(ws)
+		handlers.ReloadEnterpriseRuntimeFromStore(ws, s.Config)
 	}
 	// Going ahead with API handlers
 	oauth2DiscoveryHandler := handlers.NewOAuth2DiscoveryHandler(s.Config)

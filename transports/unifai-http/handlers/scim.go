@@ -152,7 +152,7 @@ func (h *WorkspaceHandler) updateConnector(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save connector")
 		return
 	}
-	ReloadConnectorsFromStore(store)
+	ReloadEnterpriseRuntimeFromStore(store, h.store)
 	settings := connectors.Settings{Name: name, Enabled: false, Config: map[string]string{}}
 	if enabled, ok := payload["enabled"].(bool); ok {
 		settings.Enabled = enabled

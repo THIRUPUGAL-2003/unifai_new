@@ -37,8 +37,12 @@ func NewEnterpriseFeaturesHandler(store *lib.Config) *WorkspaceHandler {
 }
 
 func (h *WorkspaceHandler) RegisterRoutes(r *router.Router, middlewares ...schemas.UnifAIHTTPMiddleware) {
+	rbac := func(next fasthttp.RequestHandler) fasthttp.RequestHandler { return next }
+	if h.store != nil && h.store.ConfigStore != nil {
+		rbac = RBACMiddleware(h.store.ConfigStore)
+	}
 	wrap := func(fn fasthttp.RequestHandler) fasthttp.RequestHandler {
-		return lib.ChainMiddlewares(h.withAudit(fn), middlewares...)
+		return lib.ChainMiddlewares(rbac(h.withAudit(fn)), middlewares...)
 	}
 
 	r.GET("/api/circuit-breaker/policies", wrap(h.listCircuitBreakerPolicies))
@@ -68,6 +72,7 @@ func (h *WorkspaceHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.GET("/api/resources", wrap(h.listRBACResources))
 	r.GET("/api/operations", wrap(h.listRBACOperations))
 	r.GET("/api/permissions", wrap(h.listRBACPermissions))
+	r.GET("/api/rbac/me/permissions", wrap(h.getMyRBACPermissions))
 	r.PUT("/api/users/{id}/role", wrap(h.assignUserRole))
 
 	r.GET("/api/governance/business-units", wrap(h.listBusinessUnits))
@@ -114,6 +119,11 @@ func (h *WorkspaceHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.GET("/api/connectors/{name}", wrap(h.getConnector))
 	r.PUT("/api/connectors/{name}", wrap(h.updateConnector))
 	r.POST("/api/connectors/{name}/test", wrap(h.testConnector))
+
+	r.GET("/scim/v2/Users", wrap(h.scimListUsers))
+	r.POST("/scim/v2/Users", wrap(h.scimCreateUser))
+	r.GET("/scim/v2/Users/{id}", wrap(h.scimGetUser))
+	r.DELETE("/scim/v2/Users/{id}", wrap(h.scimDeleteUser))
 }
 
 func (h *WorkspaceHandler) requireStore(ctx *fasthttp.RequestCtx) configstore.WorkspaceStore {
@@ -157,6 +167,9 @@ func (h *WorkspaceHandler) withAudit(next fasthttp.RequestHandler) fasthttp.Requ
 			return
 		}
 		if h.workspace == nil {
+			return
+		}
+		if isAuditDisabled() {
 			return
 		}
 		status := ctx.Response.StatusCode()

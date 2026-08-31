@@ -40,7 +40,7 @@ export default function SCIMView() {
 
 	return (
 		<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-			<RuntimeLimitBanner description="SCIM settings save here. Live IdP sync (Okta/Entra/Keycloak) requires the Enterprise provisioning runtime." />
+			<RuntimeLimitBanner description="SCIM v2 Users endpoints provision users from your IdP. Configure provider settings and token here." />
 			<div>
 				<h1 className="flex items-center gap-2 text-2xl font-semibold">
 					<UserRoundCog className="h-6 w-6" />

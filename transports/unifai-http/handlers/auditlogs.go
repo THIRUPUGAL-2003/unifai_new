@@ -112,5 +112,6 @@ func (h *WorkspaceHandler) updateAuditSettings(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save audit settings")
 		return
 	}
+	ReloadAuditSettingsFromStore(store)
 	SendJSON(ctx, payload)
 }

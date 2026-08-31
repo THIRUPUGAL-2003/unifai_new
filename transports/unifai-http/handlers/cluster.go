@@ -5,6 +5,7 @@ import (
 
 	"github.com/unifai/unifai/core/schemas"
 	"github.com/unifai/unifai/framework/configstore"
+	"github.com/unifai/unifai/framework/loadbalancer"
 	"github.com/valyala/fasthttp"
 )
 
@@ -87,6 +88,7 @@ func (h *WorkspaceHandler) updateClusterConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save cluster config")
 		return
 	}
+	ApplyClusterRuntime(ctx, store, h.store)
 	SendJSON(ctx, payload)
 }
 
@@ -146,6 +148,10 @@ func (h *WorkspaceHandler) updateLoadBalancerConfig(ctx *fasthttp.RequestCtx) {
 	if err := store.UpsertWorkspaceSetting(ctx, configstore.WorkspaceSettingLoadBalancer, string(raw)); err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save load balancer config")
 		return
+	}
+	_ = loadbalancer.ReloadFromStore(ctx, store)
+	if h.store != nil && h.store.ConfigStore != nil {
+		ReloadLoadBalancerProviderKeys(ctx, h.store.ConfigStore)
 	}
 	SendJSON(ctx, payload)
 }

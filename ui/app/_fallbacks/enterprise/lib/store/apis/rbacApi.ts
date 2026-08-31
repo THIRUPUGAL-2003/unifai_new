@@ -31,6 +31,13 @@ export const rbacApi = baseApi.injectEndpoints({
 			query: (id) => ({ url: `/roles/${id}`, method: "DELETE" }),
 			invalidatesTags: ["Roles"],
 		}),
+		getMyRBACPermissions: builder.query<
+			{ role: string; permissions: Record<string, Record<string, boolean>> },
+			void
+		>({
+			query: () => ({ url: "/rbac/me/permissions" }),
+			providesTags: ["Permissions"],
+		}),
 	}),
 });
 
@@ -41,4 +48,5 @@ export const {
 	useCreateRoleMutation,
 	useUpdateRolePermissionsMutation,
 	useDeleteRoleMutation,
+	useGetMyRBACPermissionsQuery,
 } = rbacApi;

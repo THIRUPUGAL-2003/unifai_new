@@ -1,4 +1,8 @@
-import { createContext, useContext } from "react";
+"use client";
+
+import { IS_ENTERPRISE } from "@/lib/constants/config";
+import { useGetMyRBACPermissionsQuery } from "@enterprise/lib/store/apis/rbacApi";
+import { createContext, useCallback, useContext, useMemo } from "react";
 
 // RBAC Resource Names (must match backend definitions)
 export enum RbacResource {
@@ -55,32 +59,72 @@ interface RbacContextType {
 
 const RbacContext = createContext<RbacContextType | null>(null);
 
-// Dummy provider that allows all permissions
+function hasPermission(
+	permissions: Record<string, Record<string, boolean>>,
+	resource: RbacResource,
+	operation: RbacOperation,
+): boolean {
+	const ops = permissions[resource];
+	if (!ops) {
+		return false;
+	}
+	if (ops[operation]) {
+		return true;
+	}
+	if (operation === RbacOperation.View && ops[RbacOperation.Read]) {
+		return true;
+	}
+	if (operation === RbacOperation.Read && ops[RbacOperation.View]) {
+		return true;
+	}
+	return false;
+}
+
 export function RbacProvider({ children }: { children: React.ReactNode }) {
-	return (
-		<RbacContext.Provider
-			value={{
-				isAllowed: () => true, // Always allow in OSS
-				permissions: {},
-				isLoading: false,
-				refetch: () => {},
-			}}
-		>
-			{children}
-		</RbacContext.Provider>
+	const { data, isLoading, refetch } = useGetMyRBACPermissionsQuery(undefined, { skip: !IS_ENTERPRISE });
+	const permissions = data?.permissions ?? {};
+	const role = data?.role ?? "admin";
+
+	const isAllowed = useCallback(
+		(resource: RbacResource, operation: RbacOperation) => {
+			if (!IS_ENTERPRISE) {
+				return true;
+			}
+			if (role === "admin") {
+				return true;
+			}
+			return hasPermission(permissions, resource, operation);
+		},
+		[permissions, role],
 	);
+
+	const value = useMemo(
+		() => ({
+			isAllowed,
+			permissions,
+			isLoading: IS_ENTERPRISE ? isLoading : false,
+			refetch,
+		}),
+		[isAllowed, permissions, isLoading, refetch],
+	);
+
+	return <RbacContext.Provider value={value}>{children}</RbacContext.Provider>;
 }
 
-// Hook that always returns true (no restrictions in OSS)
-export function useRbac(_resource: RbacResource, _operation: RbacOperation): boolean {
-	return true;
+export function useRbac(resource: RbacResource, operation: RbacOperation): boolean {
+	const context = useContext(RbacContext);
+	if (!context) {
+		return true;
+	}
+	if (context.isLoading) {
+		return true;
+	}
+	return context.isAllowed(resource, operation);
 }
 
-// Hook to access full RBAC context
 export function useRbacContext() {
 	const context = useContext(RbacContext);
 	if (!context) {
-		// Return dummy values if used outside provider
 		return {
 			isAllowed: () => true,
 			permissions: {},

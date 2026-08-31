@@ -146,10 +146,12 @@ func (r *Runtime) IsToolAllowed(toolName string, req RequestContext) bool {
 	if toolName == "" {
 		return true
 	}
+	matched := false
 	for _, group := range groups {
 		if !group.matches(req) {
 			continue
 		}
+		matched = true
 		if len(group.Tools) == 0 {
 			return true
 		}
@@ -158,6 +160,9 @@ func (r *Runtime) IsToolAllowed(toolName string, req RequestContext) bool {
 				return true
 			}
 		}
+	}
+	if !matched {
+		return true
 	}
 	return false
 }

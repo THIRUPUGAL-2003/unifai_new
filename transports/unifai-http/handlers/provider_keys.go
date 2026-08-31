@@ -151,6 +151,7 @@ func (h *ProviderHandler) createProviderKey(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	h.reloadAdaptiveRoutingKeys(ctx)
 	SendJSON(ctx, redactedKey)
 }
 
@@ -262,6 +263,7 @@ func (h *ProviderHandler) updateProviderKey(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	h.reloadAdaptiveRoutingKeys(ctx)
 	SendJSON(ctx, redactedKey)
 }
 
@@ -317,7 +319,14 @@ func (h *ProviderHandler) deleteProviderKey(ctx *fasthttp.RequestCtx) {
 		logger.Warn("Catalog refresh failed for provider %s after key delete: %v", provider, err)
 	}
 
+	h.reloadAdaptiveRoutingKeys(ctx)
 	SendJSON(ctx, redactedKey)
+}
+
+func (h *ProviderHandler) reloadAdaptiveRoutingKeys(ctx *fasthttp.RequestCtx) {
+	if h.dbStore != nil {
+		ReloadLoadBalancerProviderKeys(ctx, h.dbStore)
+	}
 }
 
 // mergeUpdatedKey merges an updated key with the old raw/redacted versions,

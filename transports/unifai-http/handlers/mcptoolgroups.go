@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/unifai/unifai/framework/configstore/tables"
+	"github.com/unifai/unifai/framework/mcptoolgroups"
 	"github.com/valyala/fasthttp"
 )
 
@@ -97,6 +98,7 @@ func (h *WorkspaceHandler) createMCPToolGroup(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save tool group")
 		return
 	}
+	_ = mcptoolgroups.ReloadFromStore(ctx, store)
 	SendJSONWithStatus(ctx, mcpToolGroupFromRow(row), fasthttp.StatusCreated)
 }
 
@@ -167,6 +169,7 @@ func (h *WorkspaceHandler) updateMCPToolGroup(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to update tool group")
 		return
 	}
+	_ = mcptoolgroups.ReloadFromStore(ctx, store)
 	SendJSON(ctx, mcpToolGroupFromRow(row))
 }
 
@@ -187,5 +190,6 @@ func (h *WorkspaceHandler) deleteMCPToolGroup(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to delete tool group")
 		return
 	}
+	_ = mcptoolgroups.ReloadFromStore(ctx, store)
 	SendJSON(ctx, map[string]string{"message": "deleted"})
 }

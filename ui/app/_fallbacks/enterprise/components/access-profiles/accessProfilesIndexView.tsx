@@ -73,7 +73,7 @@ export default function AccessProfilesIndexView() {
 
 	return (
 		<div className="flex h-full w-full flex-col gap-4">
-			<RuntimeLimitBanner description="Profiles save and activate in the DB. Applying profile policies onto virtual keys / users at request time needs Enterprise access-profile propagation." />
+			<RuntimeLimitBanner description="Profiles propagate provider configs, budgets, and rate limits to linked virtual keys when activated." />
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="flex items-center gap-2 text-2xl font-semibold">

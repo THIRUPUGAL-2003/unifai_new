@@ -17,7 +17,9 @@ import (
 	"github.com/unifai/unifai/core/schemas"
 	"github.com/unifai/unifai/framework/configstore"
 	configstoreTables "github.com/unifai/unifai/framework/configstore/tables"
+	"github.com/unifai/unifai/framework/loadbalancer"
 	"github.com/unifai/unifai/framework/mcpcatalog"
+	"github.com/unifai/unifai/framework/mcptoolgroups"
 	"github.com/unifai/unifai/framework/modelcatalog"
 	"github.com/unifai/unifai/plugins/governance/complexity"
 )
@@ -613,6 +615,11 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.UnifAIContext, req *
 
 	req.SetProvider(selectedProvider)
 	req.SetModel(refinedModel)
+
+	if keyID, ok := loadbalancer.Default.SelectProviderKey(string(selectedProvider)); ok && keyID != "" {
+		ctx.SetValue(schemas.UnifAIContextKeyRoutingPinnedAPIKeyID, keyID)
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("Adaptive routing pinned API key %s for provider %s", keyID, selectedProvider))
+	}
 
 	schemas.AppendToContextList(ctx, schemas.UnifAIContextKeyRoutingEnginesUsed, schemas.RoutingEngineGovernance)
 
@@ -1486,6 +1493,21 @@ func (p *GovernancePlugin) PreMCPHook(ctx *schemas.UnifAIContext, req *schemas.U
 				StatusCode: unifai.Ptr(403),
 				Error: &schemas.ErrorField{
 					Message: fmt.Sprintf("MCP tool '%s' is not allowed for virtual key '%s'", toolName, vk.Name),
+				},
+			}}, nil
+		}
+		if !mcptoolgroups.Default.IsToolAllowed(toolName, mcptoolgroups.RequestContext{
+			VirtualKeyID: vk.ID,
+			UserID:       userID,
+			TeamID:       unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceTeamID),
+			CustomerID:   unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceScopedCustomerID),
+		}) {
+			ctx.SetValue(governanceRejectedContextKey, true)
+			return req, &schemas.MCPPluginShortCircuit{Error: &schemas.UnifAIError{
+				Type:       unifai.Ptr(string(DecisionMCPToolBlocked)),
+				StatusCode: unifai.Ptr(403),
+				Error: &schemas.ErrorField{
+					Message: fmt.Sprintf("MCP tool '%s' is blocked by workspace tool group policy", toolName),
 				},
 			}}, nil
 		}
