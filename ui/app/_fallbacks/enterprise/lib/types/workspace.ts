@@ -130,6 +130,7 @@ export interface LoadBalancerRoutesResponse {
 export interface SCIMConfig {
 	enabled: boolean;
 	provider: string;
+	bearer_token?: string;
 	config: Record<string, string>;
 }
 
