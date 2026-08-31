@@ -2271,12 +2271,10 @@ def _scan_upload_for_rules(
     file_label: str,
     cached: dict | None = None,
 ) -> tuple[str, bool, str, str, str]:
-    """Extract file/prompt text and apply Guard Rules. Returns (scanned, hit, name, action, excerpt)."""
+    """Scan only real file bytes for Guard Rules — never ChatGPT Send/API JSON."""
     scanned = ""
     if raw_bytes:
-        scanned = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, file_label)
-    if not scanned and raw_text:
-        scanned = extract_upload_text_for_rules(b"", content_type, raw_text, file_label)
+        scanned = extract_upload_text_for_rules(raw_bytes, content_type, "", file_label)
     rule_hit = False
     rule_name = ""
     rule_action = ""
@@ -2285,7 +2283,7 @@ def _scan_upload_for_rules(
         excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
         rule_hit, rule_name, rule_action = match_guard_rules_on_text(scanned)
         rule_action = (rule_action or "").upper()
-    elif cached:
+    elif cached and len((cached.get("raw_bytes") or b"")) >= 32:
         rule_hit = bool(cached.get("rule_hit"))
         rule_name = (cached.get("rule_name") or "") or ""
         rule_action = ((cached.get("rule_action") or "") or "").upper()
@@ -2306,9 +2304,12 @@ def enforce_file_send_policy(
     path: str = "",
 ) -> tuple[bool, str]:
     """
-    On chat Send with a real attached file:
-      - Block Upload ON  → always Block + Prompt Log
-      - Block Upload OFF → extract PDF/image/Office/voice text → Guard Rules → Block or Allowed + Prompt Log
+    On chat Send with a real attached file (any monitored AI domain):
+      - Block Upload ON  → block on Send only (file may attach in UI first)
+      - Block Upload OFF → extract PDF/image/Office/voice text → Guard Rules
+          BLOCK/REDACT → block Send
+          WARN         → log Warned, allow Send
+          no match     → Allowed
 
     Typed-only prompts return (False, "") so normal text Guard Rules still run.
     """
@@ -2382,9 +2383,42 @@ def enforce_file_send_policy(
     )
 
     block_all = controls_active("block_upload")
-    # WARN/REDACT/BLOCK on file content → treat as block for DLP (file must not go through clean)
-    block_for_rule = bool(rule_hit and rule_action in ("BLOCK", "REDACT", "WARN"))
+    block_for_rule = bool(
+        rule_hit
+        and rule_action in ("BLOCK", "REDACT")
+        and (bool(scanned) or len(cached_bytes) >= 32)
+    )
+    warn_for_rule = bool(
+        rule_hit
+        and rule_action == "WARN"
+        and not block_all
+        and (bool(scanned) or len(cached_bytes) >= 32)
+    )
     tag = _upload_log_tag(file_label, cached_ct, cached_bytes)
+
+    if warn_for_rule:
+        rule_warn = _warning_for_rule_name(rule_name)
+        warn_log = f"{tag} {file_label} — Warned ({rule_name or 'policy'})"
+        if excerpt:
+            warn_log = f"{warn_log} | {excerpt}"
+        dedupe_key = f"upload-send-warn|{rule_name}|{file_label}"
+        if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+            print(f"[UnifAI Proxy] FILE SEND WARNED | {client_ip} → {host} | {file_label}")
+            ok = post_upload_intercept(
+                platform=platform,
+                prompt=warn_log,
+                client_ip=client_ip,
+                domain=domain,
+                url=url,
+                method=method,
+                file_name=file_label,
+                is_blocked=False,
+                raw_bytes=cached_bytes,
+                content_type=cached_ct,
+            )
+            if ok:
+                mark_duplicate_event(domain, dedupe_key)
+        return False, ""
 
     if block_all or block_for_rule:
         blocked_reason = "Block Upload" if block_all else (rule_name or "Guard Rule (file content)")
@@ -3377,10 +3411,12 @@ def extract_upload_text_for_rules(
             if t and len(t) > 8 and t not in parts:
                 parts.append(t)
 
-    # Plain / json text bodies (chat-shaped uploads)
+    # Plain text bodies only — never treat ChatGPT/API JSON metadata as file content.
     if raw_text and len(raw_text) > 20 and not parts:
-        # Avoid stuffing huge binary-as-latin1 into rule scan
-        if "filename=" not in raw_text[:2000].lower() and raw_text.count("\x00") == 0:
+        stripped = raw_text.lstrip()
+        if stripped[:1] in ("{", "["):
+            pass
+        elif "filename=" not in raw_text[:2000].lower() and raw_text.count("\x00") == 0:
             parts.append(raw_text[:200_000])
 
     # Deduplicate while preserving order
@@ -4368,41 +4404,11 @@ class BrowserAIInterceptor:
                 host=host,
                 path=path,
             )
-            # Block all uploads immediately when admin policy is ON — do not let bytes reach the AI site.
-            if controls_active("block_upload"):
-                block_upload_request_now(
-                    flow,
-                    platform=platform,
-                    domain=domain,
-                    host=host,
-                    client_ip=client_ip,
-                    fname=fname or "attachment",
-                    raw_bytes=raw_bytes,
-                    content_type=content_type,
-                    raw_text=raw_text,
-                )
-                return
-            # CACHE real files; block immediately when file content matches a Guard Rule.
+            # Never block at upload pick — always cache bytes; block/warn/allow on Send only.
             if confident:
-                upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, fname)
+                upload_text = extract_upload_text_for_rules(raw_bytes, content_type, "", fname)
                 file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
-                file_rule_action = (file_rule_action or "").upper()
                 file_ids = _extract_file_ids_from_chat(raw_text)
-                if file_rule_hit and file_rule_action in ("BLOCK", "REDACT", "WARN"):
-                    block_upload_request_now(
-                        flow,
-                        platform=platform,
-                        domain=domain,
-                        host=host,
-                        client_ip=client_ip,
-                        fname=fname or "attachment",
-                        raw_bytes=raw_bytes,
-                        content_type=content_type,
-                        raw_text=raw_text,
-                        blocked_reason=file_rule_name or "Guard Rule (file content)",
-                        rule_name=file_rule_name,
-                    )
-                    return
                 cache_upload_file(
                     domain,
                     file_name=fname or "attachment",
