@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/unifai/unifai/framework/configstore"
 	"github.com/unifai/unifai/framework/configstore/tables"
 	"github.com/valyala/fasthttp"
 )
@@ -23,6 +24,8 @@ type accessProfilePayload struct {
 	MCPToolGroups    []map[string]any `json:"mcp_tool_groups,omitempty"`
 	MCPServers       []map[string]any `json:"mcp_servers,omitempty"`
 	MCPToolOverrides []map[string]any `json:"mcp_tool_overrides,omitempty"`
+	VirtualKeyIDs    []string         `json:"virtual_key_ids,omitempty"`
+	RoleIDs          []uint           `json:"role_ids,omitempty"`
 	CreatedAt        time.Time        `json:"created_at"`
 	UpdatedAt        time.Time        `json:"updated_at"`
 }
@@ -38,6 +41,8 @@ func accessProfileFromRow(row tables.TableAccessProfile) accessProfilePayload {
 		MCPToolGroups:    specMapSlice(spec, "mcp_tool_groups"),
 		MCPServers:       specMapSlice(spec, "mcp_servers"),
 		MCPToolOverrides: specMapSlice(spec, "mcp_tool_overrides"),
+		VirtualKeyIDs:    specStringSlice(spec, "virtual_key_ids"),
+		RoleIDs:          specUintSlice(spec, "role_ids"),
 		CreatedAt:        row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 }
@@ -53,6 +58,8 @@ func (p accessProfilePayload) toRow() tables.TableAccessProfile {
 			"mcp_tool_groups":    p.MCPToolGroups,
 			"mcp_servers":        p.MCPServers,
 			"mcp_tool_overrides": p.MCPToolOverrides,
+			"virtual_key_ids":    p.VirtualKeyIDs,
+			"role_ids":           p.RoleIDs,
 		},
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
@@ -175,7 +182,51 @@ func (h *WorkspaceHandler) getAccessProfile(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to load access profile")
 		return
 	}
-	SendJSON(ctx, map[string]any{"access_profile": accessProfileFromRow(*row), "role_attachments": []any{}, "user_copy_count": 0})
+	SendJSON(ctx, map[string]any{
+		"access_profile":   accessProfileFromRow(*row),
+		"role_attachments": h.buildAccessProfileRoleAttachments(ctx, store, specUintSlice(row.Spec(), "role_ids")),
+		"user_copy_count":  countAccessProfileCopies(rowsForCopyCount(store, ctx), row.ID),
+	})
+}
+
+func (h *WorkspaceHandler) buildAccessProfileRoleAttachments(ctx *fasthttp.RequestCtx, store configstore.WorkspaceStore, roleIDs []uint) []map[string]any {
+	if len(roleIDs) == 0 {
+		return []map[string]any{}
+	}
+	roles, err := store.ListRBACRoles(ctx)
+	if err != nil {
+		return []map[string]any{}
+	}
+	wanted := map[uint]bool{}
+	for _, id := range roleIDs {
+		wanted[id] = true
+	}
+	out := make([]map[string]any, 0)
+	for _, role := range roles {
+		if wanted[role.ID] {
+			out = append(out, map[string]any{"role_id": role.ID, "role_name": role.Name})
+		}
+	}
+	return out
+}
+
+func rowsForCopyCount(store configstore.WorkspaceStore, ctx *fasthttp.RequestCtx) []tables.TableAccessProfile {
+	rows, err := store.ListAccessProfiles(ctx)
+	if err != nil {
+		return nil
+	}
+	return rows
+}
+
+func countAccessProfileCopies(rows []tables.TableAccessProfile, profileID uint) int {
+	count := 0
+	for _, row := range rows {
+		spec := row.Spec()
+		if parent, ok := spec["parent_profile_id"].(float64); ok && uint(parent) == profileID {
+			count++
+		}
+	}
+	return count
 }
 
 func (h *WorkspaceHandler) updateAccessProfile(ctx *fasthttp.RequestCtx) {
@@ -337,6 +388,11 @@ func (h *WorkspaceHandler) listUserAccessProfiles(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	targetUserID := pathID(ctx, "target_user_id")
+	userLinks, _ := store.ListVirtualKeysForUser(ctx, targetUserID)
+	userVKs := map[string]bool{}
+	for _, link := range userLinks {
+		userVKs[link.VirtualKeyID] = true
+	}
 	rows, err := store.ListAccessProfiles(ctx)
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to list access profiles")
@@ -348,16 +404,46 @@ func (h *WorkspaceHandler) listUserAccessProfiles(ctx *fasthttp.RequestCtx) {
 			continue
 		}
 		spec := row.Spec()
+		if specUserID, _ := spec["user_id"].(string); specUserID != "" && specUserID != targetUserID {
+			continue
+		}
+		vkIDs := specStringSlice(spec, "virtual_key_ids")
+		matched := specUserIDMatches(spec, targetUserID)
+		if !matched {
+			for _, vkID := range vkIDs {
+				if userVKs[vkID] {
+					matched = true
+					break
+				}
+			}
+		}
+		if !matched && len(vkIDs) > 0 {
+			continue
+		}
+		parentID := row.ID
+		if p, ok := spec["parent_profile_id"].(float64); ok {
+			parentID = uint(p)
+		}
 		item := map[string]any{
 			"id": row.ID, "name": row.Name, "is_active": row.IsActive,
-			"user_id": targetUserID, "parent_profile_id": row.ID,
+			"user_id": targetUserID, "parent_profile_id": parentID,
 			"provider_configs": specMapSlice(spec, "provider_configs"),
 			"budgets":          specMapSlice(spec, "budgets"),
 			"rate_limit":       specMap(spec, "rate_limit"),
-			"virtual_key_ids":  specStringSlice(spec, "virtual_key_ids"),
+			"virtual_key_ids":  vkIDs,
 			"created_at":       row.CreatedAt, "updated_at": row.UpdatedAt,
 		}
 		items = append(items, item)
 	}
 	SendJSON(ctx, map[string]any{"access_profiles": items})
+}
+
+func specUserIDMatches(spec map[string]any, userID string) bool {
+	if spec == nil || userID == "" {
+		return false
+	}
+	if v, ok := spec["user_id"].(string); ok && v == userID {
+		return true
+	}
+	return false
 }

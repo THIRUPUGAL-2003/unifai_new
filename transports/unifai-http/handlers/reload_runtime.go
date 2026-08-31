@@ -65,17 +65,18 @@ func ApplyClusterRuntime(ctx context.Context, store configstore.WorkspaceStore, 
 	}
 	row, err := store.GetWorkspaceSetting(ctx, configstore.WorkspaceSettingCluster)
 	if err != nil {
-		cluster.Runtime.Apply(false, cfg.KVStore)
+		cluster.Runtime.Configure(false, nil, cfg.KVStore)
 		return
 	}
 	var payload struct {
-		Enabled bool `json:"enabled"`
+		Enabled bool     `json:"enabled"`
+		Peers   []string `json:"peers"`
 	}
 	if err := json.Unmarshal([]byte(row.Data), &payload); err != nil {
-		cluster.Runtime.Apply(false, cfg.KVStore)
+		cluster.Runtime.Configure(false, nil, cfg.KVStore)
 		return
 	}
-	cluster.Runtime.Apply(payload.Enabled, cfg.KVStore)
+	cluster.Runtime.Configure(payload.Enabled, payload.Peers, cfg.KVStore)
 }
 
 // ReloadConnectorsFromStore reloads connector runtime settings.

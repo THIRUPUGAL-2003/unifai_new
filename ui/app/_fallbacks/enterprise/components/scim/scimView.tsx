@@ -40,7 +40,7 @@ export default function SCIMView() {
 
 	return (
 		<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-			<RuntimeLimitBanner description="SCIM v2 Users endpoints provision users from your IdP. Configure provider settings and token here." />
+			<RuntimeLimitBanner description="SCIM v2 with bearer auth, PATCH/PUT, pagination, and ServiceProviderConfig discovery." />
 			<div>
 				<h1 className="flex items-center gap-2 text-2xl font-semibold">
 					<UserRoundCog className="h-6 w-6" />
@@ -97,6 +97,21 @@ export default function SCIMView() {
 							<Field label="Realm" value={config.config.realm || ""} onChange={(value) => setField("realm", value)} />
 						</>
 					)}
+					<div className="space-y-1">
+						<Label>SCIM bearer token (for IdP → UnifAI)</Label>
+						<Input
+							type="password"
+							value={config.bearer_token || String(config.config?.bearer_token || "")}
+							onChange={(e) => {
+								setConfig((current) => ({
+									...current,
+									bearer_token: e.target.value,
+									config: { ...current.config, bearer_token: e.target.value },
+								}));
+							}}
+							placeholder="Auto-generated on save when empty"
+						/>
+					</div>
 					<div className="flex justify-end">
 						<Button onClick={() => void save()} disabled={saving}>
 							<Save className="h-4 w-4" />

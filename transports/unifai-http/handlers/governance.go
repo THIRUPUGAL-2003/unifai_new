@@ -976,6 +976,8 @@ func (h *GovernanceHandler) RegisterRoutes(r *router.Router, middlewares ...sche
 	r.PUT("/api/governance/virtual-keys/{vk_id}", lib.ChainMiddlewares(h.updateVirtualKey, middlewares...))
 	r.POST("/api/governance/virtual-keys/{vk_id}/rotate", lib.ChainMiddlewares(h.rotateVirtualKey, middlewares...))
 	r.DELETE("/api/governance/virtual-keys/{vk_id}", lib.ChainMiddlewares(h.deleteVirtualKey, middlewares...))
+	r.GET("/api/governance/virtual-keys/{vk_id}/users", lib.ChainMiddlewares(h.getVirtualKeyUsers, middlewares...))
+	r.PUT("/api/governance/virtual-keys/{vk_id}/users", lib.ChainMiddlewares(h.setVirtualKeyUser, middlewares...))
 
 	// Team CRUD operations
 	r.GET("/api/governance/teams", lib.ChainMiddlewares(h.getTeams, middlewares...))

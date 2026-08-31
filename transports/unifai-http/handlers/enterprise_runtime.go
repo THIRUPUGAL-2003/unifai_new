@@ -2,15 +2,12 @@ package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 	"github.com/unifai/unifai/core/schemas"
 	"github.com/unifai/unifai/framework/configstore"
 	"github.com/unifai/unifai/framework/configstore/tables"
-	"github.com/valyala/fasthttp"
 )
 
 func propagateAccessProfile(ctx context.Context, configStore configstore.ConfigStore, profile tables.TableAccessProfile) error {
@@ -133,135 +130,4 @@ func firstString(item map[string]any, keys ...string) string {
 		}
 	}
 	return ""
-}
-
-// SCIM v2 minimal handlers backed by governance_users.
-func (h *WorkspaceHandler) scimListUsers(ctx *fasthttp.RequestCtx) {
-	if h.store == nil || h.store.ConfigStore == nil {
-		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store is not available")
-		return
-	}
-	users, err := h.store.ConfigStore.GetUsers(ctx)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "failed to list users")
-		return
-	}
-	resources := make([]map[string]any, 0, len(users))
-	for _, user := range users {
-		resources = append(resources, scimUserResource(user))
-	}
-	SendJSON(ctx, map[string]any{
-		"schemas":      []string{"urn:ietf:params:scim:api:messages:2.0:ListResponse"},
-		"totalResults": len(resources),
-		"itemsPerPage": len(resources),
-		"startIndex":   1,
-		"Resources":    resources,
-	})
-}
-
-func (h *WorkspaceHandler) scimGetUser(ctx *fasthttp.RequestCtx) {
-	if h.store == nil || h.store.ConfigStore == nil {
-		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store is not available")
-		return
-	}
-	id := pathID(ctx, "id")
-	user, err := h.store.ConfigStore.GetUserByID(ctx, id)
-	if err != nil || user == nil {
-		SendError(ctx, fasthttp.StatusNotFound, "user not found")
-		return
-	}
-	SendJSON(ctx, scimUserResource(user))
-}
-
-func (h *WorkspaceHandler) scimCreateUser(ctx *fasthttp.RequestCtx) {
-	if h.store == nil || h.store.ConfigStore == nil {
-		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store is not available")
-		return
-	}
-	var body struct {
-		UserName string `json:"userName"`
-		Emails   []struct {
-			Value   string `json:"value"`
-			Primary bool   `json:"primary"`
-		} `json:"emails"`
-		Active bool `json:"active"`
-	}
-	if err := json.Unmarshal(ctx.PostBody(), &body); err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, "invalid scim payload")
-		return
-	}
-	username := strings.TrimSpace(body.UserName)
-	if username == "" {
-		SendError(ctx, fasthttp.StatusBadRequest, "userName is required")
-		return
-	}
-	email := ""
-	for _, item := range body.Emails {
-		if item.Value != "" {
-			email = item.Value
-			if item.Primary {
-				break
-			}
-		}
-	}
-	status := tables.UserStatusApproved
-	if !body.Active {
-		status = tables.UserStatusPending
-	}
-	user := &tables.TableUser{
-		ID:       uuid.NewString(),
-		Username: username,
-		Email:    email,
-		Password: uuid.NewString(),
-		Role:     "user",
-		Status:   status,
-	}
-	if err := h.store.ConfigStore.CreateUser(ctx, user); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "failed to create user")
-		return
-	}
-	SendJSONWithStatus(ctx, scimUserResource(user), fasthttp.StatusCreated)
-}
-
-func (h *WorkspaceHandler) scimDeleteUser(ctx *fasthttp.RequestCtx) {
-	if h.store == nil || h.store.ConfigStore == nil {
-		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store is not available")
-		return
-	}
-	id := pathID(ctx, "id")
-	user, err := h.store.ConfigStore.GetUserByID(ctx, id)
-	if err != nil || user == nil {
-		SendError(ctx, fasthttp.StatusNotFound, "user not found")
-		return
-	}
-	if err := h.store.ConfigStore.DeleteUser(ctx, id); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "failed to delete user")
-		return
-	}
-	ctx.SetStatusCode(fasthttp.StatusNoContent)
-}
-
-func scimUserResource(user *tables.TableUser) map[string]any {
-	if user == nil {
-		return map[string]any{}
-	}
-	email := user.Email
-	if email == "" {
-		email = user.Username
-	}
-	return map[string]any{
-		"schemas":  []string{"urn:ietf:params:scim:schemas:core:2.0:User"},
-		"id":       user.ID,
-		"userName": user.Username,
-		"active":   user.IsApproved(),
-		"emails": []map[string]any{{
-			"value": email, "primary": true,
-		}},
-		"roles": []map[string]any{{"value": user.Role}},
-		"meta": map[string]any{
-			"resourceType": "User",
-			"created":      user.CreatedAt,
-			"lastModified": user.UpdatedAt,
-		},
-	}
 }

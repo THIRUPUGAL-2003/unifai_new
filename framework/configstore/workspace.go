@@ -79,6 +79,11 @@ type WorkspaceStore interface {
 	UpdatePromptDeployment(ctx context.Context, row *tables.TablePromptDeployment) error
 	DeletePromptDeployment(ctx context.Context, id uint) error
 
+	ListVirtualKeyUsers(ctx context.Context, virtualKeyID string) ([]tables.TableVirtualKeyUser, error)
+	SetVirtualKeyUser(ctx context.Context, virtualKeyID, userID string) error
+	DeleteVirtualKeyUser(ctx context.Context, virtualKeyID string) error
+	ListVirtualKeysForUser(ctx context.Context, userID string) ([]tables.TableVirtualKeyUser, error)
+
 	GetWorkspaceSetting(ctx context.Context, key string) (*tables.TableWorkspaceSetting, error)
 	UpsertWorkspaceSetting(ctx context.Context, key, data string) error
 
@@ -314,6 +319,39 @@ func (s *RDBConfigStore) UpdatePromptDeployment(ctx context.Context, row *tables
 
 func (s *RDBConfigStore) DeletePromptDeployment(ctx context.Context, id uint) error {
 	return deleteByID[tables.TablePromptDeployment](s.DB().WithContext(ctx), id)
+}
+
+func (s *RDBConfigStore) ListVirtualKeyUsers(ctx context.Context, virtualKeyID string) ([]tables.TableVirtualKeyUser, error) {
+	var rows []tables.TableVirtualKeyUser
+	err := s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).Find(&rows).Error
+	return rows, err
+}
+
+func (s *RDBConfigStore) ListVirtualKeysForUser(ctx context.Context, userID string) ([]tables.TableVirtualKeyUser, error) {
+	var rows []tables.TableVirtualKeyUser
+	err := s.DB().WithContext(ctx).Where("user_id = ?", userID).Find(&rows).Error
+	return rows, err
+}
+
+func (s *RDBConfigStore) SetVirtualKeyUser(ctx context.Context, virtualKeyID, userID string) error {
+	now := time.Now().UTC()
+	var existing tables.TableVirtualKeyUser
+	err := s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).First(&existing).Error
+	if err == nil {
+		existing.UserID = userID
+		existing.UpdatedAt = now
+		return s.DB().WithContext(ctx).Save(&existing).Error
+	}
+	return s.DB().WithContext(ctx).Create(&tables.TableVirtualKeyUser{
+		VirtualKeyID: virtualKeyID,
+		UserID:       userID,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}).Error
+}
+
+func (s *RDBConfigStore) DeleteVirtualKeyUser(ctx context.Context, virtualKeyID string) error {
+	return s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).Delete(&tables.TableVirtualKeyUser{}).Error
 }
 
 func (s *RDBConfigStore) GetWorkspaceSetting(ctx context.Context, key string) (*tables.TableWorkspaceSetting, error) {

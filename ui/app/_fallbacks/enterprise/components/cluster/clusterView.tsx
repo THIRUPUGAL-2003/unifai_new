@@ -49,7 +49,7 @@ export default function ClusterPage() {
 
 	return (
 		<div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-6">
-			<RuntimeLimitBanner description="Cluster mode wires KV replication hooks. Multi-node mesh sync requires peer nodes with matching config." />
+			<RuntimeLimitBanner description="Cluster mode replicates KV mutations to configured peer nodes over HTTP when enabled." />
 			<div className="flex items-center gap-3">
 				<Network className="text-muted-foreground h-8 w-8" strokeWidth={1.5} />
 				<div>

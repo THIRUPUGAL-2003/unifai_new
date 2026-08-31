@@ -9,9 +9,10 @@ import (
 )
 
 type scimConfigPayload struct {
-	Enabled  bool           `json:"enabled"`
-	Provider string         `json:"provider"`
-	Config   map[string]any `json:"config"`
+	Enabled     bool           `json:"enabled"`
+	Provider    string         `json:"provider"`
+	BearerToken string         `json:"bearer_token,omitempty"`
+	Config      map[string]any `json:"config"`
 }
 
 func (h *WorkspaceHandler) getSCIMConfig(ctx *fasthttp.RequestCtx) {
@@ -62,6 +63,7 @@ func (h *WorkspaceHandler) updateSCIMConfig(ctx *fasthttp.RequestCtx) {
 	if payload.Config == nil {
 		payload.Config = map[string]any{}
 	}
+	ensureSCIMBearerToken(&payload)
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save scim config")

@@ -120,10 +120,18 @@ func (h *WorkspaceHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.PUT("/api/connectors/{name}", wrap(h.updateConnector))
 	r.POST("/api/connectors/{name}/test", wrap(h.testConnector))
 
-	r.GET("/scim/v2/Users", wrap(h.scimListUsers))
-	r.POST("/scim/v2/Users", wrap(h.scimCreateUser))
-	r.GET("/scim/v2/Users/{id}", wrap(h.scimGetUser))
-	r.DELETE("/scim/v2/Users/{id}", wrap(h.scimDeleteUser))
+	// Cluster peer KV replication (no dashboard RBAC — peers authenticate via header).
+	r.POST("/internal/cluster/kv", h.clusterKVReplicate)
+
+	scim := h.scimMiddleware()
+	r.GET("/scim/v2/ServiceProviderConfig", scim(h.scimServiceProviderConfig))
+	r.GET("/scim/v2/Schemas", scim(h.scimSchemas))
+	r.GET("/scim/v2/Users", scim(h.scimListUsers))
+	r.POST("/scim/v2/Users", scim(h.scimCreateUser))
+	r.GET("/scim/v2/Users/{id}", scim(h.scimGetUser))
+	r.PUT("/scim/v2/Users/{id}", scim(h.scimPutUser))
+	r.PATCH("/scim/v2/Users/{id}", scim(h.scimPatchUser))
+	r.DELETE("/scim/v2/Users/{id}", scim(h.scimDeleteUser))
 }
 
 func (h *WorkspaceHandler) requireStore(ctx *fasthttp.RequestCtx) configstore.WorkspaceStore {
@@ -265,6 +273,32 @@ func specStringSlice(spec map[string]any, key string) []string {
 		}
 	}
 	return out
+}
+
+func specUintSlice(spec map[string]any, key string) []uint {
+	raw, ok := spec[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch typed := raw.(type) {
+	case []uint:
+		return typed
+	case []any:
+		out := make([]uint, 0, len(typed))
+		for _, item := range typed {
+			switch n := item.(type) {
+			case float64:
+				out = append(out, uint(n))
+			case int:
+				out = append(out, uint(n))
+			case uint:
+				out = append(out, n)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func specMapSlice(spec map[string]any, key string) []map[string]any {
