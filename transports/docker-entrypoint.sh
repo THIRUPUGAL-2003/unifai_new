@@ -39,6 +39,14 @@ fix_permissions() {
         chmod 755 "$APP_DIR/logs" 2>/dev/null || true
         chmod 755 "$APP_DIR/pdf" 2>/dev/null || true
         chmod 755 "$APP_DIR/attachments" 2>/dev/null || true
+
+        # Seed bundled catalog/config files on first boot when the host volume is empty.
+        for seed_file in mcp-library.json pricing.json model-parameters.json; do
+            if [ ! -f "$APP_DIR/$seed_file" ] && [ -f "/app/bundled/data/$seed_file" ]; then
+                echo "Seeding missing $APP_DIR/$seed_file from bundled defaults"
+                cp "/app/bundled/data/$seed_file" "$APP_DIR/$seed_file"
+            fi
+        done
     fi
 }
 

@@ -89,6 +89,10 @@
   # Create data directory and set up user
   COPY --from=builder /app/main .
   COPY --from=builder /build/transports/docker-entrypoint.sh .
+  RUN mkdir -p /app/bundled/data
+  COPY data/mcp-library.json /app/bundled/data/mcp-library.json
+  COPY data/pricing.json /app/bundled/data/pricing.json
+  COPY data/model-parameters.json /app/bundled/data/model-parameters.json
   COPY release/UnifAI_Guard_Setup.exe /app/release/UnifAI_Guard_Setup.exe
   COPY installer/EMPLOYEE_README.txt /app/installer/EMPLOYEE_README.txt
   COPY unifai_guard_config.json /app/unifai_guard_config.json

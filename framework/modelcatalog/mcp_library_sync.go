@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -102,25 +103,30 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 		url = DefaultMCPLibraryURL
 	}
 
-	// Broken/unreachable remote catalog — use bundled local file immediately.
-	if strings.Contains(strings.ToLower(url), "getunifai.ai") {
-		url = DefaultMCPLibraryFallbackURL
-	}
-
 	entries, err := withRetries(ctx, urlFetchMaxRetries, urlFetchMaxBackoff, func() ([]MCPLibraryEntry, error) {
 		return fetchMCPLibrary(ctx, url)
 	})
 	if err != nil {
-		fallback := DefaultMCPLibraryFallbackURL
-		if url != fallback {
-			if fbEntries, fbErr := fetchMCPLibrary(ctx, fallback); fbErr == nil {
+		for _, fallbackURL := range mcpLibraryFallbackURLs(url) {
+			if fbEntries, fbErr := fetchMCPLibrary(ctx, fallbackURL); fbErr == nil {
 				entries = fbEntries
 				err = nil
+				break
 			}
 		}
 	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch MCP library from %s: %w", url, err)
+	}
+
+	// Remote URL may resolve but return an empty catalog (stale/broken source).
+	if len(entries) == 0 {
+		for _, fallbackURL := range mcpLibraryFallbackURLs(url) {
+			if fbEntries, fbErr := fetchMCPLibrary(ctx, fallbackURL); fbErr == nil && len(fbEntries) > 0 {
+				entries = fbEntries
+				break
+			}
+		}
 	}
 
 	if len(entries) == 0 {
@@ -245,6 +251,70 @@ func (mc *ModelCatalog) getMCPLibraryURL() string {
 	return mc.mcpLibraryURL
 }
 
+// mcpLibraryFallbackURLs returns ordered local catalog URLs to try when the
+// configured source is unreachable. The primary URL is excluded.
+func mcpLibraryFallbackURLs(primary string) []string {
+	seen := map[string]bool{strings.TrimSpace(primary): true}
+	var out []string
+	for _, candidate := range []string{
+		DefaultMCPLibraryURL,
+		DefaultMCPLibraryFallbackURL,
+	} {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
+// mcpLibraryFileCandidates returns ordered filesystem paths for a file:// URL,
+// including APP_DIR and bundled defaults so Docker volume mounts cannot leave
+// the catalog missing on first boot.
+func mcpLibraryFileCandidates(rawURL string) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(path string) {
+		path = strings.TrimSpace(path)
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+
+	if parsed, err := url.Parse(rawURL); err == nil && parsed.Scheme == "file" {
+		add(parsed.Path)
+	}
+
+	appDir := strings.TrimSpace(os.Getenv("APP_DIR"))
+	if appDir == "" {
+		appDir = "/app/data"
+	}
+	add(filepath.Join(appDir, "mcp-library.json"))
+	add("/app/data/mcp-library.json")
+	add("/app/bundled/data/mcp-library.json")
+	return out
+}
+
+func readMCPLibraryFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, maxMCPLibraryBodyBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("failed to read MCP library file: %w", err)
+	}
+	if int64(len(data)) > maxMCPLibraryBodyBytes {
+		return nil, fmt.Errorf("MCP library file exceeds %d bytes", maxMCPLibraryBodyBytes)
+	}
+	return data, nil
+}
+
 // fetchMCPLibrary downloads and parses the MCP library JSON from the given URL.
 func fetchMCPLibrary(ctx context.Context, rawURL string) ([]MCPLibraryEntry, error) {
 	parsed, err := url.Parse(rawURL)
@@ -254,17 +324,16 @@ func fetchMCPLibrary(ctx context.Context, rawURL string) ([]MCPLibraryEntry, err
 
 	var data []byte
 	if parsed.Scheme == "file" {
-		f, err := os.Open(parsed.Path)
-		if err != nil {
-			return nil, fmt.Errorf("failed to open MCP library file: %w", err)
+		var lastErr error
+		for _, path := range mcpLibraryFileCandidates(rawURL) {
+			data, err = readMCPLibraryFile(path)
+			if err == nil {
+				break
+			}
+			lastErr = err
 		}
-		defer f.Close()
-		data, err = io.ReadAll(io.LimitReader(f, maxMCPLibraryBodyBytes+1))
 		if err != nil {
-			return nil, fmt.Errorf("failed to read MCP library file: %w", err)
-		}
-		if int64(len(data)) > maxMCPLibraryBodyBytes {
-			return nil, fmt.Errorf("MCP library file exceeds %d bytes", maxMCPLibraryBodyBytes)
+			return nil, fmt.Errorf("failed to open MCP library file: %w", lastErr)
 		}
 	} else {
 		if err := unifai.ValidateExternalURL(rawURL, true); err != nil {

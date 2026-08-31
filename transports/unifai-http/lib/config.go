@@ -4034,6 +4034,11 @@ func ResolveFrameworkPricingConfig(
 				if fileChanged && fileMCPLibraryURL != nil && !skipMCPLibraryURLBackfill {
 					logger.Info("mcp_library_url from config.json overrides DB (file hash changed) — updating DB")
 					needsDBUpdate = true
+				} else if fileMCPLibraryURL != nil && strings.HasPrefix(strings.TrimSpace(*fileMCPLibraryURL), "file:") && strings.HasPrefix(trimmed, "http") {
+					// config.json explicitly points at a local catalog — override a stale remote URL in DB.
+					logger.Info("mcp_library_url from config.json overrides DB remote URL — updating DB")
+					resolvedMCPLibraryURL = fileMCPLibraryURL
+					needsDBUpdate = true
 				} else {
 					resolvedMCPLibraryURL = &trimmed
 				}
