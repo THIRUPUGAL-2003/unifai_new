@@ -647,6 +647,8 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
             return True
         if is_conversation_final_send(p, body_s) or _looks_like_chat_send_request(p, body_s):
             return True
+        if is_chatgpt_encrypted_wire(body_s) or is_chatgpt_wire_send(p, body_s):
+            return True
         data = _parse_chat_json(body_s)
         if isinstance(data, dict) and (
             data.get("parent_message_id")
@@ -1092,7 +1094,12 @@ def is_noise(path: str, content: str = "") -> bool:
             x in (path or "").lower()
             for x in ("/conversation", "/completion", "/completions", "/messages", "/append_message")
         )
-        chat_send = path_is_chat or is_conversation_final_send(path, content) or is_confirmed_chat_submit(content)
+        chat_send = (
+            path_is_chat
+            or is_conversation_final_send(path, content)
+            or is_confirmed_chat_submit(content)
+            or is_chatgpt_wire_send(path, content)
+        )
         # ChatGPT encrypted sentinel — skip only non-send control payloads
         if not chat_send and ('"p":"gAAAA' in content or content.strip().startswith('{"p":"gAAAA')):
             return True
@@ -1301,6 +1308,153 @@ def _is_chat_send_context(data: dict) -> bool:
     if action and not _is_send_action(action):
         return False
     return bool(data.get("parent_message_id") or data.get("conversation_id") or data.get("messages"))
+
+
+def is_chatgpt_conversation_path(path: str) -> bool:
+    """ChatGPT/OpenAI web conversation submit endpoints (not prepare/autocomplete)."""
+    path_l = (path or "").lower().split("?", 1)[0]
+    if "prepare" in path_l or "autocomplet" in path_l or "implicit" in path_l:
+        return False
+    return any(
+        x in path_l
+        for x in (
+            "/f/conversation",
+            "/backend-api/f/conversation",
+            "/backend-api/conversation",
+            "/backend-anon/f/conversation",
+            "/backend-anon/conversation",
+            "/conversation/init",
+            "/backend-api/conversation/init",
+            "/chat_conversations",
+        )
+    )
+
+
+def is_chatgpt_encrypted_wire(body: str) -> bool:
+    """ChatGPT sometimes sends Fernet-style encrypted bodies instead of plain messages."""
+    data = _parse_chat_json(body)
+    if not isinstance(data, dict):
+        return False
+    p = data.get("p")
+    if isinstance(p, str) and (p.startswith("gAAAA") or (len(p) > 96 and not p.strip().startswith("{"))):
+        return True
+    for key in ("payload", "body", "data", "encrypted", "ciphertext"):
+        val = data.get(key)
+        if isinstance(val, str) and val.startswith("gAAAA"):
+            return True
+    return False
+
+
+def is_chatgpt_wire_send(path: str, body: str) -> bool:
+    """True for ChatGPT Enter/send even when the JSON body is encrypted or message-less."""
+    if not is_chatgpt_conversation_path(path):
+        return False
+    if is_chatgpt_encrypted_wire(body):
+        return True
+    data = _parse_chat_json(body)
+    if not isinstance(data, dict):
+        return False
+    action = str(data.get("action") or "").strip().lower()
+    if action and not _is_send_action(action):
+        return False
+    if data.get("parent_message_id") or data.get("conversation_id"):
+        return True
+    if isinstance(data.get("messages"), list) and data["messages"]:
+        return True
+    return False
+
+
+def _extract_composer_draft_text(raw_text: str) -> str | None:
+    """Pull user text from in_progress / prepare payloads for Send-time binding."""
+    data = _parse_chat_json(raw_text)
+    if not isinstance(data, dict):
+        return None
+    msgs = data.get("messages")
+    if isinstance(msgs, list):
+        for msg in reversed(msgs):
+            if not isinstance(msg, dict):
+                continue
+            role = msg.get("role")
+            if role is None and isinstance(msg.get("author"), dict):
+                role = msg["author"].get("role")
+            if role and str(role).lower() not in ("user", "human", "customer", "client", "sender"):
+                continue
+            text = _extract_from_message_obj(msg)
+            if text:
+                return text
+    for key in ("prompt", "query", "input", "message", "text", "user_input", "question"):
+        val = data.get(key)
+        if isinstance(val, (str, int, float)):
+            got = _clean_prompt_text(str(val))
+            if got:
+                return got
+    return None
+
+
+def capture_composer_text(
+    domain: str,
+    raw_bytes: bytes,
+    content_type: str,
+    host: str,
+    raw_text: str,
+) -> None:
+    """Remember the latest typed text from ANY JSON POST (prepare, in_progress, init, send)."""
+    if not domain or not raw_text or not raw_text.lstrip().startswith("{"):
+        return
+    prep = extract_prompt(raw_bytes, content_type, host=host) or extract_prompt_from_any_json(raw_text)
+    if not prep:
+        prep = _extract_composer_draft_text(raw_text)
+    if prep and looks_like_user_prompt(prep) and not _is_file_mention_only(prep):
+        remember_pending_prompt(domain, prep)
+        _composer_draft[domain] = (prep, time.time())
+
+
+def extract_chatgpt_user_from_sse(text: str) -> str | None:
+    """Fallback: read the user turn echoed in ChatGPT SSE when the request body was encrypted."""
+    if not text:
+        return None
+    best: str | None = None
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            obj = json.loads(payload)
+        except Exception:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        msg = obj.get("message")
+        if not isinstance(msg, dict):
+            continue
+        author = msg.get("author") if isinstance(msg.get("author"), dict) else {}
+        if str(author.get("role") or "").lower() != "user":
+            continue
+        got = _extract_from_message_obj(msg)
+        if got and looks_like_user_prompt(got):
+            best = got
+    return best
+
+
+def recover_chatgpt_send_prompt(domain: str, raw_text: str, path: str, host: str) -> str | None:
+    """Bind encrypted / empty-body ChatGPT sends to the last captured composer text."""
+    got = recover_pending_prompt(domain, raw_text, path, host)
+    if got:
+        return got
+    if not is_chatgpt_wire_send(path, raw_text):
+        return None
+    now = time.time()
+    for store in (_pending_send_prompt, _composer_draft):
+        pending = store.get(domain)
+        if not pending:
+            continue
+        text, ts = pending
+        if now - ts <= _PENDING_SEND_PROMPT_TTL and looks_like_user_prompt(text):
+            return text
+    return None
 
 
 def _looks_like_chat_send_request(path: str, body: str) -> bool:
@@ -4882,6 +5036,9 @@ class BrowserAIInterceptor:
 
         path_l = (path or "").lower()
 
+        # Capture composer text from every JSON POST before path-specific early returns.
+        capture_composer_text(domain, raw_bytes, content_type, host, raw_text)
+
         # Capture typing/composer text from any JSON chat POST (not only /prepare).
         if is_chat_path(path, host, raw_text) and not is_noise(path, raw_text):
             prep = extract_prompt(raw_bytes, content_type, host=host) or extract_prompt_from_any_json(raw_text)
@@ -4977,7 +5134,7 @@ class BrowserAIInterceptor:
             return
 
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
-        if not is_chat_path(path, host, raw_text):
+        if not is_chat_path(path, host, raw_text) and not is_chatgpt_wire_send(path, raw_text):
             return
 
         if is_noise(path):
@@ -5012,16 +5169,17 @@ class BrowserAIInterceptor:
             is_confirmed_chat_submit(raw_text)
             or is_conversation_final_send(path, raw_text)
             or _looks_like_chat_send_request(path, raw_text)
+            or is_chatgpt_wire_send(path, raw_text)
         )
 
         prompt = extract_prompt(raw_bytes, content_type, host=host)
         if not prompt:
-            prompt = recover_pending_prompt(domain, raw_text, path, host)
+            prompt = recover_chatgpt_send_prompt(domain, raw_text, path, host)
         elif looks_like_user_prompt(prompt):
             remember_pending_prompt(domain, prompt)
 
         if (not prompt or len(prompt.strip()) < 1) and confirmed_send:
-            prompt = recover_pending_prompt(domain, raw_text, path, host)
+            prompt = recover_chatgpt_send_prompt(domain, raw_text, path, host)
             if not prompt:
                 prompt = extract_prompt_from_any_json(raw_text)
             if not prompt:
@@ -5070,6 +5228,8 @@ class BrowserAIInterceptor:
 
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
 
+        flow.metadata["unifai_logged"] = True
+
         allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
             platform=platform,
             domain=domain,
@@ -5096,8 +5256,10 @@ class BrowserAIInterceptor:
             except Exception as e:
                 print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
 
+        mark_duplicate_event(domain, prompt)
+
     def response(self, flow: http.HTTPFlow) -> None:
-        """Link ChatGPT file_id handshake responses to later binary uploads."""
+        """File handshake linking + ChatGPT SSE fallback when request body was encrypted."""
         req = flow.request
         if req.method not in ("POST", "PUT", "PATCH"):
             return
@@ -5109,6 +5271,37 @@ class BrowserAIInterceptor:
         if not resp or resp.status_code not in (200, 201, 204):
             return
         path_l = (req.path or "").lower()
+
+        # ChatGPT: log user prompt from SSE echo when the request had no extractable text.
+        if (
+            not flow.metadata.get("unifai_logged")
+            and is_chatgpt_conversation_path(path_l)
+            and "prepare" not in path_l
+        ):
+            try:
+                resp_text = (resp.content or b"").decode("utf-8", errors="ignore")
+            except Exception:
+                resp_text = ""
+            ct = (resp.headers.get("content-type") or "").lower()
+            if resp_text and ("event-stream" in ct or resp_text.lstrip().startswith("data:")):
+                prompt = extract_chatgpt_user_from_sse(resp_text)
+                if prompt and looks_like_user_prompt(prompt) and not is_duplicate_prompt(domain, prompt):
+                    client_ip = get_client_ip(flow)
+                    print(
+                        f"[UnifAI Proxy] ChatGPT SSE fallback | {client_ip} → {platform} ({domain}) | "
+                        f"{prompt[:80]!r}"
+                    )
+                    flow.metadata["unifai_logged"] = True
+                    evaluate_prompt(
+                        platform=platform,
+                        domain=domain,
+                        prompt=prompt,
+                        client_ip=client_ip,
+                        url=req.url,
+                        method=req.method,
+                    )
+                    mark_duplicate_event(domain, prompt)
+
         if "/backend-api/files" not in path_l and "process_upload" not in path_l:
             return
         try:
