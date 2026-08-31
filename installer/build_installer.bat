@@ -20,9 +20,9 @@ if not exist unifai_guard_config.json (
   exit /b 1
 )
 
-findstr /C:"unifai.dev-yp.com" unifai_guard_config.json >nul
+findstr /C:"unifaiv2.dev-yp.com" unifai_guard_config.json >nul
 if errorlevel 1 (
-  echo WARNING: backend_url may not be production unifai.dev-yp.com — check unifai_guard_config.json
+  echo WARNING: backend_url may not be production unifaiv2.dev-yp.com — check unifai_guard_config.json
 )
 
 echo.
@@ -71,7 +71,7 @@ echo  SUCCESS — UnifAI Guard 1.5.0
 echo  Employee installer:
 echo    release\UnifAI_Guard_Setup.exe
 echo  Backend:
-echo    https://unifai.dev-yp.com
+echo    https://unifaiv2.dev-yp.com
 echo ============================================================
 dir release\UnifAI_Guard_Setup.exe
 endlocal

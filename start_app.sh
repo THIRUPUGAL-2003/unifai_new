@@ -28,7 +28,7 @@ else
 fi
 
 # 2. Start mitmweb
-echo "2. Starting Proxy Interceptor (Proxy Port: 8085, Web UI Port: 8081)..."
+echo "2. Starting Proxy Interceptor (Proxy Port: 8085, Web UI Port: 8083)..."
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "
 Get-CimInstance Win32_Process |
   Where-Object { \$_.CommandLine -match 'mitmweb|mitmdump' } |
@@ -36,7 +36,7 @@ Get-CimInstance Win32_Process |
 " 2>/dev/null
 sleep 1
 
-mitmweb -p 8085 --web-host 127.0.0.1 --web-port 8081 \
+mitmweb -p 8085 --web-host 127.0.0.1 --web-port 8083 \
   -s "$SCRIPT_DIR/scripts/browser_ai_proxy.py" \
   --set block_global=false \
   --set connection_strategy=lazy \
@@ -51,7 +51,7 @@ if [[ -f "$HOME/.mitmproxy/mitmproxy-ca-cert.cer" ]]; then
 fi
 
 # 3. Force Windows SYSTEM proxy (not file:// PAC — Chrome ignores file PAC)
-#    Localhost bypass so Dashboard / UnifAI on :8080 keep working.
+#    Localhost bypass so Dashboard / UnifAI on :8081 keep working.
 echo "3. Enabling Windows system proxy → 127.0.0.1:8085 ..."
 powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "
 \$path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
@@ -92,13 +92,13 @@ echo "   Proxy check: $VERIFY"
 
 # 5. Open dashboard in default browser (bypasses proxy via ProxyOverride)
 echo "5. Opening Dashboard & Proxy Monitor..."
-cmd.exe //c start "" "http://localhost:8080/workspace/browser-ai" >/dev/null 2>&1 &
-cmd.exe //c start "" "http://127.0.0.1:8081" >/dev/null 2>&1 &
+cmd.exe //c start "" "http://localhost:8081/workspace/browser-ai" >/dev/null 2>&1 &
+cmd.exe //c start "" "http://127.0.0.1:8083" >/dev/null 2>&1 &
 
 echo "===================================================="
 echo "✅ AI Guard is ON for this laptop"
-echo "   Dashboard: http://localhost:8080/workspace/browser-ai"
-echo "   Proxy UI:  http://127.0.0.1:8081  ← must show flows when you browse"
+echo "   Dashboard: http://localhost:8081/workspace/browser-ai"
+echo "   Proxy UI:  http://127.0.0.1:8083  ← must show flows when you browse"
 echo ""
 echo "⚠️  REQUIRED: Fully quit Chrome/Edge (all windows), then reopen."
 echo "   Already-open browsers keep the old (no-proxy) settings."

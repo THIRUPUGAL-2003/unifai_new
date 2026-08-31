@@ -11,10 +11,10 @@
         "value": "32768"
       },
       "db_name": {
-        "value": "unifai_new"
+        "value": "Unifai_test"
       },
       "user": {
-        "value": "agent_unify"
+        "value": "Unifai_test"
       },
       "password": {
         "value": "YP2025-2026yp"
@@ -35,10 +35,10 @@
         "value": "32768"
       },
       "db_name": {
-        "value": "unifai_new"
+        "value": "Unifai_test"
       },
       "user": {
-        "value": "agent_unify"
+        "value": "Unifai_test"
       },
       "password": {
         "value": "YP2025-2026yp"
@@ -60,7 +60,7 @@
       "*"
     ],
     "max_request_body_size_mb": 100,
-    "mcp_external_client_url": "https://unifai.dev-yp.com",
+    "mcp_external_client_url": "https://unifaiv2.dev-yp.com",
     "compat": {
       "should_convert_params": false
     }
@@ -84,4 +84,3 @@
     }
   }
 }
-

@@ -38,7 +38,7 @@ Get-CimInstance Win32_Process |
 " 2>/dev/null
 
 if command -v netstat >/dev/null 2>&1; then
-  for port in 8085 8081; do
+  for port in 8085 8083; do
     pids=$(netstat -ano 2>/dev/null | grep ":$port " | grep LISTENING | awk '{print $NF}' | sort -u)
     for pid in $pids; do
       [[ "$pid" =~ ^[0-9]+$ ]] && taskkill //PID "$pid" //F >/dev/null 2>&1 || true

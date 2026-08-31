@@ -3,34 +3,34 @@ version: '3.8'
 services:
   # Production path for employees = Guard EXE on each laptop (local :8085) → this UnifAI backend.
   # browser_ai_proxy below is OPTIONAL lab/demo only — do not confuse with employee Guard.
-  zen_gauss:
+  zen_gauss_v1:
     image: unifai-local:latest
-    container_name: zen_gauss
+    container_name: zen_gauss_v1
     environment:
       - APP_DIR=/app/data
-      - APP_PORT=8080
+      - APP_PORT=8081
       - APP_HOST=0.0.0.0
       - LOG_LEVEL=info
       - LOG_STYLE=json
     ports:
-      - "8080:8080"
+      - "8081:8081"
     volumes:
       - ./data:/app/data
       - ./config.json:/app/data/config.json
     restart: unless-stopped
 
-  # LAB ONLY: manual browser proxy to host:8087. Employee Guard EXE does NOT use this container.
+  # LAB ONLY: manual browser proxy to host:8082. Employee Guard EXE does NOT use this container.
   browser_ai_proxy:
     image: mitmproxy/mitmproxy:latest
     container_name: unifai_browser_ai_proxy
-    command: mitmdump -s /app/scripts/browser_ai_proxy.py -p 8087 --set listen_host=0.0.0.0 --set block_global=false --set ssl_insecure=true --set ignore_hosts='^(localhost|127\.0\.0\.1|zen_gauss)'
+    command: mitmdump -s /app/scripts/browser_ai_proxy.py -p 8082 --set listen_host=0.0.0.0 --set block_global=false --set ssl_insecure=true --set ignore_hosts='^(localhost|127\.0\.0\.1|zen_gauss_v1)'
     environment:
-      - UNIFAI_BACKEND_URL=http://zen_gauss:8080
+      - UNIFAI_BACKEND_URL=http://zen_gauss_v1:8081
       - UNIFAI_FAIL_OPEN=0
     ports:
-      - "8087:8087"
+      - "8082:8082"
     volumes:
       - ./scripts:/app/scripts
     depends_on:
-      - zen_gauss
+      - zen_gauss_v1
     restart: unless-stopped

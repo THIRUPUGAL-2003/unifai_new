@@ -36,7 +36,7 @@ from mitmproxy.tools.main import mitmdump
 # Paths / config
 # ---------------------------------------------------------------------------
 
-DEFAULT_BACKEND = "https://unifai.dev-yp.com"
+DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
 AGENT_VERSION = "1.5.0"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45

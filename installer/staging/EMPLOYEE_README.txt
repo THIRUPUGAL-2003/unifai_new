@@ -1,7 +1,7 @@
 UnifAI Guard — Employee Install Guide
 =====================================
 
-Company server: https://unifai.dev-yp.com
+Company server: https://unifaiv2.dev-yp.com
 (If IT gave you a different backend URL, use the config in this ZIP.)
 
 1. Run UnifAI_Guard_Setup.exe

@@ -6,13 +6,13 @@ Employee file to distribute:
   release\UnifAI_Guard_Setup.exe
 
 Configured backend:
-  https://unifai.dev-yp.com
+  https://unifaiv2.dev-yp.com
 
 BEFORE company rollout — verify server APIs return JSON (not HTML):
-  https://unifai.dev-yp.com/health
-  https://unifai.dev-yp.com/api/browser-ai/targets
-  https://unifai.dev-yp.com/api/browser-ai/rules
-  https://unifai.dev-yp.com/api/browser-ai/proxy.pac?proxy=127.0.0.1:8085
+  https://unifaiv2.dev-yp.com/health
+  https://unifaiv2.dev-yp.com/api/browser-ai/targets
+  https://unifaiv2.dev-yp.com/api/browser-ai/rules
+  https://unifaiv2.dev-yp.com/api/browser-ai/proxy.pac?proxy=127.0.0.1:8085
 
 If /api/browser-ai/* returns the UnifAI web page HTML, deploy the latest
 backend that includes Browser AI routes, then re-test.

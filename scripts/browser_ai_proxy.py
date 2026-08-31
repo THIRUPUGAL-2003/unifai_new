@@ -30,7 +30,7 @@ from mitmproxy import http
 # ─────────────────────────────────────────────
 
 # Backend URL (set by docker-compose environment variable)
-UNIFAI_BACKEND_URL = os.getenv("UNIFAI_BACKEND_URL", "https://unifai.dev-yp.com")
+UNIFAI_BACKEND_URL = os.getenv("UNIFAI_BACKEND_URL", "https://unifaiv2.dev-yp.com")
 UNIFAI_AGENT_ID = os.getenv("UNIFAI_AGENT_ID", "")
 UNIFAI_AGENT_HOSTNAME = os.getenv("UNIFAI_AGENT_HOSTNAME", "")
 
