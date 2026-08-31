@@ -59,7 +59,7 @@ clean_on_exit = false
 [proxy]
 enabled = false
 proxy_port = 8090
-app_port = 8080
+app_port = 8081
 
 [screen]
 clear_on_rebuild = false

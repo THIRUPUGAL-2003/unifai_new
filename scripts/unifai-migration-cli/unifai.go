@@ -20,7 +20,7 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 
 // UnifAIClient writes entities to the UnifAI management API.
 type UnifAIClient struct {
-	BaseURL string // e.g. http://localhost:8080
+	BaseURL string // e.g. http://localhost:8081
 	APIKey  string // optional bearer token
 }
 

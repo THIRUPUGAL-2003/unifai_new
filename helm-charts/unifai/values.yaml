@@ -72,7 +72,7 @@ securityContext:
 
 service:
   type: ClusterIP
-  port: 8080
+  port: 8081
   annotations: {}
 
 # Single ingress (legacy format):
@@ -199,7 +199,7 @@ lifecycle:
 unifai:
   # Application settings
   appDir: /app/data
-  port: 8080
+  port: 8081
   # 0.0.0.0 binds IPv4 interfaces only; use "::" for dual-stack/IPv6-only clusters
   host: 0.0.0.0
   logLevel: info

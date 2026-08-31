@@ -3,13 +3,13 @@ global:
   scrape_interval: 5s # Scrape every 5 seconds
 
 # Note: Target configuration depends on your deployment environment:
-# - For local development: Use "host.docker.internal:8080" to access the service running on your host machine
-# - For Docker deployment: Use "unifai-api:8080" to access the service within the Docker network
-#   Make sure to replace "unifai-api" and "8080" with your actual docker container name and port if different
+# - For local development: Use "host.docker.internal:8081" to access the service running on your host machine
+# - For Docker deployment: Use "unifai-api:8081" to access the service within the Docker network
+#   Make sure to replace "unifai-api" and "8081" with your actual docker container name and port if different
 #   Also check that you have the unifai container inside "unifai_tracking_network".
 
 scrape_configs:
   - job_name: "unifai-api"
     static_configs:
-      - targets: ["host.docker.internal:8080"] # Scrape from the /metrics endpoint
+      - targets: ["host.docker.internal:8081"] # Scrape from the /metrics endpoint
 

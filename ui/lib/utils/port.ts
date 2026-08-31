@@ -24,7 +24,7 @@ function getPortConfig(): PortConfig {
 
 	if (isDevelopment) {
 		// Development mode: Vite dev server runs on different port than Go server
-		const port = process.env.UNIFAI_PORT || "8080";
+		const port = process.env.UNIFAI_PORT || "8081";
 		return {
 			port,
 			isDevelopment: true,

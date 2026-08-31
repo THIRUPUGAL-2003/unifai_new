@@ -48,7 +48,7 @@ import (
 // Constants
 const (
 	DefaultHost           = "localhost"
-	DefaultPort           = "8080"
+	DefaultPort           = "8081"
 	DefaultAppDir         = "" // Empty string means use OS-specific config directory
 	DefaultLogLevel       = string(schemas.LogLevelInfo)
 	DefaultLogOutputStyle = string(schemas.LoggerOutputTypeJSON)

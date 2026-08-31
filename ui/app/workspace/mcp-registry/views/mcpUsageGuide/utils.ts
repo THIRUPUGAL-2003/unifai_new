@@ -4,7 +4,7 @@ import type { MCPClient } from "@/lib/types/mcp";
 import type { HarnessPlatform, ServerScope } from "./types";
 
 /** Default port UnifAI serves on; used when guessing the gateway URL in local dev. */
-const DEFAULT_UNIFAI_PORT = "8080";
+const DEFAULT_UNIFAI_PORT = "8081";
 
 /**
  * Resolve the externally reachable UnifAI base URL used in generated commands/configs.

@@ -55,7 +55,7 @@ replicaCount: 1
 # Service
 service:
   type: ClusterIP
-  port: 8080
+  port: 8081
 
 # Storage configuration - using SQLite for simplicity
 storage:
@@ -80,7 +80,7 @@ vectorStore:
 # UnifAI configuration
 unifai:
   appDir: /app/data
-  port: 8080
+  port: 8081
   host: 0.0.0.0
   logLevel: info
   logStyle: json

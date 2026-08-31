@@ -43,10 +43,10 @@ UnifAI has been installed!
 {{- else }}
 
 1. Port-forward to access UnifAI:
-   kubectl port-forward svc/{{ include "unifai.fullname" . }} 8080:{{ .Values.service.port }} -n {{ .Release.Namespace }}
+   kubectl port-forward svc/{{ include "unifai.fullname" . }} 8081:{{ .Values.service.port }} -n {{ .Release.Namespace }}
 
 2. Access UnifAI at:
-   http://localhost:8080
+   http://localhost:8081
 
 {{- end }}
 

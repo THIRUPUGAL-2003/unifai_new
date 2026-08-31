@@ -521,7 +521,7 @@ export const proxyConfigSchema = z
 			return true;
 		},
 		{
-			message: "Must be a valid URL (e.g., http://proxy.example.com:8080)",
+			message: "Must be a valid URL (e.g., http://proxy.example.com:8081)",
 			path: ["url"],
 		},
 	);
@@ -571,7 +571,7 @@ export const proxyFormConfigSchema = z
 			return true;
 		},
 		{
-			message: "Must be a valid URL (e.g., http://proxy.example.com:8080)",
+			message: "Must be a valid URL (e.g., http://proxy.example.com:8081)",
 			path: ["url"],
 		},
 	);
@@ -1200,7 +1200,7 @@ export const globalProxyConfigSchema = z
 			return true;
 		},
 		{
-			message: "Must be a valid URL (e.g., http://proxy.example.com:8080)",
+			message: "Must be a valid URL (e.g., http://proxy.example.com:8081)",
 			path: ["url"],
 		},
 	);

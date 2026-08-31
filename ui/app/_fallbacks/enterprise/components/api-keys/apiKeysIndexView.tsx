@@ -14,7 +14,7 @@ export default function APIKeysView() {
 
 	const curlExample = `# Base64 encode your username:password
 # Example: echo -n "username:password" | base64
-curl --location 'http://localhost:8080/v1/chat/completions'
+curl --location 'http://localhost:8081/v1/chat/completions'
 --header 'Content-Type: application/json' 
 --header 'Accept: application/json' 
 --header 'Authorization: Basic <base64_encoded_username:password>' 

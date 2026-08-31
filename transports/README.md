@@ -18,7 +18,7 @@ Choose your preferred method:
 # Install and run locally
 npx -y @unifai/unifai
 
-# Open web interface at http://localhost:8080
+# Open web interface at http://localhost:8081
 ```
 
 #### Docker
@@ -26,19 +26,19 @@ npx -y @unifai/unifai
 ```bash
 # Pull and run UnifAI Gateway
 docker pull unifai/unifai
-docker run -p 8080:8080 unifai/unifai
+docker run -p 8081:8081 unifai/unifai
 
 # For persistent configuration
-docker run -p 8080:8080 -v $(pwd)/data:/app/data unifai/unifai
+docker run -p 8081:8081 -v $(pwd)/data:/app/data unifai/unifai
 ```
 
 ### Configuration
 
-UnifAI starts with zero configuration needed. Configure providers through the **built-in web UI** at `http://localhost:8080` or via API:
+UnifAI starts with zero configuration needed. Configure providers through the **built-in web UI** at `http://localhost:8081` or via API:
 
 ```bash
 # Add OpenAI provider via API
-curl -X POST http://localhost:8080/api/providers \
+curl -X POST http://localhost:8081/api/providers \
   -H "Content-Type: application/json" \
   -d '{
     "provider": "openai",
@@ -61,7 +61,7 @@ For file-based configuration, create `config.json` in your app directory:
 ### Your First API Call
 
 ```bash
-curl -X POST http://localhost:8080/v1/chat/completions \
+curl -X POST http://localhost:8081/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "openai/gpt-4o-mini",
@@ -114,7 +114,7 @@ Replace your existing SDK base URLs to unlock UnifAI's features instantly:
 ```python
 import openai
 client = openai.OpenAI(
-    base_url="http://localhost:8080/openai",
+    base_url="http://localhost:8081/openai",
     api_key="dummy"  # Handled by UnifAI
 )
 ```
@@ -124,7 +124,7 @@ client = openai.OpenAI(
 ```python
 import anthropic
 client = anthropic.Anthropic(
-    base_url="http://localhost:8080/anthropic",
+    base_url="http://localhost:8081/anthropic",
     api_key="dummy"  # Handled by UnifAI
 )
 ```
@@ -135,7 +135,7 @@ client = anthropic.Anthropic(
 import google.generativeai as genai
 genai.configure(
     transport="rest",
-    api_endpoint="http://localhost:8080/genai",
+    api_endpoint="http://localhost:8081/genai",
     api_key="dummy"  # Handled by UnifAI
 )
 ```

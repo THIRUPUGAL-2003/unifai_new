@@ -10,7 +10,7 @@
 # its own governance settings, team memberships and access profiles.
 #
 # Usage:
-#   UNIFAI_URL=http://localhost:8080 UNIFAI_API_KEY=<token> ./delete_unifai_entities.sh
+#   UNIFAI_URL=http://localhost:8081 UNIFAI_API_KEY=<token> ./delete_unifai_entities.sh
 #
 #   DRY_RUN=1 ./delete_unifai_entities.sh              # list what would be deleted, delete nothing
 #   DELETE_VKS=0 ./delete_unifai_entities.sh           # skip virtual keys (default: 1)
@@ -38,7 +38,7 @@
 
 set -euo pipefail
 
-UNIFAI_URL="${UNIFAI_URL:-http://localhost:8080}"
+UNIFAI_URL="${UNIFAI_URL:-http://localhost:8081}"
 UNIFAI_API_KEY="${UNIFAI_API_KEY:-}"
 DRY_RUN="${DRY_RUN:-0}"
 DELETE_VKS="${DELETE_VKS:-1}"

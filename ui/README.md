@@ -34,13 +34,13 @@ npm install
 npm run dev
 ```
 
-The development server runs on `http://localhost:3000` and connects to your UnifAI HTTP transport backend (default: `http://localhost:8080`).
+The development server runs on `http://localhost:3000` and connects to your UnifAI HTTP transport backend (default: `http://localhost:8081`).
 
 ### Environment Variables
 
 ```bash
 # Development only - customize UnifAI backend port
-UNIFAI_PORT=8080
+UNIFAI_PORT=8081
 ```
 
 ## Architecture
@@ -67,7 +67,7 @@ UNIFAI_PORT=8080
         └────────────────────────────────────────┘
 ```
 
-- **Development**: UI runs on port 3000, connects to Go backend on port 8080
+- **Development**: UI runs on port 3000, connects to Go backend on port 8081
 - **Production**: UI built as static assets served directly by Go HTTP transport
 - **Communication**: REST API + WebSocket for real-time features
 

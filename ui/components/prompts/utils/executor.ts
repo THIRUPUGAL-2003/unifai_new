@@ -13,7 +13,7 @@ export interface ExecutionConfig {
 
 function getBaseUrl() {
 	if (process.env.NODE_ENV === "development") {
-		return "http://localhost:8080";
+		return "http://localhost:8081";
 	} else {
 		return "";
 	}

@@ -40,7 +40,7 @@ export default function LandingPage() {
 	}, []);
 
 	const codeExamples = {
-		curl: `curl -X POST http://localhost:8080/v1/chat/completions \\
+		curl: `curl -X POST http://localhost:8081/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer sk-UnifAI-key" \\
   -d '{
@@ -56,7 +56,7 @@ export default function LandingPage() {
 
 # Simply change the base_url to point to UnifAI
 client = OpenAI(
-    base_url="http://localhost:8080/v1",
+    base_url="http://localhost:8081/v1",
     api_key="sk-UnifAI-key"
 )
 
@@ -69,7 +69,7 @@ print(response.choices[0].message.content)`,
 
 // Simply change the baseURL to point to UnifAI
 const openai = new OpenAI({
-  baseURL: "http://localhost:8080/v1",
+  baseURL: "http://localhost:8081/v1",
   apiKey: "sk-UnifAI-key"
 });
 

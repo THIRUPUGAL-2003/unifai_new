@@ -9,7 +9,7 @@
 //
 // Configuration is handled through a JSON config file, high-performance ConfigStore, and environment variables:
 //   - Use -app-dir flag to specify the application data directory (contains config.json and logs)
-//   - Use -port flag to specify the server port (default: 8080)
+//   - Use -port flag to specify the server port (default: 8081)
 //   - When no config file exists, common environment variables are auto-detected (OPENAI_API_KEY, ANTHROPIC_API_KEY, MISTRAL_API_KEY)
 //
 // ConfigStore Features:
@@ -29,7 +29,7 @@
 //
 // Example usage:
 //
-//	go run main.go -app-dir ./data -port 8080 -host 0.0.0.0
+//	go run main.go -app-dir ./data -port 8081 -host 0.0.0.0
 //	after setting provider API keys like OPENAI_API_KEY in the environment.
 //
 //	To bind to all interfaces for container usage, set UNIFAI_HOST=0.0.0.0 or use -host 0.0.0.0
@@ -82,7 +82,7 @@ var server *unifaiServer.UnifAIHTTPServer
 // Flag parsing is deferred to main() to avoid conflicts with test flags.
 // It sets up the following flags:
 //   - host: Host to bind the server to (default: localhost, can be overridden with UNIFAI_HOST env var)
-//   - port: Server port (default: 8080)
+//   - port: Server port (default: 8081)
 //   - app-dir: Application data directory (default: current directory)
 //   - log-level: Logger level (debug, info, warn, error). Default is info.
 //   - log-style: Logger output type (json or pretty). Default is JSON.
