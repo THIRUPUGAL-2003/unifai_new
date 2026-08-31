@@ -10,11 +10,8 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Database & Data directories (runtime volume — do not bake secrets/logs)
-data/*
-!data/mcp-library.json
-!data/pricing.json
-!data/model-parameters.json
+# Database & Data directories
+data/
 
 # Build outputs
 dist/

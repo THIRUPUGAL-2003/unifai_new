@@ -19,19 +19,11 @@ if [ ! -f data/config.json ] && [ -f config.json ]; then
   cp config.json data/config.json
 fi
 
-echo "[4/6] Ensure catalog files exist in data..."
-mkdir -p data
-for seed_file in mcp-library.json pricing.json model-parameters.json; do
-  if [ ! -f "data/$seed_file" ]; then
-    echo "  ERROR: data/$seed_file missing — git pull required"
-    exit 1
-  fi
-done
-echo "  mcp-library.json: $(python3 -c 'import json;print(len(json.load(open(\"data/mcp-library.json\",encoding=\"utf-8\")).get(\"servers\",[])))' 2>/dev/null || echo '?') servers"
+echo "[4/6] Pull latest code (optional)..."
+git pull 2>/dev/null || echo "  (git pull skipped or failed — continuing)"
 
-echo "[5/6] Rebuild backend image and start containers..."
-docker build -f transports/Dockerfile.local -t unifai-local:latest .
-docker compose up -d --force-recreate
+echo "[5/6] Start fresh containers..."
+docker compose up -d
 
 echo "[6/6] Wait and check health..."
 sleep 5
@@ -44,5 +36,6 @@ else
   echo "  docker logs zen_gauss_v1 --tail 50"
 fi
 echo ""
-echo "After deploy: open MCP Registry > Library > Sync, or wait for startup sync."
+echo "Test DNS from container:"
+docker exec zen_gauss_v1 nslookup getunifai.ai 2>/dev/null || echo "  DNS still failing — check server network"
 echo "=== Done ==="
