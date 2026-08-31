@@ -69,7 +69,7 @@
   COPY unifai_guard_config.json /app/unifai_guard_config.json
 
   # Getting arguments
-  ARG ARG_APP_PORT=8081
+  ARG ARG_APP_PORT=8080
   ARG ARG_APP_HOST=0.0.0.0
   ARG ARG_LOG_LEVEL=info
   ARG ARG_LOG_STYLE=json

@@ -15,12 +15,8 @@ const mcpLibrarySettingsSchema = z.object({
 		.string()
 		.trim()
 		.refine(
-			(value) =>
-				value === "" ||
-				value.startsWith("http://") ||
-				value.startsWith("https://") ||
-				value.startsWith("file://"),
-			"URL must start with http://, https://, or file://",
+			(value) => value === "" || value.startsWith("http://") || value.startsWith("https://"),
+			"URL must start with http:// or https://",
 		),
 	mcp_library_sync_interval_hours: z
 		.number({ message: "Sync interval is required" })
@@ -117,13 +113,13 @@ export function MCPLibrarySettingsSheet({ open, onClose }: MCPLibrarySettingsShe
 							<div className="space-y-0.5">
 								<Label htmlFor="mcp-library-url">Library Sync URL</Label>
 								<p className="text-muted-foreground text-sm">
-									URL to the MCP catalog JSON. Use <code className="text-xs">file:///app/data/mcp-library.json</code> on Docker, or https:// for remote.
+									URL to a custom MCP server catalog. Leave empty to use the default UnifAI catalog.
 								</p>
 							</div>
 							<Input
 								id="mcp-library-url"
 								type="text"
-								placeholder="file:///app/data/mcp-library.json"
+								placeholder="https://getunifai.ai/mcp-library"
 								data-testid="mcp-library-url-input"
 								{...register("mcp_library_url")}
 								className={errors.mcp_library_url ? "border-destructive" : ""}

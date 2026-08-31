@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('C:\\Users\\thiru\\OneDrive\\Desktop\\unify - Copy\\scripts\\browser_ai_proxy.py', '.')]
+datas = [('C:\\Users\\thiru\\OneDrive\\Desktop\\unify\\scripts\\browser_ai_proxy.py', '.')]
 binaries = []
 hiddenimports = ['pypdf', 'PIL', 'PIL.Image', 'winrt', 'winrt.windows.media.ocr', 'winrt.windows.globalization', 'winrt.windows.graphics.imaging', 'winrt.windows.storage.streams']
 tmp_ret = collect_all('pypdf')
@@ -17,7 +17,7 @@ datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
 
 a = Analysis(
-    ['C:\\Users\\thiru\\OneDrive\\Desktop\\unify - Copy\\scripts\\unifai_agent.py'],
+    ['C:\\Users\\thiru\\OneDrive\\Desktop\\unify\\scripts\\unifai_agent.py'],
     pathex=[],
     binaries=binaries,
     datas=datas,

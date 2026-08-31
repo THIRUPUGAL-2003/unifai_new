@@ -83,8 +83,6 @@ import {
 	BrowserTargetWebsite,
 	BrowserAIAgent,
 } from "@/lib/store/apis/browserAiApi";
-import { getErrorMessage } from "@/lib/store";
-import { toast } from "sonner";
 import { useGetAllKeysQuery, useGetModelsQuery, useGetProvidersQuery } from "@/lib/store/apis/providersApi";
 import { getProviderLabel } from "@/lib/constants/logs";
 import { getApiBaseUrl } from "@/lib/utils/port";
@@ -739,7 +737,7 @@ export default function BrowserAiPage() {
 			setEditTargetDialogOpen(false);
 			setEditTarget(null);
 		} catch (e) {
-			setTargetError(getErrorMessage(e));
+			// error
 		}
 	};
 
@@ -786,7 +784,7 @@ export default function BrowserAiPage() {
 			setNewRuleWarningMessage("");
 			setNewRuleType("regex");
 		} catch (e: any) {
-			setRuleError(getErrorMessage(e));
+			setRuleError(e?.data?.message || "Failed to create rule");
 		}
 	};
 
@@ -835,7 +833,7 @@ export default function BrowserAiPage() {
 			setEditRuleDialogOpen(false);
 			setEditRule(null);
 		} catch (e: any) {
-			setRuleError(getErrorMessage(e));
+			setRuleError(e?.data?.message || "Failed to update rule");
 		}
 	};
 
@@ -964,7 +962,7 @@ export default function BrowserAiPage() {
 			setCustomRelatedHosts([""]);
 			setTargetDialogOpen(false);
 		} catch (err: any) {
-			setTargetError(getErrorMessage(err));
+			setTargetError(err?.data?.message || err?.message || "Failed to create target domain");
 		}
 	};
 
@@ -1007,7 +1005,7 @@ export default function BrowserAiPage() {
 					// fall through
 				}
 			}
-			setTargetError(getErrorMessage(err));
+			setTargetError(err?.data?.message || err?.message || "Failed to add related host");
 		}
 	};
 
@@ -2029,7 +2027,7 @@ export default function BrowserAiPage() {
 											<div className="space-y-2 rounded-md border border-border p-3">
 												<p className="text-sm font-medium">Add related host</p>
 												<p className="text-[11px] text-muted-foreground">
-													Add every hostname you need: main site, API subdomain, file upload CDN, etc. Subdomains of the domain you enter are already covered — use &quot;Add related host&quot; only for a different hostname (e.g. upload CDN on another domain).
+													Subdomains of the domain you add already get full Guard access. Add a related host only when it is a different hostname you want nested under this domain. Names below are suggestions — nothing is added until you choose it.
 												</p>
 												{newTargetRelatedGroup ? (
 													<div className="space-y-1.5 rounded-md border border-dashed border-border bg-muted/20 p-2">
@@ -2232,19 +2230,15 @@ export default function BrowserAiPage() {
 													<div className="flex items-center gap-2 min-w-0">
 														<Switch
 															checked={tgt.monitored}
-															onCheckedChange={async (val) => {
-																try {
-																	await updateTarget({
-																		id: tgt.id,
-																		updates: {
-																			monitored: val,
-																			status: tgt.block_site ? "BLOCKED" : val ? "MONITORED" : "PAUSED",
-																		},
-																	}).unwrap();
-																} catch (e) {
-																	toast.error(getErrorMessage(e));
-																}
-															}}
+															onCheckedChange={(val) =>
+																updateTarget({
+																	id: tgt.id,
+																	updates: {
+																		monitored: val,
+																		status: tgt.block_site ? "BLOCKED" : val ? "MONITORED" : "PAUSED",
+																	},
+																})
+															}
 														/>
 														<span className="text-xs text-muted-foreground truncate">{tgt.monitored ? "Active" : "Paused"}</span>
 													</div>
@@ -2253,19 +2247,15 @@ export default function BrowserAiPage() {
 													<div className="flex items-center gap-2 min-w-0">
 														<Switch
 															checked={!!tgt.block_site}
-															onCheckedChange={async (val) => {
-																try {
-																	await updateTarget({
-																		id: tgt.id,
-																		updates: {
-																			block_site: val,
-																			status: val ? "BLOCKED" : tgt.monitored ? "MONITORED" : "PAUSED",
-																		},
-																	}).unwrap();
-																} catch (e) {
-																	toast.error(getErrorMessage(e));
-																}
-															}}
+															onCheckedChange={(val) =>
+																updateTarget({
+																	id: tgt.id,
+																	updates: {
+																		block_site: val,
+																		status: val ? "BLOCKED" : tgt.monitored ? "MONITORED" : "PAUSED",
+																	},
+																})
+															}
 														/>
 														<span className={`text-xs truncate ${tgt.block_site ? "text-red-400" : "text-muted-foreground"}`}>
 															{tgt.block_site ? "Locked" : "Off"}
@@ -2292,13 +2282,7 @@ export default function BrowserAiPage() {
 														<Button
 															variant="ghost"
 															size="icon"
-															onClick={async () => {
-																try {
-																	await deleteTarget(tgt.id).unwrap();
-																} catch (e) {
-																	toast.error(getErrorMessage(e));
-																}
-															}}
+															onClick={() => deleteTarget(tgt.id)}
 															className="h-8 w-8 text-muted-foreground hover:text-destructive"
 															title="Delete Target Domain"
 														>

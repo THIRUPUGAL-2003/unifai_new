@@ -25,7 +25,7 @@ const (
 type WeaviateConfig struct {
 	// Connection settings
 	Scheme     string              `json:"scheme"`                // "http" or "https" - REQUIRED
-	Host       *schemas.SecretVar     `json:"host"`                  // "localhost:9000" (Weaviate; host port maps to container 8080)
+	Host       *schemas.SecretVar     `json:"host"`                  // "localhost:8080" - REQUIRED
 	GrpcConfig *WeaviateGrpcConfig `json:"grpc_config,omitempty"` // grpc config for weaviate (optional)
 
 	// Authentication settings (optional)

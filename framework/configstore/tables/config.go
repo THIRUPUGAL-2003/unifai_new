@@ -30,7 +30,7 @@ type RestartRequiredConfig struct {
 type GlobalProxyConfig struct {
 	Enabled       bool                    `json:"enabled"`
 	Type          network.GlobalProxyType `json:"type"`                      // "http", "socks5", "tcp"
-	URL           string                  `json:"url"`                       // Proxy URL (e.g., http://proxy.example.com:8081)
+	URL           string                  `json:"url"`                       // Proxy URL (e.g., http://proxy.example.com:8080)
 	Username      string                  `json:"username,omitempty"`        // Optional authentication username
 	Password      string                  `json:"password,omitempty"`        // Optional authentication password
 	NoProxy       string                  `json:"no_proxy,omitempty"`        // Comma-separated list of hosts to bypass proxy

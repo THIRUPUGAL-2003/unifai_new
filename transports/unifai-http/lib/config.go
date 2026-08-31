@@ -963,11 +963,6 @@ func LoadConfig(ctx context.Context, configDirPath string) (*Config, error) {
 	} else {
 		config.GuardrailsConfig = &GuardrailsConfig{}
 	}
-	if overlay, err := loadGuardrailsOverlayFromFile(guardrailsOverlayPath(configFilePath)); err != nil {
-		logger.Warn("failed to load guardrails overlay file: %v", err)
-	} else if overlay != nil {
-		config.GuardrailsConfig = overlay
-	}
 	// 15. Server config
 	if configData.Server != nil {
 		config.ServerConfig = configData.Server
@@ -4404,66 +4399,12 @@ func (c *Config) GetRawConfigString() string {
 	return string(data)
 }
 
-// guardrailsOverlayPath is a writable sidecar file for UI-managed guardrails config.
-// Docker often bind-mounts config.json read-only; this file lives in the same data dir volume.
-func guardrailsOverlayPath(configPath string) string {
-	if configPath == "" {
-		return "guardrails_config.json"
-	}
-	return filepath.Join(filepath.Dir(configPath), "guardrails_config.json")
-}
-
-func loadGuardrailsOverlayFromFile(path string) (*GuardrailsConfig, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var cfg GuardrailsConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		return nil, fmt.Errorf("parse guardrails overlay: %w", err)
-	}
-	return &cfg, nil
-}
-
-// PersistGuardrailsConfig writes guardrails_config to a writable overlay file and
-// best-effort updates config.json when the path is writable.
+// PersistGuardrailsConfig writes guardrails_config to config.json when a config file path is configured.
 func (c *Config) PersistGuardrailsConfig(cfg *GuardrailsConfig) error {
-	if cfg == nil {
+	if c.configPath == "" {
 		return nil
 	}
 
-	section, err := json.Marshal(cfg)
-	if err != nil {
-		return fmt.Errorf("marshal guardrails config: %w", err)
-	}
-	out, err := json.MarshalIndent(json.RawMessage(section), "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal guardrails overlay: %w", err)
-	}
-	out = append(out, '\n')
-
-	overlayPath := guardrailsOverlayPath(c.configPath)
-	tmpOverlay := overlayPath + ".tmp"
-	if err := os.WriteFile(tmpOverlay, out, 0644); err != nil {
-		return fmt.Errorf("write guardrails overlay: %w", err)
-	}
-	if err := os.Rename(tmpOverlay, overlayPath); err != nil {
-		_ = os.Remove(tmpOverlay)
-		return fmt.Errorf("replace guardrails overlay: %w", err)
-	}
-
-	if c.configPath != "" {
-		if err := c.persistGuardrailsInMainConfig(cfg); err != nil {
-			logger.Warn("guardrails saved to %s but config.json update skipped: %v", overlayPath, err)
-		}
-	}
-	return nil
-}
-
-func (c *Config) persistGuardrailsInMainConfig(cfg *GuardrailsConfig) error {
 	var root map[string]json.RawMessage
 	data, err := os.ReadFile(c.configPath)
 	if err != nil {

@@ -1,14 +1,4 @@
-import type { GuardrailProvider, GuardrailRule, GuardrailsConfig } from "@/lib/store/apis/guardrailsApi";
-
-export function mergeGuardrailsConfig(
-	config: GuardrailsConfig | undefined,
-	patch: Partial<GuardrailsConfig>,
-): GuardrailsConfig {
-	return {
-		guardrail_rules: patch.guardrail_rules ?? config?.guardrail_rules ?? [],
-		guardrail_providers: patch.guardrail_providers ?? config?.guardrail_providers ?? [],
-	};
-}
+import type { GuardrailProvider, GuardrailRule } from "@/lib/store/apis/guardrailsApi";
 
 export function nextGuardrailId(existingIds: number[]): number {
 	if (existingIds.length === 0) {

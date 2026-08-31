@@ -631,7 +631,7 @@ vectorStore:
 
 | Parameter               | Description                       | Default   |
 | ----------------------- | --------------------------------- | --------- |
-| `unifai.port`          | Application port                  | `8081`    |
+| `unifai.port`          | Application port                  | `8080`    |
 | `unifai.host`          | Bind address                      | `0.0.0.0` |
 | `unifai.logLevel`      | Log level                         | `info`    |
 | `unifai.logStyle`      | Log format: `json` or `text`      | `json`    |
@@ -920,8 +920,8 @@ After installation, access UnifAI using one of these methods:
 ### Port Forwarding (Development)
 
 ```bash
-kubectl port-forward svc/unifai 8081:8081
-# Then visit http://localhost:8081
+kubectl port-forward svc/unifai 8080:8080
+# Then visit http://localhost:8080
 ```
 
 ### LoadBalancer
@@ -941,7 +941,7 @@ UnifAI exposes Prometheus metrics at `/metrics`:
 
 ```bash
 # Get metrics
-curl http://localhost:8081/metrics
+curl http://localhost:8080/metrics
 ```
 
 For OpenTelemetry integration:

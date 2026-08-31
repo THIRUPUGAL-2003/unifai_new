@@ -29,7 +29,7 @@ export const guardrailsApi = baseApi.injectEndpoints({
 			query: () => ({
 				url: "/guardrails/config",
 			}),
-			providesTags: ["Guardrails"],
+			providesTags: ["GuardrailsConfig" as any], // Cast as any if TagTypes doesn't have GuardrailsConfig yet
 		}),
 		updateGuardrailsConfig: builder.mutation<null, GuardrailsConfig>({
 			query: (data) => ({
@@ -37,7 +37,7 @@ export const guardrailsApi = baseApi.injectEndpoints({
 				method: "PUT",
 				body: data,
 			}),
-			invalidatesTags: ["Guardrails"],
+			invalidatesTags: ["GuardrailsConfig" as any],
 		}),
 	}),
 });

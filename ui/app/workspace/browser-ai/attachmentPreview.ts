@@ -48,24 +48,6 @@ export async function buildAttachmentPreview(
 	const ext = attachmentExt(name, contentType || blob.type);
 
 	if (kind === "image" || kind === "pdf") {
-		if (kind === "pdf") {
-			const head = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
-			const magic = String.fromCharCode(...head);
-			if (!magic.startsWith("%PDF")) {
-				const text = await blob.slice(0, 400).text();
-				const trimmed = text.trim();
-				if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-					return {
-						kind: "text",
-						text: "This log stored upload metadata, not the PDF bytes. Re-upload the file after updating UnifAI Guard so the real document is captured.",
-					};
-				}
-				return {
-					kind: "text",
-					text: "Captured file is not a valid PDF (bytes were not intercepted). Download may also be empty.",
-				};
-			}
-		}
 		return { kind, blobUrl: URL.createObjectURL(blob) };
 	}
 
