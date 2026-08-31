@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 
 	"github.com/unifai/unifai/framework/configstore"
+	"github.com/unifai/unifai/framework/connectors"
 	"github.com/valyala/fasthttp"
 )
 
@@ -151,5 +152,67 @@ func (h *WorkspaceHandler) updateConnector(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save connector")
 		return
 	}
+	ReloadConnectorsFromStore(store)
+	settings := connectors.Settings{Name: name, Enabled: false, Config: map[string]string{}}
+	if enabled, ok := payload["enabled"].(bool); ok {
+		settings.Enabled = enabled
+	}
+	if cfgMap, ok := payload["config"].(map[string]any); ok {
+		for k, v := range cfgMap {
+			if s, ok := v.(string); ok {
+				settings.Config[k] = s
+			}
+		}
+	}
+	connectors.Default.ApplySettings(settings)
+	test := connectors.Default.Test(ctx, name, settings)
+	payload["connection"] = test
+	if settings.Enabled && !test.OK {
+		SendJSONWithStatus(ctx, payload, fasthttp.StatusBadGateway)
+		return
+	}
 	SendJSON(ctx, payload)
+}
+
+func (h *WorkspaceHandler) testConnector(ctx *fasthttp.RequestCtx) {
+	store := h.requireStore(ctx)
+	if store == nil {
+		return
+	}
+	name := pathID(ctx, "name")
+	if !allowedConnectors[name] {
+		SendError(ctx, fasthttp.StatusNotFound, "unknown connector")
+		return
+	}
+	row, err := store.GetWorkspaceSetting(ctx, configstore.WorkspaceSettingConnector(name))
+	if isStoreNotFound(err) {
+		SendError(ctx, fasthttp.StatusNotFound, "connector not configured")
+		return
+	}
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "failed to load connector")
+		return
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(row.Data), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "failed to parse connector")
+		return
+	}
+	settings := connectors.Settings{Name: name, Config: map[string]string{}}
+	if enabled, ok := payload["enabled"].(bool); ok {
+		settings.Enabled = enabled
+	}
+	if cfgMap, ok := payload["config"].(map[string]any); ok {
+		for k, v := range cfgMap {
+			if s, ok := v.(string); ok {
+				settings.Config[k] = s
+			}
+		}
+	}
+	result := connectors.Default.Test(ctx, name, settings)
+	if !result.OK {
+		SendJSONWithStatus(ctx, map[string]any{"connection": result}, fasthttp.StatusBadGateway)
+		return
+	}
+	SendJSON(ctx, map[string]any{"connection": result})
 }

@@ -31,8 +31,17 @@ export function ConnectorForm({ name, title, description, fields, onDelete, isDe
 
 	const save = async () => {
 		try {
-			await updateConnector({ name, enabled, config }).unwrap();
-			toast.success(`${title} connector saved`);
+			const result = await updateConnector({ name, enabled, config }).unwrap();
+			const connection = (result as { connection?: { ok?: boolean; error?: string } }).connection;
+			if (connection && enabled && connection.ok === false) {
+				toast.error(connection.error || `${title} saved but connection failed`);
+				return;
+			}
+			if (connection?.ok) {
+				toast.success(`${title} connected and saved`);
+			} else {
+				toast.success(`${title} connector saved`);
+			}
 		} catch (err) {
 			toast.error(getErrorMessage(err));
 		}
@@ -44,9 +53,7 @@ export function ConnectorForm({ name, title, description, fields, onDelete, isDe
 				<h2 className="text-lg font-semibold">{title}</h2>
 				<p className="text-muted-foreground text-sm">{description}</p>
 				<p className="text-muted-foreground mt-2 text-xs">
-					Settings are stored in the workspace DB. Live log export for this connector is not wired in the OSS runtime
-					(unlike OpenTelemetry / Prometheus / Maxim). Enabling it here does not send data until a runtime exporter is
-					configured.
+					Credentials are stored in the workspace DB. When enabled, inference traces are exported live on each request.
 				</p>
 			</div>
 			<div className="flex items-center justify-between rounded-lg border p-3">

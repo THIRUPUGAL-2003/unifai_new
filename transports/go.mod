@@ -18,6 +18,7 @@ require (
 	github.com/unifai/unifai/core v1.6.2
 	github.com/unifai/unifai/framework v1.4.2
 	github.com/unifai/unifai/plugins/compat v0.1.24
+	github.com/unifai/unifai/plugins/connectors v0.1.0
 	github.com/unifai/unifai/plugins/governance v1.6.2
 	github.com/unifai/unifai/plugins/logging v1.5.25
 	github.com/unifai/unifai/plugins/maxim v1.6.25
@@ -231,6 +232,7 @@ replace (
 	github.com/unifai/unifai/core => ../core
 	github.com/unifai/unifai/framework => ../framework
 	github.com/unifai/unifai/plugins/compat => ../plugins/compat
+	github.com/unifai/unifai/plugins/connectors => ../plugins/connectors
 	github.com/unifai/unifai/plugins/governance => ../plugins/governance
 	github.com/unifai/unifai/plugins/jsonparser => ../plugins/jsonparser
 	github.com/unifai/unifai/plugins/logging => ../plugins/logging

@@ -113,6 +113,7 @@ func (h *WorkspaceHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 
 	r.GET("/api/connectors/{name}", wrap(h.getConnector))
 	r.PUT("/api/connectors/{name}", wrap(h.updateConnector))
+	r.POST("/api/connectors/{name}/test", wrap(h.testConnector))
 }
 
 func (h *WorkspaceHandler) requireStore(ctx *fasthttp.RequestCtx) configstore.WorkspaceStore {

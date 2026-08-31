@@ -132,6 +132,7 @@ var builtinPluginNames = []string{
 	compat.PluginName,
 	maxim.PluginName,
 	guardrails.PluginName,
+	"connectors",
 }
 
 func GetBuiltinPluginNames() []string {

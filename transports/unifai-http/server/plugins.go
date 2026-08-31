@@ -8,7 +8,9 @@ import (
 	"slices"
 
 	"github.com/unifai/unifai/core/schemas"
+	"github.com/unifai/unifai/framework/configstore"
 	"github.com/unifai/unifai/plugins/compat"
+	"github.com/unifai/unifai/plugins/connectors"
 	"github.com/unifai/unifai/plugins/governance"
 	"github.com/unifai/unifai/plugins/logging"
 	"github.com/unifai/unifai/plugins/maxim"
@@ -141,6 +143,9 @@ func loadBuiltinPlugin(ctx context.Context, name string, pluginConfig any, unifa
 
 	case modelcatalogresolver.PluginName:
 		return modelcatalogresolver.Init(unifaiConfig.ModelCatalog, logger)
+
+	case connectors.PluginName:
+		return connectors.Init()
 
 	default:
 		return nil, fmt.Errorf("unknown built-in plugin: %s", name)
@@ -294,6 +299,14 @@ func (s *UnifAIHTTPServer) loadBuiltinPlugins(ctx context.Context) error {
 	// including post_builtin ones like the enterprise load balancer (which would otherwise run
 	// after this builtin and never get a chance to pick the provider first).
 	s.Config.SetPluginOrderInfo(modelcatalogresolver.PluginName, schemas.Ptr(schemas.PluginPlacementPostBuiltin), schemas.Ptr(math.MaxInt))
+
+	// 11. Workspace data connectors (Datadog, Kafka, BigQuery, Pub/Sub) — export traces when enabled.
+	if _, ok := configstore.AsWorkspaceStore(s.Config.ConfigStore); ok {
+		s.registerPluginWithStatus(ctx, connectors.PluginName, nil, nil, false)
+	} else {
+		s.markPluginDisabled(connectors.PluginName)
+	}
+	s.Config.SetPluginOrderInfo(connectors.PluginName, builtinPlacement, schemas.Ptr(10))
 
 	return nil
 }
