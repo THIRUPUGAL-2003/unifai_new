@@ -163,6 +163,9 @@ _domains_fetched_at: float = 0
 _rules_fetched_at: float = 0
 _recent_prompts: dict = {}  # key -> timestamp
 _composer_draft: dict = {}  # domain -> (prompt, timestamp) while user is still typing
+_pending_send_prompt: dict = {}  # domain -> (prompt, timestamp) — prepare/typing text for empty-body Send
+_UPLOAD_META_BY_ID: dict = {}  # file_id -> {domain, platform, file_name, ts}
+_PENDING_SEND_PROMPT_TTL = 45  # seconds — bind prepare/typing text to final Send
 _cached_controls: dict = {
     "enabled": False,
     "block_upload": False,
@@ -1215,7 +1218,19 @@ def detect_monitored_file_upload(
 
     if "/backend-api/files" in path_l or "process_upload" in path_l:
         if body_len >= 32:
+            if data[:5] == b"%PDF-" or data[:2] == b"PK" or extract_pdf_bytes(data):
+                return True, f"File API ({path_l[:80]})"
+            if data.lstrip()[:1] == b"{" and body_len < 65536:
+                return False, ""
             return True, f"File API ({path_l[:80]})"
+    if is_oai_upload_host(host) and body_len >= 64:
+        if (
+            data[:5] == b"%PDF-"
+            or data[:2] == b"PK"
+            or extract_pdf_bytes(data)
+            or any(p in ct for p in ("application/pdf", "octet-stream", "officedocument"))
+        ):
+            return True, f"OpenAI file bytes ({path_l[:80]})"
     if body_len >= 64 and any(
         x in path_l for x in ("/files", "/upload", "/attachment", "/convert_document", "/resumable")
     ):
@@ -1267,7 +1282,7 @@ def is_confirmed_chat_submit(body: str) -> bool:
             if data.get("parent_message_id") or data.get("conversation_id"):
                 return True
 
-    if data.get("parent_message_id") and action in ("next", "variant", "continue", "submit", "send"):
+    if data.get("parent_message_id") and action in ("next", "variant", "continue", "submit", "send", ""):
         return True
 
     for key in ("prompt", "query", "input", "message", "text", "user_input", "question"):
@@ -1308,9 +1323,9 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
     return False
 
 
-def is_composer_typing_draft(domain: str, prompt: str, body: str = "") -> bool:
+def is_composer_typing_draft(domain: str, prompt: str, body: str = "", path: str = "") -> bool:
     """Skip mid-keystroke noise only — never skip a confirmed final Send."""
-    if is_confirmed_chat_submit(body):
+    if is_confirmed_chat_submit(body) or is_conversation_final_send(path, body):
         return False
     text = (prompt or "").strip()
     if not text or not domain:
@@ -1332,6 +1347,179 @@ def is_composer_typing_draft(domain: str, prompt: str, body: str = "") -> bool:
     grew = text.startswith(prev_text) and len(text) > len(prev_text)
     shrunk = prev_text.startswith(text) and len(prev_text) > len(text)
     return grew or shrunk
+
+
+def is_conversation_final_send(path: str, body: str) -> bool:
+    """True for Enter/send on chat APIs even when the body omits the messages array (ChatGPT)."""
+    path_l = (path or "").lower().split("?", 1)[0]
+    if "prepare" in path_l or "autocomplet" in path_l or "implicit" in path_l:
+        return False
+    if not any(
+        x in path_l
+        for x in (
+            "/f/conversation",
+            "/backend-api/f/conversation",
+            "/backend-api/conversation",
+            "/conversation",
+            "/chat_conversations",
+            "/completion",
+            "/completions",
+            "/append_message",
+        )
+    ):
+        return False
+    if not body or not body.lstrip().startswith("{"):
+        return False
+    try:
+        data = json.loads(body)
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+    action = str(data.get("action") or "").strip().lower()
+    if action and action not in ("next", "variant", "continue", "submit", "send", ""):
+        return False
+    if data.get("parent_message_id") or data.get("conversation_id"):
+        return True
+    msgs = data.get("messages")
+    if isinstance(msgs, list) and msgs:
+        return True
+    return False
+
+
+def remember_pending_prompt(domain: str, prompt: str) -> None:
+    """Keep latest user text from prepare/typing for empty-body final Send binding."""
+    text = (prompt or "").strip()
+    if not text or not domain or not looks_like_user_prompt(text):
+        return
+    _pending_send_prompt[domain] = (text, time.time())
+
+
+def _purge_pending_prompts() -> None:
+    now = time.time()
+    expired = [k for k, (_, ts) in _pending_send_prompt.items() if now - ts > _PENDING_SEND_PROMPT_TTL]
+    for k in expired:
+        _pending_send_prompt.pop(k, None)
+    expired_meta = [k for k, v in _UPLOAD_META_BY_ID.items() if now - float(v.get("ts") or 0) > _UPLOAD_FILE_CACHE_TTL]
+    for k in expired_meta:
+        _UPLOAD_META_BY_ID.pop(k, None)
+
+
+def extract_prompt_from_any_json(raw_text: str) -> str | None:
+    """Deep-scan JSON for user text (ChatGPT sends text in nested parts on some builds)."""
+    if not raw_text or not raw_text.lstrip().startswith("{"):
+        return None
+    try:
+        data = json.loads(raw_text)
+    except Exception:
+        return None
+
+    def walk(obj):
+        if isinstance(obj, dict):
+            role = obj.get("role")
+            if role is None and isinstance(obj.get("author"), dict):
+                role = obj["author"].get("role")
+            if role and str(role).lower() not in ("user", "human", "customer", "client", "sender", ""):
+                pass
+            elif "parts" in obj and isinstance(obj.get("parts"), list):
+                t = _parts_to_text(obj.get("parts"))
+                if t and looks_like_user_prompt(t):
+                    return t
+            for v in obj.values():
+                r = walk(v)
+                if r:
+                    return r
+        elif isinstance(obj, list):
+            for item in obj:
+                r = walk(item)
+                if r:
+                    return r
+        return None
+
+    got = _extract_from_json(data)
+    if got:
+        return got
+    deep = walk(data)
+    return _clean_prompt_text(deep) if deep else None
+
+
+def recover_pending_prompt(domain: str, raw_text: str = "", path: str = "", host: str = "") -> str | None:
+    """Recover user prompt when final Send body has no messages (common on ChatGPT)."""
+    _purge_pending_prompts()
+    now = time.time()
+
+    if raw_text:
+        got = extract_prompt_from_any_json(raw_text)
+        if got:
+            return got
+
+    pending = _pending_send_prompt.get(domain)
+    if pending:
+        text, ts = pending
+        if now - ts <= _PENDING_SEND_PROMPT_TTL and looks_like_user_prompt(text):
+            return text
+
+    draft = _composer_draft.get(domain)
+    if draft:
+        text, ts = draft
+        if now - ts <= 6.0 and looks_like_user_prompt(text):
+            return text
+
+    if is_conversation_final_send(path, raw_text) and draft:
+        text, _ = draft
+        if text and looks_like_user_prompt(text):
+            return text
+    return None
+
+
+def register_upload_meta(file_id: str, domain: str, platform: str, file_name: str) -> None:
+    fid = (file_id or "").strip()
+    if not fid:
+        return
+    _UPLOAD_META_BY_ID[fid] = {
+        "domain": domain,
+        "platform": platform or domain,
+        "file_name": (file_name or "").strip() or "attachment",
+        "ts": time.time(),
+    }
+
+
+def resolve_file_id_from_url(path: str) -> str:
+    for m in re.finditer(r"(file-[a-zA-Z0-9_-]+)", path or ""):
+        return m.group(1)
+    return ""
+
+
+def cache_upload_with_meta(
+    domain: str,
+    platform: str,
+    *,
+    file_name: str,
+    raw_bytes: bytes,
+    content_type: str,
+    upload_reason: str,
+    file_id: str = "",
+    rule_hit: bool = False,
+    rule_name: str = "",
+    rule_action: str = "",
+) -> None:
+    """Cache upload bytes under platform family; link file_id from ChatGPT handshake."""
+    fid = (file_id or "").strip()
+    if not fid:
+        fid = resolve_file_id_from_url(upload_reason or "")
+    if fid:
+        register_upload_meta(fid, domain, platform, file_name)
+    cache_upload_file(
+        domain,
+        file_name=file_name or "attachment",
+        raw_bytes=raw_bytes,
+        content_type=content_type,
+        upload_reason=upload_reason or "",
+        rule_hit=rule_hit,
+        rule_name=rule_name,
+        rule_action=rule_action,
+        file_id=fid,
+    )
 
 
 def _parts_to_text(parts) -> str | None:
@@ -1676,7 +1864,22 @@ def is_confident_file_upload(
     if is_target and (
         "/backend-api/files" in path_l or "process_upload" in path_l or "/upload" in path_l or "/files" in path_l
     ):
-        if len(data) >= 32:
+        # JSON registration handshake — real bytes arrive on a follow-up PUT (oaiusercontent.com).
+        if data.lstrip()[:1] == b"{" and len(data) < 65536:
+            if not (
+                data[:5] == b"%PDF-"
+                or data[:2] == b"PK"
+                or extract_pdf_bytes(data)
+                or _looks_like_image(data, ct, name)
+            ):
+                return False
+        if len(data) >= 32 and (
+            extract_pdf_bytes(data)
+            or _looks_like_image(data, ct, name)
+            or _looks_like_audio(data, ct, name)
+            or data[:2] == b"PK"
+            or len(data) >= 512
+        ):
             return True
 
     # WhatsApp / web.whatsapp sends lots of media-sync binary — never treat as AI file
@@ -2415,9 +2618,17 @@ def enforce_file_send_policy(
     upload_warn = (get_control_settings().get("upload_warning") or "").strip()
     base_upload_msg = upload_warn or "Upload block"
 
-  # Always re-extract + re-scan on Send (PDF / Office / image OCR / voice)
+    # Always re-extract + re-scan on Send (PDF / Office / image OCR / voice)
     cached_bytes = (cached.get("raw_bytes") if cached else b"") or b""
     cached_ct = (cached.get("content_type") if cached else "") or content_type
+    if cached and len(cached_bytes) < 64 and has_attach:
+        retry = take_recent_confident_cache_for_send(domain)
+        if retry and len(retry.get("raw_bytes") or b"") >= 64:
+            cached = retry
+            cached_bytes = retry.get("raw_bytes") or b""
+            cached_ct = (retry.get("content_type") or "") or content_type
+            if not fname:
+                fname = (retry.get("file_name") or "").strip()
     if not cached_bytes and has_attach:
         inline_bytes, inline_ct, inline_name = extract_inline_attachment_bytes(raw_text or "")
         if inline_bytes:
@@ -4377,9 +4588,32 @@ class BrowserAIInterceptor:
         except Exception:
             raw_text = ""
 
+        path_l = (path or "").lower()
+
+        # Capture prepare/autocomplete drafts — ChatGPT final Send often omits messages array.
+        if "/prepare" in path_l or "autocomplet" in path_l:
+            prep = extract_prompt(raw_bytes, content_type, host=host) or extract_prompt_from_any_json(raw_text)
+            if prep and looks_like_user_prompt(prep):
+                remember_pending_prompt(domain, prep)
+                _composer_draft[domain] = (prep, time.time())
+            return
+
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
         if is_upload:
             fname = extract_filename_from_upload(flow, raw_text)
+            # ChatGPT: register file_id from JSON handshake before bytes arrive on oaiusercontent.com
+            if "/backend-api/files" in path_l or "process_upload" in path_l:
+                for fid in _extract_file_ids_from_chat(raw_text):
+                    register_upload_meta(fid, domain, platform, fname)
+                try:
+                    if raw_text.lstrip().startswith("{"):
+                        req_data = json.loads(raw_text)
+                        if isinstance(req_data, dict):
+                            reg_id = str(req_data.get("file_id") or req_data.get("id") or "").strip()
+                            if reg_id:
+                                register_upload_meta(reg_id, domain, platform, fname)
+                except Exception:
+                    pass
             confident = is_confident_file_upload(
                 fname=fname,
                 content_type=content_type,
@@ -4408,8 +4642,12 @@ class BrowserAIInterceptor:
                 upload_text = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, fname)
                 file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
                 file_ids = _extract_file_ids_from_chat(raw_text)
-                cache_upload_file(
+                fid = file_ids[0] if file_ids else resolve_file_id_from_url(path)
+                if not fid and is_oai_upload_host(host):
+                    fid = resolve_file_id_from_url(flow.request.url or "")
+                cache_upload_with_meta(
                     domain,
+                    platform,
                     file_name=fname or "attachment",
                     raw_bytes=raw_bytes,
                     content_type=content_type,
@@ -4417,7 +4655,7 @@ class BrowserAIInterceptor:
                     rule_hit=file_rule_hit,
                     rule_name=file_rule_name,
                     rule_action=file_rule_action,
-                    file_id=file_ids[0] if file_ids else "",
+                    file_id=fid,
                 )
                 print(
                     f"[UnifAI Proxy] FILE CACHED (await Send — no log yet) | {domain} | "
@@ -4473,13 +4711,21 @@ class BrowserAIInterceptor:
             return
 
         prompt = extract_prompt(raw_bytes, content_type, host=host)
+        if not prompt:
+            prompt = recover_pending_prompt(domain, raw_text, path, host)
+        elif looks_like_user_prompt(prompt):
+            remember_pending_prompt(domain, prompt)
+
         if not prompt or len(prompt.strip()) < 1:
-            if len(raw_text) > 20:
-                print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
-            # Attachment-only send already logged above (real file markers only)
-            if chat_carries_attachment(raw_text):
+            if is_conversation_final_send(path, raw_text):
+                prompt = recover_pending_prompt(domain, raw_text, path, host)
+            if not prompt or len(prompt.strip()) < 1:
+                if len(raw_text) > 20:
+                    print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
+                # Attachment-only send already logged above (real file markers only)
+                if chat_carries_attachment(raw_text):
+                    return
                 return
-            return
         if not looks_like_user_prompt(prompt):
             return
         if _is_opaque_wire_blob(prompt):
@@ -4489,11 +4735,13 @@ class BrowserAIInterceptor:
             return
 
         # ChatGPT fires POSTs while typing. Intercept only confirmed Send (any domain).
-        if is_unsubmitted_chat_body(path, raw_text) or is_composer_typing_draft(domain, prompt, raw_text):
+        if is_unsubmitted_chat_body(path, raw_text) or is_composer_typing_draft(domain, prompt, raw_text, path=path):
             return
 
         # Skip duplicate / typing-repeat submissions (never dedupe confirmed submits with rules)
-        if is_duplicate_prompt(domain, prompt) and not is_confirmed_chat_submit(raw_text):
+        if is_duplicate_prompt(domain, prompt) and not (
+            is_confirmed_chat_submit(raw_text) or is_conversation_final_send(path, raw_text)
+        ):
             return
 
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
@@ -4525,8 +4773,33 @@ class BrowserAIInterceptor:
                 print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
 
     def response(self, flow: http.HTTPFlow) -> None:
-        # Download / copy-paste controls removed — only upload is blocked on request().
-        return
+        """Link ChatGPT file_id handshake responses to later binary uploads."""
+        req = flow.request
+        if req.method not in ("POST", "PUT", "PATCH"):
+            return
+        host = req.pretty_host
+        is_target, domain, platform = detect_target(host)
+        if not is_target:
+            return
+        resp = flow.response
+        if not resp or resp.status_code not in (200, 201, 204):
+            return
+        path_l = (req.path or "").lower()
+        if "/backend-api/files" not in path_l and "process_upload" not in path_l:
+            return
+        try:
+            req_text = (req.content or b"").decode("utf-8", errors="ignore")
+            resp_text = (resp.content or b"").decode("utf-8", errors="ignore")
+            resp_data = json.loads(resp_text) if resp_text.lstrip().startswith("{") else {}
+            if not isinstance(resp_data, dict):
+                return
+            file_id = str(resp_data.get("file_id") or resp_data.get("id") or "").strip()
+            fname = extract_filename_from_upload(flow, req_text)
+            if file_id:
+                register_upload_meta(file_id, domain, platform, fname)
+                print(f"[UnifAI Proxy] FILE META registered | {domain} | {file_id} | {fname or 'attachment'}")
+        except Exception:
+            pass
 
     # ── WebSocket Message Interception ─────────
 
@@ -4596,6 +4869,10 @@ class BrowserAIInterceptor:
             return
 
         prompt = extract_prompt(content.encode("utf-8"), "application/json", host=host)
+        if not prompt:
+            prompt = recover_pending_prompt(domain, content, ws_path, host)
+        elif looks_like_user_prompt(prompt):
+            remember_pending_prompt(domain, prompt)
         if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
             return
         if not looks_like_user_prompt(prompt):
@@ -4603,10 +4880,14 @@ class BrowserAIInterceptor:
         if _is_opaque_wire_blob(prompt):
             return
 
-        if is_unsubmitted_chat_body(flow.request.path, content) or is_composer_typing_draft(domain, prompt, content):
+        if is_unsubmitted_chat_body(flow.request.path, content) or is_composer_typing_draft(
+            domain, prompt, content, path=ws_path
+        ):
             return
 
-        if is_duplicate_prompt(domain, prompt) and not is_confirmed_chat_submit(content):
+        if is_duplicate_prompt(domain, prompt) and not (
+            is_confirmed_chat_submit(content) or is_conversation_final_send(ws_path, content)
+        ):
             return
 
         client_ip = get_client_ip(flow)

@@ -80,7 +80,9 @@
     "pricing": {
       "pricing_url": "file:///app/data/pricing.json",
       "pricing_sync_interval": 86400,
-      "model_parameters_url": "file:///app/data/model-parameters.json"
+      "model_parameters_url": "file:///app/data/model-parameters.json",
+      "mcp_library_url": "file:///app/data/mcp-library.json",
+      "mcp_library_sync_interval": 86400
     }
   }
 }

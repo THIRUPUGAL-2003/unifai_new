@@ -106,6 +106,15 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 		return fetchMCPLibrary(ctx, url)
 	})
 	if err != nil {
+		fallback := DefaultMCPLibraryFallbackURL
+		if url != fallback {
+			if fbEntries, fbErr := fetchMCPLibrary(ctx, fallback); fbErr == nil {
+				entries = fbEntries
+				err = nil
+			}
+		}
+	}
+	if err != nil {
 		return 0, fmt.Errorf("failed to fetch MCP library from %s: %w", url, err)
 	}
 

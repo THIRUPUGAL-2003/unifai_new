@@ -72,8 +72,9 @@ const (
 	DefaultPricingTimeout         = datasheet.DefaultPricingTimeout
 	DefaultModelParametersTimeout = datasheet.DefaultModelParametersTimeout
 
-	DefaultMCPLibraryURL     = "https://getunifai.ai/mcp-library"
-	DefaultMCPLibraryTimeout = 45 * time.Second
+	DefaultMCPLibraryURL         = "https://getunifai.ai/mcp-library"
+	DefaultMCPLibraryFallbackURL = "file:///app/data/mcp-library.json"
+	DefaultMCPLibraryTimeout     = 45 * time.Second
 )
 
 // syncWorkerTickerPeriod is the fixed interval at which the background sync worker
