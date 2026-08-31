@@ -1201,7 +1201,7 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
 
     hosts.sort()
     lines = [
-        "// UnifAI Browser AI Guard — built on agent from Target Websites",
+        "// UnifAI Browser AI Guard — admin Target Websites from dashboard only.",
         "function FindProxyForURL(url, host) {",
         "    host = host.toLowerCase();",
         "    var aiHosts = [",

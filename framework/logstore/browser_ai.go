@@ -576,6 +576,32 @@ function FindProxyForURL(url, host) {
 `
 }
 
+func buildDomainPAC(hosts []string, proxyAddr string) string {
+	var b strings.Builder
+	b.WriteString("// UnifAI Browser AI Guard — admin Target Websites from dashboard only.\n")
+	b.WriteString("// Each row you add (parent + related hosts) is listed here. No hardcoded domains.\n")
+	b.WriteString("function FindProxyForURL(url, host) {\n")
+	b.WriteString("    host = host.toLowerCase();\n\n")
+	b.WriteString("    var aiHosts = [\n")
+	for _, d := range hosts {
+		b.WriteString("        \"")
+		b.WriteString(d)
+		b.WriteString("\",\n")
+	}
+	b.WriteString("    ];\n\n")
+	b.WriteString("    for (var i = 0; i < aiHosts.length; i++) {\n")
+	b.WriteString("        var d = aiHosts[i];\n")
+	b.WriteString("        if (host === d || dnsDomainIs(host, \".\" + d) || shExpMatch(host, \"*.\" + d)) {\n")
+	b.WriteString("            return \"PROXY ")
+	b.WriteString(proxyAddr)
+	b.WriteString("\";\n")
+	b.WriteString("        }\n")
+	b.WriteString("    }\n\n")
+	b.WriteString("    return \"DIRECT\";\n")
+	b.WriteString("}\n")
+	return b.String()
+}
+
 // BuildProxyPAC builds a PAC script from Target Websites that are monitored
 // and/or fully blocked (block_site). Empty list means all traffic is DIRECT.
 // Never returns an error — a valid PAC is always produced so employee browsers
@@ -612,30 +638,11 @@ func (m *BrowserAIManager) BuildProxyPAC(ctx context.Context, proxyAddr string) 
 	}
 	sort.Strings(hosts)
 
-	var b strings.Builder
-	b.WriteString("// UnifAI Browser AI Guard — generated from Target Websites (monitored or block_site).\n")
-	b.WriteString("// Only domains the admin added. Subdomains of those hosts are included.\n")
-	b.WriteString("// Empty list => all traffic goes DIRECT (not through the proxy).\n")
-	b.WriteString("function FindProxyForURL(url, host) {\n")
-	b.WriteString("    host = host.toLowerCase();\n\n")
-	b.WriteString("    var aiHosts = [\n")
-	for _, d := range hosts {
-		b.WriteString("        \"")
-		b.WriteString(d)
-		b.WriteString("\",\n")
+	if len(hosts) == 0 {
+		return emptyPAC(proxyAddr), nil
 	}
-	b.WriteString("    ];\n\n")
-	b.WriteString("    for (var i = 0; i < aiHosts.length; i++) {\n")
-	b.WriteString("        var d = aiHosts[i];\n")
-	b.WriteString("        if (host === d || dnsDomainIs(host, \".\" + d) || shExpMatch(host, \"*.\" + d)) {\n")
-	b.WriteString("            return \"PROXY ")
-	b.WriteString(proxyAddr)
-	b.WriteString("\";\n")
-	b.WriteString("        }\n")
-	b.WriteString("    }\n\n")
-	b.WriteString("    return \"DIRECT\";\n")
-	b.WriteString("}\n")
-	return b.String(), nil
+
+	return buildDomainPAC(hosts, proxyAddr), nil
 }
 
 // GetTargetByDomain finds a monitored target matching host or parent domain.

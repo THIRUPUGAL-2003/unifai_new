@@ -2024,12 +2024,14 @@ export default function BrowserAiPage() {
 													value={newTargetDomain}
 													onChange={(e) => setNewTargetDomain(e.target.value)}
 												/>
-												<p className="text-[11px] text-muted-foreground">Add only domains you want monitored. Subdomains of a parent domain are covered automatically.</p>
+												<p className="text-[11px] text-muted-foreground">
+													Subdomains of this domain are covered automatically (e.g. www.chatgpt.com). Chat/API on a different root hostname must be added as a related host below or via + in the table.
+												</p>
 											</div>
 											<div className="space-y-2 rounded-md border border-border p-3">
 												<p className="text-sm font-medium">Add related host</p>
 												<p className="text-[11px] text-muted-foreground">
-													Subdomains of the domain you add are already covered. Add a related host only when chat or file traffic uses a different root hostname (e.g. upload CDN). You choose every hostname — nothing is auto-added.
+													Add every hostname where chat or file traffic goes (e.g. openai.com under chatgpt.com). Only domains you add here are sent to Guard — nothing is hardcoded.
 												</p>
 												{newTargetRelatedGroup ? (
 													<div className="space-y-1.5 rounded-md border border-dashed border-border bg-muted/20 p-2">

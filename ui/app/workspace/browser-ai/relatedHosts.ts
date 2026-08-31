@@ -1,4 +1,4 @@
-/** Target Website helpers — admin adds every hostname; no product default lists. */
+/** Target Website helpers — admin-added domains only; no hardcoded AI site lists. */
 
 export type RelatedHostGroup = {
 	label: string;
@@ -18,7 +18,7 @@ export function isCoveredByAny(host: string, domains: string[]): boolean {
 	return domains.some((d) => isCoveredByDomain(host, d));
 }
 
-/** No hardcoded product suggestions — admin adds related hosts manually. */
+/** No hardcoded suggestions — only domains you add in Target Websites are used. */
 export function relatedHostsForDomain(_domain: string): RelatedHostGroup | null {
 	return null;
 }
