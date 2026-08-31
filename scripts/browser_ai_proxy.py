@@ -558,12 +558,18 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
         return False
     if p and NOISE_EXTENSIONS.search(p):
         return False
-    if "chatgpt.com" in h or "chat.openai.com" in h:
+    if "chatgpt.com" in h or "chat.openai.com" in h or "openai.com" in h:
         if not p:
             return True
         if "prepare" in p or "autocomplet" in p or "implicit" in p:
             return False
-        return "/conversation" in p or "/messages" in p or "/chat/completions" in p
+        return (
+            "/conversation" in p
+            or "/messages" in p
+            or "/chat/completions" in p
+            or "/backend-api/" in p
+            or "/backend-anon/" in p
+        )
     # Gemini: only the real chat submit URL — never analytics / batchexecute noise
     if is_gemini_host(h):
         if not p:
@@ -996,11 +1002,24 @@ def is_noise(path: str, content: str = "") -> bool:
             return True
         if 'com.google.android.gms' in content:
             return True
-        if '"presence"' in content:
+        if '"presence"' in content and '"messages"' not in content and '"parts"' not in content:
             return True
         if content.startswith('{"id":') and '"command":' in content and '"messages"' not in content:
             return True
-        if len(content) > 0 and ord(content[0]) < 32 and ord(content[0]) not in (10, 13):
+        # ChatGPT conversation can be protobuf (binary first byte) — do not drop it as noise.
+        path_l = (path or "").lower()
+        chatgpt_submit = (
+            "chatgpt.com" in path_l
+            or "/conversation" in path_l
+            or "/backend-api/" in path_l
+            or "/backend-anon/" in path_l
+        )
+        if (
+            len(content) > 0
+            and ord(content[0]) < 32
+            and ord(content[0]) not in (10, 13)
+            and not chatgpt_submit
+        ):
             return True
         # Gemini / form chat bodies are valid (f.req=...)
         cl = content.lstrip()
@@ -1129,10 +1148,10 @@ def detect_chatgpt_file_upload(
     ct = (content_type or "").lower()
     data = raw or b""
 
-    if "/backend-api/files" in path_l or "process_upload" in path_l:
-        if body_len >= 32:
+    if any(x in path_l for x in ("/backend-api/files", "/files/", "process_upload", "/attachments", "/upload")):
+        if body_len >= 8:
             return True, f"ChatGPT file API ({path_l[:80]})"
-    if "oaiusercontent.com" in (host or "").lower() and body_len >= 64:
+    if "oaiusercontent.com" in (host or "").lower() and body_len >= 8:
         return True, f"OpenAI file CDN ({path_l[:80]})"
     if is_chatgpt_host(host) and "/backend-api/" in path_l:
         if any(x in path_l for x in ("/sentinel/", "/prepare", "/autocomplet", "/me", "/settings")):
@@ -1148,7 +1167,7 @@ def detect_chatgpt_file_upload(
 
 
 def is_unsubmitted_chat_body(path: str, body: str) -> bool:
-    """True for ChatGPT prepare/draft/in-progress payloads — not Enter/send."""
+    """True only for ChatGPT prepare/draft/in-progress — finished Send must predict."""
     path_l = (path or "").lower()
     if "prepare" in path_l or "autocomplet" in path_l or "partial" in path_l:
         return True
@@ -1160,9 +1179,6 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
         return False
     if not isinstance(data, dict):
         return False
-    action = str(data.get("action") or "").strip().lower()
-    if action and action not in ("next", "variant", "continue"):
-        return True
     for m in data.get("messages") or []:
         if not isinstance(m, dict):
             continue
@@ -3526,6 +3542,57 @@ def extract_gemini_prompt(content: str) -> str:
     return ""
 
 
+def _printable_runs(raw: bytes) -> list[str]:
+    """Pull UTF-8 / ASCII strings out of protobuf or mixed ChatGPT bodies."""
+    if not raw:
+        return []
+    text = raw.decode("utf-8", errors="ignore")
+    chunks: list[str] = []
+    for m in re.finditer(r"[\x20-\x7e\u00a0-\uffff]{1,4000}", text):
+        s = (m.group(0) or "").strip()
+        if s:
+            chunks.append(s)
+    return chunks
+
+
+def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
+    """ChatGPT web: JSON parts, nested author.content, or protobuf string fields."""
+    blob = text or ""
+    if blob.lstrip().startswith(("{", "[")):
+        try:
+            got = _extract_from_json(json.loads(blob))
+            if got:
+                return got
+        except Exception:
+            pass
+    for pat in (
+        r'"parts"\s*:\s*\[\s*"((?:[^"\\]|\\.)*)"',
+        r'"content"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        r'"input_text"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        r'"prompt"\s*:\s*"((?:[^"\\]|\\.)*)"',
+    ):
+        for m in re.finditer(pat, blob):
+            cand = _clean_prompt_text(
+                m.group(1).encode("utf-8").decode("unicode_escape", errors="ignore")
+                if "\\" in m.group(1)
+                else m.group(1)
+            )
+            if cand and looks_like_user_prompt(cand) and not _is_opaque_wire_blob(cand):
+                return cand
+    best = None
+    for s in _printable_runs(raw or b""):
+        if len(s) > 400:
+            continue
+        if s.startswith("{") or s.startswith("["):
+            continue
+        if any(x in s.lower() for x in ("text/event-stream", "authorization", "mozilla/", "chatgpt.com")):
+            continue
+        got = _clean_prompt_text(s)
+        if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+            best = got
+    return best
+
+
 def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") -> str | None:
     """
     Extract ONLY the exact user-typed prompt text from a request body.
@@ -3536,10 +3603,9 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
 
     try:
         text = body_bytes.decode("utf-8", errors="ignore")
-        if not text.strip():
-            return None
-
         ct = (content_type or "").lower()
+        if not text.strip() and not is_chatgpt_host(host) and "openai.com" not in (host or "").lower():
+            return None
 
         # Never treat raw multipart file bodies as chat prompts (logs WebKitFormBoundary junk).
         if "multipart/form-data" in ct or "webkitformboundary" in text[:200].lower() or text.lstrip().startswith("------"):
@@ -3554,6 +3620,9 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
         if is_copilot_host(host):
             copilot_prompt = extract_copilot_prompt(text)
             return _clean_prompt_text(copilot_prompt) if copilot_prompt else None
+
+        if is_chatgpt_host(host) or "openai.com" in (host or "").lower():
+            return extract_chatgpt_prompt(text, body_bytes)
 
         # URL-encoded form bodies (Copilot / misc — not Gemini)
         if "application/x-www-form-urlencoded" in ct or (
@@ -4320,11 +4389,14 @@ class BrowserAIInterceptor:
         if not is_chat_path(path, host, raw_text):
             return
 
-        if is_noise(path):
-            return
-
-        # ── Prompt Extraction ──
-        if is_noise(path, raw_text):
+        chatgpt = is_chatgpt_host(host) or "openai.com" in (host or "").lower()
+        # ChatGPT conversation bodies are often protobuf / mixed JSON. Do not drop as noise.
+        if not chatgpt:
+            if is_noise(path):
+                return
+            if is_noise(path, raw_text):
+                return
+        elif "prepare" in (path or "").lower() or "autocomplet" in (path or "").lower():
             return
 
         # File attached + Send: Prompt Log + Allow/Block (ChatGPT / Claude / Gemini / Copilot)
@@ -4350,16 +4422,16 @@ class BrowserAIInterceptor:
 
         prompt = extract_prompt(raw_bytes, content_type, host=host)
         if not prompt or len(prompt.strip()) < 1:
-            # Help debug Gemini/Copilot misses without flooding logs
-            if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6", "claude")) and len(raw_text) > 20:
+            # Help debug Gemini/Copilot/ChatGPT misses without flooding logs
+            if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6", "claude", "chatgpt", "openai")) and len(raw_bytes) > 8:
                 print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
             # Attachment-only send already logged above (real file markers only)
             if chat_carries_attachment(raw_text):
                 return
             return
-        if not looks_like_user_prompt(prompt):
+        if not looks_like_user_prompt(prompt) and not (chatgpt and prompt.strip()):
             return
-        if _is_opaque_wire_blob(prompt):
+        if _is_opaque_wire_blob(prompt) and not (chatgpt and len(prompt.strip()) < 32):
             return
         # Skip duplicate FILE UPLOAD lines if extract_prompt somehow returned that
         if prompt.strip().startswith("[FILE UPLOAD"):
@@ -4446,7 +4518,8 @@ class BrowserAIInterceptor:
             if is_copilot_noise_content(content):
                 return
 
-        if is_noise(flow.request.path, content):
+        chatgpt = is_chatgpt_host(host) or "openai.com" in (host or "").lower()
+        if not chatgpt and is_noise(flow.request.path, content):
             return
 
         # Copilot (and other WS chat): file attachment Send must hit Block Upload / file rules
@@ -4479,9 +4552,9 @@ class BrowserAIInterceptor:
         prompt = extract_prompt(content.encode("utf-8"), "application/json", host=host)
         if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
             return
-        if not looks_like_user_prompt(prompt):
+        if not looks_like_user_prompt(prompt) and not (chatgpt and prompt.strip()):
             return
-        if _is_opaque_wire_blob(prompt):
+        if _is_opaque_wire_blob(prompt) and not (chatgpt and len(prompt.strip()) < 32):
             return
 
         if is_unsubmitted_chat_body(flow.request.path, content):
