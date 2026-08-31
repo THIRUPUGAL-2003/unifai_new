@@ -63,10 +63,11 @@
 
   # Create data directory and set up user
   COPY --from=builder /app/main .
-  COPY --from=builder /app/docker-entrypoint.sh .
-  COPY release/UnifAI_Guard_Setup.exe /app/release/UnifAI_Guard_Setup.exe
-  COPY installer/EMPLOYEE_README.txt /app/installer/EMPLOYEE_README.txt
-  COPY unifai_guard_config.json /app/unifai_guard_config.json
+  COPY deploy/docker/docker-entrypoint.sh /app/docker-entrypoint.sh
+  COPY configs/ /app/configs/
+  COPY apps/browser-guard/release/UnifAI_Guard_Setup.exe /app/release/UnifAI_Guard_Setup.exe
+  COPY apps/browser-guard/installer/EMPLOYEE_README.txt /app/installer/EMPLOYEE_README.txt
+  COPY apps/browser-guard/config/unifai_guard_config.json /app/unifai_guard_config.json
 
   # Getting arguments
   ARG ARG_APP_PORT=8080

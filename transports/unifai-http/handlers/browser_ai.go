@@ -310,6 +310,7 @@ func (h *BrowserAIHandler) getProxyPAC(ctx *fasthttp.RequestCtx) {
 func browserAISetupCandidates() map[string][]string {
 	return map[string][]string{
 		"UnifAI_Guard_Setup.exe": {
+			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_Setup.exe"),
 			filepath.Join("release", "UnifAI_Guard_Setup.exe"),
 		},
 	}

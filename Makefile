@@ -436,7 +436,7 @@ _build-with-docker: # Internal target for Docker-based cross-compilation
 docker-image: build-ui ## Build Docker image (LOCAL=1 to use Dockerfile.local)
 	@$(ECHO) "$(GREEN)Building Docker image...$(NC)"
 	$(eval GIT_SHA=$(shell git rev-parse --short HEAD))
-	$(eval DOCKERFILE=$(if $(LOCAL),transports/Dockerfile.local,transports/Dockerfile))
+	$(eval DOCKERFILE=$(if $(LOCAL),deploy/docker/Dockerfile.local,deploy/docker/Dockerfile))
 	@docker build -f $(DOCKERFILE) -t unifai -t unifai:$(GIT_SHA) -t unifai:latest .
 	@$(ECHO) "$(GREEN)Docker image built: unifai, unifai:$(GIT_SHA), unifai:latest (using $(DOCKERFILE))$(NC)"
 

@@ -7,29 +7,29 @@ cd /d "%~dp0.."
 echo ============================================================
 echo  Preflight: config + sources
 echo ============================================================
-if not exist scripts\unifai_agent.py (
-  echo Missing scripts\unifai_agent.py
+if not exist agent\unifai_agent.py (
+  echo Missing agent\unifai_agent.py
   exit /b 1
 )
-if not exist scripts\browser_ai_proxy.py (
-  echo Missing scripts\browser_ai_proxy.py
+if not exist proxy\browser_ai_proxy.py (
+  echo Missing proxy\browser_ai_proxy.py
   exit /b 1
 )
-if not exist unifai_guard_config.json (
-  echo Missing unifai_guard_config.json
+if not exist config\unifai_guard_config.json (
+  echo Missing config\unifai_guard_config.json
   exit /b 1
 )
 
-findstr /C:"unifaiv2.dev-yp.com" unifai_guard_config.json >nul
+findstr /C:"unifaiv2.dev-yp.com" config\unifai_guard_config.json >nul
 if errorlevel 1 (
-  echo WARNING: backend_url may not be production unifaiv2.dev-yp.com — check unifai_guard_config.json
+  echo WARNING: backend_url may not be production unifaiv2.dev-yp.com — check config\unifai_guard_config.json
 )
 
 echo.
 echo ============================================================
 echo  1) Building UnifAI_Guard.exe  (embeds latest browser_ai_proxy.py)
 echo ============================================================
-python scripts\build_agent.py
+python build\build_agent.py
 if errorlevel 1 (
   echo EXE build failed.
   exit /b 1
@@ -43,7 +43,7 @@ if not exist installer\staging mkdir installer\staging
 if not exist release mkdir release
 
 copy /Y dist\UnifAI_Guard.exe installer\staging\UnifAI_Guard.exe >nul
-copy /Y unifai_guard_config.json installer\staging\unifai_guard_config.json >nul
+copy /Y config\unifai_guard_config.json installer\staging\unifai_guard_config.json >nul
 if exist installer\EMPLOYEE_README.txt copy /Y installer\EMPLOYEE_README.txt installer\staging\EMPLOYEE_README.txt >nul
 
 echo.

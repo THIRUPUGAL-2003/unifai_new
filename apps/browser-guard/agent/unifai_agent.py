@@ -398,7 +398,7 @@ def run_health_check(proxy_port: int | None = None) -> dict:
 
     addon = get_resource_path("browser_ai_proxy.py")
     if not os.path.exists(addon):
-        addon = os.path.abspath(os.path.join(os.path.dirname(__file__), "browser_ai_proxy.py"))
+        addon = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "proxy", "browser_ai_proxy.py"))
     checks["proxy_script"] = os.path.isfile(addon)
     if not checks["proxy_script"]:
         details.append("browser_ai_proxy.py missing")
@@ -1387,7 +1387,7 @@ def main() -> None:
 
     addon_script = get_resource_path("browser_ai_proxy.py")
     if not os.path.exists(addon_script):
-        addon_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "browser_ai_proxy.py"))
+        addon_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "proxy", "browser_ai_proxy.py"))
 
     print(f"[UnifAI Guard] Proxy Addon: {addon_script}")
     print(f"[UnifAI Guard] Backend URL: {UNIFAI_BACKEND_URL}")

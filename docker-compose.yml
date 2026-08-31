@@ -17,21 +17,22 @@ services:
       - 1.1.1.1
     volumes:
       - ./data:/app/data
-      - ./config.json:/app/data/config.json
+      - ./configs:/app/configs
+      - ./configs/config.json:/app/data/config.json
     restart: unless-stopped
 
   # LAB ONLY: manual browser proxy to host:8082. Employee Guard EXE does NOT use this container.
   unifai_broswer_proxy:
     image: mitmproxy/mitmproxy:latest
     container_name: unifai_broswer_proxy
-    command: mitmdump -s /app/scripts/browser_ai_proxy.py -p 8082 --set listen_host=0.0.0.0 --set block_global=false --set ssl_insecure=true --set ignore_hosts='^(localhost|127\.0\.0\.1|zen_gauss_v1)'
+    command: mitmdump -s /app/proxy/browser_ai_proxy.py -p 8082 --set listen_host=0.0.0.0 --set block_global=false --set ssl_insecure=true --set ignore_hosts='^(localhost|127\.0\.0\.1|zen_gauss_v1)'
     environment:
       - UNIFAI_BACKEND_URL=http://zen_gauss_v1:8081
       - UNIFAI_FAIL_OPEN=0
     ports:
       - "8082:8082"
     volumes:
-      - ./scripts:/app/scripts
+      - ./apps/browser-guard/proxy:/app/proxy
     depends_on:
       - zen_gauss_v1
     restart: unless-stopped

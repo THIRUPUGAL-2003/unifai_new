@@ -42,8 +42,9 @@ go.work.sum
 # Generated schema copy (created by go generate)
 transports/schema/config.schema.json
 
-# Sqlite DBs
-*.db
+# Sqlite DBs and runtime data (configs live in configs/)
+data/*
+!data/.gitkeep
 *.db-shm
 *.db-wal
 transports/unifai-http/v1.5.x
@@ -94,6 +95,11 @@ coverage/
 
 # Build output
 dist/
+apps/browser-guard/dist/
+apps/browser-guard/build/.pyinstaller/
+
+# Browser Guard build artifacts
+apps/browser-guard/dev/mitmproxy-ca-cert.p12
 
 
 # IDE
