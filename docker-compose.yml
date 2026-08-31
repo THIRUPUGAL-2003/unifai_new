@@ -12,7 +12,11 @@ services:
       - LOG_STYLE=json
     ports:
       - "8081:8081"
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     volumes:
+      # Host ./data must be writable by UID 1000 — run: sh scripts/fix_docker_data_permissions.sh
       - ./data:/app/data
       - ./config.json:/app/data/config.json
     restart: unless-stopped
