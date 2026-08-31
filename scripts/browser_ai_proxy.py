@@ -84,17 +84,17 @@ IGNORE_PATH_PATTERNS = [
     "/ces/v1/t", "/ces/", "/telemetry", "/analytics", "/segment",
     "/log", "/ping", "/tracking", "/monitoring",
     "/metrics", "/web-reports", "/title", "/rgstr", "/beacon", "/health",
-    # ChatGPT / OpenAI non-prompt API calls
-    "/sentinel/", "/conversation/init", "/generate_autocompletions",
+    # ChatGPT / OpenAI non-prompt API calls (/conversation/init NOT listed — first Send uses it)
+    "/sentinel/", "/generate_autocompletions",
     "/conversation/prepare", "/f/conversation/prepare",
     "/backend-api/conversation/prepare", "/backend-api/f/conversation/prepare",
-    "/generate_autocompletions", "/conversation/implicit",
+    "/conversation/implicit",
     "/connectors/", "/files/library",
     "/domainreliability/", "/service/update2",
     "/lat/r", "/backend-api/me", "/backend-api/accounts",
     "/backend-api/settings", "/backend-api/prompts",
     "/backend-api/shared_conversations", "/backend-api/gizmos",
-    "/backend-api/system_hints", "/backend-api/conversation/init",
+    "/backend-api/system_hints",
     # Cloudflare / bot challenges / fingerprint noise (NOT user prompts)
     "/cdn-cgi/", "/challenge-platform/", "/jsd/oneshot",
     "/api/v1/fm", "/cfm/", "/cf-challenge",
@@ -108,7 +108,8 @@ CHAT_PATH_MARKERS = [
     "/conversation", "/completion", "/completions", "/chat/completions",
     "/messages", "/append_message", "/human_message", "/prompt",
     "/query", "/ask", "/generate", "/stream", "/batchexecute",
-    "/backend-api/f/conversation", "/v1/messages", "/v1/chat",
+    "/backend-api/f/conversation", "/backend-api/conversation", "/backend-api/conversation/init",
+    "/conversation/init", "/v1/messages", "/v1/chat",
     "/rest/prompts", "/api/chat", "/api/ask", "/api/query",
     "/api/openai/chat", "/perplexity_ask", "/rest/sse",
     "/api/copilot", "/chat", "/rest/thread", "/rest/entrypoint",
@@ -639,6 +640,10 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
         return False
     if "prepare" in p or "autocomplet" in p or "implicit" in p:
         return False
+
+    # First message in a new chat often hits /conversation/init (content-based gate).
+    if "/conversation/init" in p or "/backend-api/conversation/init" in p:
+        return _body_has_sendable_user_turn(body_s)
 
     # Google batchexecute / f.req — content-based (any monitored domain)
     if "batchexecute" in p or _looks_like_gemini_payload(body_s):
@@ -1250,6 +1255,59 @@ def detect_monitored_file_upload(
     return False, ""
 
 
+def _parse_chat_json(body: str) -> dict | None:
+    if not body or not body.lstrip().startswith("{"):
+        return None
+    try:
+        data = json.loads(body)
+    except Exception:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _is_user_role(role) -> bool:
+    return str(role or "").lower() in ("user", "human", "customer", "client", "sender")
+
+
+def _message_user_text(msg: dict) -> str | None:
+    if not isinstance(msg, dict):
+        return None
+    role = msg.get("role")
+    if role is None and isinstance(msg.get("author"), dict):
+        role = msg["author"].get("role")
+    if role and not _is_user_role(role):
+        return None
+    return _extract_from_message_obj(msg)
+
+
+def _body_has_sendable_user_turn(body: str) -> bool:
+    data = _parse_chat_json(body)
+    if not data:
+        return False
+    for key in ("prompt", "query", "input", "message", "text", "user_input", "question"):
+        val = data.get(key)
+        if isinstance(val, (str, int, float)) and looks_like_user_prompt(str(val)):
+            return True
+    msgs = data.get("messages")
+    if isinstance(msgs, list):
+        for msg in reversed(msgs):
+            t = _message_user_text(msg)
+            if t and looks_like_user_prompt(t):
+                return True
+    return False
+
+
+def _is_send_action(action: str) -> bool:
+    return (action or "") in ("next", "variant", "continue", "submit", "send", "")
+
+
+def _is_chat_send_context(data: dict) -> bool:
+    action = str(data.get("action") or "").strip().lower()
+    if action and not _is_send_action(action):
+        return False
+    return bool(data.get("parent_message_id") or data.get("conversation_id") or data.get("messages"))
+
+
 def is_confirmed_chat_submit(body: str) -> bool:
     """True when JSON body is a finished user Send (any monitored chat API shape)."""
     if not body or not body.lstrip().startswith("{"):
@@ -1273,14 +1331,17 @@ def is_confirmed_chat_submit(body: str) -> bool:
         if str(role or "").lower() not in ("user", "human", "customer", "client", "sender"):
             return False
         status = str(msg.get("status") or "").lower()
-        if status in ("in_progress", "unfinished", "draft"):
-            return False
         meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
-        if meta.get("is_complete") is False:
+        text = _extract_from_message_obj(msg)
+        send_ctx = _is_chat_send_context(data)
+        if status in ("in_progress", "unfinished", "draft") or meta.get("is_complete") is False:
+            # ChatGPT Enter/send often posts user turn as in_progress — still log.
+            if send_ctx and text and looks_like_user_prompt(text):
+                return True
             return False
         if msg.get("end_turn") is True:
             return True
-        if _extract_from_message_obj(msg):
+        if text:
             return True
         return bool(msg.get("content"))
 
@@ -1310,7 +1371,12 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
     """True for prepare/draft/in-progress payloads — not Enter/send."""
     if is_confirmed_chat_submit(body):
         return False
+    if is_conversation_final_send(path, body):
+        return False
     path_l = (path or "").lower()
+    if "/conversation/init" in path_l or "/backend-api/conversation/init" in path_l:
+        if _body_has_sendable_user_turn(body):
+            return False
     if "prepare" in path_l or "autocomplet" in path_l or "partial" in path_l:
         return True
     if not body:
@@ -1324,14 +1390,17 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
     action = str(data.get("action") or "").strip().lower()
     if action and action not in ("next", "variant", "continue", "submit", "send"):
         return True
+    send_ctx = _is_chat_send_context(data)
     for m in data.get("messages") or []:
         if not isinstance(m, dict):
             continue
         status = str(m.get("status") or "").lower()
         if status in ("in_progress", "unfinished", "draft"):
+            if send_ctx and _message_user_text(m):
+                continue
             return True
         meta = m.get("metadata") if isinstance(m.get("metadata"), dict) else {}
-        if meta.get("is_complete") is False:
+        if meta.get("is_complete") is False and not (send_ctx and _message_user_text(m)):
             return True
     return False
 
@@ -1393,19 +1462,24 @@ def is_conversation_final_send(path: str, body: str) -> bool:
     if action and action not in ("next", "variant", "continue", "submit", "send", ""):
         return False
     msgs = data.get("messages") if isinstance(data.get("messages"), list) else []
+    send_ctx = _is_chat_send_context(data)
     for m in msgs:
         if not isinstance(m, dict):
             continue
         status = str(m.get("status") or "").lower()
         if status in ("in_progress", "unfinished", "draft"):
+            if send_ctx and _message_user_text(m):
+                continue
             return False
         meta = m.get("metadata") if isinstance(m.get("metadata"), dict) else {}
-        if meta.get("is_complete") is False:
+        if meta.get("is_complete") is False and not (send_ctx and _message_user_text(m)):
             return False
     if data.get("parent_message_id") or data.get("conversation_id"):
         return True
     if msgs:
-        return True
+        for msg in reversed(msgs):
+            if _message_user_text(msg):
+                return True
     return False
 
 
