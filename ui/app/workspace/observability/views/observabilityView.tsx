@@ -79,7 +79,6 @@ const supportedPlatformsList = (resolvedTheme: string): SupportedPlatform[] => [
 				<path d="M256.2 572.3L0 424.6V239.9l416.4 240v479.9l-160.2-92.2z" fill="#1d252c" />
 			</svg>
 		),
-		disabled: true,
 	},
 ];
 

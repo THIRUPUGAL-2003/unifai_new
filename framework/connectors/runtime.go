@@ -98,6 +98,8 @@ func (r *Runtime) ExportTrace(ctx context.Context, trace *schemas.Trace) {
 			err = exportBigQuery(ctx, cfg, trace)
 		case "pubsub":
 			err = exportPubSub(ctx, cfg, trace)
+		case "newrelic":
+			err = exportNewRelic(ctx, cfg, trace)
 		}
 		if err != nil {
 			// Best-effort export; do not fail the request pipeline.
@@ -121,6 +123,8 @@ func (r *Runtime) Test(ctx context.Context, name string, cfg Settings) TestResul
 		err = testBigQuery(ctx, cfg)
 	case "pubsub":
 		err = testPubSub(ctx, cfg)
+	case "newrelic":
+		err = testNewRelic(ctx, cfg)
 	default:
 		err = fmt.Errorf("unknown connector %s", name)
 	}

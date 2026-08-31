@@ -92,20 +92,13 @@ func (h *WorkspaceHandler) listSCIMProviders(ctx *fasthttp.RequestCtx) {
 	SendJSON(ctx, []map[string]any{{"provider": cfg.Provider, "enabled": cfg.Enabled}})
 }
 
-var allowedConnectors = map[string]bool{
-	"datadog":  true,
-	"kafka":    true,
-	"bigquery": true,
-	"pubsub":   true,
-}
-
 func (h *WorkspaceHandler) getConnector(ctx *fasthttp.RequestCtx) {
 	store := h.requireStore(ctx)
 	if store == nil {
 		return
 	}
 	name := pathID(ctx, "name")
-	if !allowedConnectors[name] {
+	if !connectors.IsKnown(name) {
 		SendError(ctx, fasthttp.StatusNotFound, "unknown connector")
 		return
 	}
@@ -133,7 +126,7 @@ func (h *WorkspaceHandler) updateConnector(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	name := pathID(ctx, "name")
-	if !allowedConnectors[name] {
+	if !connectors.IsKnown(name) {
 		SendError(ctx, fasthttp.StatusNotFound, "unknown connector")
 		return
 	}
@@ -180,7 +173,7 @@ func (h *WorkspaceHandler) testConnector(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	name := pathID(ctx, "name")
-	if !allowedConnectors[name] {
+	if !connectors.IsKnown(name) {
 		SendError(ctx, fasthttp.StatusNotFound, "unknown connector")
 		return
 	}

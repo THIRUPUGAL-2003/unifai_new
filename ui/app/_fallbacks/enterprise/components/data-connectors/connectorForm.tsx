@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 interface ConnectorFormProps {
-	name: "datadog" | "kafka" | "bigquery" | "pubsub";
+	name: "datadog" | "kafka" | "bigquery" | "pubsub" | "newrelic";
 	title: string;
 	description: string;
 	fields: { key: string; label: string; type?: string; placeholder?: string }[];
