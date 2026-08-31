@@ -1062,13 +1062,18 @@ func (h *BrowserAIHandler) getAttachment(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusNotFound, "attachment file missing")
 		return
 	}
-	ctype := strings.TrimSpace(logEntry.AttachmentContentType)
-	if ctype == "" {
-		ctype = "application/octet-stream"
-	}
 	name := strings.TrimSpace(logEntry.AttachmentName)
 	if name == "" {
 		name = "attachment"
+	}
+	ctype := sniffAttachmentContentType(data, name, logEntry.AttachmentContentType)
+	if len(data) >= 5 && string(data[:5]) == "%PDF-" {
+		ctype = "application/pdf"
+	} else if len(data) > 0 && (data[0] == '{' || data[0] == '[') {
+		ctype = "application/json; charset=utf-8"
+	}
+	if ctype == "" {
+		ctype = "application/octet-stream"
 	}
 	download := string(ctx.QueryArgs().Peek("download")) == "1" ||
 		strings.EqualFold(string(ctx.QueryArgs().Peek("download")), "true")

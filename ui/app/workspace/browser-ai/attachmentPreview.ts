@@ -44,15 +44,54 @@ export async function buildAttachmentPreview(
 	name?: string,
 	contentType?: string,
 ): Promise<{ kind: AttachmentPreviewKind; blobUrl?: string; html?: string; text?: string }> {
-	const kind = classifyAttachmentPreview(name, contentType || blob.type);
-	const ext = attachmentExt(name, contentType || blob.type);
+	const buf = await blob.arrayBuffer();
+	const bytes = new Uint8Array(buf);
+	const head = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, 16));
+	const sniffedType =
+		bytes.length >= 5 && head.startsWith("%PDF-")
+			? "application/pdf"
+			: bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+				? "image/jpeg"
+				: bytes.length >= 8 && bytes[0] === 0x89 && head.includes("PNG")
+					? "image/png"
+					: "";
+
+	const kind = sniffedType.includes("pdf")
+		? "pdf"
+		: sniffedType.startsWith("image/")
+			? "image"
+			: classifyAttachmentPreview(name, sniffedType || contentType || blob.type);
+	const ext = attachmentExt(name, sniffedType || contentType || blob.type);
+	const typedBlob = sniffedType ? new Blob([buf], { type: sniffedType }) : new Blob([buf], { type: blob.type || contentType || "application/octet-stream" });
+
+	// API error JSON served in the iframe looks like Chrome "Pretty-print" + blank page.
+	const looksJson =
+		bytes.length > 0 &&
+		(bytes[0] === 0x7b || bytes[0] === 0x5b || /^\s*[\{\[]/.test(head));
+	if (looksJson && kind !== "pdf" && kind !== "image") {
+		const text = new TextDecoder().decode(bytes);
+		try {
+			const parsed = JSON.parse(text);
+			const err = parsed?.error || parsed?.message;
+			if (typeof err === "string" && err.trim()) {
+				return { kind: "text", text: `Could not load file: ${err}` };
+			}
+			return { kind: "text", text: JSON.stringify(parsed, null, 2) };
+		} catch {
+			return { kind: "text", text };
+		}
+	}
+	if (looksJson && kind === "pdf") {
+		const text = new TextDecoder().decode(bytes);
+		return { kind: "text", text: `This log stored JSON metadata, not PDF bytes.\n\n${text.slice(0, 8000)}` };
+	}
 
 	if (kind === "image" || kind === "pdf") {
-		return { kind, blobUrl: URL.createObjectURL(blob) };
+		return { kind, blobUrl: URL.createObjectURL(typedBlob) };
 	}
 
 	if (kind === "text" || ext === ".csv") {
-		const text = await blob.text();
+		const text = new TextDecoder().decode(bytes);
 		if (ext === ".csv") {
 			const rows = text.split(/\r?\n/).filter((l) => l.length > 0).slice(0, 200);
 			const table = rows
@@ -73,7 +112,6 @@ export async function buildAttachmentPreview(
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const mammoth: any = await import("mammoth");
 		const api = mammoth.default ?? mammoth;
-		const buf = await blob.arrayBuffer();
 		const result = await api.convertToHtml({ arrayBuffer: buf });
 		const html = result.value?.trim()
 			? `<div class="prose prose-invert max-w-none text-sm leading-relaxed p-2">${result.value}</div>`
@@ -85,7 +123,6 @@ export async function buildAttachmentPreview(
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 		const XLSXmod: any = await import("xlsx");
 		const XLSX = XLSXmod.default ?? XLSXmod;
-		const buf = await blob.arrayBuffer();
 		const wb = XLSX.read(buf, { type: "array" });
 		const sheetName = wb.SheetNames[0];
 		if (!sheetName) {

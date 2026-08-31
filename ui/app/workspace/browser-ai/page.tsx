@@ -321,7 +321,7 @@ export default function BrowserAiPage() {
 	const [ruleSearch, setRuleSearch] = useState("");
 	const [targetSearch, setTargetSearch] = useState("");
 	const [selectedLog, setSelectedLog] = useState<BrowserAILogEntry | null>(null);
-	const [pdfViewerLog, setPdfViewerLog] = useState<BrowserAILogEntry | null>(null);
+	const [pdfViewerTab, setPdfViewerTab] = useState<"preview" | "details">("preview");
 	const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
 	const [attachmentPreviewKind, setAttachmentPreviewKind] = useState<AttachmentPreviewKind | null>(null);
 	const [attachmentPreviewHtml, setAttachmentPreviewHtml] = useState("");
@@ -612,6 +612,7 @@ export default function BrowserAiPage() {
 
 	const openPdfViewer = (log: BrowserAILogEntry, e?: React.MouseEvent) => {
 		e?.stopPropagation();
+		setPdfViewerTab("preview");
 		setPdfViewerLog(log);
 	};
 
