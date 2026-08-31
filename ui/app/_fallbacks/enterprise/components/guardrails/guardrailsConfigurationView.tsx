@@ -1,11 +1,13 @@
 import React, { useMemo, useState } from "react";
 import { Plus, Trash, Edit, ShieldAlert } from "lucide-react";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
 import {
 	useGetGuardrailsConfigQuery,
 	useUpdateGuardrailsConfigMutation,
 	GuardrailRule,
 } from "@/lib/store/apis/guardrailsApi";
+import { getErrorMessage } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { MultiSelect } from "@/components/ui/multiSelect";
-import { collectGuardrailIds, formatLinkedProviders, nextGuardrailId, providerLabel } from "./utils";
+import { collectGuardrailIds, formatLinkedProviders, mergeGuardrailsConfig, nextGuardrailId, providerLabel } from "./utils";
 
 export default function GuardrailsConfigurationView() {
 	const { data: config, isLoading } = useGetGuardrailsConfigQuery();
@@ -23,6 +25,7 @@ export default function GuardrailsConfigurationView() {
 
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [editingRule, setEditingRule] = useState<Partial<GuardrailRule> | null>(null);
+	const [dialogKey, setDialogKey] = useState(0);
 
 	const rules = config?.guardrail_rules || [];
 	const providers = config?.guardrail_providers || [];
@@ -45,10 +48,10 @@ export default function GuardrailsConfigurationView() {
 		if (!config) return;
 		const updatedRules = rules.map((r) => ({ ...r, enabled: checked }));
 		try {
-			await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
+			await updateConfig(mergeGuardrailsConfig(config, { guardrail_rules: updatedRules })).unwrap();
 			toast.success(checked ? "Guardrails enabled" : "Guardrails disabled");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to update guardrails");
+			toast.error(getErrorMessage(error));
 		}
 	};
 
@@ -56,10 +59,10 @@ export default function GuardrailsConfigurationView() {
 		if (!config) return;
 		const updatedRules = rules.filter((r) => r.id !== ruleId);
 		try {
-			await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
+			await updateConfig(mergeGuardrailsConfig(config, { guardrail_rules: updatedRules })).unwrap();
 			toast.success("Rule deleted");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to delete rule");
+			toast.error(getErrorMessage(error));
 		}
 	};
 
@@ -84,17 +87,29 @@ export default function GuardrailsConfigurationView() {
 		}
 
 		try {
-			await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
+			await updateConfig(mergeGuardrailsConfig(config, { guardrail_rules: updatedRules })).unwrap();
 			toast.success(editingRule.id ? "Rule updated" : "Rule created");
 			setIsModalOpen(false);
 			setEditingRule(null);
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to save rule");
+			toast.error(getErrorMessage(error));
 		}
 	};
 
 	const openCreateRule = () => {
-		setEditingRule({ apply_to: "input", provider_config_ids: [], enabled: true });
+		setEditingRule({
+			apply_to: "input",
+			provider_config_ids: [],
+			enabled: true,
+			cel_expression: "true",
+		});
+		setDialogKey((k) => k + 1);
+		setIsModalOpen(true);
+	};
+
+	const openEditRule = (rule: GuardrailRule) => {
+		setEditingRule(rule);
+		setDialogKey((k) => k + 1);
 		setIsModalOpen(true);
 	};
 
@@ -118,6 +133,15 @@ export default function GuardrailsConfigurationView() {
 					</Button>
 				</div>
 			</div>
+
+			{providerOptions.length === 0 ? (
+				<div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+					Create a guardrail provider first, then link it to rules.{" "}
+					<Link to="/workspace/guardrails/providers" className="font-medium underline">
+						Go to Providers
+					</Link>
+				</div>
+			) : null}
 
 			<div className="bg-card rounded-md border">
 				<Table>
@@ -150,14 +174,7 @@ export default function GuardrailsConfigurationView() {
 									<TableCell>{formatLinkedProviders(rule, providers)}</TableCell>
 									<TableCell className="max-w-[300px] truncate font-mono text-xs">{rule.cel_expression}</TableCell>
 									<TableCell className="text-right">
-										<Button
-											variant="ghost"
-											size="icon"
-											onClick={() => {
-												setEditingRule(rule);
-												setIsModalOpen(true);
-											}}
-										>
+										<Button variant="ghost" size="icon" onClick={() => openEditRule(rule)}>
 											<Edit className="h-4 w-4" />
 										</Button>
 										<Button variant="ghost" size="icon" onClick={() => handleDeleteRule(rule.id)}>
@@ -215,9 +232,15 @@ export default function GuardrailsConfigurationView() {
 						<div className="grid gap-2">
 							<Label>Providers</Label>
 							{providerOptions.length === 0 ? (
-								<p className="text-muted-foreground text-sm">Create a guardrail provider before adding rules.</p>
+								<p className="text-muted-foreground text-sm">
+									Create a guardrail provider before adding rules.{" "}
+									<Link to="/workspace/guardrails/providers" className="underline">
+										Open Providers
+									</Link>
+								</p>
 							) : (
 								<MultiSelect
+									key={`guardrails-providers-${dialogKey}`}
 									options={providerOptions}
 									defaultValue={selectedProviderIds}
 									resetOnDefaultValueChange

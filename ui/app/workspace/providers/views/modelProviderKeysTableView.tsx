@@ -90,6 +90,8 @@ export default function ModelProviderKeysTableView({ provider, className, header
 	const entityLabelPlural = isVLLM ? "models" : isOllamaOrSGL ? "servers" : "keys";
 	const EntityLabel = entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1);
 	const hasUpdateProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Update);
+	const hasCreateProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Create);
+	const canAddKey = hasCreateProviderAccess || hasUpdateProviderAccess;
 	const hasDeleteProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Delete);
 	const [updateProviderKey, { isLoading: isUpdatingProviderKey }] = useUpdateProviderKeyMutation();
 	const [deleteProviderKey, { isLoading: isDeletingProviderKey }] = useDeleteProviderKeyMutation();
@@ -157,9 +159,9 @@ export default function ModelProviderKeysTableView({ provider, className, header
 					<div className="flex items-center gap-2">Configured {entityLabelPlural}</div>
 					<div className="flex items-center gap-2">
 						{headerActions}
-						{!isKeyless && hasUpdateProviderAccess ? (
+						{!isKeyless && canAddKey ? (
 							<Button
-								disabled={!hasUpdateProviderAccess}
+								disabled={!canAddKey}
 								data-testid="add-key-btn"
 								onClick={() => {
 									handleAddKey();

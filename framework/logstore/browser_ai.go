@@ -720,6 +720,9 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 	}
 	target.CreatedAt = time.Now()
 	if err := m.db.WithContext(ctx).Create(target).Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate") || strings.Contains(strings.ToLower(err.Error()), "unique") {
+			return fmt.Errorf("domain %q already exists", target.Domain)
+		}
 		return err
 	}
 	return nil

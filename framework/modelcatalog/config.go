@@ -72,7 +72,7 @@ const (
 	DefaultPricingTimeout         = datasheet.DefaultPricingTimeout
 	DefaultModelParametersTimeout = datasheet.DefaultModelParametersTimeout
 
-	DefaultMCPLibraryURL         = "https://getunifai.ai/mcp-library"
+	DefaultMCPLibraryURL         = "file:///app/data/mcp-library.json"
 	DefaultMCPLibraryFallbackURL = "file:///app/data/mcp-library.json"
 	DefaultMCPLibraryTimeout     = 45 * time.Second
 )

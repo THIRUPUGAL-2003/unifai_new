@@ -6,13 +6,14 @@ import {
 	useUpdateGuardrailsConfigMutation,
 	GuardrailProvider,
 } from "@/lib/store/apis/guardrailsApi";
+import { getErrorMessage } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { collectGuardrailIds, nextGuardrailId } from "./utils";
+import { collectGuardrailIds, mergeGuardrailsConfig, nextGuardrailId } from "./utils";
 
 export default function GuardrailsProviderView() {
 	const { data: config, isLoading } = useGetGuardrailsConfigQuery();
@@ -37,10 +38,10 @@ export default function GuardrailsProviderView() {
 
 		const updatedProviders = providers.filter((p) => p.id !== providerId);
 		try {
-			await updateConfig({ ...config, guardrail_providers: updatedProviders }).unwrap();
+			await updateConfig(mergeGuardrailsConfig(config, { guardrail_providers: updatedProviders })).unwrap();
 			toast.success("Provider deleted");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to delete provider");
+			toast.error(getErrorMessage(error));
 		}
 	};
 
@@ -71,12 +72,12 @@ export default function GuardrailsProviderView() {
 		}
 
 		try {
-			await updateConfig({ ...config, guardrail_providers: updatedProviders }).unwrap();
+			await updateConfig(mergeGuardrailsConfig(config, { guardrail_providers: updatedProviders })).unwrap();
 			toast.success(existingIndex >= 0 ? "Provider updated" : "Provider created");
 			setIsModalOpen(false);
 			setEditingProvider(null);
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to save provider");
+			toast.error(getErrorMessage(error));
 		}
 	};
 
@@ -213,11 +214,12 @@ export default function GuardrailsProviderView() {
 								id="patterns"
 								value={getRegexPatterns(editingProvider || {})}
 								onChange={(e) => setRegexPatterns(e.target.value)}
-								placeholder="[A-Z]{5}[0-9]{4}[A-Z]"
+								placeholder="\\b[1-9][0-9]{5}\\b"
 								className="font-mono text-sm"
 								rows={4}
 								data-testid="guardrails-provider-patterns-input"
 							/>
+							<p className="text-muted-foreground text-xs">Example pincode rule: \b[1-9][0-9]&#123;5&#125;\b</p>
 						</div>
 					</div>
 					<DialogFooter>

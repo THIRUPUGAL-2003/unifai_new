@@ -31,6 +31,7 @@ type ProviderKeyFormValues = z.infer<typeof modelProviderKeySchema>;
 
 export default function ProviderKeyForm({ provider, keyId, onCancel, onSave }: Props) {
 	const hasUpdateProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Update);
+	const hasCreateProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Create);
 	const [createProviderKey, { isLoading: isCreatingProviderKey }] = useCreateProviderKeyMutation();
 	const [updateProviderKey, { isLoading: isUpdatingProviderKey }] = useUpdateProviderKeyMutation();
 	const { data: keys = [] } = useGetProviderKeysQuery(provider.name);
@@ -67,9 +68,13 @@ export default function ProviderKeyForm({ provider, keyId, onCancel, onSave }: P
 		}
 	}, [isEditing, form]);
 
+	const canSaveKey = isEditing ? hasUpdateProviderAccess : hasCreateProviderAccess || hasUpdateProviderAccess;
+
 	const getTooltipContent = useCallback(() => {
-		if (!hasUpdateProviderAccess) {
-			return "You do not have permission to modify provider keys";
+		if (!canSaveKey) {
+			return isEditing
+				? "You do not have permission to modify provider keys"
+				: "You do not have permission to create provider keys";
 		}
 		if (!form.formState.isValid && form.formState.errors.root?.message) {
 			return form.formState.errors.root?.message;
@@ -78,7 +83,7 @@ export default function ProviderKeyForm({ provider, keyId, onCancel, onSave }: P
 			return "No changes made";
 		}
 		return null;
-	}, [form?.formState.errors, form?.formState.isValid, form?.formState.isDirty, hasUpdateProviderAccess]);
+	}, [form?.formState.errors, form?.formState.isValid, form?.formState.isDirty, canSaveKey]);
 
 	const onSubmit = (value: any) => {
 		if (isEditing && !currentKey) return;
@@ -150,7 +155,7 @@ export default function ProviderKeyForm({ provider, keyId, onCancel, onSave }: P
 									<span>
 										<Button
 											type="submit"
-											disabled={!form.formState.isDirty || !hasUpdateProviderAccess}
+											disabled={!form.formState.isDirty || !canSaveKey}
 											isLoading={form.formState.isSubmitting || isCreatingProviderKey || isUpdatingProviderKey}
 											data-testid="key-save-btn"
 										>

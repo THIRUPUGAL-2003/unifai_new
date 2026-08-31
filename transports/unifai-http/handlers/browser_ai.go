@@ -594,7 +594,16 @@ func (h *BrowserAIHandler) createTarget(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	if err := h.manager.CreateTarget(ctx, &target); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		msg := err.Error()
+		if strings.Contains(strings.ToLower(msg), "already exists") {
+			SendError(ctx, fasthttp.StatusConflict, msg)
+			return
+		}
+		if strings.Contains(strings.ToLower(msg), "invalid") || strings.Contains(strings.ToLower(msg), "database not initialized") {
+			SendError(ctx, fasthttp.StatusBadRequest, msg)
+			return
+		}
+		SendError(ctx, fasthttp.StatusInternalServerError, msg)
 		return
 	}
 	SendJSON(ctx, map[string]any{"status": "success", "target": target})

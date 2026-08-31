@@ -83,6 +83,8 @@ import {
 	BrowserTargetWebsite,
 	BrowserAIAgent,
 } from "@/lib/store/apis/browserAiApi";
+import { getErrorMessage } from "@/lib/store";
+import { toast } from "sonner";
 import { useGetAllKeysQuery, useGetModelsQuery, useGetProvidersQuery } from "@/lib/store/apis/providersApi";
 import { getProviderLabel } from "@/lib/constants/logs";
 import { getApiBaseUrl } from "@/lib/utils/port";
@@ -737,7 +739,7 @@ export default function BrowserAiPage() {
 			setEditTargetDialogOpen(false);
 			setEditTarget(null);
 		} catch (e) {
-			// error
+			setTargetError(getErrorMessage(e));
 		}
 	};
 
@@ -784,7 +786,7 @@ export default function BrowserAiPage() {
 			setNewRuleWarningMessage("");
 			setNewRuleType("regex");
 		} catch (e: any) {
-			setRuleError(e?.data?.message || "Failed to create rule");
+			setRuleError(getErrorMessage(e));
 		}
 	};
 
@@ -833,7 +835,7 @@ export default function BrowserAiPage() {
 			setEditRuleDialogOpen(false);
 			setEditRule(null);
 		} catch (e: any) {
-			setRuleError(e?.data?.message || "Failed to update rule");
+			setRuleError(getErrorMessage(e));
 		}
 	};
 
@@ -962,7 +964,7 @@ export default function BrowserAiPage() {
 			setCustomRelatedHosts([""]);
 			setTargetDialogOpen(false);
 		} catch (err: any) {
-			setTargetError(err?.data?.message || err?.message || "Failed to create target domain");
+			setTargetError(getErrorMessage(err));
 		}
 	};
 
@@ -1005,7 +1007,7 @@ export default function BrowserAiPage() {
 					// fall through
 				}
 			}
-			setTargetError(err?.data?.message || err?.message || "Failed to add related host");
+			setTargetError(getErrorMessage(err));
 		}
 	};
 
@@ -2230,15 +2232,19 @@ export default function BrowserAiPage() {
 													<div className="flex items-center gap-2 min-w-0">
 														<Switch
 															checked={tgt.monitored}
-															onCheckedChange={(val) =>
-																updateTarget({
-																	id: tgt.id,
-																	updates: {
-																		monitored: val,
-																		status: tgt.block_site ? "BLOCKED" : val ? "MONITORED" : "PAUSED",
-																	},
-																})
-															}
+															onCheckedChange={async (val) => {
+																try {
+																	await updateTarget({
+																		id: tgt.id,
+																		updates: {
+																			monitored: val,
+																			status: tgt.block_site ? "BLOCKED" : val ? "MONITORED" : "PAUSED",
+																		},
+																	}).unwrap();
+																} catch (e) {
+																	toast.error(getErrorMessage(e));
+																}
+															}}
 														/>
 														<span className="text-xs text-muted-foreground truncate">{tgt.monitored ? "Active" : "Paused"}</span>
 													</div>
@@ -2247,15 +2253,19 @@ export default function BrowserAiPage() {
 													<div className="flex items-center gap-2 min-w-0">
 														<Switch
 															checked={!!tgt.block_site}
-															onCheckedChange={(val) =>
-																updateTarget({
-																	id: tgt.id,
-																	updates: {
-																		block_site: val,
-																		status: val ? "BLOCKED" : tgt.monitored ? "MONITORED" : "PAUSED",
-																	},
-																})
-															}
+															onCheckedChange={async (val) => {
+																try {
+																	await updateTarget({
+																		id: tgt.id,
+																		updates: {
+																			block_site: val,
+																			status: val ? "BLOCKED" : tgt.monitored ? "MONITORED" : "PAUSED",
+																		},
+																	}).unwrap();
+																} catch (e) {
+																	toast.error(getErrorMessage(e));
+																}
+															}}
 														/>
 														<span className={`text-xs truncate ${tgt.block_site ? "text-red-400" : "text-muted-foreground"}`}>
 															{tgt.block_site ? "Locked" : "Off"}
@@ -2282,7 +2292,13 @@ export default function BrowserAiPage() {
 														<Button
 															variant="ghost"
 															size="icon"
-															onClick={() => deleteTarget(tgt.id)}
+															onClick={async () => {
+																try {
+																	await deleteTarget(tgt.id).unwrap();
+																} catch (e) {
+																	toast.error(getErrorMessage(e));
+																}
+															}}
 															className="h-8 w-8 text-muted-foreground hover:text-destructive"
 															title="Delete Target Domain"
 														>

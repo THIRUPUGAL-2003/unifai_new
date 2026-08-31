@@ -83,7 +83,7 @@
 
   # Install runtime dependencies for CGO-enabled binary and custom proxy CA cert
   COPY transports/mitmproxy-ca-cert.crt /usr/local/share/ca-certificates/mitmproxy-ca-cert.crt
-  RUN apk add --no-cache musl libgcc ca-certificates zlib=1.3.2-r0 git && \
+  RUN apk add --no-cache musl libgcc ca-certificates zlib=1.3.2-r0 git nodejs npm && \
       update-ca-certificates
 
   # Create data directory and set up user
