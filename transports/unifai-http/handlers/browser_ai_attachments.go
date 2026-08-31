@@ -138,9 +138,8 @@ func lastIndexBytes(haystack, needle []byte) int {
 }
 
 func sniffAttachmentContentType(data []byte, name, hint string) string {
-	hint = strings.TrimSpace(strings.Split(hint, ";")[0])
-	if hint != "" && !strings.EqualFold(hint, "application/octet-stream") {
-		return strings.ToLower(hint)
+	if looksLikeJSONOnly(data) {
+		return "application/json"
 	}
 	if len(data) >= 5 && string(data[:5]) == "%PDF-" {
 		return "application/pdf"
@@ -156,6 +155,10 @@ func sniffAttachmentContentType(data []byte, name, hint string) string {
 	}
 	if len(data) >= 12 && string(data[:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
 		return "image/webp"
+	}
+	hint = strings.TrimSpace(strings.Split(hint, ";")[0])
+	if hint != "" && !strings.EqualFold(hint, "application/octet-stream") && !strings.Contains(strings.ToLower(hint), "json") {
+		return strings.ToLower(hint)
 	}
 	ext := strings.ToLower(filepath.Ext(name))
 	switch ext {
@@ -369,7 +372,12 @@ func storeBrowserAIAttachment(logID, originalName string, data []byte, contentTy
 	}
 	payload := extractAttachmentPayload(data)
 	if len(payload) == 0 {
+		if looksLikeJSONOnly(data) {
+			return "", "", fmt.Errorf("json metadata is not a file")
+		}
 		payload = data
+	} else if looksLikeJSONOnly(payload) {
+		return "", "", fmt.Errorf("json metadata is not a file")
 	}
 	if len(payload) > browserAIAttachmentMaxBytes {
 		return "", "", fmt.Errorf("file too large (max %d bytes)", browserAIAttachmentMaxBytes)

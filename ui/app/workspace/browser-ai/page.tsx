@@ -321,6 +321,7 @@ export default function BrowserAiPage() {
 	const [ruleSearch, setRuleSearch] = useState("");
 	const [targetSearch, setTargetSearch] = useState("");
 	const [selectedLog, setSelectedLog] = useState<BrowserAILogEntry | null>(null);
+	const [pdfViewerLog, setPdfViewerLog] = useState<BrowserAILogEntry | null>(null);
 	const [pdfViewerTab, setPdfViewerTab] = useState<"preview" | "details">("preview");
 	const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
 	const [attachmentPreviewKind, setAttachmentPreviewKind] = useState<AttachmentPreviewKind | null>(null);
@@ -3139,6 +3140,7 @@ export default function BrowserAiPage() {
 				onOpenChange={(open) => {
 					if (!open) {
 						setPdfViewerLog(null);
+						setPdfViewerTab("preview");
 						setPdfError("");
 						setAttachmentPreviewKind(null);
 						setAttachmentPreviewHtml("");
@@ -3166,20 +3168,48 @@ export default function BrowserAiPage() {
 								<Button size="sm" className="h-8 gap-1.5" onClick={() => downloadPdfAttachment(pdfViewerLog)} disabled={pdfLoading}>
 									<Download className="h-3.5 w-3.5" /> Download
 								</Button>
-								<Button
-									size="sm"
-									variant="outline"
-									className="h-8"
-									onClick={() => {
-										setPdfViewerLog(null);
-										setSelectedLog(pdfViewerLog);
-									}}
-								>
-									Prompt details
-								</Button>
+								<div className="flex rounded-md border border-border overflow-hidden">
+									<Button
+										size="sm"
+										variant={pdfViewerTab === "preview" ? "default" : "ghost"}
+										className="h-8 rounded-none"
+										onClick={() => setPdfViewerTab("preview")}
+									>
+										Preview
+									</Button>
+									<Button
+										size="sm"
+										variant={pdfViewerTab === "details" ? "default" : "ghost"}
+										className="h-8 rounded-none"
+										onClick={() => setPdfViewerTab("details")}
+									>
+										Prompt details
+									</Button>
+								</div>
 							</div>
 							<div className="flex-1 min-h-0 bg-black/40 flex items-center justify-center p-3 overflow-auto">
-								{pdfLoading ? (
+								{pdfViewerTab === "details" ? (
+									<div className="w-full max-h-[min(70vh,720px)] overflow-auto rounded-md border border-border bg-background p-4 space-y-3">
+										<div className="flex flex-wrap items-center justify-between gap-2">
+											<p className="text-xs text-muted-foreground">
+												{pdfViewerLog.platform} · {pdfViewerLog.action || "—"}
+												{pdfViewerLog.rule_triggered ? ` · ${pdfViewerLog.rule_triggered}` : ""}
+											</p>
+											<Button
+												variant="ghost"
+												size="sm"
+												onClick={() => handleCopyPrompt(pdfViewerLog.user_prompt_full || pdfViewerLog.user_prompt_preview || "")}
+												className="h-7 text-xs gap-1 shrink-0"
+											>
+												{copiedPrompt ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+												{copiedPrompt ? "Copied" : "Copy"}
+											</Button>
+										</div>
+										<pre className="text-xs font-mono whitespace-pre-wrap leading-relaxed">
+											{pdfViewerLog.user_prompt_full || pdfViewerLog.user_prompt_preview || "No prompt text captured."}
+										</pre>
+									</div>
+								) : pdfLoading ? (
 									<p className="text-sm text-muted-foreground">Loading document…</p>
 								) : pdfError ? (
 									<p className="text-sm text-red-400">{pdfError}</p>
@@ -3190,10 +3220,11 @@ export default function BrowserAiPage() {
 										className="max-h-[min(70vh,720px)] max-w-full rounded-md border border-border object-contain bg-black/20"
 									/>
 								) : attachmentPreviewKind === "pdf" && pdfBlobUrl ? (
-									<iframe
+									<embed
 										title={logAttachmentLabel(pdfViewerLog)}
 										src={pdfBlobUrl}
-										className="w-full h-[min(70vh,720px)] rounded-md border border-border bg-white"
+										type="application/pdf"
+										className="w-full h-[min(70vh,720px)] rounded-md border border-border bg-neutral-900"
 									/>
 								) : attachmentPreviewKind === "html" && attachmentPreviewHtml ? (
 									<div

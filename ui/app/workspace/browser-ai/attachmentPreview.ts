@@ -46,13 +46,19 @@ export async function buildAttachmentPreview(
 ): Promise<{ kind: AttachmentPreviewKind; blobUrl?: string; html?: string; text?: string }> {
 	const buf = await blob.arrayBuffer();
 	const bytes = new Uint8Array(buf);
+	if (bytes.length === 0) {
+		return { kind: "text", text: "File is empty — no bytes were stored for this log." };
+	}
 	const head = new TextDecoder("utf-8", { fatal: false }).decode(bytes.slice(0, 16));
+	let i = 0;
+	while (i < bytes.length && (bytes[i] === 0x20 || bytes[i] === 0x09 || bytes[i] === 0x0a || bytes[i] === 0x0d)) i++;
+	const first = i < bytes.length ? bytes[i] : 0;
 	const sniffedType =
 		bytes.length >= 5 && head.startsWith("%PDF-")
 			? "application/pdf"
 			: bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
 				? "image/jpeg"
-				: bytes.length >= 8 && bytes[0] === 0x89 && head.includes("PNG")
+				: bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
 					? "image/png"
 					: "";
 
@@ -64,26 +70,27 @@ export async function buildAttachmentPreview(
 	const ext = attachmentExt(name, sniffedType || contentType || blob.type);
 	const typedBlob = sniffedType ? new Blob([buf], { type: sniffedType }) : new Blob([buf], { type: blob.type || contentType || "application/octet-stream" });
 
-	// API error JSON served in the iframe looks like Chrome "Pretty-print" + blank page.
-	const looksJson =
-		bytes.length > 0 &&
-		(bytes[0] === 0x7b || bytes[0] === 0x5b || /^\s*[\{\[]/.test(head));
-	if (looksJson && kind !== "pdf" && kind !== "image") {
+	// API / ChatGPT handshake JSON in an iframe looks like Chrome "Pretty-print" + a blank white pane.
+	const looksJson = first === 0x7b || first === 0x5b;
+	if (looksJson) {
 		const text = new TextDecoder().decode(bytes);
+		let pretty = text;
 		try {
-			const parsed = JSON.parse(text);
-			const err = parsed?.error || parsed?.message;
-			if (typeof err === "string" && err.trim()) {
-				return { kind: "text", text: `Could not load file: ${err}` };
-			}
-			return { kind: "text", text: JSON.stringify(parsed, null, 2) };
+			pretty = JSON.stringify(JSON.parse(text), null, 2);
 		} catch {
-			return { kind: "text", text };
+			pretty = text;
 		}
-	}
-	if (looksJson && kind === "pdf") {
-		const text = new TextDecoder().decode(bytes);
-		return { kind: "text", text: `This log stored JSON metadata, not PDF bytes.\n\n${text.slice(0, 8000)}` };
+		const errMatch = pretty.match(/"(?:error|message)"\s*:\s*"([^"]+)"/);
+		if (errMatch?.[1] && pretty.length < 2000) {
+			return { kind: "text", text: `Could not load file: ${errMatch[1]}` };
+		}
+		return {
+			kind: "text",
+			text:
+				`This log stored JSON (ChatGPT request / API metadata), not the original file bytes.\n` +
+				`The prompt was intercepted, but the PDF/image itself was not captured in this event.\n\n` +
+				pretty.slice(0, 8000),
+		};
 	}
 
 	if (kind === "image" || kind === "pdf") {

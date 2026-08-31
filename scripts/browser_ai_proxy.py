@@ -1748,6 +1748,11 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
             name = f"{name}.pdf" if name != "attachment" else "document.pdf"
         return pdf, "application/pdf", name
 
+    # ChatGPT conversation / files-API JSON is not the uploaded document.
+    stripped = raw.lstrip()
+    if stripped[:1] in (b"{", b"[") and raw[:2] != b"PK":
+        return None, "", name
+
     # Multipart: extract part after filename=
     low_prefix = raw[: min(len(raw), 64 * 1024)].lower()
     if b"filename=" in low_prefix or b"webkitformboundary" in low_prefix or b"multipart" in (content_type or "").lower().encode():
@@ -1840,7 +1845,13 @@ def cache_upload_file(
     """Remember file at upload-time; enforcement/log waits for chat Send."""
     payload, ctype, name = extract_upload_file_payload(raw_bytes or b"", content_type, file_name)
     # Keep original body when payload extract fails — needed for View/Download after Block Upload.
-    stored = payload if payload else (raw_bytes or b"")
+    # Do not cache ChatGPT JSON handshakes as if they were the PDF.
+    fallback = raw_bytes or b""
+    if not payload and fallback.lstrip()[:1] in (b"{", b"["):
+        return
+    stored = payload if payload else fallback
+    if not stored:
+        return
     if len(stored) > 20 * 1024 * 1024:
         stored = stored[: 20 * 1024 * 1024]
     entry = {
