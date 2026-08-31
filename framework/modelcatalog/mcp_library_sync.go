@@ -102,9 +102,23 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 		url = DefaultMCPLibraryURL
 	}
 
+	// Broken/unreachable remote catalog — use bundled local file immediately.
+	if strings.Contains(strings.ToLower(url), "getunifai.ai") {
+		url = DefaultMCPLibraryFallbackURL
+	}
+
 	entries, err := withRetries(ctx, urlFetchMaxRetries, urlFetchMaxBackoff, func() ([]MCPLibraryEntry, error) {
 		return fetchMCPLibrary(ctx, url)
 	})
+	if err != nil {
+		fallback := DefaultMCPLibraryFallbackURL
+		if url != fallback {
+			if fbEntries, fbErr := fetchMCPLibrary(ctx, fallback); fbErr == nil {
+				entries = fbEntries
+				err = nil
+			}
+		}
+	}
 	if err != nil {
 		return 0, fmt.Errorf("failed to fetch MCP library from %s: %w", url, err)
 	}
