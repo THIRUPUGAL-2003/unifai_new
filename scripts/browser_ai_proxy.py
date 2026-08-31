@@ -1007,8 +1007,12 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
 
     # Filter tokens and RPC IDs when text has no spaces.
-    # Digit-only text is a valid user prompt (phone, IDs, math). Do not drop it.
+    # Digit-only / number-only text is always a valid user prompt (pin codes, phone, math).
     if " " not in t:
+        if re.fullmatch(r"[0-9]+", t):
+            return True
+        if re.fullmatch(r"[0-9\W_]+", t) and any(ch.isdigit() for ch in t):
+            return True
         # Gemini session / client tokens: _05Zravx, _a1B2c3d4
         if re.fullmatch(r"_[0-9A-Za-z]{4,24}", t):
             return False
@@ -1222,8 +1226,62 @@ def detect_monitored_file_upload(
     return False, ""
 
 
+def is_confirmed_chat_submit(body: str) -> bool:
+    """True when JSON body is a finished user Send (any monitored chat API shape)."""
+    if not body or not body.lstrip().startswith("{"):
+        return False
+    try:
+        data = json.loads(body)
+    except Exception:
+        return False
+    if not isinstance(data, dict):
+        return False
+
+    action = str(data.get("action") or "").strip().lower()
+    msgs = data.get("messages") if isinstance(data.get("messages"), list) else []
+
+    def _user_msg_ready(msg: dict) -> bool:
+        if not isinstance(msg, dict):
+            return False
+        role = msg.get("role")
+        if role is None and isinstance(msg.get("author"), dict):
+            role = msg["author"].get("role")
+        if str(role or "").lower() not in ("user", "human", "customer", "client", "sender"):
+            return False
+        status = str(msg.get("status") or "").lower()
+        if status in ("in_progress", "unfinished", "draft"):
+            return False
+        meta = msg.get("metadata") if isinstance(msg.get("metadata"), dict) else {}
+        if meta.get("is_complete") is False:
+            return False
+        if msg.get("end_turn") is True:
+            return True
+        if _extract_from_message_obj(msg):
+            return True
+        return bool(msg.get("content"))
+
+    for msg in reversed(msgs):
+        if _user_msg_ready(msg):
+            if action in ("next", "variant", "continue", "submit", "send", ""):
+                return True
+            if data.get("parent_message_id") or data.get("conversation_id"):
+                return True
+
+    if data.get("parent_message_id") and action in ("next", "variant", "continue", "submit", "send"):
+        return True
+
+    for key in ("prompt", "query", "input", "message", "text", "user_input", "question"):
+        val = data.get(key)
+        if isinstance(val, (str, int, float)) and str(val).strip():
+            return True
+
+    return False
+
+
 def is_unsubmitted_chat_body(path: str, body: str) -> bool:
-    """True for ChatGPT prepare/draft/in-progress payloads — not Enter/send."""
+    """True for prepare/draft/in-progress payloads — not Enter/send."""
+    if is_confirmed_chat_submit(body):
+        return False
     path_l = (path or "").lower()
     if "prepare" in path_l or "autocomplet" in path_l or "partial" in path_l:
         return True
@@ -1236,7 +1294,7 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
     if not isinstance(data, dict):
         return False
     action = str(data.get("action") or "").strip().lower()
-    if action and action not in ("next", "variant", "continue"):
+    if action and action not in ("next", "variant", "continue", "submit", "send"):
         return True
     for m in data.get("messages") or []:
         if not isinstance(m, dict):
@@ -1250,8 +1308,10 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
     return False
 
 
-def is_composer_typing_draft(domain: str, prompt: str) -> bool:
-    """Skip growing/shrinking composer text (keystrokes). Intercept the finished submit."""
+def is_composer_typing_draft(domain: str, prompt: str, body: str = "") -> bool:
+    """Skip mid-keystroke noise only — never skip a confirmed final Send."""
+    if is_confirmed_chat_submit(body):
+        return False
     text = (prompt or "").strip()
     if not text or not domain:
         return False
@@ -1265,8 +1325,12 @@ def is_composer_typing_draft(domain: str, prompt: str) -> bool:
         return False
     if text == prev_text:
         return False
-    grew = text.startswith(prev_text) and 0 < len(text) - len(prev_text) <= 24
-    shrunk = prev_text.startswith(text) and 0 < len(prev_text) - len(text) <= 24
+    # Single-key growth/shrink within a burst = still typing. Paste / final submit = allow.
+    delta = abs(len(text) - len(prev_text))
+    if delta != 1:
+        return False
+    grew = text.startswith(prev_text) and len(text) > len(prev_text)
+    shrunk = prev_text.startswith(text) and len(prev_text) > len(text)
     return grew or shrunk
 
 
@@ -2377,6 +2441,17 @@ def enforce_file_send_policy(
         rule_hit = bool(cached.get("rule_hit"))
         rule_name = (cached.get("rule_name") or "") or ""
         rule_action = ((cached.get("rule_action") or "") or "").upper()
+    # Filename / send JSON may contain policy hits even when PDF OCR is empty
+    if not rule_hit:
+        for blob in (file_label, raw_text or ""):
+            if not blob or blob.lower() in _FAKE_UPLOAD_NAMES:
+                continue
+            hit, nm, act = match_guard_rules_on_text(blob)
+            if hit:
+                rule_hit, rule_name, rule_action = hit, nm, (act or "").upper()
+                if not excerpt:
+                    excerpt = re.sub(r"\s+", " ", blob).strip()[:180]
+                break
 
     block_all = controls_active("block_upload")
     # WARN/REDACT/BLOCK on file content → treat as block for DLP (file must not go through clean)
@@ -4413,12 +4488,12 @@ class BrowserAIInterceptor:
         if prompt.strip().startswith("[FILE UPLOAD"):
             return
 
-        # ChatGPT fires POSTs while typing. Predict only after Enter/send.
-        if is_unsubmitted_chat_body(path, raw_text) or is_composer_typing_draft(domain, prompt):
+        # ChatGPT fires POSTs while typing. Intercept only confirmed Send (any domain).
+        if is_unsubmitted_chat_body(path, raw_text) or is_composer_typing_draft(domain, prompt, raw_text):
             return
 
-        # Skip duplicate / typing-repeat submissions
-        if is_duplicate_prompt(domain, prompt):
+        # Skip duplicate / typing-repeat submissions (never dedupe confirmed submits with rules)
+        if is_duplicate_prompt(domain, prompt) and not is_confirmed_chat_submit(raw_text):
             return
 
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
@@ -4528,10 +4603,10 @@ class BrowserAIInterceptor:
         if _is_opaque_wire_blob(prompt):
             return
 
-        if is_unsubmitted_chat_body(flow.request.path, content) or is_composer_typing_draft(domain, prompt):
+        if is_unsubmitted_chat_body(flow.request.path, content) or is_composer_typing_draft(domain, prompt, content):
             return
 
-        if is_duplicate_prompt(domain, prompt):
+        if is_duplicate_prompt(domain, prompt) and not is_confirmed_chat_submit(content):
             return
 
         client_ip = get_client_ip(flow)
