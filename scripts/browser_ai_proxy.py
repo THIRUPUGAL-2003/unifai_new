@@ -156,6 +156,7 @@ BLOCK_DEDUPE_TTL = 30
 
 _cached_domains: dict = DEFAULT_TARGET_DOMAINS.copy()
 _cached_blocked: dict = {}  # domain -> platform_name (full site lock)
+_cached_target_records: list = []  # full rows from /api/browser-ai/targets
 _cached_rules: list = []   # list of {"name": str, "pattern": str, "action": str, "active": bool}
 _cached_has_ai_bot = False
 _domains_fetched_at: float = 0
@@ -221,7 +222,7 @@ def get_target_domains() -> dict:
     Returns dict of {domain: platform_name} for PAC/monitor routing
     (monitored OR block_site). Also refreshes _cached_blocked for full-site lock.
     """
-    global _cached_domains, _cached_blocked, _domains_fetched_at
+    global _cached_domains, _cached_blocked, _cached_target_records, _domains_fetched_at
     now = time.time()
     if now - _domains_fetched_at < CACHE_TTL:
         return _cached_domains
@@ -231,17 +232,28 @@ def get_target_domains() -> dict:
         targets = data.get("targets", [])
         new_map = {}
         new_blocked = {}
+        new_records = []
         for t in targets:
             domain = _normalize_domain(t.get("domain", ""))
             monitored = bool(t.get("monitored"))
             block_site = bool(t.get("block_site"))
             platform = t.get("platform_name") or domain or "AI Platform"
+            if domain:
+                new_records.append({
+                    "id": (t.get("id") or "").strip(),
+                    "domain": domain,
+                    "platform_name": platform,
+                    "parent_id": (t.get("parent_id") or "").strip(),
+                    "monitored": monitored,
+                    "block_site": block_site,
+                })
             if domain and (monitored or block_site):
                 new_map[domain] = platform
             if domain and block_site:
                 new_blocked[domain] = platform
         _cached_domains = new_map
         _cached_blocked = new_blocked
+        _cached_target_records = new_records
         _domains_fetched_at = now
         print(
             f"[UnifAI Proxy] Refreshed {len(new_map)} target domains "
@@ -550,30 +562,101 @@ def _path_has_ignore_pattern(path: str) -> bool:
     return False
 
 
+def target_family_domains(domain: str) -> list[str]:
+    """All monitored domains in the same Target Website group (DB parent_id / platform_name)."""
+    d = _normalize_domain(domain)
+    if not d:
+        return []
+    get_target_domains()
+    aliases = {d}
+    match = None
+    for t in _cached_target_records:
+        if _normalize_domain(t.get("domain", "")) == d:
+            match = t
+            break
+    if not match:
+        return [d]
+    platform = (match.get("platform_name") or "").strip()
+    parent_id = (match.get("parent_id") or "").strip()
+    root_id = parent_id or (match.get("id") or "").strip()
+    for t in _cached_target_records:
+        if not (t.get("monitored") or t.get("block_site")):
+            continue
+        td = _normalize_domain(t.get("domain", ""))
+        if not td:
+            continue
+        tid = (t.get("id") or "").strip()
+        tpid = (t.get("parent_id") or "").strip()
+        tpl = (t.get("platform_name") or "").strip()
+        if root_id and (tid == root_id or tpid == root_id):
+            aliases.add(td)
+        elif platform and tpl == platform:
+            aliases.add(td)
+    return sorted(aliases)
+
+
+def _looks_like_copilot_payload(text: str) -> bool:
+    if not text:
+        return False
+    low = text.lower()
+    return any(
+        x in low
+        for x in (
+            "microsoft.signalr",
+            "chathub",
+            "chatoverstream",
+            "rawuserquery",
+            '"arguments":[',
+            '"arguments": [',
+            "sydney/chat",
+            "turing/conversation",
+        )
+    )
+
+
+def _looks_like_gemini_payload(text: str) -> bool:
+    if not text:
+        return False
+    return (
+        "f.req=" in text
+        or "req0___data__" in text
+        or text.lstrip().startswith("f.req=")
+        or "streamgenerate" in text.lower()
+        or "bardfrontendservice" in text.lower()
+    )
+
+
 def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
-    """True when URL path looks like an actual chat/prompt submit endpoint."""
+    """True when URL path/body looks like an actual chat/prompt submit endpoint."""
     p = (path or "").lower().split("?", 1)[0]
-    h = (host or "").lower()
+    body_s = body or ""
     if _path_has_ignore_pattern(p):
         return False
     if p and NOISE_EXTENSIONS.search(p):
         return False
-    if "chatgpt.com" in h or "chat.openai.com" in h:
-        if not p:
+    if "prepare" in p or "autocomplet" in p or "implicit" in p:
+        return False
+
+    # Google batchexecute / f.req — content-based (any monitored domain)
+    if "batchexecute" in p or _looks_like_gemini_payload(body_s):
+        return is_gemini_chat_submit(p, body_s)
+
+    # Copilot / SignalR — content-based
+    if _looks_like_copilot_payload(body_s):
+        return is_copilot_chat_submit(p, body_s)
+
+    if p:
+        compact = p.replace("_", "")
+        for marker in CHAT_PATH_MARKERS:
+            m = marker.lower()
+            if m in p or m in compact:
+                return True
+        if "/conversation" in p or "/messages" in p or "/chat/completions" in p:
             return True
-        if "prepare" in p or "autocomplet" in p or "implicit" in p:
-            return False
-        return "/conversation" in p or "/messages" in p or "/chat/completions" in p
-    # Gemini: only the real chat submit URL — never analytics / batchexecute noise
-    if is_gemini_host(h):
-        if not p:
-            return False
-        return is_gemini_chat_submit(p, body or "")
-    if is_copilot_host(h):
-        return is_copilot_chat_submit(p, body or "")
-    if not p:
+
+    if not p and body_s.strip():
         return True
-    return True
+    return False
 
 
 def is_gemini_host(host: str) -> bool:
@@ -855,7 +938,7 @@ def extract_copilot_prompt(content: str) -> str:
 
 
 def _is_ai_chrome_url(text: str) -> bool:
-    """True when the string is a Gemini/Bard/ChatGPT page URL, not typed chat."""
+    """True when the string is a monitored site page URL, not typed chat."""
     t = (text or "").strip()
     if not re.match(r"^https?://", t, re.I):
         return False
@@ -864,18 +947,14 @@ def _is_ai_chrome_url(text: str) -> bool:
     except Exception:
         return False
     host = (u.hostname or "").lower()
+    if host.startswith("www."):
+        host = host[4:]
+    is_target, _, _ = detect_target(host)
+    if not is_target:
+        return False
     path = (u.path or "").lower()
     query = (u.query or "").lower()
-    if "gemini.google." in host or "bard.google." in host:
-        return True
-    if "generativelanguage.googleapis" in host:
-        return True
-    if host in ("google.com", "www.google.com") and "gemini" in path:
-        return True
-    # Referrer-style ChatGPT app URLs (hl= locale) — not a user prompt
-    if ("chatgpt.com" in host or "chat.openai.com" in host) and (
-        "hl=" in query or path in ("", "/", "/app")
-    ):
+    if path in ("", "/", "/app") or "hl=" in query:
         return True
     return False
 
@@ -1112,7 +1191,7 @@ def chatgpt_carries_file(raw_text: str) -> bool:
     return False
 
 
-def detect_chatgpt_file_upload(
+def detect_monitored_file_upload(
     host: str,
     path: str,
     method: str,
@@ -1120,8 +1199,9 @@ def detect_chatgpt_file_upload(
     body_len: int,
     raw: bytes,
 ) -> tuple[bool, str]:
-    """Catch ChatGPT / OpenAI CDN uploads that generic heuristics miss."""
-    if not is_oai_upload_host(host):
+    """Catch file uploads on admin-added domains via API path patterns."""
+    is_target, _, _ = detect_target(host)
+    if not is_target:
         return False, ""
     if (method or "").upper() not in ("POST", "PUT", "PATCH"):
         return False, ""
@@ -1131,19 +1211,14 @@ def detect_chatgpt_file_upload(
 
     if "/backend-api/files" in path_l or "process_upload" in path_l:
         if body_len >= 32:
-            return True, f"ChatGPT file API ({path_l[:80]})"
-    if "oaiusercontent.com" in (host or "").lower() and body_len >= 64:
-        return True, f"OpenAI file CDN ({path_l[:80]})"
-    if is_chatgpt_host(host) and "/backend-api/" in path_l:
-        if any(x in path_l for x in ("/sentinel/", "/prepare", "/autocomplet", "/me", "/settings")):
-            return False, ""
-        if body_len >= 64 and (
-            any(p in ct for p in UPLOAD_CONTENT_TYPES)
-            or data[:5] == b"%PDF-"
-            or (len(data) >= 2 and data[:2] == b"PK")
-            or b"filename=" in data[:16000].lower()
-        ):
-            return True, f"ChatGPT binary upload ({path_l[:80]})"
+            return True, f"File API ({path_l[:80]})"
+    if body_len >= 64 and any(
+        x in path_l for x in ("/files", "/upload", "/attachment", "/convert_document", "/resumable")
+    ):
+        if any(p in ct for p in UPLOAD_CONTENT_TYPES) or data[:5] == b"%PDF-" or (
+            len(data) >= 2 and data[:2] == b"PK"
+        ) or b"filename=" in data[:16000].lower():
+            return True, f"Binary upload ({path_l[:80]})"
     return False, ""
 
 
@@ -1391,13 +1466,13 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
     path_only = path.split("?", 1)[0]
     raw = raw_content or ""
 
-    # ChatGPT / OpenAI CDN — catch before chat-path exclusions swallow file POSTs
-    cgpt_up, cgpt_reason = detect_chatgpt_file_upload(host, path, method, content_type, body_len, flow.request.content or b"")
-    if cgpt_up:
-        return True, cgpt_reason
+    # Monitored-domain file API — catch before chat-path exclusions swallow file POSTs
+    mon_up, mon_reason = detect_monitored_file_upload(host, path, method, content_type, body_len, flow.request.content or b"")
+    if mon_up:
+        return True, mon_reason
 
     # ── Never treat real chat Send as a file upload ──
-    if is_gemini_host(host) and is_gemini_chat_submit(path, raw):
+    if _looks_like_gemini_payload(raw) and is_gemini_chat_submit(path, raw):
         return False, ""
     # Claude / ChatGPT / generic chat completion paths (JSON text prompts)
     chat_path_markers = (
@@ -1532,9 +1607,10 @@ def is_confident_file_upload(
     host_l = (host or "").lower()
     path_l = (path or "").lower().split("?", 1)[0]
 
-    # ChatGPT / OpenAI CDN uploads — always cache real bytes for Send-time scan
-    if is_oai_upload_host(host_l) and (
-        "/backend-api/files" in path_l or "oaiusercontent.com" in host_l or "process_upload" in path_l
+    # Monitored-domain file API uploads — cache real bytes for Send-time scan
+    is_target, _, _ = detect_target(host_l)
+    if is_target and (
+        "/backend-api/files" in path_l or "process_upload" in path_l or "/upload" in path_l or "/files" in path_l
     ):
         if len(data) >= 32:
             return True
@@ -1776,28 +1852,9 @@ def _purge_upload_file_cache(now: float | None = None) -> None:
 
 
 def upload_domain_aliases(domain: str) -> list[str]:
-    """Hosts that share one product family — upload may hit A, chat Send hits B."""
-    d = (domain or "").lower().strip()
-    if not d:
-        return []
-    families = [
-        {"chatgpt.com", "chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"},
-        {
-            "gemini.google.com", "bard.google.com", "clients6.google.com",
-            "drive.google.com", "docs.google.com", "upload.google.com",
-        },
-        {
-            "copilot.microsoft.com", "copilot.cloud.microsoft", "sydney.bing.com",
-            "edgeservices.bing.com", "bing.com", "m365.cloud.microsoft",
-            "substrate.office.com",
-        },
-        {"claude.ai", "www.claude.ai", "api.anthropic.com"},
-        {"perplexity.ai", "www.perplexity.ai", "pplx.ai"},
-    ]
-    for fam in families:
-        if d in fam or any(d.endswith("." + x) for x in fam):
-            return sorted(fam)
-    return [d]
+    """Hosts that share one Target Website group — from DB (parent_id / platform_name)."""
+    aliases = target_family_domains(domain)
+    return aliases if aliases else [_normalize_domain(domain)] if domain else []
 
 
 def cache_upload_file(
@@ -3536,17 +3593,19 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
         if "multipart/form-data" in ct or "webkitformboundary" in text[:200].lower() or text.lstrip().startswith("------"):
             return None
 
-        # Gemini: never walk generic JSON/form fields — those are request ids.
-        if is_gemini_host(host) or "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
+        # Payload-format parsers (content-based — works on any admin-added domain)
+        if _looks_like_gemini_payload(text):
             gemini_prompt = extract_gemini_prompt(text)
-            return _clean_prompt_text(gemini_prompt) if gemini_prompt else None
+            if gemini_prompt:
+                return _clean_prompt_text(gemini_prompt)
 
-        # Copilot / Bing / Edge: only message.text paths — never raw content tokens.
-        if is_copilot_host(host):
+        if _looks_like_copilot_payload(text):
             copilot_prompt = extract_copilot_prompt(text)
-            return _clean_prompt_text(copilot_prompt) if copilot_prompt else None
+            if copilot_prompt:
+                return _clean_prompt_text(copilot_prompt)
 
-        # URL-encoded form bodies (Copilot / misc — not Gemini)
+        # URL-encoded form bodies
+        # Gemini f.req in form fields (content-based)
         if "application/x-www-form-urlencoded" in ct or (
             "%" in text and not text.lstrip().startswith(("{", "["))
         ) or text.startswith(("count=", "at=", "soc-app=", "req0_", "req1_")):
@@ -4300,11 +4359,10 @@ class BrowserAIInterceptor:
         if "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower():
             return
 
-        # Gemini fires many extra POSTs (session ids, counters). Log only the chat submit.
-        if is_gemini_host(host) and not is_gemini_chat_submit(path, raw_text):
+        # Drop batchexecute / SignalR noise on any monitored domain (content-based)
+        if is_copilot_noise_content(raw_text):
             return
-
-        if is_copilot_host(host) and is_copilot_noise_content(raw_text):
+        if ("batchexecute" in path.lower() or _looks_like_gemini_payload(raw_text)) and not is_gemini_chat_submit(path, raw_text):
             return
 
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
@@ -4341,8 +4399,7 @@ class BrowserAIInterceptor:
 
         prompt = extract_prompt(raw_bytes, content_type, host=host)
         if not prompt or len(prompt.strip()) < 1:
-            # Help debug Gemini/Copilot misses without flooding logs
-            if any(x in (domain or "") for x in ("gemini", "copilot", "bing", "clients6", "claude")) and len(raw_text) > 20:
+            if len(raw_text) > 20:
                 print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
             # Attachment-only send already logged above (real file markers only)
             if chat_carries_attachment(raw_text):
@@ -4422,15 +4479,13 @@ class BrowserAIInterceptor:
         if not content or len(content.strip()) < 1:
             return
 
-        if is_gemini_host(host):
-            # HTTP path must be StreamGenerate; empty WS path relies on extract_gemini_prompt
-            ws_path = flow.request.path or ""
+        ws_path = flow.request.path or ""
+        if _looks_like_gemini_payload(content):
             if ws_path and not is_gemini_chat_submit(ws_path, content):
                 return
 
-        if is_copilot_host(host):
-            ws_path = flow.request.path or ""
-            if not is_copilot_chat_submit(ws_path, content):
+        if _looks_like_copilot_payload(content):
+            if ws_path and not is_copilot_chat_submit(ws_path, content):
                 return
             if is_copilot_noise_content(content):
                 return

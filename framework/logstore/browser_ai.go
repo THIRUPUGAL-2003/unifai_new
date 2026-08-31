@@ -224,7 +224,6 @@ func NormalizeDomain(raw string) string {
 type BrowserAIManager struct {
 	db                    *gorm.DB
 	migrated              bool
-	relatedHostsBackfilled bool
 	mu                    sync.RWMutex
 }
 
@@ -557,24 +556,6 @@ func (m *BrowserAIManager) GetTargets(ctx context.Context) ([]BrowserTargetWebsi
 	if err := m.db.WithContext(ctx).Order("domain ASC").Find(&targets).Error; err != nil {
 		return targets, err
 	}
-	// One-time backfill for AI parents created before related-host auto-add
-	if !m.relatedHostsBackfilled {
-		for i := range targets {
-			t := &targets[i]
-			if strings.TrimSpace(t.ParentID) != "" {
-				continue
-			}
-			if len(relatedHostsForDomain(t.Domain)) == 0 {
-				continue
-			}
-			_ = m.ensureRelatedHostsLocked(ctx, t)
-		}
-		m.relatedHostsBackfilled = true
-		targets = nil
-		if err := m.db.WithContext(ctx).Order("domain ASC").Find(&targets).Error; err != nil {
-			return targets, err
-		}
-	}
 	return targets, nil
 }
 
@@ -740,73 +721,6 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 	target.CreatedAt = time.Now()
 	if err := m.db.WithContext(ctx).Create(target).Error; err != nil {
 		return err
-	}
-	// Top-level product domains: auto-add related API hosts so monitoring/predict actually works.
-	if target.ParentID == "" {
-		_ = m.ensureRelatedHostsLocked(ctx, target)
-	}
-	return nil
-}
-
-// relatedHostsForDomain mirrors UI suggestions — required for Gemini/Copilot prompt capture.
-func relatedHostsForDomain(domain string) []string {
-	switch NormalizeDomain(domain) {
-	case "chatgpt.com":
-		return []string{"chat.openai.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
-	case "chat.openai.com":
-		return []string{"chatgpt.com", "ab.chatgpt.com", "oaiusercontent.com", "files.oaiusercontent.com"}
-	case "claude.ai", "www.claude.ai":
-		return []string{"claude.ai", "www.claude.ai"}
-	case "copilot.microsoft.com", "copilot.cloud.microsoft":
-		return []string{
-			"sydney.bing.com", "edgeservices.bing.com", "bing.com", "business.bing.com",
-			"substrate.office.com", "m365.cloud.microsoft",
-			"copilot.microsoft.com", "copilot.cloud.microsoft",
-		}
-	case "gemini.google.com", "bard.google.com":
-		return []string{"clients6.google.com", "drive.google.com", "docs.google.com", "upload.google.com"}
-	case "perplexity.ai", "www.perplexity.ai", "pplx.ai":
-		return []string{"perplexity.ai", "www.perplexity.ai", "pplx.ai"}
-	default:
-		return nil
-	}
-}
-
-func (m *BrowserAIManager) ensureRelatedHostsLocked(ctx context.Context, parent *BrowserTargetWebsite) error {
-	if parent == nil || m.db == nil {
-		return nil
-	}
-	hosts := relatedHostsForDomain(parent.Domain)
-	for _, host := range hosts {
-		host = NormalizeDomain(host)
-		if host == "" || host == parent.Domain {
-			continue
-		}
-		var existing BrowserTargetWebsite
-		if err := m.db.WithContext(ctx).Where("domain = ?", host).First(&existing).Error; err == nil {
-			// Link under parent if orphan
-			if strings.TrimSpace(existing.ParentID) == "" && existing.ID != parent.ID {
-				_ = m.db.WithContext(ctx).Model(&existing).Updates(map[string]any{
-					"parent_id":     parent.ID,
-					"monitored":     parent.Monitored,
-					"block_site":    parent.BlockSite,
-					"platform_name": parent.PlatformName,
-					"status":        parent.Status,
-				}).Error
-			}
-			continue
-		}
-		child := BrowserTargetWebsite{
-			ID:           "tgt-" + uuid.New().String()[:8],
-			Domain:       host,
-			PlatformName: parent.PlatformName,
-			Monitored:    parent.Monitored,
-			BlockSite:    parent.BlockSite,
-			Status:       parent.Status,
-			ParentID:     parent.ID,
-			CreatedAt:    time.Now(),
-		}
-		_ = m.db.WithContext(ctx).Create(&child).Error
 	}
 	return nil
 }

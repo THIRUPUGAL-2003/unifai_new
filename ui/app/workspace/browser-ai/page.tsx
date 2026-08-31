@@ -2027,7 +2027,7 @@ export default function BrowserAiPage() {
 											<div className="space-y-2 rounded-md border border-border p-3">
 												<p className="text-sm font-medium">Add related host</p>
 												<p className="text-[11px] text-muted-foreground">
-													Subdomains of the domain you add already get full Guard access. Add a related host only when it is a different hostname you want nested under this domain. Names below are suggestions — nothing is added until you choose it.
+													Add every hostname you need: main site, API subdomain, file upload CDN, etc. Subdomains of the domain you enter are already covered — use &quot;Add related host&quot; only for a different hostname (e.g. upload CDN on another domain).
 												</p>
 												{newTargetRelatedGroup ? (
 													<div className="space-y-1.5 rounded-md border border-dashed border-border bg-muted/20 p-2">
