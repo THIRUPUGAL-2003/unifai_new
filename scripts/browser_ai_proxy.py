@@ -1176,7 +1176,11 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
 
 
 def is_composer_typing_draft(domain: str, prompt: str) -> bool:
-    """Skip growing/shrinking composer text (keystrokes). Intercept the finished submit."""
+    """Skip only ultra-fast single-keystroke drafts while the user is still typing.
+
+    Final Enter/send must always reach prediction — short prompts like "hi" and
+  numbers like "613882" were missed when we treated h→hi growth as draft forever.
+    """
     text = (prompt or "").strip()
     if not text or not domain:
         return False
@@ -1186,13 +1190,18 @@ def is_composer_typing_draft(domain: str, prompt: str) -> bool:
     if not prev:
         return False
     prev_text, prev_ts = prev
-    if now - prev_ts > 2.5:
+    elapsed = now - prev_ts
+    # Pause before Enter/send → treat as a real submit, always predict.
+    if elapsed >= 0.25:
         return False
     if text == prev_text:
         return False
-    grew = text.startswith(prev_text) and 0 < len(text) - len(prev_text) <= 24
-    shrunk = prev_text.startswith(text) and 0 < len(prev_text) - len(text) <= 24
-    return grew or shrunk
+    # Only skip a single-character extension during active typing (<250ms).
+    if len(text) == len(prev_text) + 1 and text.startswith(prev_text):
+        return True
+    if len(prev_text) == len(text) + 1 and prev_text.startswith(text):
+        return True
+    return False
 
 
 def _parts_to_text(parts) -> str | None:
@@ -3340,7 +3349,7 @@ def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
     Apply active Guard Rules to arbitrary text (prompt or file content).
     Returns (matched, rule_name, action).
     """
-    if not text or len(text.strip()) < 3:
+    if not text or len(text.strip()) < 1:
         return False, "", ""
     rules = get_guard_rules()
     for r in rules:
@@ -4356,15 +4365,17 @@ class BrowserAIInterceptor:
         if prompt.strip().startswith("[FILE UPLOAD"):
             return
 
-        # ChatGPT fires POSTs while typing. Predict only after Enter/send.
-        if is_unsubmitted_chat_body(path, raw_text) or is_composer_typing_draft(domain, prompt):
+        # ChatGPT/Perplexity: skip only in-progress draft bodies, not finished submits.
+        # Every finished prompt (1 letter, number, symbol, long text) must predict + apply rules.
+        if is_unsubmitted_chat_body(path, raw_text):
             return
 
-        # Skip duplicate / typing-repeat submissions
-        if is_duplicate_prompt(domain, prompt):
+        # Collapse browser double-fire only; do not stamp until we actually intercept.
+        if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
             return
 
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
+        mark_duplicate_event(domain, prompt)
 
         allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
             platform=platform,
@@ -4473,14 +4484,15 @@ class BrowserAIInterceptor:
         if _is_opaque_wire_blob(prompt):
             return
 
-        if is_unsubmitted_chat_body(flow.request.path, content) or is_composer_typing_draft(domain, prompt):
+        if is_unsubmitted_chat_body(flow.request.path, content):
             return
 
-        if is_duplicate_prompt(domain, prompt):
+        if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
             return
 
         client_ip = get_client_ip(flow)
         print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
+        mark_duplicate_event(domain, prompt)
 
         allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
             platform=platform,
