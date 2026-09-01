@@ -20,7 +20,6 @@ export function MessagesView() {
 		setMessages: onUpdateMessages,
 		setVariables,
 		isStreaming,
-		supportsVision,
 		handleSubmitToolResult,
 		handleExecuteToolCall,
 		handleSubmitAllToolResults,
@@ -160,7 +159,7 @@ export function MessagesView() {
 									key={msg.id}
 									message={msg}
 									disabled={isStreaming}
-									supportsVision={supportsVision}
+									allowAttachments
 									onChange={(s) => handleMessageChange(index, s)}
 									onRemove={canRemove ? () => handleRemoveMessage(index) : undefined}
 								/>

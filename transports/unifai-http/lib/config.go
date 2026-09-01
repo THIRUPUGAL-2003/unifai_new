@@ -4429,13 +4429,10 @@ func (c *Config) PersistGuardrailsConfig(cfg *GuardrailsConfig) error {
 	}
 	out = append(out, '\n')
 
-	tmpPath := c.configPath + ".tmp"
-	if err := os.WriteFile(tmpPath, out, 0644); err != nil {
-		return fmt.Errorf("write temp config file: %w", err)
-	}
-	if err := os.Rename(tmpPath, c.configPath); err != nil {
-		_ = os.Remove(tmpPath)
-		return fmt.Errorf("replace config file: %w", err)
+	// Write in place. Atomic rename via a sibling .tmp file fails when config.json is a
+	// single-file Docker bind mount (rename returns "device or resource busy").
+	if err := os.WriteFile(c.configPath, out, 0644); err != nil {
+		return fmt.Errorf("write config file: %w", err)
 	}
 	return nil
 }

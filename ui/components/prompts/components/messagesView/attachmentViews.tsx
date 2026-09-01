@@ -1,4 +1,5 @@
 import { MessageContent } from "@/lib/message";
+import { getAttachmentDisplayName } from "../../utils/attachment";
 import { Mic, FileIcon, XIcon } from "lucide-react";
 
 /**
@@ -32,7 +33,7 @@ export function AttachmentBadge({ attachment, onRemove }: { attachment: MessageC
 			) : (
 				<>
 					<FileIcon className="text-muted-foreground size-3" />
-					<span className="text-muted-foreground max-w-[120px] truncate">{attachment.file?.filename || "File"}</span>
+					<span className="text-muted-foreground max-w-[120px] truncate">{getAttachmentDisplayName(attachment)}</span>
 				</>
 			)}
 			<button

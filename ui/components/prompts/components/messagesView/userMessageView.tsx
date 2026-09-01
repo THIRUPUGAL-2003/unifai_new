@@ -5,7 +5,7 @@ import { JINJA_VAR_HIGHLIGHT_PATTERNS, JINJA_VAR_REGEX } from "@/lib/message/con
 import { isJson } from "@/lib/utils/validation";
 import { Paperclip, PencilIcon, XIcon } from "lucide-react";
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
-import { fileToAttachment } from "../../utils/attachment";
+import { filesToAttachments, PROMPT_FILE_ACCEPT } from "../../utils/attachment";
 import { AttachmentDisplay } from "./attachmentViews";
 import MessageRoleSwitcher from "./messageRoleSwitcher";
 
@@ -21,7 +21,7 @@ const Markdown = (props: ComponentProps<typeof LazyMarkdown>) => (
  *
  * @param message - The message model to render and edit; its updates are emitted via `onChange`.
  * @param disabled - When true, disables editing and attachment interactions.
- * @param supportsVision - When true, enables attaching files (images, audio, documents) and drag-and-drop attachments.
+ * @param allowAttachments - When true, enables attaching files (images, audio, documents) and drag-and-drop attachments.
  * @param onChange - Called with the message's serialized form whenever the message is modified (content, role, or attachments).
  * @param onRemove - Optional callback invoked when the message's delete action is triggered.
  * @returns The JSX element that renders the user message view and its interactive controls.
@@ -29,13 +29,13 @@ const Markdown = (props: ComponentProps<typeof LazyMarkdown>) => (
 export function UserMessageView({
 	message,
 	disabled,
-	supportsVision,
+	allowAttachments = true,
 	onChange,
 	onRemove,
 }: {
 	message: Message;
 	disabled?: boolean;
-	supportsVision?: boolean;
+	allowAttachments?: boolean;
 	onChange: (serialized: SerializedMessage) => void;
 	onRemove?: () => void;
 }) {
@@ -48,7 +48,7 @@ export function UserMessageView({
 	const content = message.content;
 	const isEmpty = !content;
 	const messageAttachments = message.attachments;
-	const canAttach = supportsVision && !disabled;
+	const canAttach = allowAttachments && !disabled;
 	const hasVariables = JINJA_VAR_REGEX.test(content);
 	JINJA_VAR_REGEX.lastIndex = 0;
 	const jsonBufferRef = useRef<string | null>(null);
@@ -120,11 +120,7 @@ export function UserMessageView({
 		async (e: React.ChangeEvent<HTMLInputElement>) => {
 			const files = e.target.files;
 			if (!files) return;
-			const attachments: MessageContent[] = [];
-			for (const file of Array.from(files)) {
-				const att = await fileToAttachment(file);
-				if (att) attachments.push(att);
-			}
+			const attachments = await filesToAttachments(files);
 			if (attachments.length > 0) addAttachments(attachments);
 			e.target.value = "";
 		},
@@ -162,11 +158,7 @@ export function UserMessageView({
 			setIsDragging(false);
 			const files = e.dataTransfer.files;
 			if (!files || files.length === 0) return;
-			const attachments: MessageContent[] = [];
-			for (const file of Array.from(files)) {
-				const att = await fileToAttachment(file);
-				if (att) attachments.push(att);
-			}
+			const attachments = await filesToAttachments(files);
 			if (attachments.length > 0) addAttachments(attachments);
 		},
 		[addAttachments],
@@ -220,7 +212,7 @@ export function UserMessageView({
 								ref={fileInputRef}
 								type="file"
 								multiple
-								accept="image/*,audio/*,.pdf,.txt,.csv,.json,.xml,.doc,.docx"
+								accept={PROMPT_FILE_ACCEPT}
 								className="hidden"
 								onChange={handleFileSelect}
 							/>
@@ -229,7 +221,7 @@ export function UserMessageView({
 								aria-label="Attach file"
 								data-testid="user-msg-attach"
 								onClick={() => fileInputRef.current?.click()}
-								className="hover:bg-muted focus:bg-muted rounded-sm p-1 opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 focus:opacity-100"
+								className="hover:bg-muted focus:bg-muted rounded-sm p-1 opacity-100"
 							>
 								<Paperclip className="text-muted-foreground hover:text-foreground size-3 shrink-0 cursor-pointer" />
 							</button>

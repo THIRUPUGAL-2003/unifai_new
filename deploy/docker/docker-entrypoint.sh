@@ -42,8 +42,26 @@ fix_permissions() {
     fi
 }
 
+# Ensure runtime config.json lives on the data volume (not a separate file bind mount).
+ensure_config_json() {
+    CONFIG_FILE="$APP_DIR/config.json"
+    DEFAULT_CONFIG="/app/configs/config.json"
+
+    if [ ! -f "$CONFIG_FILE" ] && [ -f "$DEFAULT_CONFIG" ]; then
+        echo "Creating $CONFIG_FILE from $DEFAULT_CONFIG"
+        cp "$DEFAULT_CONFIG" "$CONFIG_FILE"
+        chmod 644 "$CONFIG_FILE" 2>/dev/null || true
+    fi
+
+    if [ -f "$CONFIG_FILE" ] && [ ! -w "$CONFIG_FILE" ]; then
+        echo "Error: $CONFIG_FILE is not writable. Remove any file-level Docker bind mount for config.json and use ./data:/app/data only."
+        exit 1
+    fi
+}
+
 # Fix permissions before starting the application
 fix_permissions
+ensure_config_json
 
 # Parse command line arguments and set environment variables
 parse_args() {

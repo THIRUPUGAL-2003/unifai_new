@@ -25,7 +25,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./configs:/app/configs
-      - ./configs/config.json:/app/data/config.json
+      # Keep config.json inside ./data only. Do not also bind-mount a single file onto
+      # /app/data/config.json — that breaks atomic rename saves (device or resource busy).
     restart: unless-stopped
 
   # LAB ONLY: manual browser proxy to host:8082. Employee Guard EXE does NOT use this container.

@@ -6,9 +6,10 @@ import { Paperclip, Play, Plus, Square } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { usePromptContext } from "../context";
-import { fileToAttachment } from "../utils/attachment";
+import { filesToAttachments } from "../utils/attachment";
 import { AttachmentBadge } from "./messagesView/attachmentViews";
 import MessageRoleSwitcher from "./messagesView/messageRoleSwitcher";
+import { PromptFileImportBar } from "./promptFileImportBar";
 
 export function NewMessageInputView() {
 	const {
@@ -27,13 +28,18 @@ export function NewMessageInputView() {
 	const [userInput, setUserInput] = useState("");
 	const [inputRole, setInputRole] = useState<string>("user");
 	const [attachments, setAttachments] = useState<MessageContent[]>([]);
-	const fileInputRef = useRef<HTMLInputElement>(null);
 	const userInputRef = useRef<HTMLTextAreaElement>(null);
 
 	const missingRequiredHeaders = useMemo(
 		() => requiredHeaders.filter((name) => !(customHeaders[name] ?? "").trim()),
 		[requiredHeaders, customHeaders],
 	);
+
+	const canAttach = inputRole === "user";
+
+	const handleAddAttachments = useCallback((newAttachments: MessageContent[]) => {
+		setAttachments((prev) => [...prev, ...newAttachments]);
+	}, []);
 
 	const handleAddMessage = useCallback(() => {
 		if (isStreaming) return;
@@ -102,61 +108,49 @@ export function NewMessageInputView() {
 				handleRun();
 			}
 		},
-		[handleAddMessage, handleRun],
+		[handleRun],
 	);
-
-	const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-		const files = e.target.files;
-		if (!files) return;
-
-		for (const file of Array.from(files)) {
-			const attachment = await fileToAttachment(file);
-			if (attachment) {
-				setAttachments((prev) => [...prev, attachment]);
-			}
-		}
-
-		// Reset input so re-selecting the same file triggers onChange
-		e.target.value = "";
-	}, []);
 
 	const handleRemoveAttachment = useCallback((index: number) => {
 		setAttachments((prev) => prev.filter((_, i) => i !== index));
 	}, []);
 
-	const handlePaste = useCallback(
-		async (e: React.ClipboardEvent) => {
-			if (!supportsVision) return;
-			const items = e.clipboardData?.items;
-			if (!items) return;
+	const handlePaste = useCallback(async (e: React.ClipboardEvent) => {
+		if (!canAttach) return;
+		const items = e.clipboardData?.items;
+		if (!items) return;
 
-			for (const item of Array.from(items)) {
-				if (item.type.startsWith("image/")) {
-					e.preventDefault();
-					const file = item.getAsFile();
-					if (file) {
-						const attachment = await fileToAttachment(file);
-						if (attachment) {
-							setAttachments((prev) => [...prev, attachment]);
-						}
-					}
-				}
+		const imageFiles: File[] = [];
+		for (const item of Array.from(items)) {
+			if (item.type.startsWith("image/")) {
+				const file = item.getAsFile();
+				if (file) imageFiles.push(file);
 			}
-		},
-		[supportsVision],
-	);
+		}
+		if (imageFiles.length === 0) return;
+
+		e.preventDefault();
+		const newAttachments = await filesToAttachments(imageFiles);
+		if (newAttachments.length > 0) {
+			handleAddAttachments(newAttachments);
+		}
+	}, [canAttach, handleAddAttachments]);
 
 	const [isDragging, setIsDragging] = useState(false);
 	const dragCounterRef = useRef(0);
 
-	const handleDragEnter = useCallback((e: React.DragEvent) => {
-		e.preventDefault();
-		e.stopPropagation();
-		dragCounterRef.current++;
-		if (e.dataTransfer.types.includes("Files")) {
-			setIsDragging(true);
-		}
-	}, []);
+	const handleDragEnter = useCallback(
+		(e: React.DragEvent) => {
+			if (!canAttach) return;
+			e.preventDefault();
+			e.stopPropagation();
+			dragCounterRef.current++;
+			if (e.dataTransfer.types.includes("Files")) {
+				setIsDragging(true);
+			}
+		},
+		[canAttach],
+	);
 
 	const handleDragLeave = useCallback((e: React.DragEvent) => {
 		e.preventDefault();
@@ -172,36 +166,36 @@ export function NewMessageInputView() {
 		e.stopPropagation();
 	}, []);
 
-	const handleDrop = useCallback(async (e: React.DragEvent) => {
-		e.preventDefault();
-		e.stopPropagation();
-		dragCounterRef.current = 0;
-		setIsDragging(false);
+	const handleDrop = useCallback(
+		async (e: React.DragEvent) => {
+			if (!canAttach) return;
+			e.preventDefault();
+			e.stopPropagation();
+			dragCounterRef.current = 0;
+			setIsDragging(false);
 
-		const files = e.dataTransfer.files;
-		if (!files || files.length === 0) return;
+			const files = e.dataTransfer.files;
+			if (!files || files.length === 0) return;
 
-		for (const file of Array.from(files)) {
-			const attachment = await fileToAttachment(file);
-			if (attachment) {
-				setAttachments((prev) => [...prev, attachment]);
+			const newAttachments = await filesToAttachments(files);
+			if (newAttachments.length > 0) {
+				handleAddAttachments(newAttachments);
 			}
-		}
-	}, []);
+		},
+		[canAttach, handleAddAttachments],
+	);
+
+	const hasImageAttachment = attachments.some((att) => att.type === "image_url");
 
 	return (
 		<div
 			className="group relative max-h-[500px] shrink-0 overflow-y-auto border-t px-4 py-2"
-			{...(supportsVision
-				? {
-						onDragEnter: handleDragEnter,
-						onDragLeave: handleDragLeave,
-						onDragOver: handleDragOver,
-						onDrop: handleDrop,
-					}
-				: {})}
+			onDragEnter={handleDragEnter}
+			onDragLeave={handleDragLeave}
+			onDragOver={handleDragOver}
+			onDrop={handleDrop}
 		>
-			{supportsVision && isDragging && (
+			{canAttach && isDragging && (
 				<div className="bg-background/80 border-primary absolute inset-0 z-50 flex items-center justify-center rounded-sm border-2 border-dashed backdrop-blur-sm">
 					<div className="text-primary flex flex-col items-center gap-1">
 						<Paperclip className="h-5 w-5" />
@@ -219,28 +213,17 @@ export function NewMessageInputView() {
 					}}
 					restrictedRoles={["system", "tool"]}
 				/>
-				{supportsVision && inputRole === "user" && (
-					<div className="ml-auto">
-						<input
-							ref={fileInputRef}
-							type="file"
-							multiple
-							accept="image/*,audio/*,.pdf,.txt,.csv,.json,.xml,.doc,.docx"
-							className="hidden"
-							onChange={handleFileSelect}
-						/>
-						<button
-							type="button"
-							aria-label="Attach file"
-							data-testid="new-message-attach-file"
-							onClick={() => fileInputRef.current?.click()}
-							className="hover:bg-muted focus:bg-muted rounded-sm p-1"
-						>
-							<Paperclip className="text-muted-foreground hover:text-foreground h-3.5 w-3.5 shrink-0 cursor-pointer" />
-						</button>
-					</div>
-				)}
 			</div>
+			{canAttach && (
+				<div className="mb-2 space-y-2">
+					<PromptFileImportBar disabled={isStreaming} onAttachmentsAdded={handleAddAttachments} />
+					{hasImageAttachment && !supportsVision && (
+						<p className="text-muted-foreground text-xs">
+							Image attached. Select a vision-capable model if the provider should process images.
+						</p>
+					)}
+				</div>
+			)}
 			{attachments.length > 0 && (
 				<div className="mb-2 flex flex-wrap gap-2">
 					{attachments.map((att, index) => (
@@ -250,7 +233,7 @@ export function NewMessageInputView() {
 			)}
 			<div className="relative">
 				<Textarea
-					placeholder="Type a message..."
+					placeholder={canAttach ? "Type a message or import files..." : "Type a message..."}
 					value={userInput}
 					ref={userInputRef}
 					onChange={(e) => setUserInput(e.target.value)}
