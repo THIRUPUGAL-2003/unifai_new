@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { collectGuardrailIds, nextGuardrailId } from "./utils";
 
 function validateProviderForm(provider: Partial<GuardrailProvider> | null, patternText: string): string | null {
@@ -230,7 +231,7 @@ export default function GuardrailsProviderView() {
 							<Textarea
 								id="patterns"
 								value={patternText}
-								onChange={(e) => setRegexPatterns(e.target.value)}
+								onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setRegexPatterns(e.target.value)}
 								placeholder="[A-Z]{5}[0-9]{4}[A-Z]"
 								className="font-mono text-sm"
 								rows={4}
