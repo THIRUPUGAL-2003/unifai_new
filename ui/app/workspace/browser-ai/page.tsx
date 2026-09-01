@@ -201,11 +201,46 @@ function oneLinePreview(text?: string) {
 	return (text || "").replace(/\s+/g, " ").trim();
 }
 
+function parseBrowserAiLogMetadata(log: BrowserAILogEntry): Record<string, unknown> {
+	try {
+		return JSON.parse(log.metadata || "{}") as Record<string, unknown>;
+	} catch {
+		return {};
+	}
+}
+
+function logFileStatusLine(log: BrowserAILogEntry): string {
+	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
+	if (!full) return "";
+	const pipe = full.indexOf(" | ");
+	const head = pipe >= 0 ? full.slice(0, pipe) : full;
+	if (head.startsWith("[FILE UPLOAD]") || head.startsWith("[VOICE UPLOAD]")) return head;
+	return head;
+}
+
+function logExtractedTextFromPrompt(log: BrowserAILogEntry): string {
+	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
+	const pipe = full.indexOf(" | ");
+	if (pipe >= 0) return full.slice(pipe + 3).trim();
+	return "";
+}
+
+function logExtractedText(log: BrowserAILogEntry, attachmentText = ""): string {
+	const meta = parseBrowserAiLogMetadata(log);
+	const fromMeta = typeof meta.extracted_text === "string" ? meta.extracted_text.trim() : "";
+	if (fromMeta) return fromMeta;
+	const legacy = logExtractedTextFromPrompt(log);
+	if (legacy) return legacy;
+	return (attachmentText || "").trim();
+}
+
 function isFileUploadLog(log: BrowserAILogEntry | null | undefined) {
 	if (!log) return false;
 	if (log.attachment_name || log.attachment_stored_name) return true;
 	const p = (log.user_prompt_full || log.user_prompt_preview || "").trim();
-	return p.startsWith("[FILE UPLOAD]") || p.startsWith("[VOICE UPLOAD]");
+	if (p.startsWith("[FILE UPLOAD]") || p.startsWith("[VOICE UPLOAD]")) return true;
+	const meta = parseBrowserAiLogMetadata(log);
+	return meta.upload_scan === true;
 }
 
 function logHasStoredAttachment(log: BrowserAILogEntry | null | undefined) {
@@ -298,9 +333,16 @@ function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
 			</div>
 		);
 	}
+	let preview = oneLinePreview(log.user_prompt_preview);
+	if (
+		preview.includes(" | ") &&
+		(preview.startsWith("[FILE UPLOAD]") || preview.startsWith("[VOICE UPLOAD]"))
+	) {
+		preview = preview.split(" | ")[0].trim();
+	}
 	return (
-		<div className="truncate font-mono text-xs" title={log.user_prompt_preview || ""}>
-			{oneLinePreview(log.user_prompt_preview) || "—"}
+		<div className="truncate font-mono text-xs" title={preview || log.user_prompt_preview || ""}>
+			{preview || "—"}
 		</div>
 	);
 }
@@ -324,9 +366,11 @@ export default function BrowserAiPage() {
 
 	const [ruleSearch, setRuleSearch] = useState("");
 	const [targetSearch, setTargetSearch] = useState("");
+	const [targetPageLimit, setTargetPageLimit] = useState(10);
+	const [targetPageOffset, setTargetPageOffset] = useState(0);
 	const [selectedLog, setSelectedLog] = useState<BrowserAILogEntry | null>(null);
 	const [pdfViewerLog, setPdfViewerLog] = useState<BrowserAILogEntry | null>(null);
-	const [pdfViewerTab, setPdfViewerTab] = useState<"preview" | "details">("preview");
+	const [pdfViewerTab, setPdfViewerTab] = useState<"preview" | "extracted" | "details">("preview");
 	const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
 	const [attachmentPreviewKind, setAttachmentPreviewKind] = useState<AttachmentPreviewKind | null>(null);
 	const [attachmentPreviewHtml, setAttachmentPreviewHtml] = useState("");
@@ -1056,18 +1100,40 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			statusLabel.includes(targetSearchLower)
 		);
 	};
-	const visibleTargetRows: { tgt: BrowserTargetWebsite; isChild: boolean }[] = [];
-	for (const group of groupTargetsByParent(targets)) {
-		const parentHit = targetMatchesSearch(group.parent);
-		const childHits = group.children.filter(targetMatchesSearch);
-		if (!targetSearchLower || parentHit || childHits.length > 0) {
-			visibleTargetRows.push({ tgt: group.parent, isChild: false });
-			const kids = !targetSearchLower || parentHit ? group.children : childHits;
+
+	const filteredTargetGroups = useMemo(() => {
+		const groups = groupTargetsByParent(targets);
+		if (!targetSearchLower) return groups;
+		return groups.filter((group) => {
+			const parentHit = targetMatchesSearch(group.parent);
+			const childHits = group.children.filter(targetMatchesSearch);
+			return parentHit || childHits.length > 0;
+		});
+	}, [targets, targetSearchLower]);
+
+	const totalTargetParents = filteredTargetGroups.length;
+	const targetCurrentPage = Math.floor(targetPageOffset / targetPageLimit) + 1;
+	const targetTotalPages = Math.ceil(totalTargetParents / targetPageLimit) || 1;
+
+	const visibleTargetRows: { tgt: BrowserTargetWebsite; isChild: boolean }[] = useMemo(() => {
+		const pageGroups = filteredTargetGroups.slice(targetPageOffset, targetPageOffset + targetPageLimit);
+		const rows: { tgt: BrowserTargetWebsite; isChild: boolean }[] = [];
+		for (const group of pageGroups) {
+			rows.push({ tgt: group.parent, isChild: false });
+			const kids =
+				!targetSearchLower || targetMatchesSearch(group.parent)
+					? group.children
+					: group.children.filter(targetMatchesSearch);
 			for (const child of kids) {
-				visibleTargetRows.push({ tgt: child, isChild: true });
+				rows.push({ tgt: child, isChild: true });
 			}
 		}
-	}
+		return rows;
+	}, [filteredTargetGroups, targetPageOffset, targetPageLimit, targetSearchLower]);
+
+	useEffect(() => {
+		setTargetPageOffset(0);
+	}, [targetSearch, targetPageLimit]);
 
 	// Pagination calculations
 	const currentPage = Math.floor(pageOffset / pageLimit) + 1;
@@ -1980,6 +2046,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									<CardTitle className="text-lg">Target Web AI Platforms ({targets.length} Monitored)</CardTitle>
 									<CardDescription>
 										Add domains to monitor prompts, or turn on <strong>Block entire website</strong> to lock the site completely.
+										Each parent row keeps <strong>Add subdomain / related host</strong> — use pagination below when you have many platforms.
 										proxy.pac includes monitored and locked domains.
 									</CardDescription>
 								</div>
@@ -2159,7 +2226,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<Table className="table-fixed min-w-[980px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[260px]">Domain</TableHead>
+											<TableHead className="w-[320px]">Domain</TableHead>
 											<TableHead className="w-[120px]">Platform Name</TableHead>
 											<TableHead className="w-[110px]">Intercepted</TableHead>
 											<TableHead className="w-[100px]">Status</TableHead>
@@ -2182,84 +2249,88 @@ type RelatedHostEntry = { host: string; role: HostRole };
 														</div>
 														{isChild ? (
 															<p className="text-[10px] text-muted-foreground pl-5">{hostRoleLabel(tgt.host_role)}</p>
-														) : !isChild && tgt.host_role ? (
-															<p className="text-[10px] text-muted-foreground">{hostRoleLabel(tgt.host_role)}</p>
 														) : (
-														<div className="space-y-1.5 pt-0.5">
-															{(() => {
-																const leftover = relatedHostOptions(tgt.domain, addedTargetDomains);
-																if (leftover.length === 0) return null;
-																return (
-																	<div className="flex flex-wrap gap-1">
-																		{leftover.map((host) => (
-																			<Button
-																				key={host}
-																				type="button"
-																				variant="outline"
-																				size="sm"
-																				className="h-6 px-2 text-[10px] font-mono"
-																				onClick={() => handleAddRelatedHost(tgt, host)}
-																			>
-																				+ {host}
-																			</Button>
-																		))}
-																	</div>
-																);
-															})()}
-														<div className="flex items-center gap-1 flex-wrap">
-															<Select
-																value={extraHostRoleDrafts[tgt.id] || "auto"}
-																onValueChange={(v) =>
-																	setExtraHostRoleDrafts((prev) => ({
-																		...prev,
-																		[tgt.id]: v === "auto" ? "" : (v as HostRole),
-																	}))
-																}
-															>
-																<SelectTrigger className="h-6 text-[10px] w-[110px]">
-																	<SelectValue />
-																</SelectTrigger>
-																<SelectContent>
-																	{HOST_ROLE_OPTIONS.map((opt) => (
-																		<SelectItem key={opt.value || "auto"} value={opt.value || "auto"}>
-																			{opt.label}
-																		</SelectItem>
-																	))}
-																</SelectContent>
-															</Select>
-															<Input
-																placeholder="Add related host"
-																className="h-6 text-[10px] font-mono max-w-[180px]"
-																value={extraHostDrafts[tgt.id] || ""}
-																onChange={(e) => setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: e.target.value }))}
-																onKeyDown={(e) => {
-																	if (e.key === "Enter") {
-																		e.preventDefault();
-																		const host = extraHostDrafts[tgt.id];
-																		if (host?.trim()) {
-																			handleAddRelatedHost(tgt, host, extraHostRoleDrafts[tgt.id] || "");
-																			setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: "" }));
+															<div className="space-y-1.5 pt-0.5">
+																{tgt.host_role ? (
+																	<p className="text-[10px] text-muted-foreground">{hostRoleLabel(tgt.host_role)}</p>
+																) : null}
+																{(() => {
+																	const leftover = relatedHostOptions(tgt.domain, addedTargetDomains);
+																	if (leftover.length === 0) return null;
+																	return (
+																		<div className="flex flex-wrap gap-1">
+																			{leftover.map((host) => (
+																				<Button
+																					key={host}
+																					type="button"
+																					variant="outline"
+																					size="sm"
+																					className="h-6 px-2 text-[10px] font-mono"
+																					onClick={() => handleAddRelatedHost(tgt, host)}
+																				>
+																					+ {host}
+																				</Button>
+																			))}
+																		</div>
+																	);
+																})()}
+																<p className="text-[10px] font-medium text-muted-foreground">Add subdomain / related host</p>
+																<div className="flex items-center gap-1 flex-wrap">
+																	<Select
+																		value={extraHostRoleDrafts[tgt.id] || "auto"}
+																		onValueChange={(v) =>
+																			setExtraHostRoleDrafts((prev) => ({
+																				...prev,
+																				[tgt.id]: v === "auto" ? "" : (v as HostRole),
+																			}))
 																		}
-																	}
-																}}
-															/>
-															<Button
-																type="button"
-																variant="outline"
-																size="sm"
-																className="h-6 px-2 text-[10px]"
-																onClick={() => {
-																	const host = extraHostDrafts[tgt.id];
-																	if (host?.trim()) {
-																		handleAddRelatedHost(tgt, host, extraHostRoleDrafts[tgt.id] || "");
-																		setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: "" }));
-																	}
-																}}
-															>
-																<Plus className="h-3 w-3" />
-															</Button>
-														</div>
-														</div>
+																	>
+																		<SelectTrigger className="h-7 text-[10px] w-[110px]">
+																			<SelectValue />
+																		</SelectTrigger>
+																		<SelectContent>
+																			{HOST_ROLE_OPTIONS.map((opt) => (
+																				<SelectItem key={opt.value || "auto"} value={opt.value || "auto"}>
+																					{opt.label}
+																				</SelectItem>
+																			))}
+																		</SelectContent>
+																	</Select>
+																	<Input
+																		id={`subdomain-input-${tgt.id}`}
+																		placeholder="e.g. clients6.google.com"
+																		className="h-7 text-[10px] font-mono max-w-[200px]"
+																		value={extraHostDrafts[tgt.id] || ""}
+																		onChange={(e) => setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: e.target.value }))}
+																		onKeyDown={(e) => {
+																			if (e.key === "Enter") {
+																				e.preventDefault();
+																				const host = extraHostDrafts[tgt.id];
+																				if (host?.trim()) {
+																					handleAddRelatedHost(tgt, host, extraHostRoleDrafts[tgt.id] || "");
+																					setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: "" }));
+																				}
+																			}
+																		}}
+																	/>
+																	<Button
+																		type="button"
+																		variant="secondary"
+																		size="sm"
+																		className="h-7 px-2 text-[10px] gap-1"
+																		onClick={() => {
+																			const host = extraHostDrafts[tgt.id];
+																			if (host?.trim()) {
+																				handleAddRelatedHost(tgt, host, extraHostRoleDrafts[tgt.id] || "");
+																				setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: "" }));
+																			}
+																		}}
+																	>
+																		<Plus className="h-3 w-3" />
+																		Add
+																	</Button>
+																</div>
+															</div>
 														)}
 													</div>
 												</TableCell>
@@ -2316,6 +2387,21 @@ type RelatedHostEntry = { host: string; role: HostRole };
 												</TableCell>
 												<TableCell className="text-right">
 													<div className="flex items-center justify-end gap-1">
+														{!isChild ? (
+															<Button
+																variant="ghost"
+																size="icon"
+																onClick={() => {
+																	const el = document.getElementById(`subdomain-input-${tgt.id}`) as HTMLInputElement | null;
+																	el?.focus();
+																	el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+																}}
+																className="h-8 w-8 text-muted-foreground hover:text-foreground"
+																title="Add subdomain / related host"
+															>
+																<Plus className="h-4 w-4" />
+															</Button>
+														) : null}
 														<Button
 															variant="ghost"
 															size="icon"
@@ -2357,6 +2443,57 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									</TableBody>
 								</Table>
 							</div>
+
+							{targets.length > 0 ? (
+								<div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-border mt-4 text-xs text-muted-foreground">
+									<div className="flex items-center gap-2">
+										<span className="whitespace-nowrap">Parent domains per page</span>
+										<Select
+											value={String(targetPageLimit)}
+											onValueChange={(v) => setTargetPageLimit(Number(v))}
+										>
+											<SelectTrigger className="h-8 w-[72px] bg-background border-border">
+												<SelectValue />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value="5">5</SelectItem>
+												<SelectItem value="10">10</SelectItem>
+												<SelectItem value="25">25</SelectItem>
+												<SelectItem value="50">50</SelectItem>
+											</SelectContent>
+										</Select>
+										<span>
+											Showing {totalTargetParents > 0 ? targetPageOffset + 1 : 0} to{" "}
+											{Math.min(targetPageOffset + targetPageLimit, totalTargetParents)} of {totalTargetParents} parent domains
+										</span>
+									</div>
+									<div className="flex items-center gap-2">
+										<span>
+											Page {targetCurrentPage} of {targetTotalPages}
+										</span>
+										<div className="flex items-center gap-1">
+											<Button
+												variant="outline"
+												size="icon"
+												disabled={targetPageOffset === 0}
+												onClick={() => setTargetPageOffset(Math.max(0, targetPageOffset - targetPageLimit))}
+												className="h-8 w-8 border-border"
+											>
+												<ChevronLeft className="h-4 w-4" />
+											</Button>
+											<Button
+												variant="outline"
+												size="icon"
+												disabled={targetPageOffset + targetPageLimit >= totalTargetParents}
+												onClick={() => setTargetPageOffset(targetPageOffset + targetPageLimit)}
+												className="h-8 w-8 border-border"
+											>
+												<ChevronRight className="h-4 w-4" />
+											</Button>
+										</div>
+									</div>
+								</div>
+							) : null}
 						</CardContent>
 					</Card>
 				</TabsContent>
@@ -3102,12 +3239,18 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<div className="space-y-2">
 									<div className="flex justify-between items-center gap-2">
 										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">
-											Full Intercepted Prompt Text
+											{isFileUploadLog(selectedLog) ? "File upload event" : "Full Intercepted Prompt Text"}
 										</Label>
 										<Button
 											variant="ghost"
 											size="sm"
-											onClick={() => handleCopyPrompt(selectedLog.user_prompt_full)}
+											onClick={() =>
+												handleCopyPrompt(
+													isFileUploadLog(selectedLog)
+														? logFileStatusLine(selectedLog)
+														: selectedLog.user_prompt_full,
+												)
+											}
 											className="h-7 text-xs gap-1 shrink-0"
 										>
 											{copiedPrompt ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
@@ -3115,8 +3258,15 @@ type RelatedHostEntry = { host: string; role: HostRole };
 										</Button>
 									</div>
 									<div className="p-3.5 bg-background border border-border rounded-lg font-mono text-xs max-h-52 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-										{selectedLog.user_prompt_full}
+										{isFileUploadLog(selectedLog)
+											? logFileStatusLine(selectedLog)
+											: selectedLog.user_prompt_full}
 									</div>
+									{isFileUploadLog(selectedLog) && logExtractedTextFromPrompt(selectedLog) ? (
+										<p className="text-[11px] text-muted-foreground">
+											Extracted file text is available under <strong className="font-medium text-foreground">View → Extracted text</strong>.
+										</p>
+									) : null}
 								</div>
 
 								{isFileUploadLog(selectedLog) ? (
@@ -3223,6 +3373,16 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									>
 										Preview
 									</Button>
+									{(isFileUploadLog(pdfViewerLog) || logExtractedText(pdfViewerLog, attachmentPreviewText)) && (
+										<Button
+											size="sm"
+											variant={pdfViewerTab === "extracted" ? "default" : "ghost"}
+											className="h-8 rounded-none"
+											onClick={() => setPdfViewerTab("extracted")}
+										>
+											Extracted text
+										</Button>
+									)}
 									<Button
 										size="sm"
 										variant={pdfViewerTab === "details" ? "default" : "ghost"}
@@ -3244,7 +3404,13 @@ type RelatedHostEntry = { host: string; role: HostRole };
 											<Button
 												variant="ghost"
 												size="sm"
-												onClick={() => handleCopyPrompt(pdfViewerLog.user_prompt_full || pdfViewerLog.user_prompt_preview || "")}
+												onClick={() =>
+													handleCopyPrompt(
+														isFileUploadLog(pdfViewerLog)
+															? logFileStatusLine(pdfViewerLog)
+															: pdfViewerLog.user_prompt_full || pdfViewerLog.user_prompt_preview || "",
+													)
+												}
 												className="h-7 text-xs gap-1 shrink-0"
 											>
 												{copiedPrompt ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
@@ -3252,7 +3418,19 @@ type RelatedHostEntry = { host: string; role: HostRole };
 											</Button>
 										</div>
 										<pre className="text-xs font-mono whitespace-pre-wrap leading-relaxed">
-											{pdfViewerLog.user_prompt_full || pdfViewerLog.user_prompt_preview || "No prompt text captured."}
+											{isFileUploadLog(pdfViewerLog)
+												? logFileStatusLine(pdfViewerLog) || "File upload event."
+												: pdfViewerLog.user_prompt_full || pdfViewerLog.user_prompt_preview || "No prompt text captured."}
+										</pre>
+									</div>
+								) : pdfViewerTab === "extracted" ? (
+									<div className="w-full max-h-[min(70vh,720px)] overflow-auto rounded-md border border-border bg-background p-4 space-y-2">
+										<p className="text-xs text-muted-foreground">
+											Text extracted from the uploaded file for DLP / rule scanning (not shown in the main log table).
+										</p>
+										<pre className="text-xs font-mono whitespace-pre-wrap leading-relaxed">
+											{logExtractedText(pdfViewerLog, attachmentPreviewText) ||
+												(pdfLoading ? "Loading…" : "No text could be extracted from this file.")}
 										</pre>
 									</div>
 								) : pdfLoading ? (

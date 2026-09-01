@@ -39,6 +39,16 @@ function escapeHtml(s: string): string {
 		.replace(/"/g, "&quot;");
 }
 
+function extractPdfTextRough(bytes: Uint8Array): string {
+	const raw = new TextDecoder("latin1").decode(bytes);
+	const chunks: string[] = [];
+	for (const m of raw.matchAll(/\(([^\\)]{2,})\)/g)) {
+		const s = m[1].replace(/\\n/g, "\n").replace(/\\\(/g, "(").replace(/\\\)/g, ")");
+		if (s.trim().length >= 2 && /[A-Za-z0-9]/.test(s)) chunks.push(s);
+	}
+	return chunks.join(" ").replace(/\s+/g, " ").trim().slice(0, 50_000);
+}
+
 export async function buildAttachmentPreview(
 	blob: Blob,
 	name?: string,
@@ -94,7 +104,8 @@ export async function buildAttachmentPreview(
 	}
 
 	if (kind === "image" || kind === "pdf") {
-		return { kind, blobUrl: URL.createObjectURL(typedBlob) };
+		const text = kind === "pdf" ? extractPdfTextRough(bytes) : undefined;
+		return { kind, blobUrl: URL.createObjectURL(typedBlob), text: text || undefined };
 	}
 
 	if (kind === "text" || ext === ".csv") {

@@ -782,6 +782,25 @@ def _is_opaque_wire_blob(text: str) -> bool:
     return False
 
 
+def _looks_like_document_body_dump(text: str) -> bool:
+    """True when extracted chat text is likely full file/resume content, not a user caption."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if len(t) >= 500:
+        return True
+    if t.count("\n") >= 4:
+        return True
+    low = t.lower()
+    resume_markers = (
+        "account details", "work experience", "education", "curriculum vitae",
+        "objective", "professional summary", "skills", "certification",
+        "report information", "account number", "category policy",
+    )
+    hits = sum(1 for m in resume_markers if m in low)
+    return hits >= 2 or (hits >= 1 and len(t) >= 180)
+
+
 def is_copilot_chat_submit(path: str, body: str = "") -> bool:
     """True only for Copilot/Bing/Edge chat submit — not telemetry or sync frames."""
     path_l = (path or "").lower().split("?", 1)[0]
@@ -2766,14 +2785,13 @@ def block_upload_request_now(
     label = (fname or "attachment").strip() or "attachment"
     tag = _upload_log_tag(label, content_type, raw_bytes)
     excerpt = ""
+    scanned_full = ""
     if raw_bytes:
-        scanned = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, label)
-        if scanned:
-            excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
+        scanned_full = extract_upload_text_for_rules(raw_bytes, content_type, raw_text, label) or ""
+        if scanned_full:
+            excerpt = re.sub(r"\s+", " ", scanned_full).strip()[:180]
     reason_label = (rule_name or blocked_reason or "Block Upload").strip()
     prompt_log = f"{tag} {label} — Blocked ({reason_label})"
-    if excerpt:
-        prompt_log = f"{prompt_log} | {excerpt}"
     dedupe_key = f"upload-req-block|{reason_label}|{label}"
     if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
         print(f"[UnifAI Proxy] UPLOAD BLOCKED (request) | {client_ip} → {host} | {label} | {reason_label}")
@@ -2789,6 +2807,7 @@ def block_upload_request_now(
             blocked_reason=reason_label,
             raw_bytes=raw_bytes,
             content_type=content_type,
+            extracted_text=scanned_full,
         )
         if ok:
             mark_duplicate_event(domain, dedupe_key)
@@ -3083,8 +3102,6 @@ def _process_one_cached_file_on_send_impl(
 
     if warn_for_rule:
         warn_log = f"{tag} {file_label} — Warned ({rule_name or 'policy'})"
-        if excerpt:
-            warn_log = f"{warn_log} | {excerpt}"
         dedupe_key = f"upload-send-warn|{rule_name}|{file_label}"
         if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
             print(f"[UnifAI Proxy] FILE SEND WARNED | {client_ip} → {host} | {file_label}")
@@ -3099,6 +3116,7 @@ def _process_one_cached_file_on_send_impl(
                 is_blocked=False,
                 raw_bytes=cached_bytes,
                 content_type=cached_ct,
+                extracted_text=scanned,
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
@@ -3108,15 +3126,11 @@ def _process_one_cached_file_on_send_impl(
         blocked_reason = "Block Upload" if block_all else (rule_name or "Guard Rule (file content)")
         if block_all:
             prompt_log = f"{tag} {file_label} — Blocked (Block Upload)"
-            if excerpt:
-                prompt_log = f"{prompt_log} | {excerpt}"
             msg = base_upload_msg
         else:
             rule_warn = _warning_for_rule_name(rule_name)
             left = (rule_warn or base_upload_msg).strip() or "Upload block"
             prompt_log = f"{tag} {file_label} — Blocked ({rule_name or 'policy'})"
-            if excerpt:
-                prompt_log = f"{prompt_log} | {excerpt}"
             msg = f"{left} -- {rule_name}" if rule_name else left
         dedupe_key = f"upload-send-block|{blocked_reason}|{file_label}"
         if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
@@ -3133,16 +3147,13 @@ def _process_one_cached_file_on_send_impl(
                 blocked_reason=blocked_reason,
                 raw_bytes=cached_bytes,
                 content_type=cached_ct,
+                extracted_text=scanned,
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
         return True, msg
 
     clean_log = f"{tag} {file_label} — Allowed"
-    if excerpt:
-        clean_log = f"{clean_log} | {excerpt}"
-    elif scanned == "" and cached_bytes:
-        clean_log = f"{clean_log} | (no text extracted — file allowed)"
     dedupe_key = f"upload-send-allowed|{file_label}"
     if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
         print(f"[UnifAI Proxy] FILE SEND ALLOWED | {client_ip} → {host} | {clean_log}")
@@ -3157,6 +3168,7 @@ def _process_one_cached_file_on_send_impl(
             is_blocked=False,
             raw_bytes=cached_bytes,
             content_type=cached_ct,
+            extracted_text=scanned,
         )
         if ok:
             mark_duplicate_event(domain, dedupe_key)
@@ -3264,6 +3276,7 @@ def post_upload_intercept(
     blocked_reason: str = "",
     raw_bytes: bytes | None = None,
     content_type: str = "",
+    extracted_text: str = "",
 ) -> bool:
     """Log file event on Send; store any file bytes via /api/browser-ai/intercept-file."""
     metadata = {
@@ -3278,6 +3291,11 @@ def post_upload_intercept(
     }
     if blocked_reason:
         metadata["blocked_reason"] = blocked_reason
+    ext = (extracted_text or "").strip()
+    if ext:
+        metadata["extracted_text"] = ext[:50_000]
+    elif raw_bytes:
+        metadata["extracted_text"] = ""
 
     payload, ctype, fname = extract_upload_file_payload(raw_bytes or b"", content_type, file_name)
     if payload:
@@ -5504,6 +5522,14 @@ class BrowserAIInterceptor:
         # ── File Send: scan/cache on pick; predict + allow/block on Send ──
         if attachment_send and _file_policy_applies_on_send(path, raw_text, raw_bytes):
             if self._file_send_maybe_block(flow, domain, platform, client_ip, raw_text, content_type, path):
+                return
+            # File row already logged — skip duplicate text log from same wire body (e.g. Gemini embeds PDF text).
+            if chat_carries_attachment(raw_text):
+                if has_prompt:
+                    pn = (peek_prompt or "").strip()
+                    if pn and len(pn) <= 320 and not _looks_like_document_body_dump(pn):
+                        if not is_duplicate_event(domain, pn, ttl=DEDUPE_TTL, mark=False):
+                            self._apply_http_prompt(flow, domain, platform, pn, client_ip, raw_text)
                 return
             if not has_prompt:
                 return
