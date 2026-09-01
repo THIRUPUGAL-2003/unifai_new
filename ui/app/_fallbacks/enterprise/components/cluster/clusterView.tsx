@@ -22,6 +22,22 @@ export default function ClusterPage() {
 		peers: [],
 	});
 	const [peerText, setPeerText] = useState("");
+	const [peerErrors, setPeerErrors] = useState<string[]>([]);
+
+	const validatePeers = (peers: string[]) => {
+		const errors: string[] = [];
+		const hostPort = /^[a-zA-Z0-9._-]+:\d+$/;
+		peers.forEach((peer) => {
+			if (!hostPort.test(peer)) {
+				errors.push(`Invalid peer "${peer}" — use host:port (e.g. 10.0.0.12:7946)`);
+			}
+		});
+		if (config.enabled && peers.length === 0) {
+			errors.push("Add at least one peer when cluster mode is enabled.");
+		}
+		setPeerErrors(errors);
+		return errors.length === 0;
+	};
 
 	useEffect(() => {
 		if (!data) return;
@@ -30,11 +46,15 @@ export default function ClusterPage() {
 	}, [data]);
 
 	const save = async () => {
+		const peers = peerText
+			.split(/\n|,/)
+			.map((peer) => peer.trim())
+			.filter(Boolean);
+		if (!validatePeers(peers)) {
+			toast.error("Fix peer validation errors before saving");
+			return;
+		}
 		try {
-			const peers = peerText
-				.split(/\n|,/)
-				.map((peer) => peer.trim())
-				.filter(Boolean);
 			const next = await updateCluster({ ...config, peers }).unwrap();
 			setConfig({ ...config, ...next, node: config.node });
 			toast.success("Cluster configuration saved");
@@ -108,10 +128,24 @@ export default function ClusterPage() {
 						<Label>Peers (host:port, one per line)</Label>
 						<textarea
 							value={peerText}
-							onChange={(e) => setPeerText(e.target.value)}
+							onChange={(e) => {
+								setPeerText(e.target.value);
+								const peers = e.target.value
+									.split(/\n|,/)
+									.map((peer) => peer.trim())
+									.filter(Boolean);
+								validatePeers(peers);
+							}}
 							className="border-input bg-background min-h-28 w-full rounded-md border p-3 font-mono text-sm"
 							placeholder="10.0.0.12:7946"
 						/>
+						{peerErrors.length > 0 && (
+							<ul className="text-destructive space-y-1 text-xs">
+								{peerErrors.map((err) => (
+									<li key={err}>{err}</li>
+								))}
+							</ul>
+						)}
 					</div>
 					<div className="grid grid-cols-2 gap-3">
 						<div className="space-y-1">
@@ -140,7 +174,7 @@ export default function ClusterPage() {
 						</div>
 					</div>
 					<div className="flex justify-end">
-						<Button onClick={() => void save()} disabled={saving}>
+						<Button onClick={() => void save()} disabled={saving || peerErrors.length > 0}>
 							<Save className="h-4 w-4" />
 							{saving ? "Saving…" : "Save cluster config"}
 						</Button>

@@ -32,6 +32,15 @@ export const accessProfilesApi = baseApi.injectEndpoints({
 			query: (id) => ({ url: `/access-profiles/${id}`, method: "DELETE" }),
 			invalidatesTags: ["AccessProfiles"],
 		}),
+		getAccessProfile: builder.query<{ access_profile: AccessProfile }, number>({
+			query: (id) => ({ url: `/access-profiles/${id}` }),
+			providesTags: (_result, _error, id) => [{ type: "AccessProfiles", id }],
+		}),
+		updateAccessProfile: builder.mutation<AccessProfile, { id: number; updates: Partial<AccessProfile> }>({
+			query: ({ id, updates }) => ({ url: `/access-profiles/${id}`, method: "PUT", body: updates }),
+			transformResponse: (response: { access_profile: AccessProfile }) => response.access_profile,
+			invalidatesTags: ["AccessProfiles"],
+		}),
 		getUserAccessProfiles: builder.query<GetUserAccessProfilesResponse, string>({
 			query: (userId) => ({ url: `/users/${encodeURIComponent(userId)}/access-profiles` }),
 			providesTags: (_result, _error, userId) => [{ type: "AccessProfiles", id: userId }],
@@ -41,7 +50,9 @@ export const accessProfilesApi = baseApi.injectEndpoints({
 
 export const {
 	useGetAccessProfilesQuery,
+	useGetAccessProfileQuery,
 	useCreateAccessProfileMutation,
+	useUpdateAccessProfileMutation,
 	useActivateAccessProfileMutation,
 	useCloneAccessProfileMutation,
 	useDeleteAccessProfileMutation,

@@ -13,15 +13,18 @@ import {
 	useCreateAccessProfileMutation,
 	useDeleteAccessProfileMutation,
 	useGetAccessProfilesQuery,
+	useUpdateAccessProfileMutation,
 } from "@enterprise/lib/store/apis/accessProfileApi";
 import { AccessProfile } from "@enterprise/lib/types/workspace";
-import { Copy, IdCard, Plus, Trash2 } from "lucide-react";
+import { Copy, IdCard, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 export default function AccessProfilesIndexView() {
 	const [search, setSearch] = useState("");
 	const [open, setOpen] = useState(false);
+	const [editOpen, setEditOpen] = useState(false);
+	const [editing, setEditing] = useState<AccessProfile | null>(null);
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [tags, setTags] = useState("");
@@ -33,39 +36,69 @@ export default function AccessProfilesIndexView() {
 	const [activateProfile] = useActivateAccessProfileMutation();
 	const [cloneProfile] = useCloneAccessProfileMutation();
 	const [deleteProfile] = useDeleteAccessProfileMutation();
+	const [updateProfile] = useUpdateAccessProfileMutation();
 
 	const profiles = data?.access_profiles || [];
 
+	const profilePayload = () => ({
+		name,
+		description,
+		tags: tags
+			.split(",")
+			.map((tag) => tag.trim())
+			.filter(Boolean),
+		provider_configs: providerName
+			? [
+					{
+						provider_name: providerName,
+						all_models_allowed: !allowedModels,
+						allowed_models: allowedModels
+							.split(",")
+							.map((model) => model.trim())
+							.filter(Boolean),
+					},
+				]
+			: [],
+	});
+
+	const resetForm = () => {
+		setName("");
+		setDescription("");
+		setTags("");
+		setProviderName("");
+		setAllowedModels("");
+		setEditing(null);
+	};
+
+	const openEdit = (profile: AccessProfile) => {
+		setEditing(profile);
+		setName(profile.name);
+		setDescription(profile.description || "");
+		setTags((profile.tags || []).join(", "));
+		const cfg = profile.provider_configs?.[0];
+		setProviderName(cfg?.provider_name || "");
+		setAllowedModels(cfg?.allowed_models?.join(", ") || "");
+		setEditOpen(true);
+	};
+
 	const create = async () => {
 		try {
-			await createProfile({
-				name,
-				description,
-				is_active: true,
-				tags: tags
-					.split(",")
-					.map((tag) => tag.trim())
-					.filter(Boolean),
-				provider_configs: providerName
-					? [
-							{
-								provider_name: providerName,
-								all_models_allowed: !allowedModels,
-								allowed_models: allowedModels
-									.split(",")
-									.map((model) => model.trim())
-									.filter(Boolean),
-							},
-						]
-					: [],
-			}).unwrap();
+			await createProfile({ ...profilePayload(), is_active: true }).unwrap();
 			toast.success("Access profile created");
 			setOpen(false);
-			setName("");
-			setDescription("");
-			setTags("");
-			setProviderName("");
-			setAllowedModels("");
+			resetForm();
+		} catch (err) {
+			toast.error(getErrorMessage(err));
+		}
+	};
+
+	const saveEdit = async () => {
+		if (!editing) return;
+		try {
+			await updateProfile({ id: editing.id, updates: profilePayload() }).unwrap();
+			toast.success("Access profile updated");
+			setEditOpen(false);
+			resetForm();
 		} catch (err) {
 			toast.error(getErrorMessage(err));
 		}
@@ -98,6 +131,7 @@ export default function AccessProfilesIndexView() {
 			) : (
 				<TableView
 					profiles={profiles}
+					onEdit={openEdit}
 					onToggle={async (profile) => {
 						try {
 							await activateProfile({ id: profile.id, activate: !profile.is_active }).unwrap();
@@ -159,17 +193,55 @@ export default function AccessProfilesIndexView() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+
+			<Dialog open={editOpen} onOpenChange={(v) => { setEditOpen(v); if (!v) resetForm(); }}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Edit access profile</DialogTitle>
+					</DialogHeader>
+					<div className="space-y-3 py-2">
+						<div className="space-y-1">
+							<Label>Name</Label>
+							<Input value={name} onChange={(e) => setName(e.target.value)} />
+						</div>
+						<div className="space-y-1">
+							<Label>Description</Label>
+							<Input value={description} onChange={(e) => setDescription(e.target.value)} />
+						</div>
+						<div className="space-y-1">
+							<Label>Tags (comma separated)</Label>
+							<Input value={tags} onChange={(e) => setTags(e.target.value)} />
+						</div>
+						<div className="space-y-1">
+							<Label>Provider</Label>
+							<Input value={providerName} onChange={(e) => setProviderName(e.target.value)} placeholder="openai" />
+						</div>
+						<div className="space-y-1">
+							<Label>Allowed models (blank = all)</Label>
+							<Input value={allowedModels} onChange={(e) => setAllowedModels(e.target.value)} placeholder="gpt-4o, gpt-4o-mini" />
+						</div>
+					</div>
+					<DialogFooter>
+						<Button variant="outline" onClick={() => { setEditOpen(false); resetForm(); }}>
+							Cancel
+						</Button>
+						<Button onClick={() => void saveEdit()}>Save changes</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }
 
 function TableView({
 	profiles,
+	onEdit,
 	onToggle,
 	onClone,
 	onDelete,
 }: {
 	profiles: AccessProfile[];
+	onEdit: (profile: AccessProfile) => void;
 	onToggle: (profile: AccessProfile) => void;
 	onClone: (id: number) => void;
 	onDelete: (id: number) => void;
@@ -200,7 +272,10 @@ function TableView({
 							<Badge variant="secondary">v{profile.version}</Badge>
 						</TableCell>
 						<TableCell className="text-right">
-							<Button size="icon" variant="ghost" onClick={() => onClone(profile.id)}>
+							<Button size="icon" variant="ghost" onClick={() => onEdit(profile)} title="Edit">
+								<Pencil className="h-4 w-4" />
+							</Button>
+							<Button size="icon" variant="ghost" onClick={() => onClone(profile.id)} title="Clone">
 								<Copy className="h-4 w-4" />
 							</Button>
 							<Button size="icon" variant="ghost" onClick={() => onDelete(profile.id)}>

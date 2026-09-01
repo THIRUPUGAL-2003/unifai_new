@@ -1,6 +1,5 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Users, Plus, Search, Edit2, Trash2, Shield, Check, X, Clock, Key, DollarSign, Activity } from "lucide-react";
-import { getApiBaseUrl } from "@/lib/utils/port";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -12,32 +11,36 @@ import {
 	allowedSectionsToString,
 	type WorkspaceSectionKey,
 } from "@/lib/constants/workspaceSections";
-
-interface User {
-	id: string;
-	username: string;
-	email?: string;
-	role: string;
-	status?: string;
-	budget: number;
-	rate_limit: number;
-	allowed_prompt_repos?: string;
-	allowed_sections?: string;
-	created_at: string;
-}
+import {
+	getErrorMessage,
+	useApproveSessionUserMutation,
+	useCreateSessionUserMutation,
+	useDeleteSessionUserMutation,
+	useGetPromptsQuery,
+	useGetSessionUsersQuery,
+	useRejectSessionUserMutation,
+	useUpdateSessionUserMutation,
+	type SessionUser,
+} from "@/lib/store";
 
 export default function UsersView() {
-	const [users, setUsers] = useState<User[]>([]);
 	const [searchQuery, setSearchQuery] = useState("");
-	const [loading, setLoading] = useState(true);
-	const [allPrompts, setAllPrompts] = useState<{ id: string; name: string }[]>([]);
 	const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+
+	const { data: users = [], isLoading: loading } = useGetSessionUsersQuery();
+	const { data: promptsData } = useGetPromptsQuery();
+	const [createUser] = useCreateSessionUserMutation();
+	const [updateUser] = useUpdateSessionUserMutation();
+	const [deleteUser] = useDeleteSessionUserMutation();
+	const [approveUser] = useApproveSessionUserMutation();
+	const [rejectUser] = useRejectSessionUserMutation();
+	const allPrompts = promptsData?.prompts || [];
 
 	// Dialog states
 	const [isCreateOpen, setIsCreateOpen] = useState(false);
 	const [isEditOpen, setIsEditOpen] = useState(false);
 	const [isDeleteOpen, setIsDeleteOpen] = useState(false);
-	const [selectedUser, setSelectedUser] = useState<User | null>(null);
+	const [selectedUser, setSelectedUser] = useState<SessionUser | null>(null);
 
 	// Form states
 	const [username, setUsername] = useState("");
@@ -122,44 +125,15 @@ export default function UsersView() {
 			</div>
 		) : null;
 
-	// Fetch users from API
-	const fetchUsers = async () => {
-		try {
-			const res = await fetch(`${getApiBaseUrl()}/session/users`, {
-				credentials: "include",
-			});
-			if (res.ok) {
-				const data = await res.json();
-				setUsers(data || []);
-			} else {
-				toast.error("Failed to load users");
-			}
-		} catch (err) {
-			console.error(err);
-			toast.error("An error occurred while fetching users");
-		} finally {
-			setLoading(false);
-		}
-	};
-
-	const fetchAllPrompts = async () => {
-		try {
-			const res = await fetch(`${getApiBaseUrl()}/prompt-repo/prompts`, {
-				credentials: "include",
-			});
-			if (res.ok) {
-				const data = await res.json();
-				setAllPrompts(data.prompts || []);
-			}
-		} catch (err) {
-			console.error(err);
-		}
-	};
-
-	useEffect(() => {
-		fetchUsers();
-		fetchAllPrompts();
-	}, []);
+	const userPayload = () => ({
+		username,
+		password: password || undefined,
+		role,
+		budget,
+		rate_limit: rateLimit,
+		allowed_prompt_repos: role === "user" ? allowedPromptRepos : "",
+		allowed_sections: role === "admin" ? allowedSectionsToString(allowedSections) : "",
+	});
 
 	const handleCreateUser = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -168,31 +142,12 @@ export default function UsersView() {
 			return;
 		}
 		try {
-			const res = await fetch(`${getApiBaseUrl()}/session/users`, {
-				method: "POST",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					username,
-					password,
-					role,
-					budget,
-					rate_limit: rateLimit,
-					allowed_prompt_repos: role === "user" ? allowedPromptRepos : "",
-					allowed_sections: role === "admin" ? allowedSectionsToString(allowedSections) : "",
-				}),
-				credentials: "include",
-			});
-			if (res.ok) {
-				toast.success("User created successfully");
-				setIsCreateOpen(false);
-				resetForm();
-				fetchUsers();
-			} else {
-				const err = await res.json().catch(() => ({}));
-				toast.error(err?.error?.message || err.message || "Failed to create user");
-			}
+			await createUser({ ...userPayload(), password }).unwrap();
+			toast.success("User created successfully");
+			setIsCreateOpen(false);
+			resetForm();
 		} catch (err) {
-			toast.error("An error occurred while creating user");
+			toast.error(getErrorMessage(err));
 		}
 	};
 
@@ -200,91 +155,46 @@ export default function UsersView() {
 		e.preventDefault();
 		if (!selectedUser) return;
 		try {
-			const res = await fetch(`${getApiBaseUrl()}/session/users/${selectedUser.id}`, {
-				method: "PUT",
-				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({
-					username,
-					password: password || undefined,
-					role,
-					budget,
-					rate_limit: rateLimit,
-					allowed_prompt_repos: role === "user" ? allowedPromptRepos : "",
-					allowed_sections: role === "admin" ? allowedSectionsToString(allowedSections) : "",
-				}),
-				credentials: "include",
-			});
-			if (res.ok) {
-				toast.success("User updated successfully");
-				setIsEditOpen(false);
-				resetForm();
-				fetchUsers();
-			} else {
-				const err = await res.json();
-				toast.error(err.message || "Failed to update user");
-			}
+			await updateUser({ id: selectedUser.id, updates: userPayload() }).unwrap();
+			toast.success("User updated successfully");
+			setIsEditOpen(false);
+			resetForm();
 		} catch (err) {
-			toast.error("An error occurred while updating user");
+			toast.error(getErrorMessage(err));
 		}
 	};
 
 	const handleDeleteUser = async () => {
 		if (!selectedUser) return;
 		try {
-			const res = await fetch(`${getApiBaseUrl()}/session/users/${selectedUser.id}`, {
-				method: "DELETE",
-				credentials: "include",
-			});
-			if (res.ok) {
-				toast.success("User deleted successfully");
-				setIsDeleteOpen(false);
-				setSelectedUser(null);
-				fetchUsers();
-			} else {
-				toast.error("Failed to delete user");
-			}
+			await deleteUser(selectedUser.id).unwrap();
+			toast.success("User deleted successfully");
+			setIsDeleteOpen(false);
+			setSelectedUser(null);
 		} catch (err) {
-			toast.error("An error occurred while deleting user");
+			toast.error(getErrorMessage(err));
 		}
 	};
 
-	const handleApprove = async (user: User) => {
+	const handleApprove = async (user: SessionUser) => {
 		setActionBusyId(user.id);
 		try {
-			const res = await fetch(`${getApiBaseUrl()}/session/users/${user.id}/approve`, {
-				method: "POST",
-				credentials: "include",
-			});
-			if (res.ok) {
-				toast.success(`${user.username} approved`);
-				fetchUsers();
-			} else {
-				const err = await res.json().catch(() => ({}));
-				toast.error(err.message || "Failed to approve");
-			}
-		} catch {
-			toast.error("Failed to approve registration");
+			await approveUser(user.id).unwrap();
+			toast.success(`${user.username} approved`);
+		} catch (err) {
+			toast.error(getErrorMessage(err));
 		} finally {
 			setActionBusyId(null);
 		}
 	};
 
-	const handleReject = async (user: User) => {
+	const handleReject = async (user: SessionUser) => {
 		setActionBusyId(user.id);
 		try {
-			const res = await fetch(`${getApiBaseUrl()}/session/users/${user.id}/reject`, {
-				method: "POST",
-				credentials: "include",
-			});
-			if (res.ok) {
-				toast.success(`${user.username} denied — they cannot log in`);
-				fetchUsers();
-			} else {
-				const err = await res.json().catch(() => ({}));
-				toast.error(err.message || "Failed to deny");
-			}
-		} catch {
-			toast.error("Failed to deny registration");
+			await rejectUser(user.id).unwrap();
+			toast.success(`${user.username} denied — they cannot log in`);
+		} catch (err) {
+			toast.error(getErrorMessage(err));
 		} finally {
 			setActionBusyId(null);
 		}
@@ -301,7 +211,7 @@ export default function UsersView() {
 		setSelectedUser(null);
 	};
 
-	const openEditModal = (user: User) => {
+	const openEditModal = (user: SessionUser) => {
 		setSelectedUser(user);
 		setUsername(user.username);
 		setPassword("");
@@ -313,12 +223,12 @@ export default function UsersView() {
 		setIsEditOpen(true);
 	};
 
-	const openDeleteModal = (user: User) => {
+	const openDeleteModal = (user: SessionUser) => {
 		setSelectedUser(user);
 		setIsDeleteOpen(true);
 	};
 
-	const matchesSearch = (u: User) => {
+	const matchesSearch = (u: SessionUser) => {
 		const q = searchQuery.toLowerCase();
 		return u.username.toLowerCase().includes(q) || (u.email || "").toLowerCase().includes(q) || u.id.toLowerCase().includes(q);
 	};

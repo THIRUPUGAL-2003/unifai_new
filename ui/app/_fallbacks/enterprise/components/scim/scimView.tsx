@@ -7,14 +7,21 @@ import { getErrorMessage } from "@/lib/store";
 import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import { useGetSCIMConfigQuery, useUpdateSCIMConfigMutation } from "@enterprise/lib/store/apis/scimApi";
 import { SCIMConfig } from "@enterprise/lib/types/workspace";
-import { Save, UserRoundCog } from "lucide-react";
-import { useEffect, useState } from "react";
+import { Save, UserRoundCog, Copy } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
+import { getExampleBaseUrl } from "@/lib/utils/port";
 
 export default function SCIMView() {
 	const { data, isLoading: loading } = useGetSCIMConfigQuery();
 	const [updateConfig, { isLoading: saving }] = useUpdateSCIMConfigMutation();
 	const [config, setConfig] = useState<SCIMConfig>({ enabled: false, provider: "okta", config: {} });
+	const { copy: copyToClipboard } = useCopyToClipboard();
+	const scimBase = useMemo(() => {
+		const origin = getExampleBaseUrl() || (typeof window !== "undefined" ? window.location.origin : "");
+		return origin ? `${origin}/scim/v2` : "/scim/v2";
+	}, []);
 
 	useEffect(() => {
 		if (data) setConfig({ ...data, config: data.config || {} });
@@ -48,6 +55,21 @@ export default function SCIMView() {
 				</h1>
 				<p className="text-muted-foreground mt-1 text-sm">Connect Okta, Entra, or Keycloak and map claims into UnifAI roles and teams.</p>
 			</div>
+
+			<Card>
+				<CardHeader>
+					<CardTitle className="text-base">SCIM endpoints (for your IdP)</CardTitle>
+					<CardDescription>Configure these in Okta, Entra, or Keycloak when provisioning users into UnifAI.</CardDescription>
+				</CardHeader>
+				<CardContent className="space-y-3 text-sm">
+					<EndpointRow label="Base URL" value={scimBase} onCopy={copyToClipboard} />
+					<EndpointRow label="Users endpoint" value={`${scimBase}/Users`} onCopy={copyToClipboard} />
+					<EndpointRow label="ServiceProviderConfig" value={`${scimBase}/ServiceProviderConfig`} onCopy={copyToClipboard} />
+					<p className="text-muted-foreground text-xs">
+						Authentication: Bearer token (set below). Token is required on every SCIM request from your identity provider.
+					</p>
+				</CardContent>
+			</Card>
 
 			<Card>
 				<CardHeader>
@@ -120,6 +142,20 @@ export default function SCIMView() {
 					</div>
 				</CardContent>
 			</Card>
+		</div>
+	);
+}
+
+function EndpointRow({ label, value, onCopy }: { label: string; value: string; onCopy: (text: string) => void }) {
+	return (
+		<div className="flex items-center justify-between gap-3 rounded-lg border p-3">
+			<div className="min-w-0">
+				<p className="text-muted-foreground text-xs">{label}</p>
+				<p className="truncate font-mono text-xs">{value}</p>
+			</div>
+			<Button size="icon" variant="ghost" onClick={() => onCopy(value)} title="Copy">
+				<Copy className="h-4 w-4" />
+			</Button>
 		</div>
 	);
 }
