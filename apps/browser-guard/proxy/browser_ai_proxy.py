@@ -792,6 +792,11 @@ def _looks_like_document_body_dump(text: str) -> bool:
     if t.count("\n") >= 4:
         return True
     low = t.lower()
+    # PDF / doc dumps often embed credentials or multiple emails — not a user caption.
+    if re.search(r"password\s*[:=]", low) and re.search(r"@\S+\.\S+", t):
+        return True
+    if t.count("@") >= 2 and len(t) >= 60:
+        return True
     resume_markers = (
         "account details", "work experience", "education", "curriculum vitae",
         "objective", "professional summary", "skills", "certification",
@@ -799,6 +804,33 @@ def _looks_like_document_body_dump(text: str) -> bool:
     )
     hits = sum(1 for m in resume_markers if m in low)
     return hits >= 2 or (hits >= 1 and len(t) >= 180)
+
+
+_NON_USER_CONTENT_PART_TYPES = frozenset({
+    "document", "image", "file", "input_image", "input_file",
+    "audio", "input_audio", "voice", "tool_result", "tool_use", "image_url",
+})
+
+
+def _is_file_content_part(part: dict) -> bool:
+    """True for Claude/ChatGPT multimodal blocks that carry file bytes or extracted doc text."""
+    if not isinstance(part, dict):
+        return False
+    ptype = str(part.get("type") or "").lower()
+    if ptype in _NON_USER_CONTENT_PART_TYPES:
+        return True
+    ct = str(part.get("content_type") or "").lower()
+    if ct in ("file", "image", "audio", "video", "document"):
+        return True
+    if part.get("extracted_content"):
+        return True
+    if part.get("file_id") or part.get("asset_pointer"):
+        return True
+    src = part.get("source")
+    if isinstance(src, dict) and str(src.get("type") or "").lower() in ("base64", "url", "file", "content"):
+        if ptype in ("document", "image", "file", "") or src.get("media_type"):
+            return True
+    return False
 
 
 def is_copilot_chat_submit(path: str, body: str = "") -> bool:
@@ -1432,6 +1464,10 @@ def _should_intercept_extracted_prompt(
         return False
     if _looks_like_filename_only(text):
         return False
+    # File Send bodies embed PDF/doc text — only short user captions belong in Prompt Logs.
+    if _send_carries_attachment(raw_text):
+        if _looks_like_document_body_dump(text) or len(text) > 320:
+            return False
     if _is_typing_or_draft_path(path, raw_text):
         return False
     if not _is_confident_chat_send(path, raw_text, raw_bytes):
@@ -1708,7 +1744,7 @@ def is_composer_typing_draft(domain: str, prompt: str) -> bool:
 
 
 def _parts_to_text(parts) -> str | None:
-    """Join ChatGPT/Claude-style content parts into plain user text."""
+    """Join ChatGPT/Claude-style content parts into plain user text (skip file/document blocks)."""
     if parts is None:
         return None
     if isinstance(parts, (str, int, float)):
@@ -1720,10 +1756,20 @@ def _parts_to_text(parts) -> str | None:
         if isinstance(part, (str, int, float)):
             chunks.append(str(part))
         elif isinstance(part, dict):
+            if _is_file_content_part(part):
+                continue
+            ct = str(part.get("content_type") or "").lower()
+            if ct and ct not in ("text", "input_text", "multimodal_text"):
+                if ct in ("file", "image", "audio", "video", "document"):
+                    continue
             if isinstance(part.get("text"), (str, int, float)):
                 chunks.append(str(part["text"]))
             elif part.get("type") in ("text", "input_text") and isinstance(part.get("text"), (str, int, float)):
                 chunks.append(str(part["text"]))
+            elif "parts" in part and ct in ("", "text", "multimodal_text"):
+                nested = _parts_to_text(part.get("parts"))
+                if nested:
+                    chunks.append(nested)
     return _clean_prompt_text(" ".join(chunks)) if chunks else None
 
 
@@ -1742,13 +1788,22 @@ def _extract_from_message_obj(msg: dict) -> str | None:
     if isinstance(content, (str, int, float)):
         return _clean_prompt_text(str(content))
     if isinstance(content, dict):
+        if _is_file_content_part(content):
+            return None
         # ChatGPT web: {"content_type":"text","parts":["hello"]}
         if "parts" in content:
             return _parts_to_text(content.get("parts"))
         if isinstance(content.get("text"), (str, int, float)):
             return _clean_prompt_text(str(content["text"]))
     if isinstance(content, list):
-        return _parts_to_text(content)
+        text_chunks: list[str] = []
+        for block in content:
+            if isinstance(block, dict) and _is_file_content_part(block):
+                continue
+            got = _parts_to_text([block]) if isinstance(block, dict) else _parts_to_text(block)
+            if got:
+                text_chunks.append(got)
+        return _clean_prompt_text(" ".join(text_chunks)) if text_chunks else None
 
     # Copilot / Graph / Bing / generic fields
     for key in (
@@ -3189,7 +3244,7 @@ def enforce_file_send_policy(
     content_type: str = "",
     file_name_hint: str = "",
     path: str = "",
-) -> tuple[bool, str]:
+) -> tuple[bool, str, int]:
     """
     On chat Send with a real attached file (any monitored AI domain):
       - Block Upload ON  → block on Send only (file may attach in UI first)
@@ -3198,7 +3253,8 @@ def enforce_file_send_policy(
           WARN         → log Warned, allow Send
           no match     → Allowed
 
-    Typed-only prompts return (False, "") so normal text Guard Rules still run.
+    Typed-only prompts return (False, "", 0) so normal text Guard Rules still run.
+    Third value = number of cached files processed on this Send.
     """
     has_attach = (
         chat_carries_attachment(raw_text)
@@ -3213,7 +3269,7 @@ def enforce_file_send_policy(
         cached_list = take_recent_confident_caches_for_send(domain)
 
     if not has_attach and not cached_list:
-        return False, ""
+        return False, "", 0
 
     if not cached_list and has_attach:
         inline_bytes, inline_ct, inline_name = extract_inline_attachment_bytes(raw_text or "")
@@ -3226,12 +3282,24 @@ def enforce_file_send_policy(
             }]
 
     if not cached_list:
-        return False, ""
+        return False, "", 0
+
+    # One log row per unique filename on a single Send (ChatGPT may match the same cache twice).
+    deduped: list[dict] = []
+    seen_names: set[str] = set()
+    for entry in cached_list:
+        name_key = ((entry.get("file_name") or "").strip().lower() or f"__{id(entry)}")
+        if name_key in seen_names:
+            continue
+        seen_names.add(name_key)
+        deduped.append(entry)
+    cached_list = deduped
 
     get_control_settings()
     should_block = False
     block_msg = ""
     hint = (file_name_hint or "").strip()
+    processed = 0
     for i, cached in enumerate(cached_list):
         per_hint = (cached.get("file_name") or "").strip() or (hint if i == 0 else "")
         sb, msg = _process_one_cached_file_on_send(
@@ -3247,10 +3315,11 @@ def enforce_file_send_policy(
             file_name_hint=per_hint,
             has_attach=has_attach,
         )
+        processed += 1
         if sb:
             should_block = True
             block_msg = msg or block_msg
-    return should_block, block_msg
+    return should_block, block_msg, processed
 
 
 def _upload_log_tag(file_name: str = "", content_type: str = "", raw_bytes: bytes = b"") -> str:
@@ -4634,6 +4703,9 @@ def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
 
     # Highest confidence: explicit parts[] / input_text from conversation JSON embedded in protobuf.
     parts_got = _extract_chatgpt_parts_prompt(search_blob)
+    if parts_got and (chatgpt_carries_file(search_blob) or chat_carries_attachment(search_blob)):
+        if _looks_like_document_body_dump(parts_got) or len(parts_got) > 320:
+            parts_got = None
     if parts_got:
         return parts_got
 
@@ -5373,9 +5445,9 @@ class BrowserAIInterceptor:
         raw_text: str,
         content_type: str,
         path: str,
-    ) -> bool:
-        """Scan attached/cached files on Send. True if the request must be blocked."""
-        should_block_file, file_block_msg = enforce_file_send_policy(
+    ) -> tuple[bool, int]:
+        """Scan attached/cached files on Send. Returns (blocked, files_processed)."""
+        should_block_file, file_block_msg, n_processed = enforce_file_send_policy(
             platform=platform,
             domain=domain,
             host=flow.request.pretty_host,
@@ -5395,8 +5467,28 @@ class BrowserAIInterceptor:
             make_blocked_response(
                 flow, "Block Upload", flow.request.pretty_host, reply_text=file_block_msg,
             )
-            return True
-        return False
+            return True, n_processed
+        return False, n_processed
+
+    def _log_attachment_send_caption(
+        self,
+        flow: http.HTTPFlow,
+        domain: str,
+        platform: str,
+        client_ip: str,
+        raw_text: str,
+        peek_prompt: str | None,
+        has_prompt: bool,
+    ) -> None:
+        """Log a short user-typed caption with a file Send — never embedded document body text."""
+        if not has_prompt:
+            return
+        pn = (peek_prompt or "").strip()
+        if not pn or len(pn) > 320 or _looks_like_document_body_dump(pn):
+            return
+        if is_duplicate_event(domain, pn, ttl=DEDUPE_TTL, mark=False):
+            return
+        self._apply_http_prompt(flow, domain, platform, pn, client_ip, raw_text)
 
     # ── HTTP Request Interception ──────────────
 
@@ -5521,18 +5613,16 @@ class BrowserAIInterceptor:
 
         # ── File Send: scan/cache on pick; predict + allow/block on Send ──
         if attachment_send and _file_policy_applies_on_send(path, raw_text, raw_bytes):
-            if self._file_send_maybe_block(flow, domain, platform, client_ip, raw_text, content_type, path):
+            blocked, _n = self._file_send_maybe_block(
+                flow, domain, platform, client_ip, raw_text, content_type, path,
+            )
+            if blocked:
                 return
-            # File row already logged — skip duplicate text log from same wire body (e.g. Gemini embeds PDF text).
-            if chat_carries_attachment(raw_text):
-                if has_prompt:
-                    pn = (peek_prompt or "").strip()
-                    if pn and len(pn) <= 320 and not _looks_like_document_body_dump(pn):
-                        if not is_duplicate_event(domain, pn, ttl=DEDUPE_TTL, mark=False):
-                            self._apply_http_prompt(flow, domain, platform, pn, client_ip, raw_text)
-                return
-            if not has_prompt:
-                return
+            # File row logged above — do not also log embedded PDF/doc text as a separate prompt.
+            self._log_attachment_send_caption(
+                flow, domain, platform, client_ip, raw_text, peek_prompt, has_prompt,
+            )
+            return
 
         # ── Domain-add-only intercept: extracted user text → predict ──
         if has_prompt:
@@ -5560,10 +5650,17 @@ class BrowserAIInterceptor:
             return
 
         # File attached + Send (fallback path when extract missed on first pass)
-        if _file_policy_applies_on_send(path, raw_text, raw_bytes) and self._file_send_maybe_block(
-            flow, domain, platform, client_ip, raw_text, content_type, path
-        ):
-            return
+        if _file_policy_applies_on_send(path, raw_text, raw_bytes):
+            blocked, n_processed = self._file_send_maybe_block(
+                flow, domain, platform, client_ip, raw_text, content_type, path,
+            )
+            if blocked:
+                return
+            if n_processed > 0:
+                self._log_attachment_send_caption(
+                    flow, domain, platform, client_ip, raw_text, peek_prompt, has_prompt,
+                )
+                return
 
         prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=flow.request.url)
         if not prompt or len(prompt.strip()) < 1:
@@ -5661,7 +5758,7 @@ class BrowserAIInterceptor:
         attachment_send = _send_carries_attachment(content)
 
         if attachment_send and _file_policy_applies_on_send(ws_path, content, content.encode("utf-8", errors="ignore")):
-            should_block_file, file_block_msg = enforce_file_send_policy(
+            should_block_file, file_block_msg, _n = enforce_file_send_policy(
                 platform=platform,
                 domain=domain,
                 host=host,
@@ -5682,8 +5779,34 @@ class BrowserAIInterceptor:
                         pass
                 inject_websocket_reply(flow, host, (file_block_msg or "").strip())
                 return
-            if not ws_has_prompt:
-                return
+            # File row logged — only allow a short user caption, never embedded doc text.
+            if ws_has_prompt:
+                pn = (ws_prompt or "").strip()
+                if pn and len(pn) <= 320 and not _looks_like_document_body_dump(pn):
+                    if not is_duplicate_event(domain, pn, ttl=DEDUPE_TTL, mark=False):
+                        mark_duplicate_event(domain, ws_prompt)
+                        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
+                            platform=platform,
+                            domain=domain,
+                            prompt=ws_prompt,
+                            client_ip=client_ip,
+                            url=flow.request.url,
+                            method="WS",
+                        )
+                        if not allowed:
+                            try:
+                                msg.drop()
+                            except Exception:
+                                try:
+                                    msg.kill()
+                                except Exception:
+                                    pass
+                            inject_websocket_reply(flow, host, (reply_text or "").strip())
+                        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != ws_prompt:
+                            new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
+                            if new_content:
+                                msg.text = new_content
+            return
 
         # ── Universal WebSocket: domain-agnostic extract (same rule as HTTP) ──
         if ws_has_prompt:
@@ -5724,7 +5847,7 @@ class BrowserAIInterceptor:
 
         # File attachment Send must hit Block Upload / file rules (finished Send only)
         if _file_policy_applies_on_send(ws_path, content, content.encode("utf-8", errors="ignore")):
-            should_block_file, file_block_msg = enforce_file_send_policy(
+            should_block_file, file_block_msg, n_processed = enforce_file_send_policy(
                 platform=platform,
                 domain=domain,
                 host=host,
@@ -5744,6 +5867,8 @@ class BrowserAIInterceptor:
                     except Exception:
                         pass
                 inject_websocket_reply(flow, host, file_block_msg)
+                return
+            if n_processed > 0:
                 return
 
         # Copilot/Edge image or file frames must not fall through as garbled text prompts.

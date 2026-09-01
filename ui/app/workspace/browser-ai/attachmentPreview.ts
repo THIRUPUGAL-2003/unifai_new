@@ -1,6 +1,44 @@
 /** Client-side preview helpers for Browser AI attachment viewer. */
 
+import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+
 export type AttachmentPreviewKind = "pdf" | "image" | "html" | "text" | "unsupported";
+
+/** Heuristic: distinguish readable extracted text from PDF-binary regex garbage. */
+export function isReadableExtractedText(text: string): boolean {
+	const t = (text || "").trim();
+	if (t.length < 6) return false;
+
+	const letters = (t.match(/[A-Za-z\u00C0-\u024F\u0900-\u097F\u0B80-\u0BFF]/g) || []).length;
+	const digits = (t.match(/[0-9]/g) || []).length;
+	const spaces = (t.match(/\s/g) || []).length;
+	const printable = (t.match(/[\x20-\x7E\u00A0-\uFFFF]/g) || []).length;
+	const ratio = printable / t.length;
+
+	if (ratio < 0.75) return false;
+	if (letters + digits < Math.min(12, t.length * 0.08)) return false;
+
+	// Regex fallback often produces long runs of symbols / @ signs.
+	if (/[@#^*]{4,}/.test(t)) return false;
+	if (/[^\w\s.,!?;:'"()\-–—/\\[\]{}%$&+=<>@#^*|`~]{10,}/.test(t)) return false;
+
+	// Prefer some word-like structure for longer snippets.
+	if (t.length > 40 && spaces < 2 && letters > 30) return false;
+
+	return true;
+}
+
+/** Pick the best readable extracted text from multiple sources (client PDF parse preferred over bad metadata). */
+export function pickBestExtractedText(...sources: Array<string | undefined | null>): string {
+	const candidates = sources.map((s) => (s || "").trim()).filter(Boolean);
+	if (!candidates.length) return "";
+
+	const readable = candidates.filter(isReadableExtractedText);
+	if (readable.length) {
+		return readable.reduce((best, cur) => (cur.length > best.length ? cur : best));
+	}
+	return candidates.reduce((best, cur) => (cur.length > best.length ? cur : best));
+}
 
 export function attachmentExt(name?: string, contentType?: string): string {
 	const n = (name || "").toLowerCase();
@@ -39,14 +77,38 @@ function escapeHtml(s: string): string {
 		.replace(/"/g, "&quot;");
 }
 
-function extractPdfTextRough(bytes: Uint8Array): string {
-	const raw = new TextDecoder("latin1").decode(bytes);
-	const chunks: string[] = [];
-	for (const m of raw.matchAll(/\(([^\\)]{2,})\)/g)) {
-		const s = m[1].replace(/\\n/g, "\n").replace(/\\\(/g, "(").replace(/\\\)/g, ")");
-		if (s.trim().length >= 2 && /[A-Za-z0-9]/.test(s)) chunks.push(s);
+let pdfjsReady: Promise<typeof import("pdfjs-dist")> | null = null;
+
+async function getPdfJs() {
+	if (!pdfjsReady) {
+		pdfjsReady = import("pdfjs-dist").then((pdfjs) => {
+			pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+			return pdfjs;
+		});
 	}
-	return chunks.join(" ").replace(/\s+/g, " ").trim().slice(0, 50_000);
+	return pdfjsReady;
+}
+
+async function extractPdfText(bytes: Uint8Array): Promise<string> {
+	try {
+		const pdfjs = await getPdfJs();
+		const doc = await pdfjs.getDocument({ data: bytes.slice() }).promise;
+		const parts: string[] = [];
+		const maxPages = Math.min(doc.numPages, 50);
+		for (let i = 1; i <= maxPages; i++) {
+			const page = await doc.getPage(i);
+			const content = await page.getTextContent();
+			const line = content.items
+				.map((item) => ("str" in item ? item.str : ""))
+				.join(" ")
+				.replace(/\s+/g, " ")
+				.trim();
+			if (line) parts.push(line);
+		}
+		return parts.join("\n\n").trim().slice(0, 50_000);
+	} catch {
+		return "";
+	}
 }
 
 export async function buildAttachmentPreview(
@@ -104,7 +166,7 @@ export async function buildAttachmentPreview(
 	}
 
 	if (kind === "image" || kind === "pdf") {
-		const text = kind === "pdf" ? extractPdfTextRough(bytes) : undefined;
+		const text = kind === "pdf" ? await extractPdfText(bytes) : undefined;
 		return { kind, blobUrl: URL.createObjectURL(typedBlob), text: text || undefined };
 	}
 

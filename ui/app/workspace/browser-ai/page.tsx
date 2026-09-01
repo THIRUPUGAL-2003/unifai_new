@@ -58,7 +58,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions, HOST_ROLE_OPTIONS, hostRoleLabel, type HostRole } from "./relatedHosts";
-import { buildAttachmentPreview, type AttachmentPreviewKind } from "./attachmentPreview";
+import { buildAttachmentPreview, pickBestExtractedText, type AttachmentPreviewKind } from "./attachmentPreview";
 
 import {
 	useGetBrowserAiLogsQuery,
@@ -228,10 +228,9 @@ function logExtractedTextFromPrompt(log: BrowserAILogEntry): string {
 function logExtractedText(log: BrowserAILogEntry, attachmentText = ""): string {
 	const meta = parseBrowserAiLogMetadata(log);
 	const fromMeta = typeof meta.extracted_text === "string" ? meta.extracted_text.trim() : "";
-	if (fromMeta) return fromMeta;
 	const legacy = logExtractedTextFromPrompt(log);
-	if (legacy) return legacy;
-	return (attachmentText || "").trim();
+	// Prefer client-side PDF parse (pdfjs) over regex garbage stored in metadata.
+	return pickBestExtractedText(attachmentText, fromMeta, legacy);
 }
 
 function isFileUploadLog(log: BrowserAILogEntry | null | undefined) {
