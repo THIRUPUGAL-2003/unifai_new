@@ -823,11 +823,17 @@ def is_perplexity_chat_submit(path: str, body: str = "") -> bool:
         for marker in (
             "perplexity_ask", "/rest/sse", "/rest/thread", "/rest/entrypoint",
             "/rest/search", "/rest/chat", "/api/chat", "/search",
+            "/socket", "/graphql", "/generative", "/completion", "/ask",
+            "/query", "/copilot", "/server-sent-events",
         )
     ):
         return True
     if path_l.endswith("/chat") or "/api/chat" in path_l:
         return True
+    body_l = (body or "").lower()
+    if body_l and any(k in body_l for k in ('"query_str"', '"query"', '"user_query"', '"last_query"')):
+        if not any(x in body_l for x in ('"event":"ping"', '"type":"ping"', '"heartbeat"')):
+            return True
     if body and body.lstrip().startswith("{"):
         try:
             data = json.loads(body)
@@ -1273,6 +1279,50 @@ def _is_clear_chat_submit(path: str, host: str, raw_text: str, raw_bytes: bytes 
     return False
 
 
+def _is_confident_chat_send(path: str, raw_text: str, raw_bytes: bytes = b"") -> bool:
+    """True when request is very likely a finished user Send (platform body shapes)."""
+    if _is_clear_chat_submit(path, "", raw_text, raw_bytes):
+        return True
+    path_l = (path or "").lower()
+    body = raw_text or ""
+    if _looks_like_chatgpt_body(body, raw_bytes) and (
+        _is_chatgpt_style_path(path_l) or _path_has_chat_marker(path_l)
+    ):
+        return True
+    if is_perplexity_chat_submit(path, body):
+        return True
+    if _is_claude_api_shape(path, body):
+        return True
+    return False
+
+
+def _pick_best_user_text(candidates: list[str]) -> str | None:
+    """Choose the best user-typed string from protobuf/JSON fragments (any domain)."""
+    best = None
+    best_score = -1
+    for s in candidates:
+        if not s:
+            continue
+        got = _clean_prompt_text(s)
+        if not got or not looks_like_user_prompt(got):
+            continue
+        if _is_opaque_wire_blob(got) or _is_internal_wire_text(got):
+            continue
+        score = len(got)
+        if " " in got:
+            score += 24
+        if got.isdigit():
+            score += 16
+        if 1 <= len(got) <= 4 and got.isalpha():
+            score += 12
+        if re.search(r"[a-zA-Z]", got) and re.search(r"\d", got):
+            score += 4
+        if score > best_score:
+            best_score = score
+            best = got
+    return best
+
+
 def _is_typing_or_draft_path(path: str, raw_text: str = "") -> bool:
     """Autocomplete / prepare / in-progress only — not a finished Send."""
     path_l = (path or "").lower()
@@ -1317,7 +1367,7 @@ def _should_intercept_extracted_prompt(
         return False
     if _is_typing_or_draft_path(path, raw_text):
         return False
-    if not _is_clear_chat_submit(path, host, raw_text, raw_bytes):
+    if not _is_confident_chat_send(path, raw_text, raw_bytes):
         return False
     if is_composer_typing_draft(domain, text):
         return False
@@ -4040,10 +4090,29 @@ def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
 
 
 def extract_perplexity_prompt(content: str) -> str | None:
-    """Extract user query from Perplexity /rest/sse, /rest/thread, entrypoint JSON."""
+    """Extract user query from Perplexity /rest/sse, /rest/thread, entrypoint JSON or SSE lines."""
     if not content:
         return None
     text = content.strip()
+
+    # SSE stream chunks: data: {"query_str":"..."}
+    if "data:" in text and not text.lstrip().startswith("{"):
+        candidates: list[str] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            chunk = line[5:].strip()
+            if not chunk or chunk in ("[DONE]", "done"):
+                continue
+            if chunk.startswith("{"):
+                nested = extract_perplexity_prompt(chunk)
+                if nested:
+                    candidates.append(nested)
+        picked = _pick_best_user_text(candidates)
+        if picked:
+            return picked
+
     if not text.startswith("{"):
         return None
     try:
@@ -4286,11 +4355,12 @@ def _printable_runs(raw: bytes) -> list[str]:
 def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
     """ChatGPT web: JSON parts, nested author.content, or protobuf string fields."""
     blob = text or ""
+    candidates: list[str] = []
     if blob.lstrip().startswith(("{", "[")):
         try:
             got = _extract_from_json(json.loads(blob))
             if got:
-                return got
+                candidates.append(got)
         except Exception:
             pass
     for pat in (
@@ -4305,9 +4375,8 @@ def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
                 if "\\" in m.group(1)
                 else m.group(1)
             )
-            if cand and looks_like_user_prompt(cand) and not _is_opaque_wire_blob(cand):
-                return cand
-    best = None
+            if cand:
+                candidates.append(cand)
     for s in _printable_runs(raw or b""):
         if len(s) > 400:
             continue
@@ -4315,10 +4384,8 @@ def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
             continue
         if any(x in s.lower() for x in ("text/event-stream", "authorization", "mozilla/")):
             continue
-        got = _clean_prompt_text(s)
-        if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
-            best = got
-    return best
+        candidates.append(s)
+    return _pick_best_user_text(candidates)
 
 
 def _extract_prompt_from_multipart(raw: str) -> str | None:
@@ -5120,7 +5187,7 @@ class BrowserAIInterceptor:
             if (
                 qs_prompt
                 and looks_like_user_prompt(qs_prompt)
-                and _is_clear_chat_submit(path, host, "", b"")
+                and _is_confident_chat_send(path, "", b"")
                 and not is_duplicate_event(domain, qs_prompt, ttl=DEDUPE_TTL, mark=False)
             ):
                 self._apply_http_prompt(flow, domain, platform, qs_prompt, client_ip, "")
