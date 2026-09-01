@@ -28,10 +28,6 @@ services:
       - ./configs/config.json:/app/data/config.json
     restart: unless-stopped
 
-networks:
-  1panel-network:
-    external: true
-
   # LAB ONLY: manual browser proxy to host:8082. Employee Guard EXE does NOT use this container.
   unifai_broswer_proxy:
     image: mitmproxy/mitmproxy:latest
@@ -47,3 +43,7 @@ networks:
     depends_on:
       - zen_gauss_v1
     restart: unless-stopped
+
+networks:
+  1panel-network:
+    external: true
