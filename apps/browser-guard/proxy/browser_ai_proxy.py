@@ -1160,6 +1160,67 @@ def _is_clear_chat_submit(path: str, host: str, raw_text: str, raw_bytes: bytes 
     )
 
 
+def _is_typing_or_draft_path(path: str, raw_text: str = "") -> bool:
+    """Autocomplete / prepare / in-progress only — not a finished Send."""
+    path_l = (path or "").lower()
+    if path_l.endswith("/prepare") or "/prepare" in path_l:
+        return True
+    if "autocomplet" in path_l or "implicit_hint" in path_l:
+        return True
+    if "partial_query" in (raw_text or "") and '"query_str"' not in (raw_text or ""):
+        return True
+    return is_unsubmitted_chat_body(path, raw_text)
+
+
+def _is_static_asset_request(path: str) -> bool:
+    """Static CDN assets — never chat submits."""
+    path_l = (path or "").lower().split("?", 1)[0]
+    return bool(path_l and NOISE_EXTENSIONS.search(path_l))
+
+
+def _should_intercept_extracted_prompt(
+    prompt: str | None,
+    path: str,
+    raw_text: str,
+    domain: str,
+) -> bool:
+    """Domain-add-only gate: if we extracted user text, predict — no platform path list required."""
+    if not prompt or not isinstance(prompt, str):
+        return False
+    text = prompt.strip()
+    if len(text) < 1:
+        return False
+    if not looks_like_user_prompt(text):
+        return False
+    if _is_opaque_wire_blob(text):
+        return False
+    if text.startswith("[FILE UPLOAD"):
+        return False
+    if _is_typing_or_draft_path(path, raw_text):
+        return False
+    if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
+        return False
+    return True
+
+
+def _extract_interceptable_prompt(
+    raw_bytes: bytes,
+    content_type: str,
+    host: str,
+    url: str,
+    path: str,
+    raw_text: str,
+    domain: str,
+) -> str | None:
+    """Domain-add-only: extract user text from any monitored-domain request body."""
+    if _is_static_asset_request(path):
+        return None
+    prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=url)
+    if _should_intercept_extracted_prompt(prompt, path, raw_text, domain):
+        return prompt
+    return None
+
+
 def is_noise(path: str, content: str = "") -> bool:
     """Filter telemetry, analytics, static assets and background noise."""
     path_lower = path.lower().split("?", 1)[0]
@@ -4199,8 +4260,14 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
             try:
                 data = json.loads(text)
             except Exception:
-                return None
-            return _extract_from_json(data)
+                data = None
+            if data is not None:
+                got = _extract_from_json(data)
+                if got:
+                    return got
+                got = _deep_extract_from_json(data)
+                if got:
+                    return got
 
         # Plain text payloads (only if body itself is a direct user sentence/code)
         cl = text.strip()
@@ -4888,19 +4955,14 @@ class BrowserAIInterceptor:
 
         host_role = resolve_host_role(host)
 
-        # Peek before role skips — never drop a finished Send because of wrong Main UI label.
+        # Domain-add-only: extract user text first — same logic for Claude, ChatGPT, Perplexity, any site.
         peek_prompt = extract_prompt_universal(
             raw_bytes, content_type, host=host, url=flow.request.url,
         )
-        clear_chat = bool(
-            peek_prompt
-            and looks_like_user_prompt(peek_prompt)
-            and not _is_opaque_wire_blob(peek_prompt)
-            and _is_clear_chat_submit(path, host, raw_text, raw_bytes)
-        )
+        has_prompt = _should_intercept_extracted_prompt(peek_prompt, path, raw_text, domain)
 
-        # Main UI / file hosts skip CDN noise — but always scan real chat submits.
-        if host_role == "ui" and not clear_chat:
+        # Main UI / file hosts skip CDN noise — but never skip when we already extracted user text.
+        if host_role == "ui" and not has_prompt:
             return
 
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
@@ -4942,29 +5004,19 @@ class BrowserAIInterceptor:
             )
             # Fall through to normal prompt intercept
 
-        # File-labeled host: uploads only — unless this POST is a chat Send with text.
-        if host_role == "file" and not clear_chat:
+        # File-labeled host: uploads only — unless this POST carries extractable user text.
+        if host_role == "file" and not has_prompt:
             return
 
-        # Drop multipart CDN noise on Auto hosts — not finished chat+attachment sends.
-        if not clear_chat and host_role != "chat" and (
+        # Drop multipart CDN noise — not chat+attachment sends that contain a prompt.
+        if not has_prompt and host_role != "chat" and (
             "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower()
         ):
             return
 
-        # ── Universal path: domain-agnostic extract + predict (any admin Target Website) ──
-        universal_prompt = peek_prompt or extract_prompt_universal(
-            raw_bytes, content_type, host=host, url=flow.request.url,
-        )
-        if (
-            universal_prompt
-            and looks_like_user_prompt(universal_prompt)
-            and not _is_opaque_wire_blob(universal_prompt)
-            and not universal_prompt.strip().startswith("[FILE UPLOAD")
-            and not is_unsubmitted_chat_body(path, raw_text)
-            and not is_duplicate_event(domain, universal_prompt, ttl=DEDUPE_TTL, mark=False)
-        ):
-            self._apply_http_prompt(flow, domain, platform, universal_prompt, client_ip, raw_text)
+        # ── Domain-add-only intercept: extracted text → predict (no per-platform path list) ──
+        if has_prompt:
+            self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
             return
 
         # Gemini batchexecute noise — only skip when body is not a chat submit.
@@ -5094,17 +5146,11 @@ class BrowserAIInterceptor:
 
         ws_path = flow.request.path or ""
 
-        # ── Universal WebSocket: domain-agnostic extract before path filters ──
+        # ── Universal WebSocket: domain-agnostic extract (same rule as HTTP) ──
         ws_prompt = extract_prompt_universal(
             content.encode("utf-8"), "application/json", host=host, url=flow.request.url,
         )
-        if (
-            ws_prompt
-            and looks_like_user_prompt(ws_prompt)
-            and not _is_opaque_wire_blob(ws_prompt)
-            and not is_unsubmitted_chat_body(ws_path, content)
-            and not is_duplicate_event(domain, ws_prompt, ttl=DEDUPE_TTL, mark=False)
-        ):
+        if _should_intercept_extracted_prompt(ws_prompt, ws_path, content, domain):
             client_ip = get_client_ip(flow)
             print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {ws_prompt[:80]!r}")
             mark_duplicate_event(domain, ws_prompt)
