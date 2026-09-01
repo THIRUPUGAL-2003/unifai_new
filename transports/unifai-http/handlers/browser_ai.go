@@ -746,28 +746,15 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			if evalErr != "" {
 				evalError = evalErr
 				ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
-				// BLOCK rules fail-closed so DLP cannot be bypassed when the evaluator errors.
-				if ruleAction == "BLOCK" {
-					logEntry.Action = "Blocked"
-					logEntry.Status = fmt.Sprintf("Blocked (%s — AI Guard Bot eval failed)", rule.Name)
-					logEntry.RiskScore = 95
-					logEntry.PredictiveRisk = "CRITICAL"
-					logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
-					logEntry.RuleTriggered = rule.Name
-					ruleWarning = strings.TrimSpace(rule.WarningMessage)
-					if ruleWarning == "" {
-						ruleWarning = "UnifAI Guard could not evaluate this prompt. Blocked for safety."
-					}
-					allowed = false
-					isViolationBlock = true
-					securityVerdict = "eval_failed"
-					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
-					break
-				}
-				logEntry.Status = "Allowed (AI Guard Bot eval failed)"
+				// Evaluator errors must NOT block normal traffic — only a confirmed
+				// violation from the model may block/warn. Log the error and allow.
+				logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", rule.Name)
 				logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
 				logEntry.RuleTriggered = rule.Name
 				securityVerdict = "eval_failed"
+				if ruleAction == "BLOCK" {
+					evalError = evalErr + " (allowed — eval error does not block)"
+				}
 				_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 				continue
 			}
@@ -1186,10 +1173,7 @@ func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
 	if evalErr != "" {
 		verdict = "eval_failed"
 		message = securityVerdictMessage("eval_failed", rule.Name) + " " + evalErr
-		if rule.Action == "BLOCK" {
-			wouldBlock = true
-			message += " (BLOCK rules fail-closed — live traffic would be blocked.)"
-		}
+		message += " (live traffic is allowed — only confirmed violations block.)"
 	} else if violated {
 		if rule.Action == "WARN" {
 			verdict = "warning"
@@ -1254,19 +1238,30 @@ Reply with one JSON object and nothing else:
 	)
 
 	if isOllamaGuardProvider(string(providerName)) {
-		rawText, err := callOllamaChat(defaultOllamaBaseURL(), modelName, systemPrompt, userMsg, true, 90*time.Second)
-		if err != nil {
-			return false, truncateRunes(err.Error(), 180)
+		runOllama := func(jsonMode bool) (bool, string) {
+			rawText, err := callOllamaChat(defaultOllamaBaseURL(), modelName, systemPrompt, userMsg, jsonMode, 90*time.Second)
+			if err != nil {
+				return false, truncateRunes(err.Error(), 180)
+			}
+			rawText = stripEvalMarkdown(rawText)
+			if rawText == "" {
+				return false, "empty evaluator response"
+			}
+			violated, recognized := parseAIBotDecision(rawText)
+			if !recognized {
+				return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80)
+			}
+			return violated, ""
 		}
-		rawText = stripEvalMarkdown(rawText)
-		if rawText == "" {
-			return false, "empty evaluator response"
+		violated, errMsg := runOllama(true)
+		if errMsg == "" {
+			return violated, ""
 		}
-		violated, recognized := parseAIBotDecision(rawText)
-		if !recognized {
-			return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80)
+		violated, errMsg2 := runOllama(false)
+		if errMsg2 == "" {
+			return violated, ""
 		}
-		return violated, ""
+		return false, errMsg + "; retry: " + errMsg2
 	}
 
 	if h.client == nil {

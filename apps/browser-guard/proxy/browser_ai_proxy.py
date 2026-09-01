@@ -1296,17 +1296,36 @@ def _is_confident_chat_send(path: str, raw_text: str, raw_bytes: bytes = b"") ->
     return False
 
 
+_CHAT_METADATA_JUNK = frozenset({
+    "user", "assistant", "system", "auto", "text", "message", "role", "content",
+    "parts", "author", "metadata", "recipient", "client", "server", "ping", "pong",
+    "null", "undefined", "true", "false", "default", "model", "parent", "child",
+    "chatgpt", "gpt-4", "gpt-4o", "gpt-3.5", "o1", "o3", "thinking", "standard",
+})
+
+
+def _is_chat_metadata_token(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return True
+    if t in _CHAT_METADATA_JUNK:
+        return True
+    if re.fullmatch(r"gpt[-\d\.]+[a-z]*", t):
+        return True
+    return False
+
+
 def _pick_best_user_text(candidates: list[str]) -> str | None:
     """Choose the best user-typed string from protobuf/JSON fragments (any domain)."""
     best = None
     best_score = -1
-    for s in candidates:
+    for s in reversed(candidates):
         if not s:
             continue
         got = _clean_prompt_text(s)
         if not got or not looks_like_user_prompt(got):
             continue
-        if _is_opaque_wire_blob(got) or _is_internal_wire_text(got):
+        if _is_opaque_wire_blob(got) or _is_internal_wire_text(got) or _is_chat_metadata_token(got):
             continue
         score = len(got)
         if " " in got:
@@ -1321,6 +1340,35 @@ def _pick_best_user_text(candidates: list[str]) -> str | None:
             best_score = score
             best = got
     return best
+
+
+def _extract_chatgpt_parts_prompt(blob: str) -> str | None:
+    """Last ChatGPT/OpenAI parts[] slot — the finished user Send text."""
+    if not blob:
+        return None
+    last: str | None = None
+    patterns = (
+        r'"parts"\s*:\s*\[\s*"((?:[^"\\]|\\.)*)"',
+        r'"content"\s*:\s*\{\s*"content_type"\s*:\s*"text"\s*,\s*"parts"\s*:\s*\[\s*"((?:[^"\\]|\\.)*)"',
+        r'"input_text"\s*:\s*"((?:[^"\\]|\\.)*)"',
+    )
+    for pat in patterns:
+        for m in re.finditer(pat, blob):
+            raw = m.group(1)
+            cand = _clean_prompt_text(
+                raw.encode("utf-8").decode("unicode_escape", errors="ignore")
+                if "\\" in raw
+                else raw
+            )
+            if (
+                cand
+                and looks_like_user_prompt(cand)
+                and not _is_opaque_wire_blob(cand)
+                and not _is_internal_wire_text(cand)
+                and not _is_chat_metadata_token(cand)
+            ):
+                last = cand
+    return last
 
 
 def _is_typing_or_draft_path(path: str, raw_text: str = "") -> bool:
@@ -1369,7 +1417,9 @@ def _should_intercept_extracted_prompt(
         return False
     if not _is_confident_chat_send(path, raw_text, raw_bytes):
         return False
-    if is_composer_typing_draft(domain, text):
+    # Only skip ultra-fast single-keystroke drafts on prepare/autocomplete paths.
+    path_l = (path or "").lower()
+    if ("prepare" in path_l or "autocomplet" in path_l) and is_composer_typing_draft(domain, text):
         return False
     if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
         return False
@@ -4355,27 +4405,34 @@ def _printable_runs(raw: bytes) -> list[str]:
 def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
     """ChatGPT web: JSON parts, nested author.content, or protobuf string fields."""
     blob = text or ""
+    raw_blob = (raw or b"").decode("utf-8", errors="ignore")
+    search_blob = blob if len(blob) >= len(raw_blob) else raw_blob
+    if not search_blob and blob:
+        search_blob = blob
+
+    # Highest confidence: explicit parts[] / input_text from conversation JSON embedded in protobuf.
+    parts_got = _extract_chatgpt_parts_prompt(search_blob)
+    if parts_got:
+        return parts_got
+
     candidates: list[str] = []
     if blob.lstrip().startswith(("{", "[")):
         try:
             got = _extract_from_json(json.loads(blob))
-            if got:
+            if got and not _is_chat_metadata_token(got):
                 candidates.append(got)
         except Exception:
             pass
     for pat in (
-        r'"parts"\s*:\s*\[\s*"((?:[^"\\]|\\.)*)"',
-        r'"content"\s*:\s*"((?:[^"\\]|\\.)*)"',
-        r'"input_text"\s*:\s*"((?:[^"\\]|\\.)*)"',
         r'"prompt"\s*:\s*"((?:[^"\\]|\\.)*)"',
     ):
-        for m in re.finditer(pat, blob):
+        for m in re.finditer(pat, search_blob):
             cand = _clean_prompt_text(
                 m.group(1).encode("utf-8").decode("unicode_escape", errors="ignore")
                 if "\\" in m.group(1)
                 else m.group(1)
             )
-            if cand:
+            if cand and not _is_chat_metadata_token(cand):
                 candidates.append(cand)
     for s in _printable_runs(raw or b""):
         if len(s) > 400:
@@ -4548,8 +4605,8 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             method="POST"
         )
 
-        # AI Guard Bot may call an LLM — allow enough time for provider round-trip
-        with urllib.request.urlopen(req, timeout=22) as response:
+        # AI Guard Bot may call an LLM — allow enough time for Ollama round-trip
+        with urllib.request.urlopen(req, timeout=95) as response:
             if response.status == 200:
                 res_data = json.loads(response.read().decode("utf-8"))
                 allowed = res_data.get("allowed", True)
@@ -4583,18 +4640,10 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
         if rule_action == "WARN":
             return True, r["name"], "Warned", _warned_forward(prompt, r.get("warning_message", "")), ""
 
-    # Backend / evaluator miss. With AI Guard Bot rules configured, fail-closed
-    # so DLP cannot be silently bypassed when the backend is down/slow.
-    if _fail_open():
+    # Backend / evaluator miss — allow traffic; regex rules already ran locally.
+    if _fail_open() or has_ai_bot_rules():
+        log_prompt_async(platform, domain, prompt, client_ip, url, method)
         return True, "", "Allowed", prompt, ""
-    if has_ai_bot_rules():
-        return (
-            False,
-            "AI Guard Bot",
-            "Blocked",
-            prompt,
-            "UnifAI Guard could not reach the security backend to evaluate this prompt. Blocked for safety.",
-        )
     return (
         False,
         "Backend Unreachable",
