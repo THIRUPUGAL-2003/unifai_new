@@ -2012,7 +2012,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									onOpenChange={(open) => {
 										setTargetDialogOpen(open);
 										if (!open) {
-											setCustomRelatedHosts([""]);
+											setCustomRelatedHosts([{ host: "", role: "" }]);
 											setTargetError("");
 										}
 									}}
