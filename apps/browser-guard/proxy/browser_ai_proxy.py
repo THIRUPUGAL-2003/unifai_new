@@ -699,10 +699,15 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
     if _path_has_chat_marker(p):
         return True
 
-    # Custom / unknown AI site the admin added: allow POSTs that carry a body.
-    if body.strip():
-        return True
-    return not p or p == "/"
+    # Custom / unknown AI site: structured user send payload only — not every POST.
+    if body.strip() and body.lstrip().startswith("{"):
+        try:
+            data = json.loads(body)
+            if _body_has_user_send_payload(data):
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def is_gemini_chat_submit(path: str, body: str = "") -> bool:
@@ -1071,6 +1076,8 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
     if _is_opaque_wire_blob(t):
         return False
+    if _is_internal_wire_text(t):
+        return False
     if t.startswith("gAAAA") or '"p":"gAAAA' in t:
         return False
     if t.startswith("[FILE UPLOAD") or t.startswith("[FILE DOWNLOAD") or t.startswith("[FILE CONTENT") or t.startswith("[SITE BLOCKED"):
@@ -1174,22 +1181,96 @@ def resolve_host_role(host: str) -> str:
     return ""
 
 
+def _is_internal_wire_text(text: str) -> bool:
+    """Internal RPC ids, pubsub actions, and wire fragments — not user-typed chat."""
+    t = (text or "").strip()
+    if not t:
+        return True
+    low = t.lower()
+    if low in {
+        "turn exchange complete", "fetch socket url", "ping", "pong",
+        "heartbeat", "keepalive", "keep alive", "connection established",
+        "stream complete", "message complete", "typing", "presence",
+    }:
+        return True
+    # pubsub.fetch-socket-url, client.create, etc.
+    if " " not in t and re.fullmatch(r"[a-z][a-z0-9_.-]*(?:\.[a-z][a-z0-9_.-]+)+", low):
+        return True
+    if " " not in t and re.fullmatch(r"[a-z]+(?:_[a-z0-9]+){2,}", low):
+        return True
+    # Short wire fragments: B-mvY..., J12'54M, U}2T), 7cZ.
+    if len(t) <= 14 and " " not in t:
+        special = sum(1 for c in t if not c.isalnum() and c not in "._-'")
+        if special >= 1 and len(t) <= 10:
+            return True
+        if special >= 2:
+            return True
+        letters = sum(1 for c in t if c.isalpha())
+        digits = sum(1 for c in t if c.isdigit())
+        if letters and digits and special and len(t) <= 12:
+            return True
+    return False
+
+
+def _body_has_user_send_payload(data) -> bool:
+    """True when JSON body carries an explicit user message/query — not sync/telemetry."""
+    if not isinstance(data, dict):
+        return False
+    event = str(data.get("event") or data.get("type") or "").lower()
+    if event in ("ping", "pong", "typing", "presence", "heartbeat", "metrics", "internal"):
+        return False
+    if str(data.get("command") or "").lower() in ("ping", "pong", "metrics"):
+        return False
+    msgs = data.get("messages")
+    if isinstance(msgs, list):
+        for msg in reversed(msgs):
+            if isinstance(msg, dict) and _extract_from_message_obj(msg):
+                return True
+    for key in (
+        "query", "query_str", "prompt", "input", "message", "question",
+        "user_input", "user_query", "rawUserQuery", "utterance",
+    ):
+        val = data.get(key)
+        if isinstance(val, str) and val.strip() and looks_like_user_prompt(val.strip()):
+            return True
+    return False
+
+
 def _is_clear_chat_submit(path: str, host: str, raw_text: str, raw_bytes: bytes = b"") -> bool:
     """Finished chat Send on an admin-monitored host — not typing/telemetry/CDN."""
-    path_l = (path or "").lower()
+    path_l = (path or "").lower().split("?", 1)[0]
+    body = raw_text or ""
+    if _path_has_ignore_pattern(path_l):
+        return False
+    if path_l and NOISE_EXTENSIONS.search(path_l):
+        return False
     if "prepare" in path_l or "autocomplet" in path_l or "implicit_hint" in path_l:
         return False
-    if is_unsubmitted_chat_body(path, raw_text):
+    if is_unsubmitted_chat_body(path, body):
         return False
-    return (
-        is_perplexity_chat_submit(path, raw_text)
-        or is_gemini_chat_submit(path, raw_text)
-        or is_copilot_chat_submit(path, raw_text)
-        or _is_chatgpt_style_path(path_l)
-        or _looks_like_chatgpt_body(raw_text, raw_bytes)
-        or _is_claude_api_shape(path, raw_text)
-        or _path_has_chat_marker(path_l)
-    )
+    if is_copilot_noise_content(body):
+        return False
+    if (
+        is_perplexity_chat_submit(path, body)
+        or is_gemini_chat_submit(path, body)
+        or is_copilot_chat_submit(path, body)
+        or _is_claude_api_shape(path, body)
+    ):
+        return True
+    if _is_chatgpt_style_path(path_l) or _looks_like_chatgpt_body(body, raw_bytes):
+        return True
+    if _path_has_chat_marker(path_l):
+        if is_noise(path, body):
+            return False
+        return True
+    if body.lstrip().startswith("{"):
+        try:
+            data = json.loads(body)
+            if _body_has_user_send_payload(data):
+                return True
+        except Exception:
+            pass
+    return False
 
 
 def _is_typing_or_draft_path(path: str, raw_text: str = "") -> bool:
@@ -1215,8 +1296,10 @@ def _should_intercept_extracted_prompt(
     path: str,
     raw_text: str,
     domain: str,
+    host: str = "",
+    raw_bytes: bytes = b"",
 ) -> bool:
-    """Domain-add-only gate: if we extracted user text, predict — no platform path list required."""
+    """Only finished chat Send with real user text — not telemetry/sync/internal RPC."""
     if not prompt or not isinstance(prompt, str):
         return False
     text = prompt.strip()
@@ -1226,11 +1309,17 @@ def _should_intercept_extracted_prompt(
         return False
     if _is_opaque_wire_blob(text):
         return False
+    if _is_internal_wire_text(text):
+        return False
     if text.startswith("[FILE UPLOAD"):
         return False
     if _looks_like_filename_only(text):
         return False
     if _is_typing_or_draft_path(path, raw_text):
+        return False
+    if not _is_clear_chat_submit(path, host, raw_text, raw_bytes):
+        return False
+    if is_composer_typing_draft(domain, text):
         return False
     if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
         return False
@@ -1250,7 +1339,7 @@ def _extract_interceptable_prompt(
     if _is_static_asset_request(path):
         return None
     prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=url)
-    if _should_intercept_extracted_prompt(prompt, path, raw_text, domain):
+    if _should_intercept_extracted_prompt(prompt, path, raw_text, domain, host=host, raw_bytes=raw_bytes):
         return prompt
     return None
 
@@ -1722,13 +1811,7 @@ def _deep_extract_from_json(data, depth: int = 0, max_depth: int = 10) -> str | 
                 got = _deep_extract_from_json(item, depth + 1, max_depth)
                 if got:
                     return got
-            elif isinstance(item, (str, int, float)):
-                sval = str(item)
-                if not _is_opaque_wire_blob(sval):
-                    got = _clean_prompt_text(sval)
-                    if got and looks_like_user_prompt(got):
-                        return got
-    return None
+        return None
 
 
 def _regex_extract_prompt_from_text(text: str) -> str | None:
@@ -5037,6 +5120,7 @@ class BrowserAIInterceptor:
             if (
                 qs_prompt
                 and looks_like_user_prompt(qs_prompt)
+                and _is_clear_chat_submit(path, host, "", b"")
                 and not is_duplicate_event(domain, qs_prompt, ttl=DEDUPE_TTL, mark=False)
             ):
                 self._apply_http_prompt(flow, domain, platform, qs_prompt, client_ip, "")
@@ -5058,7 +5142,9 @@ class BrowserAIInterceptor:
         peek_prompt = extract_prompt_universal(
             raw_bytes, content_type, host=host, url=flow.request.url,
         )
-        has_prompt = _should_intercept_extracted_prompt(peek_prompt, path, raw_text, domain)
+        has_prompt = _should_intercept_extracted_prompt(
+            peek_prompt, path, raw_text, domain, host=host, raw_bytes=raw_bytes,
+        )
         attachment_send = _send_carries_attachment(raw_text)
 
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
@@ -5228,7 +5314,9 @@ class BrowserAIInterceptor:
         ws_prompt = extract_prompt_universal(
             content.encode("utf-8"), "application/json", host=host, url=flow.request.url,
         )
-        ws_has_prompt = _should_intercept_extracted_prompt(ws_prompt, ws_path, content, domain)
+        ws_has_prompt = _should_intercept_extracted_prompt(
+            ws_prompt, ws_path, content, domain, host=host, raw_bytes=content.encode("utf-8", errors="ignore"),
+        )
         attachment_send = _send_carries_attachment(content)
 
         if attachment_send:
