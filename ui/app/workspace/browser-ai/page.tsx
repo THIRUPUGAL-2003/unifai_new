@@ -57,7 +57,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions } from "./relatedHosts";
+import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions, HOST_ROLE_OPTIONS, hostRoleLabel, type HostRole } from "./relatedHosts";
 import { buildAttachmentPreview, type AttachmentPreviewKind } from "./attachmentPreview";
 
 import {
@@ -366,18 +366,23 @@ export default function BrowserAiPage() {
 	const [newRuleDescription, setNewRuleDescription] = useState("");
 	const [newRuleWarningMessage, setNewRuleWarningMessage] = useState("");
 
+type RelatedHostEntry = { host: string; role: HostRole };
+
 	// New Target Form
 	const [newTargetDomain, setNewTargetDomain] = useState("");
 	const [newTargetPlatform, setNewTargetPlatform] = useState("");
+	const [newTargetHostRole, setNewTargetHostRole] = useState<HostRole>("ui");
 	const [newTargetBlockSite, setNewTargetBlockSite] = useState(false);
-	const [customRelatedHosts, setCustomRelatedHosts] = useState<string[]>([""]);
+	const [customRelatedHosts, setCustomRelatedHosts] = useState<RelatedHostEntry[]>([{ host: "", role: "" }]);
 	const [extraHostDrafts, setExtraHostDrafts] = useState<Record<string, string>>({});
+	const [extraHostRoleDrafts, setExtraHostRoleDrafts] = useState<Record<string, HostRole>>({});
 
 	// Edit Target Form
 	const [editTarget, setEditTarget] = useState<BrowserTargetWebsite | null>(null);
 	const [editTargetDomain, setEditTargetDomain] = useState("");
 	const [editTargetPlatform, setEditTargetPlatform] = useState("");
 	const [editTargetBlockSite, setEditTargetBlockSite] = useState(false);
+	const [editTargetHostRole, setEditTargetHostRole] = useState<HostRole>("");
 	const [editTargetDialogOpen, setEditTargetDialogOpen] = useState(false);
 
 	// Edit Rule Form
@@ -734,6 +739,7 @@ export default function BrowserAiPage() {
 					platform_name: editTargetPlatform.trim() || "AI Platform",
 					block_site: editTargetBlockSite,
 					status: editTargetBlockSite ? "BLOCKED" : editTarget.monitored ? "MONITORED" : "PAUSED",
+					host_role: editTargetHostRole || "",
 				},
 			}).unwrap();
 			setEditTargetDialogOpen(false);
@@ -940,18 +946,26 @@ export default function BrowserAiPage() {
 			status: newTargetBlockSite ? "BLOCKED" : "MONITORED",
 		};
 		try {
-			const created = await createTarget({ domain, ...payload }).unwrap();
+			const created = await createTarget({ domain, ...payload, host_role: newTargetHostRole || "" }).unwrap();
 			const parentId = created?.target?.id || "";
 			for (const extra of customRelatedHosts) {
-				const host = normalizeTargetDomain(extra);
+				const host = normalizeTargetDomain(extra.host);
 				if (!host || host === domain) continue;
 				try {
-					await createTarget({ domain: host, ...payload, parent_id: parentId }).unwrap();
+					await createTarget({
+						domain: host,
+						...payload,
+						parent_id: parentId,
+						host_role: extra.role || "",
+					}).unwrap();
 				} catch {
 					const existing = targets.find((t) => normalizeTargetDomain(t.domain) === host);
 					if (existing && parentId) {
 						try {
-							await updateTarget({ id: existing.id, updates: { parent_id: parentId } }).unwrap();
+							await updateTarget({
+								id: existing.id,
+								updates: { parent_id: parentId, host_role: extra.role || "" },
+							}).unwrap();
 						} catch {
 							// already in the list — skip
 						}
@@ -960,8 +974,9 @@ export default function BrowserAiPage() {
 			}
 			setNewTargetDomain("");
 			setNewTargetPlatform("");
+			setNewTargetHostRole("ui");
 			setNewTargetBlockSite(false);
-			setCustomRelatedHosts([""]);
+			setCustomRelatedHosts([{ host: "", role: "" }]);
 			setTargetDialogOpen(false);
 		} catch (err: any) {
 			setTargetError(err?.data?.message || err?.message || "Failed to create target domain");
@@ -972,18 +987,18 @@ export default function BrowserAiPage() {
 		const n = normalizeTargetDomain(host);
 		if (!n) return;
 		setCustomRelatedHosts((prev) => {
-			if (prev.some((v) => normalizeTargetDomain(v) === n)) return prev;
-			const emptyIdx = prev.findIndex((v) => !v.trim());
+			if (prev.some((v) => normalizeTargetDomain(v.host) === n)) return prev;
+			const emptyIdx = prev.findIndex((v) => !v.host.trim());
 			if (emptyIdx >= 0) {
 				const next = [...prev];
-				next[emptyIdx] = n;
+				next[emptyIdx] = { host: n, role: "" };
 				return next;
 			}
-			return [...prev, n];
+			return [...prev, { host: n, role: "" }];
 		});
 	};
 
-	const handleAddRelatedHost = async (parent: BrowserTargetWebsite, host: string) => {
+	const handleAddRelatedHost = async (parent: BrowserTargetWebsite, host: string, role: HostRole = "") => {
 		const domain = normalizeTargetDomain(host);
 		if (!domain || domain === normalizeTargetDomain(parent.domain)) return;
 		const parentId = parent.parent_id || parent.id;
@@ -994,6 +1009,7 @@ export default function BrowserAiPage() {
 			block_site: !!parent.block_site,
 			status: parent.block_site ? "BLOCKED" : parent.monitored ? "MONITORED" : "PAUSED",
 			parent_id: parentId,
+			host_role: role || "",
 		};
 		try {
 			await createTarget(payload).unwrap();
@@ -2025,13 +2041,28 @@ export default function BrowserAiPage() {
 													onChange={(e) => setNewTargetDomain(e.target.value)}
 												/>
 												<p className="text-[11px] text-muted-foreground">
-													Subdomains of this domain are covered automatically (e.g. www.chatgpt.com). Chat/API on a different root hostname must be added as a related host below or via + in the table.
+													Subdomains are covered automatically. Label each host: Main UI, Chat domain, or File domain so Guard knows what to intercept.
 												</p>
+											</div>
+											<div className="space-y-2">
+												<Label>Host role (main domain)</Label>
+												<Select value={newTargetHostRole || "auto"} onValueChange={(v) => setNewTargetHostRole(v === "auto" ? "" : (v as HostRole))}>
+													<SelectTrigger>
+														<SelectValue placeholder="Auto" />
+													</SelectTrigger>
+													<SelectContent>
+														{HOST_ROLE_OPTIONS.map((opt) => (
+															<SelectItem key={opt.value || "auto"} value={opt.value || "auto"}>
+																{opt.label}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
 											</div>
 											<div className="space-y-2 rounded-md border border-border p-3">
 												<p className="text-sm font-medium">Add related host</p>
 												<p className="text-[11px] text-muted-foreground">
-													Add every hostname where chat or file traffic goes (e.g. openai.com under chatgpt.com). Only domains you add here are sent to Guard — nothing is hardcoded.
+													Add related hosts with a role: Chat domain (prompts), File domain (uploads). Leave Auto if unsure.
 												</p>
 												{newTargetRelatedGroup ? (
 													<div className="space-y-1.5 rounded-md border border-dashed border-border bg-muted/20 p-2">
@@ -2039,7 +2070,7 @@ export default function BrowserAiPage() {
 														<p className="text-[10px] text-muted-foreground">{newTargetRelatedGroup.reason}</p>
 														<div className="flex flex-wrap gap-1.5 pt-1">
 															{newTargetRelatedGroup.hosts.map((host) => {
-																const picked = customRelatedHosts.some((v) => normalizeTargetDomain(v) === host);
+																const picked = customRelatedHosts.some((v) => normalizeTargetDomain(v.host) === host);
 																const already = addedTargetDomains.some((d) => normalizeTargetDomain(d) === host);
 																return (
 																	<Button
@@ -2059,18 +2090,37 @@ export default function BrowserAiPage() {
 													</div>
 												) : null}
 												<div className="space-y-2 pt-1">
-													{customRelatedHosts.map((value, idx) => (
+													{customRelatedHosts.map((entry, idx) => (
 														<div key={idx} className="flex items-center gap-2">
 															<Input
-																placeholder="e.g. api.example.com"
-																className="font-mono text-sm"
-																value={value}
+																placeholder="e.g. openai.com"
+																className="font-mono text-sm flex-1"
+																value={entry.host}
 																onChange={(e) => {
 																	const next = [...customRelatedHosts];
-																	next[idx] = e.target.value;
+																	next[idx] = { ...next[idx], host: e.target.value };
 																	setCustomRelatedHosts(next);
 																}}
 															/>
+															<Select
+																value={entry.role || "auto"}
+																onValueChange={(v) => {
+																	const next = [...customRelatedHosts];
+																	next[idx] = { ...next[idx], role: v === "auto" ? "" : (v as HostRole) };
+																	setCustomRelatedHosts(next);
+																}}
+															>
+																<SelectTrigger className="w-[130px]">
+																	<SelectValue />
+																</SelectTrigger>
+																<SelectContent>
+																	{HOST_ROLE_OPTIONS.map((opt) => (
+																		<SelectItem key={opt.value || "auto"} value={opt.value || "auto"}>
+																			{opt.label}
+																		</SelectItem>
+																	))}
+																</SelectContent>
+															</Select>
 															{customRelatedHosts.length > 1 && (
 																<Button
 																	type="button"
@@ -2088,7 +2138,7 @@ export default function BrowserAiPage() {
 														variant="outline"
 														size="sm"
 														className="gap-1"
-														onClick={() => setCustomRelatedHosts([...customRelatedHosts, ""])}
+														onClick={() => setCustomRelatedHosts([...customRelatedHosts, { host: "", role: "" }])}
 													>
 														<Plus className="h-3.5 w-3.5" /> Add related host
 													</Button>
@@ -2155,7 +2205,9 @@ export default function BrowserAiPage() {
 															<ExternalLink className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
 														</div>
 														{isChild ? (
-															<p className="text-[10px] text-muted-foreground pl-5">Related host</p>
+															<p className="text-[10px] text-muted-foreground pl-5">{hostRoleLabel(tgt.host_role)}</p>
+														) : !isChild && tgt.host_role ? (
+															<p className="text-[10px] text-muted-foreground">{hostRoleLabel(tgt.host_role)}</p>
 														) : (
 														<div className="space-y-1.5 pt-0.5">
 															{(() => {
@@ -2178,7 +2230,27 @@ export default function BrowserAiPage() {
 																	</div>
 																);
 															})()}
-														<div className="flex items-center gap-1">
+														<div className="flex items-center gap-1 flex-wrap">
+															<Select
+																value={extraHostRoleDrafts[tgt.id] || "auto"}
+																onValueChange={(v) =>
+																	setExtraHostRoleDrafts((prev) => ({
+																		...prev,
+																		[tgt.id]: v === "auto" ? "" : (v as HostRole),
+																	}))
+																}
+															>
+																<SelectTrigger className="h-6 text-[10px] w-[110px]">
+																	<SelectValue />
+																</SelectTrigger>
+																<SelectContent>
+																	{HOST_ROLE_OPTIONS.map((opt) => (
+																		<SelectItem key={opt.value || "auto"} value={opt.value || "auto"}>
+																			{opt.label}
+																		</SelectItem>
+																	))}
+																</SelectContent>
+															</Select>
 															<Input
 																placeholder="Add related host"
 																className="h-6 text-[10px] font-mono max-w-[180px]"
@@ -2189,7 +2261,7 @@ export default function BrowserAiPage() {
 																		e.preventDefault();
 																		const host = extraHostDrafts[tgt.id];
 																		if (host?.trim()) {
-																			handleAddRelatedHost(tgt, host);
+																			handleAddRelatedHost(tgt, host, extraHostRoleDrafts[tgt.id] || "");
 																			setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: "" }));
 																		}
 																	}
@@ -2203,7 +2275,7 @@ export default function BrowserAiPage() {
 																onClick={() => {
 																	const host = extraHostDrafts[tgt.id];
 																	if (host?.trim()) {
-																		handleAddRelatedHost(tgt, host);
+																		handleAddRelatedHost(tgt, host, extraHostRoleDrafts[tgt.id] || "");
 																		setExtraHostDrafts((prev) => ({ ...prev, [tgt.id]: "" }));
 																	}
 																}}
@@ -2276,6 +2348,7 @@ export default function BrowserAiPage() {
 																setEditTargetDomain(tgt.domain);
 																setEditTargetPlatform(tgt.platform_name);
 																setEditTargetBlockSite(!!tgt.block_site);
+																setEditTargetHostRole((tgt.host_role as HostRole) || "");
 																setEditTargetDialogOpen(true);
 															}}
 															className="h-8 w-8 text-muted-foreground hover:text-foreground"
@@ -2327,6 +2400,21 @@ export default function BrowserAiPage() {
 							<div className="space-y-2">
 								<Label>Platform Name</Label>
 								<Input value={editTargetPlatform} onChange={(e) => setEditTargetPlatform(e.target.value)} />
+							</div>
+							<div className="space-y-2">
+								<Label>Host role</Label>
+								<Select value={editTargetHostRole || "auto"} onValueChange={(v) => setEditTargetHostRole(v === "auto" ? "" : (v as HostRole))}>
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{HOST_ROLE_OPTIONS.map((opt) => (
+											<SelectItem key={opt.value || "auto"} value={opt.value || "auto"}>
+												{opt.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
 							</div>
 							<div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
 								<div>

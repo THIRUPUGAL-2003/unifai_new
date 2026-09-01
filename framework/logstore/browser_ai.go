@@ -164,7 +164,9 @@ type BrowserTargetWebsite struct {
 	// "all" = answer every intercepted prompt via Reply Bot (never forward to the site AI).
 	ReplyBotMode string `json:"reply_bot_mode"`
 	// ParentID: related host nested under another Target Website. Empty = top-level domain.
-	ParentID  string    `gorm:"index" json:"parent_id"`
+	ParentID string `gorm:"index" json:"parent_id"`
+	// HostRole: admin label — "ui" | "chat" | "file" | "" (auto). Drives proxy intercept path.
+	HostRole  string    `json:"host_role"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -683,6 +685,7 @@ func (m *BrowserAIManager) CreateTarget(ctx context.Context, target *BrowserTarg
 	if target.Domain == "" {
 		return fmt.Errorf("invalid target domain")
 	}
+	target.HostRole = NormalizeHostRole(target.HostRole)
 	if strings.TrimSpace(target.PlatformName) == "" {
 		target.PlatformName = target.Domain
 	}
@@ -743,6 +746,11 @@ func (m *BrowserAIManager) UpdateTarget(ctx context.Context, id string, updates 
 			updates["domain"] = NormalizeDomain(s)
 		}
 	}
+	if raw, ok := updates["host_role"]; ok {
+		if s, ok := raw.(string); ok {
+			updates["host_role"] = NormalizeHostRole(s)
+		}
+	}
 	allowed := map[string]bool{
 		"domain":             true,
 		"platform_name":      true,
@@ -754,6 +762,7 @@ func (m *BrowserAIManager) UpdateTarget(ctx context.Context, id string, updates 
 		"reply_bot_model":    true,
 		"reply_bot_mode":     true,
 		"parent_id":          true,
+		"host_role":          true,
 	}
 	filtered := map[string]any{}
 	for k, v := range updates {
@@ -829,6 +838,20 @@ func (m *BrowserAIManager) DeleteTarget(ctx context.Context, id string) error {
 		return fmt.Errorf("database not initialized")
 	}
 	return m.db.WithContext(ctx).Where("id = ? OR parent_id = ?", id, id).Delete(&BrowserTargetWebsite{}).Error
+}
+
+// NormalizeHostRole keeps only supported admin labels.
+func NormalizeHostRole(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "ui", "main", "main_ui":
+		return "ui"
+	case "chat", "chat_domain":
+		return "chat"
+	case "file", "file_domain", "upload":
+		return "file"
+	default:
+		return ""
+	}
 }
 
 func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, promptFull, clientIP string, metadata map[string]any) (*BrowserAILog, string, error) {

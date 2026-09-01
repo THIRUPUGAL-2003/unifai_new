@@ -1,5 +1,19 @@
 /** Target Website helpers — admin-added domains only; no hardcoded AI site lists. */
 
+export type HostRole = "" | "ui" | "chat" | "file";
+
+export const HOST_ROLE_OPTIONS: { value: HostRole; label: string }[] = [
+	{ value: "", label: "Auto" },
+	{ value: "ui", label: "Main UI" },
+	{ value: "chat", label: "Chat domain" },
+	{ value: "file", label: "File domain" },
+];
+
+export function hostRoleLabel(role?: string): string {
+	const found = HOST_ROLE_OPTIONS.find((o) => o.value === (role || ""));
+	return found?.label || "Auto";
+}
+
 export type RelatedHostGroup = {
 	label: string;
 	reason: string;

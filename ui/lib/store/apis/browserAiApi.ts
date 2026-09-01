@@ -94,6 +94,8 @@ export interface BrowserTargetWebsite {
 	reply_bot_mode?: string;
 	/** Related host nested under this parent Target Website. Empty = top-level domain. */
 	parent_id?: string;
+	/** Admin label: ui | chat | file | empty (auto). Tells Guard how to intercept this host. */
+	host_role?: HostRole | string;
 	created_at?: string;
 }
 

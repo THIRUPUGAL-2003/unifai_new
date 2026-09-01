@@ -166,6 +166,7 @@ BLOCK_DEDUPE_TTL = 30
 
 _cached_domains: dict = DEFAULT_TARGET_DOMAINS.copy()
 _cached_blocked: dict = {}  # domain -> platform_name (full site lock)
+_cached_roles: dict[str, str] = {}  # domain -> host_role (ui|chat|file|"")
 # Admin Target Websites grouped for file-upload cache sharing (platform_name + parent_id).
 _cached_families: dict[str, frozenset[str]] = {}
 _cached_rules: list = []   # list of {"name": str, "pattern": str, "action": str, "active": bool}
@@ -297,7 +298,7 @@ def get_target_domains() -> dict:
     (monitored OR block_site). Also refreshes _cached_blocked for full-site lock
     and _cached_families for upload-cache sharing across admin-added related hosts.
     """
-    global _cached_domains, _cached_blocked, _cached_families, _domains_fetched_at
+    global _cached_domains, _cached_blocked, _cached_roles, _cached_families, _domains_fetched_at
     now = time.time()
     if now - _domains_fetched_at < CACHE_TTL:
         return _cached_domains
@@ -307,17 +308,23 @@ def get_target_domains() -> dict:
         targets = data.get("targets", [])
         new_map = {}
         new_blocked = {}
+        new_roles = {}
         for t in targets:
             domain = _normalize_domain(t.get("domain", ""))
             monitored = bool(t.get("monitored"))
             block_site = bool(t.get("block_site"))
             platform = t.get("platform_name") or domain or "AI Platform"
+            role = (t.get("host_role") or "").strip().lower()
+            if role not in ("ui", "chat", "file"):
+                role = ""
             if domain and (monitored or block_site):
                 new_map[domain] = platform
+                new_roles[domain] = role
             if domain and block_site:
                 new_blocked[domain] = platform
         _cached_domains = new_map
         _cached_blocked = new_blocked
+        _cached_roles = new_roles
         _cached_families = _build_target_families(targets)
         _domains_fetched_at = now
         print(
@@ -1103,6 +1110,20 @@ def detect_target(host: str) -> tuple[bool, str, str]:
     if best_domain:
         return True, best_domain, best_platform
     return False, "", ""
+
+
+def resolve_host_role(host: str) -> str:
+    """Admin-assigned role from dashboard (ui | chat | file | auto)."""
+    get_target_domains()
+    host_lower = (host or "").lower().strip(".")
+    best_role = ""
+    best_len = -1
+    for domain, role in _cached_roles.items():
+        if host_lower == domain or host_lower.endswith("." + domain):
+            if len(domain) > best_len:
+                best_len = len(domain)
+                best_role = role or ""
+    return best_role
 
 
 def is_noise(path: str, content: str = "") -> bool:
@@ -4791,6 +4812,12 @@ class BrowserAIInterceptor:
         except Exception:
             raw_text = ""
 
+        host_role = resolve_host_role(host)
+
+        # Main UI host — site lock only; chat/file live on labeled related hosts.
+        if host_role == "ui":
+            return
+
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
         if is_upload:
             fname = extract_filename_from_upload(flow, raw_text)
@@ -4830,8 +4857,14 @@ class BrowserAIInterceptor:
             )
             # Fall through to normal prompt intercept
 
-        # Also drop multipart noise that slipped past upload detection
-        if "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower():
+        # File-labeled host: uploads only — do not treat CDN/static POSTs as chat.
+        if host_role == "file":
+            return
+
+        # Also drop multipart noise that slipped past upload detection (chat hosts may carry attachments).
+        if host_role != "chat" and (
+            "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower()
+        ):
             return
 
         # ── Universal path: domain-agnostic extract + predict (any admin Target Website) ──
