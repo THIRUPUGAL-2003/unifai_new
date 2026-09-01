@@ -2739,6 +2739,13 @@ def extract_inline_attachment_bytes(raw_text: str) -> tuple[bytes, str, str]:
     return b"", "", ""
 
 
+def _file_policy_applies_on_send(path: str, raw_text: str, raw_bytes: bytes) -> bool:
+    """File scan/log only on finished chat Send — never on upload-picker API calls."""
+    if _path_looks_like_upload(path):
+        return False
+    return _is_confident_chat_send(path, raw_text, raw_bytes)
+
+
 def block_upload_request_now(
     flow: http.HTTPFlow,
     *,
@@ -2917,23 +2924,50 @@ def _scan_upload_for_rules(
     raw_text: str,
     file_label: str,
     cached: dict | None = None,
+    *,
+    platform: str = "",
+    domain: str = "",
+    client_ip: str = "",
+    url: str = "",
+    method: str = "",
 ) -> tuple[str, bool, str, str, str]:
-    """Scan only real file bytes for Guard Rules — never ChatGPT Send/API JSON."""
+    """Scan file bytes on Send only — extract by type, then apply Guard Rules (+ AI bot if configured)."""
     scanned = ""
-    if raw_bytes:
-        scanned = extract_upload_text_for_rules(raw_bytes, content_type, "", file_label)
     rule_hit = False
     rule_name = ""
     rule_action = ""
     excerpt = ""
-    if scanned:
-        excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
-        rule_hit, rule_name, rule_action = match_guard_rules_on_text(scanned)
-        rule_action = (rule_action or "").upper()
-    elif cached and len((cached.get("raw_bytes") or b"")) >= 32:
-        rule_hit = bool(cached.get("rule_hit"))
-        rule_name = (cached.get("rule_name") or "") or ""
-        rule_action = ((cached.get("rule_action") or "") or "").upper()
+    try:
+        if raw_bytes:
+            scanned = extract_upload_text_for_rules(raw_bytes, content_type, "", file_label)
+        if scanned:
+            excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
+            rule_hit, rule_name, rule_action = match_guard_rules_on_text(scanned)
+            rule_action = (rule_action or "").upper()
+        # AI Guard Bot on extracted file text (Send-time only)
+        if scanned and has_ai_bot_rules() and not rule_hit and platform and domain:
+            try:
+                allowed, rt, action, _, _ = send_to_backend(
+                    platform, domain, scanned[:50_000], client_ip, url, method or "POST",
+                )
+                act = (action or "").upper()
+                if not allowed and act in ("BLOCKED", "BLOCK"):
+                    rule_hit = True
+                    rule_name = rt or "AI Guard Bot"
+                    rule_action = "BLOCK"
+                elif act in ("WARNED", "WARN", "REDACTED", "REDACT"):
+                    rule_hit = True
+                    rule_name = rt or "AI Guard Bot"
+                    rule_action = "WARN"
+            except Exception as e:
+                print(f"[UnifAI Proxy] AI bot file scan failed (allowed): {e}")
+    except Exception as e:
+        print(f"[UnifAI Proxy] file rule scan failed (allowed): {e}")
+        scanned = ""
+        rule_hit = False
+        rule_name = ""
+        rule_action = ""
+        excerpt = ""
     return scanned, rule_hit, rule_name, rule_action, excerpt
 
 
@@ -2952,6 +2986,39 @@ def _process_one_cached_file_on_send(
     has_attach: bool = False,
 ) -> tuple[bool, str]:
     """Process one file on chat Send. Returns (should_block_send, block_message)."""
+    try:
+        return _process_one_cached_file_on_send_impl(
+            cached=cached,
+            platform=platform,
+            domain=domain,
+            host=host,
+            client_ip=client_ip,
+            url=url,
+            method=method,
+            raw_text=raw_text,
+            content_type=content_type,
+            file_name_hint=file_name_hint,
+            has_attach=has_attach,
+        )
+    except Exception as e:
+        print(f"[UnifAI Proxy] file send policy error (allowed): {e}")
+        return False, ""
+
+
+def _process_one_cached_file_on_send_impl(
+    *,
+    cached: dict | None,
+    platform: str,
+    domain: str,
+    host: str,
+    client_ip: str,
+    url: str,
+    method: str,
+    raw_text: str,
+    content_type: str = "",
+    file_name_hint: str = "",
+    has_attach: bool = False,
+) -> tuple[bool, str]:
     fname = (file_name_hint or "").strip() or extract_attachment_filename_from_send(raw_text or "")
     if cached:
         fname = fname or (cached.get("file_name") or "").strip()
@@ -2996,20 +3063,21 @@ def _process_one_cached_file_on_send(
             if inline_name and inline_name.lower() not in _FAKE_UPLOAD_NAMES:
                 file_label = inline_name
     scanned, rule_hit, rule_name, rule_action, excerpt = _scan_upload_for_rules(
-        cached_bytes, cached_ct, raw_text or "", file_label, cached
+        cached_bytes, cached_ct, raw_text or "", file_label, cached,
+        platform=platform, domain=domain, client_ip=client_ip, url=url, method=method,
     )
 
     block_all = controls_active("block_upload")
     block_for_rule = bool(
         rule_hit
         and rule_action in ("BLOCK", "REDACT")
-        and (bool(scanned) or len(cached_bytes) >= 32)
+        and bool(scanned)
     )
     warn_for_rule = bool(
         rule_hit
         and rule_action == "WARN"
         and not block_all
-        and (bool(scanned) or len(cached_bytes) >= 32)
+        and bool(scanned)
     )
     tag = _upload_log_tag(file_label, cached_ct, cached_bytes)
 
@@ -3276,35 +3344,41 @@ def post_upload_intercept(
         return False
 
 
-def _extract_pdf_text(data: bytes) -> str:
-    """Extract readable text from PDF bytes (pypdf if available, else lightweight fallback)."""
-    if not data or b"%PDF" not in data[:1024] and not data.startswith(b"%PDF"):
-        # Still try if magic is later in multipart
+def _extract_pdf_pypdf(data: bytes) -> str:
+    """PDF text via pypdf library."""
+    if not data:
+        return ""
+    if b"%PDF" not in data[:1024] and not data.startswith(b"%PDF"):
         start = data.find(b"%PDF")
         if start < 0:
             return ""
         data = data[start:]
-
-    # Prefer pypdf
     try:
         from pypdf import PdfReader
 
         reader = PdfReader(io.BytesIO(data), strict=False)
         parts: list[str] = []
-        for page in reader.pages[:50]:  # cap pages for performance
+        for page in reader.pages[:50]:
             try:
                 t = page.extract_text() or ""
             except Exception:
                 t = ""
             if t.strip():
                 parts.append(t)
-        joined = "\n".join(parts).strip()
-        if joined:
-            return joined[:200_000]
+        return "\n".join(parts).strip()[:200_000]
     except Exception:
-        pass
+        return ""
 
-    # Fallback: pull printable runs + common PDF string literals (...) 
+
+def _extract_pdf_regex(data: bytes) -> str:
+    """PDF text via regex / printable runs (no pypdf)."""
+    if not data:
+        return ""
+    if b"%PDF" not in data[:1024] and not data.startswith(b"%PDF"):
+        start = data.find(b"%PDF")
+        if start < 0:
+            return ""
+        data = data[start:]
     try:
         raw = data.decode("latin-1", errors="ignore")
     except Exception:
@@ -3318,10 +3392,17 @@ def _extract_pdf_text(data: bytes) -> str:
         s = re.sub(r"[^\x09\x0a\x0d\x20-\x7e\u00a0-\uffff]+", " ", s)
         if len(s.strip()) >= 3:
             texts.append(s.strip())
-    # Also long printable ASCII runs
     for m in re.finditer(r"[ -~]{12,}", raw):
         texts.append(m.group(0))
     return "\n".join(texts)[:200_000]
+
+
+def _extract_pdf_text(data: bytes) -> str:
+    """Extract readable text from PDF bytes (pypdf if available, else lightweight fallback)."""
+    t = _extract_pdf_pypdf(data)
+    if t:
+        return t
+    return _extract_pdf_regex(data)
 
 
 def _xml_local(tag: str) -> str:
@@ -3649,53 +3730,63 @@ async def _windows_ocr_pil(img) -> str:
     return text
 
 
+def _extract_image_windows_ocr(data: bytes) -> str:
+    """OCR via Windows.Media.Ocr (built into Windows 10+)."""
+    if not data or len(data) < 32:
+        return ""
+    if len(data) > 15 * 1024 * 1024:
+        data = data[: 15 * 1024 * 1024]
+    try:
+        from PIL import Image
+    except Exception:
+        return ""
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+        if getattr(img, "n_frames", 1) > 1:
+            img.seek(0)
+        img = img.convert("RGB")
+    except Exception:
+        return ""
+    try:
+        text = _run_async(_windows_ocr_pil(img)) or ""
+        return str(text).strip()[:200_000]
+    except Exception as e:
+        print(f"[UnifAI Proxy] Windows OCR unavailable: {e}")
+        return ""
+
+
+def _extract_image_tesseract(data: bytes) -> str:
+    """OCR via pytesseract when installed on the laptop."""
+    if not data or len(data) < 32:
+        return ""
+    try:
+        from PIL import Image
+        import pytesseract  # type: ignore
+    except Exception:
+        return ""
+    try:
+        img = Image.open(io.BytesIO(data))
+        img.load()
+        if getattr(img, "n_frames", 1) > 1:
+            img.seek(0)
+        img = img.convert("RGB")
+        text = (pytesseract.image_to_string(img) or "").strip()
+        return text[:200_000]
+    except Exception:
+        return ""
+
+
 def _extract_image_text(data: bytes) -> str:
     """
     OCR text from image uploads (PNG/JPEG/WebP/GIF/BMP) so Guard Rules can scan
     text that appears inside screenshots / photos of documents.
     Primary: Windows Media OCR. Optional fallback: pytesseract if installed.
     """
-    if not data or len(data) < 32:
-        return ""
-    # Skip huge images (DoS / memory)
-    if len(data) > 15 * 1024 * 1024:
-        data = data[: 15 * 1024 * 1024]
-
-    try:
-        from PIL import Image
-    except Exception:
-        return ""
-
-    try:
-        img = Image.open(io.BytesIO(data))
-        img.load()
-        # First frame only for animated GIF/WebP
-        if getattr(img, "n_frames", 1) > 1:
-            img.seek(0)
-        img = img.convert("RGB")
-    except Exception:
-        return ""
-
-    # 1) Windows built-in OCR
-    try:
-        text = _run_async(_windows_ocr_pil(img)) or ""
-        text = str(text).strip()
-        if text:
-            return text[:200_000]
-    except Exception as e:
-        print(f"[UnifAI Proxy] Windows OCR unavailable: {e}")
-
-    # 2) Optional Tesseract (if admin installed it on the laptop)
-    try:
-        import pytesseract  # type: ignore
-
-        text = (pytesseract.image_to_string(img) or "").strip()
-        if text:
-            return text[:200_000]
-    except Exception:
-        pass
-
-    return ""
+    t = _extract_image_windows_ocr(data)
+    if t:
+        return t
+    return _extract_image_tesseract(data)
 
 
 def _looks_like_audio(data: bytes, content_type: str = "", file_name: str = "") -> bool:
@@ -4005,47 +4096,158 @@ def _extract_plain_text_bytes(data: bytes) -> str:
     return text[:200_000]
 
 
-def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name: str = "") -> str:
-    """Extract scannable text from a single file payload (PDF / Office / image OCR / voice STT / plain)."""
+def _classify_upload_kind(data: bytes, content_type: str = "", file_name: str = "") -> str:
+    """Classify upload bytes so we use one extractor per file type (not all at once)."""
     if not data:
-        return ""
+        return "unknown"
     ct = (content_type or "").lower()
     fn = (file_name or "").lower()
-    parts: list[str] = []
 
-    if "pdf" in ct or fn.endswith(".pdf") or data[:5] == b"%PDF" or b"%PDF" in data[:4096]:
-        t = _extract_pdf_text(data)
-        if t:
-            parts.append(t)
-
-    office = _extract_office_text(data, content_type, file_name)
-    if office:
-        parts.append(office)
-
+    if "pdf" in ct or fn.endswith(".pdf") or data[:5] == b"%PDF-" or b"%PDF-" in data[:4096]:
+        return "pdf"
     if _looks_like_image(data, content_type, file_name):
-        t = _extract_image_text(data)
-        if t:
-            parts.append(t)
-
+        return "image"
     if _looks_like_audio(data, content_type, file_name):
-        t = _extract_audio_text(data, content_type, file_name)
-        if t:
-            parts.append(t)
-        # Never decode raw audio as latin-1 "plain text"
-        return "\n\n".join(parts)[:200_000]
-
+        return "audio"
+    if _looks_like_docx(data, content_type, file_name):
+        return "docx"
+    if _looks_like_xlsx(data, content_type, file_name):
+        return "xlsx"
+    if _looks_like_pptx(data, content_type, file_name):
+        return "pptx"
     if fn.endswith((".txt", ".csv", ".json", ".md", ".log")) or any(
         x in ct for x in ("text/", "csv", "json")
     ):
-        t = _extract_plain_text_bytes(data)
-        if t:
-            parts.append(t)
-    elif not parts:
-        t = _extract_plain_text_bytes(data)
-        if t:
-            parts.append(t)
+        return "plain"
+    if data[:2] == b"PK" or b"PK\x03\x04" in data[:8192]:
+        # Unknown OOXML zip — sniff inner layout
+        zdata = _office_zip_bytes(data)
+        if zdata:
+            try:
+                with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+                    names = zf.namelist()
+                    if "word/document.xml" in names:
+                        return "docx"
+                    if any(n.startswith("xl/") for n in names):
+                        return "xlsx"
+                    if any(n.startswith("ppt/slides/") for n in names):
+                        return "pptx"
+            except Exception:
+                pass
+        return "zip"
+    return "unknown"
 
-    return "\n\n".join(parts)[:200_000]
+
+def _try_file_extract_chain(
+    data: bytes,
+    content_type: str,
+    file_name: str,
+    kind: str,
+    steps: list[tuple[str, callable]],
+) -> str:
+    """Run extractors in order; first non-empty result wins. Logs fallback usage."""
+    for i, (label, fn) in enumerate(steps):
+        try:
+            t = (fn() or "").strip()
+            if t:
+                if i > 0:
+                    print(
+                        f"[UnifAI Proxy] file extract fallback OK ({label}) | "
+                        f"{file_name or kind} | {len(t)} chars"
+                    )
+                return t[:200_000]
+        except Exception as e:
+            print(f"[UnifAI Proxy] file extract try failed ({label}): {e}")
+    return ""
+
+
+def _office_extract_steps(data: bytes, primary: str) -> list[tuple[str, callable]]:
+    """Office OOXML: primary type first, then other Office parsers, then generic ZIP."""
+    order = ["docx", "xlsx", "pptx"]
+    if primary in order:
+        order.remove(primary)
+        order.insert(0, primary)
+    fns = {
+        "docx": ("docx-xml", lambda: _extract_docx_text(data)),
+        "xlsx": ("xlsx-xml", lambda: _extract_xlsx_text(data)),
+        "pptx": ("pptx-xml", lambda: _extract_pptx_text(data)),
+    }
+    steps = [fns[k] for k in order if k in fns]
+    steps.append(("office-zip-all", lambda: _extract_office_text(data, content_type="", file_name="")))
+    return steps
+
+
+def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name: str = "") -> str:
+    """Extract scannable text — primary method per file type, then fallbacks until one succeeds."""
+    if not data:
+        return ""
+    kind = _classify_upload_kind(data, content_type, file_name)
+    ct = content_type
+    fn = file_name
+    try:
+        if kind == "pdf":
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("pdf-pypdf", lambda: _extract_pdf_pypdf(data)),
+                ("pdf-regex", lambda: _extract_pdf_regex(data)),
+                ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+            ])
+
+        if kind == "docx":
+            steps = _office_extract_steps(data, "docx")
+            steps.append(("plain-decode", lambda: _extract_plain_text_bytes(data)))
+            return _try_file_extract_chain(data, ct, fn, kind, steps)
+
+        if kind == "xlsx":
+            steps = _office_extract_steps(data, "xlsx")
+            steps.append(("plain-decode", lambda: _extract_plain_text_bytes(data)))
+            return _try_file_extract_chain(data, ct, fn, kind, steps)
+
+        if kind == "pptx":
+            steps = _office_extract_steps(data, "pptx")
+            steps.append(("plain-decode", lambda: _extract_plain_text_bytes(data)))
+            return _try_file_extract_chain(data, ct, fn, kind, steps)
+
+        if kind == "image":
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("image-windows-ocr", lambda: _extract_image_windows_ocr(data)),
+                ("image-tesseract", lambda: _extract_image_tesseract(data)),
+                ("pdf-pypdf", lambda: _extract_pdf_pypdf(data)),
+                ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+            ])
+
+        if kind == "audio":
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("audio-stt", lambda: _extract_audio_text(data, ct, fn)),
+                ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+            ])
+
+        if kind == "plain":
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("plain-utf8", lambda: _extract_plain_text_bytes(data)),
+                ("pdf-pypdf", lambda: _extract_pdf_pypdf(data)),
+                ("docx-xml", lambda: _extract_docx_text(data)),
+            ])
+
+        if kind == "zip":
+            steps = _office_extract_steps(data, "docx")
+            steps.append(("plain-decode", lambda: _extract_plain_text_bytes(data)))
+            return _try_file_extract_chain(data, ct, fn, kind, steps)
+
+        # Unknown: try every sensible extractor in order
+        return _try_file_extract_chain(data, ct, fn, kind or "unknown", [
+            ("pdf-pypdf", lambda: _extract_pdf_pypdf(data)),
+            ("pdf-regex", lambda: _extract_pdf_regex(data)),
+            ("docx-xml", lambda: _extract_docx_text(data)),
+            ("xlsx-xml", lambda: _extract_xlsx_text(data)),
+            ("pptx-xml", lambda: _extract_pptx_text(data)),
+            ("image-windows-ocr", lambda: _extract_image_windows_ocr(data)),
+            ("image-tesseract", lambda: _extract_image_tesseract(data)),
+            ("audio-stt", lambda: _extract_audio_text(data, ct, fn)),
+            ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+        ])
+    except Exception as e:
+        print(f"[UnifAI Proxy] file extract ({kind}) failed — allowed: {e}")
+    return ""
 
 
 def extract_upload_text_for_rules(
@@ -4057,69 +4259,71 @@ def extract_upload_text_for_rules(
     """
     Pull text from an upload body so Guard Rules can scan file contents
     (PDF, Word, Excel, PowerPoint, image OCR, voice STT, plain text, multipart).
+    Uses one extractor per detected file type.
     """
-    parts: list[str] = []
-    ct = (content_type or "").lower()
-    data = raw_bytes or b""
-    fname = (file_name or "").strip()
+    try:
+        parts: list[str] = []
+        ct = (content_type or "").lower()
+        data = raw_bytes or b""
+        fname = (file_name or "").strip()
 
-    # Site often sends STT transcript alongside the voice blob
-    transcript = _extract_transcript_fields_from_json(raw_text or "")
-    if transcript:
-        parts.append(transcript)
+        # Site often sends STT transcript alongside the voice blob
+        transcript = _extract_transcript_fields_from_json(raw_text or "")
+        if transcript:
+            parts.append(transcript)
 
-    # Prefer clean file bytes from multipart / wrappers when present
-    payload, sniffed_ct, sniffed_name = extract_upload_file_payload(data, content_type, fname)
-    if payload and len(payload) >= 32:
-        t = _extract_text_from_file_bytes(payload, sniffed_ct or content_type, sniffed_name or fname)
-        if t:
-            parts.append(t)
-
-    # Direct scan of full body (non-multipart or when payload extract missed)
-    if not parts or (transcript and len(parts) == 1):
-        t = _extract_text_from_file_bytes(data, content_type, fname)
-        if t and t not in parts:
-            parts.append(t)
-
-    # Multipart islands: PDF / Office / plain / audio per part
-    if "multipart" in ct or b"filename=" in data[:12000] or b"webkitformboundary" in data[:4000].lower():
-        for chunk in re.split(rb"\r\n--[^\r\n]+", data):
-            if len(chunk) < 20:
-                continue
-            body = chunk
-            part_name = ""
-            header = b""
-            if b"\r\n\r\n" in chunk:
-                header, body = chunk.split(b"\r\n\r\n", 1)
-                try:
-                    hdr = header.decode("utf-8", errors="ignore")
-                except Exception:
-                    hdr = ""
-                m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";\r\n]+)"?', hdr, re.I)
-                if m:
-                    part_name = m.group(1).strip()
-            t = _extract_text_from_file_bytes(body, content_type, part_name or fname)
-            if t and len(t) > 8 and t not in parts:
+        # Prefer clean file bytes from multipart / wrappers when present
+        payload, sniffed_ct, sniffed_name = extract_upload_file_payload(data, content_type, fname)
+        if payload and len(payload) >= 32:
+            t = _extract_text_from_file_bytes(payload, sniffed_ct or content_type, sniffed_name or fname)
+            if t:
                 parts.append(t)
 
-    # Plain text bodies only — never treat ChatGPT/API JSON metadata as file content.
-    if raw_text and len(raw_text) > 20 and not parts:
-        stripped = raw_text.lstrip()
-        if stripped[:1] in ("{", "["):
-            pass
-        elif "filename=" not in raw_text[:2000].lower() and raw_text.count("\x00") == 0:
-            parts.append(raw_text[:200_000])
+        # Direct scan of full body (non-multipart or when payload extract missed)
+        if not parts or (transcript and len(parts) == 1):
+            t = _extract_text_from_file_bytes(data, content_type, fname)
+            if t and t not in parts:
+                parts.append(t)
 
-    # Deduplicate while preserving order
-    seen = set()
-    out = []
-    for p in parts:
-        key = p[:200]
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(p)
-    return "\n\n".join(out)[:250_000]
+        # Multipart islands: one extractor per part by file type
+        if "multipart" in ct or b"filename=" in data[:12000] or b"webkitformboundary" in data[:4000].lower():
+            for chunk in re.split(rb"\r\n--[^\r\n]+", data):
+                if len(chunk) < 20:
+                    continue
+                body = chunk
+                part_name = ""
+                if b"\r\n\r\n" in chunk:
+                    header, body = chunk.split(b"\r\n\r\n", 1)
+                    try:
+                        hdr = header.decode("utf-8", errors="ignore")
+                    except Exception:
+                        hdr = ""
+                    m = re.search(r'filename\*?=(?:UTF-8\'\')?"?([^";\r\n]+)"?', hdr, re.I)
+                    if m:
+                        part_name = m.group(1).strip()
+                t = _extract_text_from_file_bytes(body, content_type, part_name or fname)
+                if t and len(t) > 8 and t not in parts:
+                    parts.append(t)
+
+        # Plain text bodies only — never treat ChatGPT/API JSON metadata as file content.
+        if raw_text and len(raw_text) > 20 and not parts:
+            stripped = raw_text.lstrip()
+            if stripped[:1] not in ("{", "[") and "filename=" not in raw_text[:2000].lower() and raw_text.count("\x00") == 0:
+                parts.append(raw_text[:200_000])
+
+        # Deduplicate while preserving order
+        seen = set()
+        out = []
+        for p in parts:
+            key = p[:200]
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(p)
+        return "\n\n".join(out)[:250_000]
+    except Exception as e:
+        print(f"[UnifAI Proxy] extract_upload_text_for_rules failed (allowed): {e}")
+        return ""
 
 
 def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
@@ -5275,10 +5479,8 @@ class BrowserAIInterceptor:
                 host=host,
                 path=path,
             )
-            # Never block at upload pick — always cache bytes; block/warn/allow on Send only.
+            # Upload pick: cache bytes only — no predict, no log, no block until user presses Send.
             if confident:
-                upload_text = extract_upload_text_for_rules(raw_bytes, content_type, "", fname)
-                file_rule_hit, file_rule_name, file_rule_action = match_guard_rules_on_text(upload_text)
                 file_ids = _extract_file_ids_from_chat(raw_text)
                 cache_upload_file(
                     domain,
@@ -5286,26 +5488,21 @@ class BrowserAIInterceptor:
                     raw_bytes=raw_bytes,
                     content_type=content_type,
                     upload_reason=upload_reason or "",
-                    rule_hit=file_rule_hit,
-                    rule_name=file_rule_name,
-                    rule_action=file_rule_action,
                     file_id=file_ids[0] if file_ids else "",
                 )
                 print(
                     f"[UnifAI Proxy] FILE CACHED (await Send — no log yet) | {domain} | "
                     f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
                 )
-                # Same request can be file+prompt (multipart). Pick-only uploads stop here.
-                if not has_prompt:
-                    return
             else:
                 print(
                     f"[UnifAI Proxy] Ignoring weak upload signal | {host} | "
                     f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
                 )
+            return
 
         # ── File Send: scan/cache on pick; predict + allow/block on Send ──
-        if attachment_send:
+        if attachment_send and _file_policy_applies_on_send(path, raw_text, raw_bytes):
             if self._file_send_maybe_block(flow, domain, platform, client_ip, raw_text, content_type, path):
                 return
             if not has_prompt:
@@ -5337,7 +5534,9 @@ class BrowserAIInterceptor:
             return
 
         # File attached + Send (fallback path when extract missed on first pass)
-        if self._file_send_maybe_block(flow, domain, platform, client_ip, raw_text, content_type, path):
+        if _file_policy_applies_on_send(path, raw_text, raw_bytes) and self._file_send_maybe_block(
+            flow, domain, platform, client_ip, raw_text, content_type, path
+        ):
             return
 
         prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=flow.request.url)
@@ -5435,7 +5634,7 @@ class BrowserAIInterceptor:
         )
         attachment_send = _send_carries_attachment(content)
 
-        if attachment_send:
+        if attachment_send and _file_policy_applies_on_send(ws_path, content, content.encode("utf-8", errors="ignore")):
             should_block_file, file_block_msg = enforce_file_send_policy(
                 platform=platform,
                 domain=domain,
@@ -5497,28 +5696,29 @@ class BrowserAIInterceptor:
         if not chatgpt_shaped and is_noise(ws_path, content):
             return
 
-        # File attachment Send must hit Block Upload / file rules
-        should_block_file, file_block_msg = enforce_file_send_policy(
-            platform=platform,
-            domain=domain,
-            host=host,
-            client_ip=get_client_ip(flow),
-            url=flow.request.url,
-            method="WS",
-            raw_text=content,
-            content_type="application/json",
-            path=flow.request.path or "",
-        )
-        if should_block_file:
-            try:
-                msg.drop()
-            except Exception:
+        # File attachment Send must hit Block Upload / file rules (finished Send only)
+        if _file_policy_applies_on_send(ws_path, content, content.encode("utf-8", errors="ignore")):
+            should_block_file, file_block_msg = enforce_file_send_policy(
+                platform=platform,
+                domain=domain,
+                host=host,
+                client_ip=get_client_ip(flow),
+                url=flow.request.url,
+                method="WS",
+                raw_text=content,
+                content_type="application/json",
+                path=flow.request.path or "",
+            )
+            if should_block_file:
                 try:
-                    msg.kill()
+                    msg.drop()
                 except Exception:
-                    pass
-            inject_websocket_reply(flow, host, file_block_msg)
-            return
+                    try:
+                        msg.kill()
+                    except Exception:
+                        pass
+                inject_websocket_reply(flow, host, file_block_msg)
+                return
 
         # Copilot/Edge image or file frames must not fall through as garbled text prompts.
         if copilot_carries_binary_attach(content) or chat_carries_attachment(content) or chatgpt_carries_file(content):

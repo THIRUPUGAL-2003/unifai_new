@@ -10,6 +10,10 @@ services:
       - APP_HOST=0.0.0.0
       - LOG_LEVEL=info
       - LOG_STYLE=json
+      # AI Guard Bot → Ollama on the same host (1Panel Docker). host.docker.internal reaches host :11434.
+      - BROWSER_AI_OLLAMA_URL=http://host.docker.internal:11434
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8081:8081"
     dns:
