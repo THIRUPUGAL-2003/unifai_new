@@ -191,5 +191,9 @@ examples/mcps/oauth-demo-server/oauth-demo-server
 tests/cmd/e2eseed/e2eseed
 tests/cmd/seedvks/seedvks
 
+# Built Go binaries (local build output — never commit)
+transports/unifai-http/unifai-http
+transports/unifai-http/unifai-http.exe
+
 # routing harness ledgers (local run journals, never committed)
 tests/e2e/api/routing/ledger-*

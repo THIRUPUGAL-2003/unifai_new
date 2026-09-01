@@ -152,12 +152,9 @@ func (h *BrowserAIHandler) createRule(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	if strings.ToLower(rule.RuleType) == "ai_bot" {
+		applyAIBotDefaults(&rule)
 		if strings.TrimSpace(rule.BotPrompt) == "" {
 			SendError(ctx, fasthttp.StatusBadRequest, "Evaluation prompt is required for AI Guard Bot rule")
-			return
-		}
-		if strings.TrimSpace(rule.BotProvider) == "" || strings.TrimSpace(rule.BotModel) == "" {
-			SendError(ctx, fasthttp.StatusBadRequest, "Provider and model are required for AI Guard Bot rule")
 			return
 		}
 	} else {
@@ -223,12 +220,16 @@ func (h *BrowserAIHandler) updateRule(ctx *fasthttp.RequestCtx) {
 		botPrompt, _ := updates["bot_prompt"].(string)
 		botProvider, _ := updates["bot_provider"].(string)
 		botModel, _ := updates["bot_model"].(string)
+		tmp := logstore.BrowserGuardRule{
+			RuleType:    "ai_bot",
+			BotProvider: botProvider,
+			BotModel:    botModel,
+		}
+		applyAIBotDefaults(&tmp)
+		updates["bot_provider"] = tmp.BotProvider
+		updates["bot_model"] = tmp.BotModel
 		if strings.TrimSpace(botPrompt) == "" {
 			SendError(ctx, fasthttp.StatusBadRequest, "Evaluation prompt is required for AI Guard Bot rule")
-			return
-		}
-		if strings.TrimSpace(botProvider) == "" || strings.TrimSpace(botModel) == "" {
-			SendError(ctx, fasthttp.StatusBadRequest, "Provider and model are required for AI Guard Bot rule")
 			return
 		}
 	}
@@ -718,7 +719,8 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
 				continue
 			}
-			if strings.TrimSpace(rule.BotPrompt) == "" || strings.TrimSpace(rule.BotProvider) == "" || strings.TrimSpace(rule.BotModel) == "" {
+			applyAIBotDefaults(&rule)
+			if strings.TrimSpace(rule.BotPrompt) == "" {
 				// Misconfigured bot rule — do not silently skip BLOCK policies.
 				if logstore.NormalizeGuardRuleAction(rule.Action) == "BLOCK" {
 					logEntry.Action = "Blocked"
@@ -729,11 +731,11 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					logEntry.RuleTriggered = rule.Name
 					ruleWarning = strings.TrimSpace(rule.WarningMessage)
 					if ruleWarning == "" {
-						ruleWarning = "AI Guard Bot rule is incomplete (provider/model/prompt required)."
+						ruleWarning = "AI Guard Bot rule is incomplete (evaluation prompt required)."
 					}
 					allowed = false
 					isViolationBlock = true
-					evalError = "ai guard bot misconfigured: provider, model, and prompt are required"
+					evalError = "ai guard bot misconfigured: evaluation prompt is required"
 					securityVerdict = "misconfigured"
 					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 					break
@@ -1158,10 +1160,6 @@ func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "bot_prompt is required")
 		return
 	}
-	if strings.TrimSpace(payload.BotProvider) == "" || strings.TrimSpace(payload.BotModel) == "" {
-		SendError(ctx, fasthttp.StatusBadRequest, "bot_provider and bot_model are required")
-		return
-	}
 	sample := strings.TrimSpace(payload.SamplePrompt)
 	if sample == "" {
 		SendError(ctx, fasthttp.StatusBadRequest, "sample_prompt is required")
@@ -1179,6 +1177,7 @@ func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
 	if rule.Name == "" {
 		rule.Name = "Test AI Guard Bot"
 	}
+	applyAIBotDefaults(&rule)
 	violated, evalErr := h.evaluateAIBotRule(rule, sample)
 	verdict := "clear"
 	message := securityVerdictMessage("clear", rule.Name)
@@ -1231,9 +1230,7 @@ func resolveGuardBotModel(provider, model string) (schemas.ModelProvider, string
 }
 
 func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, userPrompt string) (bool, string) {
-	if h.client == nil {
-		return false, "unifai client not available"
-	}
+	applyAIBotDefaults(&rule)
 
 	providerName, modelName := resolveGuardBotModel(rule.BotProvider, rule.BotModel)
 	if providerName == "" || strings.TrimSpace(modelName) == "" {
@@ -1253,8 +1250,28 @@ Reply with one JSON object and nothing else:
 	userMsg := fmt.Sprintf(
 		"SECURITY_POLICY:\n%s\n\nUSER_PROMPT TO EVALUATE:\n%s\n\nJSON only.",
 		strings.TrimSpace(rule.BotPrompt),
-		truncateRunes(userPrompt, 3000),
+		truncateRunes(userPrompt, browserAIGuardBotMaxPromptRunes),
 	)
+
+	if isOllamaGuardProvider(string(providerName)) {
+		rawText, err := callOllamaChat(defaultOllamaBaseURL(), modelName, systemPrompt, userMsg, true, 90*time.Second)
+		if err != nil {
+			return false, truncateRunes(err.Error(), 180)
+		}
+		rawText = stripEvalMarkdown(rawText)
+		if rawText == "" {
+			return false, "empty evaluator response"
+		}
+		violated, recognized := parseAIBotDecision(rawText)
+		if !recognized {
+			return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80)
+		}
+		return violated, ""
+	}
+
+	if h.client == nil {
+		return false, "unifai client not available"
+	}
 
 	maxTokens := 128
 	temp := 0.0
@@ -1423,10 +1440,7 @@ func truthyEval(v any) bool {
 }
 
 func (h *BrowserAIHandler) generateReplyBotText(ctx *fasthttp.RequestCtx, provider, model, platform, ruleTriggered, userPrompt, kind string) (string, error) {
-	if h.client == nil {
-		return "", fmt.Errorf("unifai client not available")
-	}
-
+	provider, model = applyGuardBotDefaults(provider, model)
 	providerName, modelName := resolveGuardBotModel(provider, model)
 
 	systemPrompt := `You are UnifAI Guard, an enterprise security assistant embedded in browser AI chats.
@@ -1442,7 +1456,7 @@ Do NOT include the secret itself. Do NOT help bypass the policy. Plain text only
 		"Platform: %s\nViolation rule: %s\nUser prompt (may contain secrets — do not repeat them):\n%s",
 		platform,
 		ruleTriggered,
-		truncateRunes(userPrompt, 1200),
+		truncateRunes(userPrompt, browserAIGuardBotMaxPromptRunes),
 	)
 
 	if kind != "violation" {
@@ -1450,7 +1464,19 @@ Do NOT include the secret itself. Do NOT help bypass the policy. Plain text only
 Answer the user's question helpfully and accurately in plain text (no markdown headings).
 Keep replies concise (typically under 12 sentences) unless the user asks for detail.
 If the question is unsafe or asks for secrets/credentials, refuse briefly and explain.`
-		userMsg = fmt.Sprintf("Platform: %s\nUser question:\n%s", platform, truncateRunes(userPrompt, 4000))
+		userMsg = fmt.Sprintf("Platform: %s\nUser question:\n%s", platform, truncateRunes(userPrompt, browserAIGuardBotMaxPromptRunes))
+	}
+
+	if isOllamaGuardProvider(string(providerName)) {
+		text, err := callOllamaChat(defaultOllamaBaseURL(), modelName, systemPrompt, userMsg, false, 90*time.Second)
+		if err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(text), nil
+	}
+
+	if h.client == nil {
+		return "", fmt.Errorf("unifai client not available")
 	}
 
 	maxTokens := 350

@@ -305,6 +305,10 @@ function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
 	);
 }
 
+const GUARD_BOT_OLLAMA_PROVIDER = "ollama";
+const GUARD_BOT_OLLAMA_MODEL = "llama3.2";
+const GUARD_BOT_OLLAMA_ENDPOINT = "http://76.13.243.253:11434";
+
 export default function BrowserAiPage() {
 	const [activeTab, setActiveTab] = useState("overview");
 
@@ -357,8 +361,8 @@ export default function BrowserAiPage() {
 	// New Rule Form
 	const [newRuleName, setNewRuleName] = useState("");
 	const [newRuleType, setNewRuleType] = useState<"regex" | "ai_bot">("regex");
-	const [newRuleBotProvider, setNewRuleBotProvider] = useState("");
-	const [newRuleBotModel, setNewRuleBotModel] = useState("");
+	const [newRuleBotProvider, setNewRuleBotProvider] = useState(GUARD_BOT_OLLAMA_PROVIDER);
+	const [newRuleBotModel, setNewRuleBotModel] = useState(GUARD_BOT_OLLAMA_MODEL);
 	const [newRuleBotPrompt, setNewRuleBotPrompt] = useState("");
 	const [newRuleSeverity, setNewRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
 	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "WARN">("BLOCK");
@@ -760,10 +764,6 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setRuleError("Evaluation instruction/prompt is required for AI Guard Bot.");
 				return;
 			}
-			if (!newRuleBotProvider.trim() || !newRuleBotModel.trim()) {
-				setRuleError("Provider and Model are required for AI Guard Bot.");
-				return;
-			}
 		} else {
 			if (!newRulePattern.trim()) {
 				setRuleError("Regex pattern is required for Regex rule.");
@@ -775,8 +775,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				name: newRuleName.trim(),
 				rule_type: newRuleType,
 				pattern: newRuleType === "regex" ? newRulePattern.trim() : "",
-				bot_provider: newRuleType === "ai_bot" ? newRuleBotProvider.trim() : "",
-				bot_model: newRuleType === "ai_bot" ? newRuleBotModel.trim() : "",
+				bot_provider: newRuleType === "ai_bot" ? GUARD_BOT_OLLAMA_PROVIDER : "",
+				bot_model: newRuleType === "ai_bot" ? GUARD_BOT_OLLAMA_MODEL : "",
 				bot_prompt: newRuleType === "ai_bot" ? newRuleBotPrompt.trim() : "",
 				severity: newRuleSeverity,
 				action: newRuleAction,
@@ -804,10 +804,6 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setRuleError("Evaluation instruction/prompt is required for AI Guard Bot.");
 				return;
 			}
-			if (!editRuleBotProvider.trim() || !editRuleBotModel.trim()) {
-				setRuleError("Provider and Model are required for AI Guard Bot.");
-				return;
-			}
 		} else {
 			if (!editRulePattern.trim()) {
 				setRuleError("Regex pattern is required for Regex rule.");
@@ -824,8 +820,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				warning_message: editRuleWarningMessage.trim(),
 			};
 			if (editRuleType === "ai_bot") {
-				updates.bot_provider = editRuleBotProvider.trim();
-				updates.bot_model = editRuleBotModel.trim();
+				updates.bot_provider = GUARD_BOT_OLLAMA_PROVIDER;
+				updates.bot_model = GUARD_BOT_OLLAMA_MODEL;
 				updates.bot_prompt = editRuleBotPrompt.trim();
 				updates.pattern = "";
 			} else {
@@ -1712,6 +1708,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 														type="button"
 														onClick={() => {
 															setNewRuleType("ai_bot");
+															setNewRuleBotProvider(GUARD_BOT_OLLAMA_PROVIDER);
+															setNewRuleBotModel(GUARD_BOT_OLLAMA_MODEL);
 														}}
 														className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
 															newRuleType === "ai_bot"
@@ -1778,36 +1776,14 @@ type RelatedHostEntry = { host: string; role: HostRole };
 												<div className="space-y-3 p-3 bg-purple-950/20 border border-purple-900/40 rounded-lg">
 													<div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
 														<Bot className="h-3.5 w-3.5" />
-														<span>AI Evaluator Model Configuration</span>
+														<span>AI Evaluator (Ollama)</span>
 													</div>
-													<div className="grid grid-cols-2 gap-3">
-														<div className="space-y-1.5">
-															<Label className="text-xs">Model Provider</Label>
-															<ComboboxSelect
-																options={guardBotProviderOptions}
-																value={newRuleBotProvider || null}
-																onValueChange={(p) => {
-																	const key = String(p || "").toLowerCase();
-																	setNewRuleBotProvider(key);
-																	setNewRuleBotModel("");
-																}}
-																placeholder={guardBotProviderOptions.length === 0 ? "Add a provider key first" : "Select provider"}
-																hideClear
-																emptyMessage="No providers with API keys. Add a key under Models → Model Providers."
-																data-testid="browser-ai-guard-bot-provider"
-															/>
-														</div>
-														<div className="space-y-1.5">
-															<Label className="text-xs">Model Name</Label>
-															<GuardBotModelPicker
-																provider={newRuleBotProvider}
-																value={newRuleBotModel}
-																onChange={setNewRuleBotModel}
-															/>
-														</div>
+													<div className="rounded-md border border-purple-900/50 bg-purple-950/30 px-3 py-2 text-xs text-purple-100">
+														<div className="font-semibold">Ollama · {GUARD_BOT_OLLAMA_MODEL}</div>
+														<div className="text-[11px] text-muted-foreground mt-0.5">{GUARD_BOT_OLLAMA_ENDPOINT}</div>
 													</div>
 													<p className="text-[11px] text-muted-foreground">
-														Only providers with API keys from Models → Model Providers are listed. After you pick a provider, every model name for that provider is shown.
+														AI Guard Bot uses the local Ollama llama3.2 model on your server. Regex rules still run first; this bot evaluates the prompt against your security policy.
 													</p>
 													<div className="space-y-1.5">
 														<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
@@ -1912,15 +1888,15 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 												{rule.rule_type === "ai_bot" ? (
 													<div className="rounded-md border border-purple-900/40 bg-purple-950/20 px-3 py-2 space-y-1">
-														{!(rule.bot_provider && rule.bot_model && rule.bot_prompt) ? (
+														{!rule.bot_prompt ? (
 															<p className="text-xs text-red-300 font-medium">
-																Incomplete — set Provider, Model, and Security Policy prompt, then Save. Bot will not evaluate until configured.
+																Incomplete — set the Security Policy prompt, then Save. Bot will not evaluate until configured.
 															</p>
 														) : null}
 														<div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-purple-300/80">
 															<span>AI Security Policy (Prompt)</span>
 															<Badge variant="outline" className="text-[10px] py-0 px-1.5 text-purple-300 border-purple-800">
-																{rule.bot_provider || "—"} / {rule.bot_model || "—"}
+																{rule.bot_provider || GUARD_BOT_OLLAMA_PROVIDER} / {rule.bot_model || GUARD_BOT_OLLAMA_MODEL}
 															</Badge>
 														</div>
 														<p className="text-xs text-purple-100/90 whitespace-pre-wrap break-words font-mono">
@@ -1955,8 +1931,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 															setEditRule(rule);
 															setEditRuleName(rule.name);
 															setEditRuleType(rule.rule_type === "ai_bot" ? "ai_bot" : "regex");
-															setEditRuleBotProvider(rule.bot_provider || "");
-															setEditRuleBotModel(rule.bot_model || "");
+															setEditRuleBotProvider(rule.bot_provider || GUARD_BOT_OLLAMA_PROVIDER);
+															setEditRuleBotModel(rule.bot_model || GUARD_BOT_OLLAMA_MODEL);
 															setEditRuleBotPrompt(rule.bot_prompt || "");
 															setEditRuleSeverity(rule.severity);
 															setEditRuleAction(rule.action === "REDACT" || rule.action === "WARN" ? "WARN" : "BLOCK");
@@ -2471,6 +2447,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 										type="button"
 										onClick={() => {
 											setEditRuleType("ai_bot");
+											setEditRuleBotProvider(GUARD_BOT_OLLAMA_PROVIDER);
+											setEditRuleBotModel(GUARD_BOT_OLLAMA_MODEL);
 										}}
 										className={`flex items-center justify-center gap-2 py-2 px-3 rounded-md text-xs font-semibold transition-all ${
 											editRuleType === "ai_bot"
@@ -2529,36 +2507,14 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<div className="space-y-3 p-3 bg-purple-950/20 border border-purple-900/40 rounded-lg">
 									<div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
 										<Bot className="h-3.5 w-3.5" />
-										<span>AI Evaluator Model Configuration</span>
+										<span>AI Evaluator (Ollama)</span>
 									</div>
-									<div className="grid grid-cols-2 gap-3">
-										<div className="space-y-1.5">
-											<Label className="text-xs">Model Provider</Label>
-											<ComboboxSelect
-												options={guardBotProviderOptions}
-												value={editRuleBotProvider || null}
-												onValueChange={(p) => {
-													const key = String(p || "").toLowerCase();
-													setEditRuleBotProvider(key);
-													setEditRuleBotModel("");
-												}}
-												placeholder={guardBotProviderOptions.length === 0 ? "Add a provider key first" : "Select provider"}
-												hideClear
-												emptyMessage="No providers with API keys. Add a key under Models → Model Providers."
-												data-testid="browser-ai-guard-bot-provider-edit"
-											/>
-										</div>
-										<div className="space-y-1.5">
-											<Label className="text-xs">Model Name</Label>
-											<GuardBotModelPicker
-												provider={editRuleBotProvider}
-												value={editRuleBotModel}
-												onChange={setEditRuleBotModel}
-											/>
-										</div>
+									<div className="rounded-md border border-purple-900/50 bg-purple-950/30 px-3 py-2 text-xs text-purple-100">
+										<div className="font-semibold">Ollama · {GUARD_BOT_OLLAMA_MODEL}</div>
+										<div className="text-[11px] text-muted-foreground mt-0.5">{GUARD_BOT_OLLAMA_ENDPOINT}</div>
 									</div>
 									<p className="text-[11px] text-muted-foreground">
-										Only providers with API keys from Models → Model Providers are listed. After you pick a provider, every model name for that provider is shown.
+										AI Guard Bot uses the local Ollama llama3.2 model on your server. Regex rules still run first; this bot evaluates the prompt against your security policy.
 									</p>
 									<div className="space-y-1.5">
 										<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
