@@ -1020,6 +1020,34 @@ def _is_ai_chrome_url(text: str) -> bool:
     return False
 
 
+_FILE_EXTENSION_RE = re.compile(
+    r"\.(?:pdf|docx?|xlsx?|pptx?|csv|txt|png|jpe?g|gif|webp|zip|rar|7z|"
+    r"mp3|mp4|wav|m4a|mov|avi|json|xml|html?|md|rtf|odt|ods|ppt)(?:\s|$)",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_filename_only(text: str) -> bool:
+    """True when extracted text is only an attachment filename — not user chat."""
+    t = (text or "").strip()
+    if not t or " " in t or "\n" in t or len(t) > 240:
+        return False
+    if not re.search(r"\.[a-z0-9]{2,8}$", t, re.IGNORECASE):
+        return False
+    if _FILE_EXTENSION_RE.search(t):
+        return True
+    return bool(re.fullmatch(r"[\w\-.]+\.[a-z0-9]{2,8}", t, re.IGNORECASE))
+
+
+def _send_carries_attachment(raw_text: str) -> bool:
+    """True when this chat Send references an uploaded/attached file."""
+    return bool(
+        chat_carries_attachment(raw_text)
+        or chatgpt_carries_file(raw_text)
+        or bool(extract_attachment_filename_from_send(raw_text))
+    )
+
+
 def looks_like_user_prompt(text: str) -> bool:
     """
     Save any user-typed prompt: any language, numbers, symbols, code, one word or long text.
@@ -1047,6 +1075,10 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
     if t.startswith("[FILE UPLOAD") or t.startswith("[FILE DOWNLOAD") or t.startswith("[FILE CONTENT") or t.startswith("[SITE BLOCKED"):
         return True
+    if _looks_like_filename_only(t):
+        return False
+    if len(t) == 1 and t in "/.\\|#@":
+        return False
 
     # Reject raw urlencoded wire parameters or batch execute bodies
     if any(wire in t for wire in ("count=", "&ofs=", "req0___data__", "f.req=", "soc-app=", "soc-platform=", "___data__=")):
@@ -1195,6 +1227,8 @@ def _should_intercept_extracted_prompt(
     if _is_opaque_wire_blob(text):
         return False
     if text.startswith("[FILE UPLOAD"):
+        return False
+    if _looks_like_filename_only(text):
         return False
     if _is_typing_or_draft_path(path, raw_text):
         return False
@@ -5025,6 +5059,7 @@ class BrowserAIInterceptor:
             raw_bytes, content_type, host=host, url=flow.request.url,
         )
         has_prompt = _should_intercept_extracted_prompt(peek_prompt, path, raw_text, domain)
+        attachment_send = _send_carries_attachment(raw_text)
 
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
         if is_upload:
@@ -5067,10 +5102,15 @@ class BrowserAIInterceptor:
                     f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
                 )
 
-        # ── Domain-add-only intercept: extracted text → file scan + predict ──
-        if has_prompt:
+        # ── File Send: scan/cache on pick; predict + allow/block on Send ──
+        if attachment_send:
             if self._file_send_maybe_block(flow, domain, platform, client_ip, raw_text, content_type, path):
                 return
+            if not has_prompt:
+                return
+
+        # ── Domain-add-only intercept: extracted user text → predict ──
+        if has_prompt:
             self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
             return
 
@@ -5183,13 +5223,15 @@ class BrowserAIInterceptor:
             return
 
         ws_path = flow.request.path or ""
-
-        # ── Universal WebSocket: domain-agnostic extract (same rule as HTTP) ──
+        client_ip = get_client_ip(flow)
+        ws_has_prompt = False
         ws_prompt = extract_prompt_universal(
             content.encode("utf-8"), "application/json", host=host, url=flow.request.url,
         )
-        if _should_intercept_extracted_prompt(ws_prompt, ws_path, content, domain):
-            client_ip = get_client_ip(flow)
+        ws_has_prompt = _should_intercept_extracted_prompt(ws_prompt, ws_path, content, domain)
+        attachment_send = _send_carries_attachment(content)
+
+        if attachment_send:
             should_block_file, file_block_msg = enforce_file_send_policy(
                 platform=platform,
                 domain=domain,
@@ -5211,7 +5253,11 @@ class BrowserAIInterceptor:
                         pass
                 inject_websocket_reply(flow, host, (file_block_msg or "").strip())
                 return
-            print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {ws_prompt[:80]!r}")
+            if not ws_has_prompt:
+                return
+
+        # ── Universal WebSocket: domain-agnostic extract (same rule as HTTP) ──
+        if ws_has_prompt:
             mark_duplicate_event(domain, ws_prompt)
             allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
                 platform=platform,
