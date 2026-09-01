@@ -1113,17 +1113,51 @@ def detect_target(host: str) -> tuple[bool, str, str]:
 
 
 def resolve_host_role(host: str) -> str:
-    """Admin-assigned role from dashboard (ui | chat | file | auto)."""
+    """Admin-assigned role from dashboard (ui | chat | file | auto).
+
+    Auto ("") inherits the nearest parent domain's explicit role so related hosts
+    under e.g. perplexity.ai (chat) behave as chat without per-host labeling.
+    """
     get_target_domains()
     host_lower = (host or "").lower().strip(".")
     best_role = ""
     best_len = -1
+    matched_domain = ""
     for domain, role in _cached_roles.items():
         if host_lower == domain or host_lower.endswith("." + domain):
             if len(domain) > best_len:
                 best_len = len(domain)
                 best_role = role or ""
-    return best_role
+                matched_domain = domain
+    if best_role in ("ui", "chat", "file"):
+        return best_role
+    # Inherit from registrable parent targets (www.perplexity.ai → perplexity.ai).
+    if matched_domain:
+        parts = matched_domain.split(".")
+        for i in range(1, len(parts)):
+            parent = ".".join(parts[i:])
+            pr = _cached_roles.get(parent, "")
+            if pr in ("ui", "chat", "file"):
+                return pr
+    return ""
+
+
+def _is_clear_chat_submit(path: str, host: str, raw_text: str, raw_bytes: bytes = b"") -> bool:
+    """Finished chat Send on an admin-monitored host — not typing/telemetry/CDN."""
+    path_l = (path or "").lower()
+    if "prepare" in path_l or "autocomplet" in path_l or "implicit_hint" in path_l:
+        return False
+    if is_unsubmitted_chat_body(path, raw_text):
+        return False
+    return (
+        is_perplexity_chat_submit(path, raw_text)
+        or is_gemini_chat_submit(path, raw_text)
+        or is_copilot_chat_submit(path, raw_text)
+        or _is_chatgpt_style_path(path_l)
+        or _looks_like_chatgpt_body(raw_text, raw_bytes)
+        or _is_claude_api_shape(path, raw_text)
+        or _path_has_chat_marker(path_l)
+    )
 
 
 def is_noise(path: str, content: str = "") -> bool:
@@ -3818,28 +3852,68 @@ def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
 
 
 def extract_perplexity_prompt(content: str) -> str | None:
-    """Extract user query from Perplexity /rest/sse/perplexity_ask JSON bodies."""
-    if not content or not content.lstrip().startswith("{"):
+    """Extract user query from Perplexity /rest/sse, /rest/thread, entrypoint JSON."""
+    if not content:
+        return None
+    text = content.strip()
+    if not text.startswith("{"):
         return None
     try:
-        data = json.loads(content)
+        data = json.loads(text)
     except Exception:
         return None
     if not isinstance(data, dict):
         return None
+
+    def _pick(val) -> str | None:
+        if isinstance(val, (str, int, float)):
+            got = _clean_prompt_text(str(val))
+            if got:
+                return got
+        return None
+
     qs = data.get("query_str")
     if isinstance(qs, str) and qs.strip():
         got = _clean_prompt_text(qs)
         if got:
             return got
+
+    for key in (
+        "query", "user_query", "last_query", "search_query", "user_message",
+        "message", "text", "input", "follow_up_input", "user_text", "dsl_query",
+        "q", "prompt", "utterance",
+    ):
+        got = _pick(data.get(key))
+        if got:
+            return got
+
     params = data.get("params")
     if isinstance(params, dict):
-        for key in ("query_str", "dsl_query", "query"):
-            val = params.get(key)
-            if isinstance(val, str) and val.strip():
-                got = _clean_prompt_text(val)
+        for key in ("query_str", "dsl_query", "query", "user_query", "message", "text"):
+            got = _pick(params.get(key))
+            if got:
+                return got
+
+    for wrapper in ("data", "payload", "body", "request", "entry"):
+        inner = data.get(wrapper)
+        if isinstance(inner, dict):
+            try:
+                nested = extract_perplexity_prompt(json.dumps(inner))
+            except Exception:
+                nested = None
+            if nested:
+                return nested
+
+    msgs = data.get("messages")
+    if isinstance(msgs, list):
+        for msg in reversed(msgs):
+            if not isinstance(msg, dict):
+                continue
+            for key in ("query_str", "query", "text", "content", "message", "user_message"):
+                got = _pick(msg.get(key))
                 if got:
                     return got
+
     return None
 
 
@@ -4814,8 +4888,19 @@ class BrowserAIInterceptor:
 
         host_role = resolve_host_role(host)
 
-        # Main UI host — site lock only; chat/file live on labeled related hosts.
-        if host_role == "ui":
+        # Peek before role skips — never drop a finished Send because of wrong Main UI label.
+        peek_prompt = extract_prompt_universal(
+            raw_bytes, content_type, host=host, url=flow.request.url,
+        )
+        clear_chat = bool(
+            peek_prompt
+            and looks_like_user_prompt(peek_prompt)
+            and not _is_opaque_wire_blob(peek_prompt)
+            and _is_clear_chat_submit(path, host, raw_text, raw_bytes)
+        )
+
+        # Main UI / file hosts skip CDN noise — but always scan real chat submits.
+        if host_role == "ui" and not clear_chat:
             return
 
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
@@ -4857,18 +4942,18 @@ class BrowserAIInterceptor:
             )
             # Fall through to normal prompt intercept
 
-        # File-labeled host: uploads only — do not treat CDN/static POSTs as chat.
-        if host_role == "file":
+        # File-labeled host: uploads only — unless this POST is a chat Send with text.
+        if host_role == "file" and not clear_chat:
             return
 
-        # Also drop multipart noise that slipped past upload detection (chat hosts may carry attachments).
-        if host_role != "chat" and (
+        # Drop multipart CDN noise on Auto hosts — not finished chat+attachment sends.
+        if not clear_chat and host_role != "chat" and (
             "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower()
         ):
             return
 
         # ── Universal path: domain-agnostic extract + predict (any admin Target Website) ──
-        universal_prompt = extract_prompt_universal(
+        universal_prompt = peek_prompt or extract_prompt_universal(
             raw_bytes, content_type, host=host, url=flow.request.url,
         )
         if (
