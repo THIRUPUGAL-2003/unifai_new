@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Plus, Trash, Edit, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
+import { getErrorMessage } from "@/lib/store";
 import {
 	useGetGuardrailsConfigQuery,
 	useUpdateGuardrailsConfigMutation,
@@ -11,8 +12,15 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { collectGuardrailIds, nextGuardrailId } from "./utils";
+
+function validateProviderForm(provider: Partial<GuardrailProvider> | null, patternText: string): string | null {
+	if (!provider?.id) return "Provider ID is missing";
+	if (!provider.policy_name?.trim()) return "Policy name is required";
+	if (!patternText.trim()) return "Add at least one regex pattern";
+	return null;
+}
 
 export default function GuardrailsProviderView() {
 	const { data: config, isLoading } = useGetGuardrailsConfigQuery();
@@ -21,10 +29,28 @@ export default function GuardrailsProviderView() {
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [editingProvider, setEditingProvider] = useState<Partial<GuardrailProvider> | null>(null);
 
-	if (isLoading) return <div className="p-4">Loading providers...</div>;
-
 	const providers = config?.guardrail_providers || [];
 	const rules = config?.guardrail_rules || [];
+
+	const getRegexPatterns = (provider: Partial<GuardrailProvider>) => {
+		const raw = provider.config?.patterns;
+		if (!Array.isArray(raw)) return "";
+		return raw
+			.map((item) => {
+				if (typeof item === "string") return item;
+				if (item && typeof item === "object" && "pattern" in item) {
+					return String((item as { pattern?: string }).pattern || "");
+				}
+				return "";
+			})
+			.filter((p) => p.trim() !== "")
+			.join("\n");
+	};
+
+	const patternText = getRegexPatterns(editingProvider || {});
+	const formError = useMemo(() => validateProviderForm(editingProvider, patternText), [editingProvider, patternText]);
+
+	if (isLoading) return <div className="p-4">Loading providers...</div>;
 
 	const handleDeleteProvider = async (providerId: number) => {
 		if (!config) return;
@@ -40,23 +66,23 @@ export default function GuardrailsProviderView() {
 			await updateConfig({ ...config, guardrail_providers: updatedProviders }).unwrap();
 			toast.success("Provider deleted");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to delete provider");
+			toast.error(getErrorMessage(error));
 		}
 	};
 
 	const handleSaveProvider = async () => {
-		if (!config || !editingProvider || !editingProvider.policy_name || !editingProvider.id) return;
+		if (!config || !editingProvider) return;
 
-		const patternText = getRegexPatterns(editingProvider);
-		if (!patternText.trim()) {
-			toast.error("Add at least one regex pattern");
+		const validationError = validateProviderForm(editingProvider, patternText);
+		if (validationError) {
+			toast.error(validationError);
 			return;
 		}
 
 		const providerToSave: GuardrailProvider = {
-			id: editingProvider.id,
+			id: editingProvider.id!,
 			provider_name: "regex",
-			policy_name: editingProvider.policy_name,
+			policy_name: editingProvider.policy_name!.trim(),
 			enabled: editingProvider.enabled ?? true,
 			config: editingProvider.config || { patterns: [] },
 		};
@@ -76,23 +102,8 @@ export default function GuardrailsProviderView() {
 			setIsModalOpen(false);
 			setEditingProvider(null);
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to save provider");
+			toast.error(getErrorMessage(error));
 		}
-	};
-
-	const getRegexPatterns = (provider: Partial<GuardrailProvider>) => {
-		const raw = provider.config?.patterns;
-		if (!Array.isArray(raw)) return "";
-		return raw
-			.map((item) => {
-				if (typeof item === "string") return item;
-				if (item && typeof item === "object" && "pattern" in item) {
-					return String((item as { pattern?: string }).pattern || "");
-				}
-				return "";
-			})
-			.filter((p) => p.trim() !== "")
-			.join("\n");
 	};
 
 	const setRegexPatterns = (val: string) => {
@@ -205,13 +216,20 @@ export default function GuardrailsProviderView() {
 						</div>
 						<div className="grid gap-2">
 							<Label htmlFor="provider_name">Type</Label>
-							<Input id="provider_name" value="regex" disabled />
+							<Select value="regex" disabled>
+								<SelectTrigger id="provider_name">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="regex">Regex matcher</SelectItem>
+								</SelectContent>
+							</Select>
 						</div>
 						<div className="grid gap-2">
 							<Label htmlFor="patterns">Regex Patterns (One per line)</Label>
 							<Textarea
 								id="patterns"
-								value={getRegexPatterns(editingProvider || {})}
+								value={patternText}
 								onChange={(e) => setRegexPatterns(e.target.value)}
 								placeholder="[A-Z]{5}[0-9]{4}[A-Z]"
 								className="font-mono text-sm"
@@ -219,14 +237,15 @@ export default function GuardrailsProviderView() {
 								data-testid="guardrails-provider-patterns-input"
 							/>
 						</div>
+						{formError ? <p className="text-destructive text-xs">{formError}</p> : null}
 					</div>
 					<DialogFooter>
 						<Button variant="outline" onClick={() => setIsModalOpen(false)}>
 							Cancel
 						</Button>
 						<Button
-							onClick={handleSaveProvider}
-							disabled={!editingProvider?.id || !editingProvider?.policy_name}
+							onClick={() => void handleSaveProvider()}
+							disabled={!!formError}
 							data-testid="guardrails-provider-save-button"
 						>
 							Save Provider

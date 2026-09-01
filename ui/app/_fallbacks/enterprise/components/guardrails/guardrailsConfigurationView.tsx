@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Plus, Trash, Edit, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -6,6 +6,8 @@ import {
 	useUpdateGuardrailsConfigMutation,
 	GuardrailRule,
 } from "@/lib/store/apis/guardrailsApi";
+import { getErrorMessage } from "@/lib/store";
+import { useGetPromptsQuery } from "@/lib/store/apis/promptsApi";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -15,18 +17,67 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { MultiSelect } from "@/components/ui/multiSelect";
-import { collectGuardrailIds, formatLinkedProviders, nextGuardrailId, providerLabel } from "./utils";
+import {
+	buildCelFromPromptSelection,
+	collectGuardrailIds,
+	formatLinkedProviders,
+	formatRuleTriggerSummary,
+	GuardrailPromptScope,
+	nextGuardrailId,
+	parseCelPromptSelection,
+	providerLabel,
+} from "./utils";
+
+function validateRuleForm(
+	rule: Partial<GuardrailRule> | null,
+	promptScope: GuardrailPromptScope,
+	selectedPromptIds: string[],
+): string | null {
+	if (!rule?.name?.trim()) {
+		return "Rule name is required";
+	}
+	if ((rule.provider_config_ids || []).length === 0) {
+		return "Select at least one guardrail provider";
+	}
+	if (promptScope === "prompts" && selectedPromptIds.length === 0) {
+		return "Select at least one prompt from the repository";
+	}
+	if (promptScope === "custom" && !rule.cel_expression?.trim()) {
+		return "CEL expression is required for custom rules";
+	}
+	return null;
+}
 
 export default function GuardrailsConfigurationView() {
 	const { data: config, isLoading } = useGetGuardrailsConfigQuery();
+	const { data: promptsData } = useGetPromptsQuery();
 	const [updateConfig] = useUpdateGuardrailsConfigMutation();
 
 	const [isModalOpen, setIsModalOpen] = useState(false);
 	const [editingRule, setEditingRule] = useState<Partial<GuardrailRule> | null>(null);
+	const [promptScope, setPromptScope] = useState<GuardrailPromptScope>("all");
+	const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
 
 	const rules = config?.guardrail_rules || [];
 	const providers = config?.guardrail_providers || [];
 	const isEnabled = rules.length > 0 && rules.some((r) => r.enabled);
+
+	const promptNameById = useMemo(() => {
+		const map = new Map<string, string>();
+		for (const prompt of promptsData?.prompts || []) {
+			map.set(prompt.id, prompt.name);
+		}
+		return map;
+	}, [promptsData?.prompts]);
+
+	const promptOptions = useMemo(
+		() =>
+			(promptsData?.prompts || []).map((prompt) => ({
+				label: prompt.name,
+				value: prompt.id,
+			})),
+		[promptsData?.prompts],
+	);
 
 	const providerOptions = useMemo(
 		() =>
@@ -38,6 +89,19 @@ export default function GuardrailsConfigurationView() {
 	);
 
 	const selectedProviderIds = (editingRule?.provider_config_ids || []).map(String);
+	const formError = useMemo(
+		() => validateRuleForm(editingRule, promptScope, selectedPromptIds),
+		[editingRule, promptScope, selectedPromptIds],
+	);
+
+	useEffect(() => {
+		if (!isModalOpen || !editingRule) {
+			return;
+		}
+		const parsed = parseCelPromptSelection(editingRule.cel_expression || "");
+		setPromptScope(parsed.scope === "custom" ? "custom" : parsed.scope);
+		setSelectedPromptIds(parsed.promptIds);
+	}, [isModalOpen, editingRule?.id, editingRule?.cel_expression]);
 
 	if (isLoading) return <div className="p-4">Loading guardrails configuration...</div>;
 
@@ -48,7 +112,7 @@ export default function GuardrailsConfigurationView() {
 			await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
 			toast.success(checked ? "Guardrails enabled" : "Guardrails disabled");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to update guardrails");
+			toast.error(getErrorMessage(error));
 		}
 	};
 
@@ -59,28 +123,42 @@ export default function GuardrailsConfigurationView() {
 			await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
 			toast.success("Rule deleted");
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to delete rule");
+			toast.error(getErrorMessage(error));
 		}
 	};
 
 	const handleSaveRule = async () => {
-		if (!config || !editingRule || !editingRule.name || !editingRule.cel_expression) return;
+		if (!config || !editingRule) return;
 
-		if ((editingRule.provider_config_ids || []).length === 0) {
-			toast.error("Select at least one guardrail provider for this rule");
+		const validationError = validateRuleForm(editingRule, promptScope, selectedPromptIds);
+		if (validationError) {
+			toast.error(validationError);
 			return;
 		}
 
+		const celExpression =
+			promptScope === "custom"
+				? (editingRule.cel_expression || "").trim()
+				: buildCelFromPromptSelection(promptScope, selectedPromptIds);
+
+		const ruleToSave: GuardrailRule = {
+			...(editingRule as GuardrailRule),
+			name: editingRule.name!.trim(),
+			description: editingRule.description?.trim() || "",
+			cel_expression: celExpression,
+			provider_config_ids: editingRule.provider_config_ids || [],
+			apply_to: editingRule.apply_to || "input",
+			enabled: editingRule.enabled ?? true,
+		};
+
 		let updatedRules = [...rules];
 		if (editingRule.id) {
-			updatedRules = updatedRules.map((r) => (r.id === editingRule.id ? (editingRule as GuardrailRule) : r));
+			updatedRules = updatedRules.map((r) => (r.id === editingRule.id ? ruleToSave : r));
 		} else {
 			updatedRules.push({
-				...editingRule,
+				...ruleToSave,
 				id: nextGuardrailId(collectGuardrailIds(rules, providers)),
-				provider_config_ids: editingRule.provider_config_ids || [],
-				enabled: true,
-			} as GuardrailRule);
+			});
 		}
 
 		try {
@@ -89,12 +167,14 @@ export default function GuardrailsConfigurationView() {
 			setIsModalOpen(false);
 			setEditingRule(null);
 		} catch (error) {
-			toast.error(error instanceof Error ? error.message : "Failed to save rule");
+			toast.error(getErrorMessage(error));
 		}
 	};
 
 	const openCreateRule = () => {
-		setEditingRule({ apply_to: "input", provider_config_ids: [], enabled: true });
+		setEditingRule({ apply_to: "input", provider_config_ids: [], enabled: true, cel_expression: "true" });
+		setPromptScope("all");
+		setSelectedPromptIds([]);
 		setIsModalOpen(true);
 	};
 
@@ -127,7 +207,7 @@ export default function GuardrailsConfigurationView() {
 							<TableHead>Description</TableHead>
 							<TableHead>Apply To</TableHead>
 							<TableHead>Providers</TableHead>
-							<TableHead>Expression</TableHead>
+							<TableHead>Applies When</TableHead>
 							<TableHead className="text-right">Actions</TableHead>
 						</TableRow>
 					</TableHeader>
@@ -148,7 +228,9 @@ export default function GuardrailsConfigurationView() {
 									<TableCell>{rule.description}</TableCell>
 									<TableCell className="capitalize">{rule.apply_to}</TableCell>
 									<TableCell>{formatLinkedProviders(rule, providers)}</TableCell>
-									<TableCell className="max-w-[300px] truncate font-mono text-xs">{rule.cel_expression}</TableCell>
+									<TableCell className="max-w-[280px] truncate text-xs">
+										{formatRuleTriggerSummary(rule.cel_expression, promptNameById)}
+									</TableCell>
 									<TableCell className="text-right">
 										<Button
 											variant="ghost"
@@ -160,7 +242,7 @@ export default function GuardrailsConfigurationView() {
 										>
 											<Edit className="h-4 w-4" />
 										</Button>
-										<Button variant="ghost" size="icon" onClick={() => handleDeleteRule(rule.id)}>
+										<Button variant="ghost" size="icon" onClick={() => void handleDeleteRule(rule.id)}>
 											<Trash className="text-destructive h-4 w-4" />
 										</Button>
 									</TableCell>
@@ -236,37 +318,80 @@ export default function GuardrailsConfigurationView() {
 								/>
 							)}
 							<p className="text-muted-foreground text-xs">
-								Selected providers scan the prompt or response when the CEL expression matches.
+								Selected providers scan the prompt or response when the rule condition matches.
 							</p>
 						</div>
 						<div className="grid gap-2">
-							<Label htmlFor="expression">CEL Expression</Label>
-							<Textarea
-								id="expression"
-								value={editingRule?.cel_expression || ""}
-								onChange={(e) => setEditingRule({ ...editingRule, cel_expression: e.target.value })}
-								placeholder="e.g. request.model == 'gpt-4' or true"
-								className="font-mono text-sm"
-								rows={4}
-								data-testid="guardrails-rule-expression-input"
-							/>
-							<p className="text-muted-foreground text-xs">
-								Use CEL to define when this rule runs. Use <code>true</code> to apply on every request for the selected model path.
-							</p>
+							<Label htmlFor="prompt_scope">Apply When</Label>
+							<Select
+								value={promptScope}
+								onValueChange={(value: GuardrailPromptScope) => {
+									setPromptScope(value);
+									if (value === "all") {
+										setSelectedPromptIds([]);
+									}
+								}}
+							>
+								<SelectTrigger data-testid="guardrails-rule-prompt-scope-select">
+									<SelectValue placeholder="Choose when this rule runs" />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">All requests</SelectItem>
+									<SelectItem value="prompts">Selected prompts from repository</SelectItem>
+									<SelectItem value="custom">Custom CEL expression (advanced)</SelectItem>
+								</SelectContent>
+							</Select>
 						</div>
+						{promptScope === "prompts" && (
+							<div className="grid gap-2">
+								<Label>Prompts</Label>
+								{promptOptions.length === 0 ? (
+									<p className="text-muted-foreground text-sm">No prompts found in the repository. Create prompts first.</p>
+								) : (
+									<MultiSelect
+										options={promptOptions}
+										defaultValue={selectedPromptIds}
+										resetOnDefaultValueChange
+										onValueChange={setSelectedPromptIds}
+										placeholder="Select prompts from repository"
+										emptyIndicator="No prompts found."
+										maxCount={2}
+										className="border-input text-foreground hover:bg-accent hover:text-accent-foreground h-9 rounded-sm bg-transparent font-normal"
+										popoverClassName="w-[var(--radix-popover-trigger-width)]"
+										data-testid="guardrails-rule-prompts-select"
+									/>
+								)}
+								<p className="text-muted-foreground text-xs">
+									Rule runs only when the request uses one of these prompts via <code>x-uf-prompt-id</code> header.
+								</p>
+							</div>
+						)}
+						{promptScope === "custom" && (
+							<div className="grid gap-2">
+								<Label htmlFor="expression">CEL Expression</Label>
+								<Textarea
+									id="expression"
+									value={editingRule?.cel_expression || ""}
+									onChange={(e) => setEditingRule({ ...editingRule, cel_expression: e.target.value })}
+									placeholder="e.g. request.model == 'gpt-4' or request.prompt_id == 'your-prompt-id'"
+									className="font-mono text-sm"
+									rows={4}
+									data-testid="guardrails-rule-expression-input"
+								/>
+								<p className="text-muted-foreground text-xs">
+									Advanced mode. Variables: <code>request.model</code>, <code>request.prompt_id</code>.
+								</p>
+							</div>
+						)}
+						{formError ? <p className="text-destructive text-xs">{formError}</p> : null}
 					</div>
 					<DialogFooter>
 						<Button variant="outline" onClick={() => setIsModalOpen(false)}>
 							Cancel
 						</Button>
 						<Button
-							onClick={handleSaveRule}
-							disabled={
-								!editingRule?.name ||
-								!editingRule?.cel_expression ||
-								(editingRule.provider_config_ids || []).length === 0 ||
-								providerOptions.length === 0
-							}
+							onClick={() => void handleSaveRule()}
+							disabled={!!formError || providerOptions.length === 0}
 							data-testid="guardrails-rule-save-button"
 						>
 							Save Rule

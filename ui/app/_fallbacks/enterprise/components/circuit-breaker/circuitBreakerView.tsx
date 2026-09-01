@@ -1,11 +1,16 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ComboboxSelect } from "@/components/ui/combobox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ModelMultiselect } from "@/components/ui/modelMultiselect";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ProviderIconType, RenderProviderIcon } from "@/lib/constants/icons";
+import { getProviderLabel } from "@/lib/constants/logs";
 import { getErrorMessage } from "@/lib/store";
+import { useGetProvidersQuery } from "@/lib/store/apis/providersApi";
 import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import {
 	useCreateCircuitBreakerPolicyMutation,
@@ -58,6 +63,29 @@ export default function CircuitBreakerView() {
 	const [resetPolicy] = useResetCircuitBreakerPolicyMutation();
 	const policies = policyData?.policies || [];
 	const states = stateData?.circuits || {};
+	const { data: providersData = [] } = useGetProvidersQuery();
+
+	const availableProviders = useMemo(
+		() =>
+			Array.from(
+				new Set([
+					...providersData.map((p) => p.name),
+					form.primary_provider,
+					form.fallback_provider,
+				].filter(Boolean)),
+			),
+		[providersData, form.primary_provider, form.fallback_provider],
+	);
+
+	const providerOptions = useMemo(
+		() =>
+			availableProviders.map((prov) => ({
+				label: getProviderLabel(prov),
+				value: prov,
+				icon: <RenderProviderIcon provider={prov as ProviderIconType} size="sm" className="h-4 w-4" />,
+			})),
+		[availableProviders],
+	);
 
 	const formError = useMemo(() => validatePolicyForm(form), [form]);
 	const saving = creating || updating;
@@ -258,19 +286,69 @@ export default function CircuitBreakerView() {
 						<div className="grid grid-cols-2 gap-3">
 							<div className="space-y-1">
 								<Label>Primary provider</Label>
-								<Input value={form.primary_provider} onChange={(e) => setForm({ ...form, primary_provider: e.target.value })} />
+								<ComboboxSelect
+									options={providerOptions}
+									value={form.primary_provider || null}
+									onValueChange={(value) =>
+										setForm((prev) => ({
+											...prev,
+											primary_provider: value ?? "",
+											primary_model: prev.primary_provider !== (value ?? "") ? "" : prev.primary_model,
+										}))
+									}
+									placeholder="Select provider..."
+									hideClear
+									noPortal
+									data-testid="circuit-breaker-primary-provider"
+								/>
 							</div>
 							<div className="space-y-1">
 								<Label>Primary model</Label>
-								<Input value={form.primary_model} onChange={(e) => setForm({ ...form, primary_model: e.target.value })} />
+								<ModelMultiselect
+									provider={form.primary_provider || undefined}
+									value={form.primary_model}
+									onChange={(model) => setForm((prev) => ({ ...prev, primary_model: model }))}
+									isSingleSelect
+									unfiltered
+									placeholder={!form.primary_provider ? "Select a provider first" : "Select model..."}
+									disabled={!form.primary_provider}
+									menuPosition="absolute"
+									className="!h-9 !min-h-9 w-full"
+									data-testid="circuit-breaker-primary-model"
+								/>
 							</div>
 							<div className="space-y-1">
 								<Label>Fallback provider</Label>
-								<Input value={form.fallback_provider} onChange={(e) => setForm({ ...form, fallback_provider: e.target.value })} />
+								<ComboboxSelect
+									options={providerOptions}
+									value={form.fallback_provider || null}
+									onValueChange={(value) =>
+										setForm((prev) => ({
+											...prev,
+											fallback_provider: value ?? "",
+											fallback_model: prev.fallback_provider !== (value ?? "") ? "" : prev.fallback_model,
+										}))
+									}
+									placeholder="Select provider..."
+									hideClear
+									noPortal
+									data-testid="circuit-breaker-fallback-provider"
+								/>
 							</div>
 							<div className="space-y-1">
 								<Label>Fallback model</Label>
-								<Input value={form.fallback_model} onChange={(e) => setForm({ ...form, fallback_model: e.target.value })} />
+								<ModelMultiselect
+									provider={form.fallback_provider || undefined}
+									value={form.fallback_model}
+									onChange={(model) => setForm((prev) => ({ ...prev, fallback_model: model }))}
+									isSingleSelect
+									unfiltered
+									placeholder={!form.fallback_provider ? "Select a provider first" : "Select model..."}
+									disabled={!form.fallback_provider}
+									menuPosition="absolute"
+									className="!h-9 !min-h-9 w-full"
+									data-testid="circuit-breaker-fallback-model"
+								/>
 							</div>
 						</div>
 						<div className="space-y-1">
