@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -40,13 +41,75 @@ type ollamaChatResponse struct {
 	Error string `json:"error,omitempty"`
 }
 
-func defaultOllamaBaseURL() string {
-	for _, key := range []string{"BROWSER_AI_OLLAMA_URL", "OLLAMA_BASE_URL"} {
-		if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-			return strings.TrimRight(v, "/")
-		}
+var (
+	cachedOllamaBaseURL string
+	ollamaURLCacheMu    sync.RWMutex
+)
+
+func addOllamaURLCandidate(seen map[string]bool, out *[]string, raw string) {
+	u := strings.TrimRight(strings.TrimSpace(raw), "/")
+	if u == "" || seen[u] {
+		return
 	}
-	return browserAIGuardBotDefaultOllamaURL
+	seen[u] = true
+	*out = append(*out, u)
+}
+
+// ollamaBaseURLCandidates lists every URL the backend may try (Docker bridge, 1Panel, host IP).
+func ollamaBaseURLCandidates() []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, 8)
+	for _, key := range []string{"BROWSER_AI_OLLAMA_URL", "OLLAMA_BASE_URL"} {
+		addOllamaURLCandidate(seen, &out, os.Getenv(key))
+	}
+	ollamaURLCacheMu.RLock()
+	if cachedOllamaBaseURL != "" {
+		addOllamaURLCandidate(seen, &out, cachedOllamaBaseURL)
+	}
+	ollamaURLCacheMu.RUnlock()
+	// 1Panel Ollama on shared docker network (zen_gauss_v1 + 1Panel-ollama-*)
+	addOllamaURLCandidate(seen, &out, "http://1Panel-ollama-IjuM:11434")
+	addOllamaURLCandidate(seen, &out, "http://ollama:11434")
+	addOllamaURLCandidate(seen, &out, "http://host.docker.internal:11434")
+	addOllamaURLCandidate(seen, &out, "http://172.17.0.1:11434")
+	addOllamaURLCandidate(seen, &out, browserAIGuardBotDefaultOllamaURL)
+	addOllamaURLCandidate(seen, &out, "http://127.0.0.1:11434")
+	return out
+}
+
+func defaultOllamaBaseURL() string {
+	candidates := ollamaBaseURLCandidates()
+	if len(candidates) == 0 {
+		return browserAIGuardBotDefaultOllamaURL
+	}
+	return candidates[0]
+}
+
+func rememberWorkingOllamaURL(baseURL string) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return
+	}
+	ollamaURLCacheMu.Lock()
+	cachedOllamaBaseURL = baseURL
+	ollamaURLCacheMu.Unlock()
+}
+
+// callOllamaChatAny tries each candidate Ollama base URL until one responds.
+func callOllamaChatAny(model, systemPrompt, userMsg string, jsonMode bool, timeout time.Duration) (string, error) {
+	var errs []string
+	for _, base := range ollamaBaseURLCandidates() {
+		text, err := callOllamaChat(base, model, systemPrompt, userMsg, jsonMode, timeout)
+		if err == nil {
+			rememberWorkingOllamaURL(base)
+			return text, nil
+		}
+		errs = append(errs, truncateRunes(err.Error(), 120))
+	}
+	if len(errs) == 0 {
+		return "", fmt.Errorf("ollama unreachable: no candidate URLs configured")
+	}
+	return "", fmt.Errorf("ollama unreachable (%d tries): %s", len(errs), strings.Join(errs, "; "))
 }
 
 func isOllamaGuardProvider(provider string) bool {

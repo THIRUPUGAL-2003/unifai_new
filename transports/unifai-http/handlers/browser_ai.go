@@ -1239,7 +1239,7 @@ Reply with one JSON object and nothing else:
 
 	if isOllamaGuardProvider(string(providerName)) {
 		runOllama := func(jsonMode bool) (bool, string) {
-			rawText, err := callOllamaChat(defaultOllamaBaseURL(), modelName, systemPrompt, userMsg, jsonMode, 90*time.Second)
+			rawText, err := callOllamaChatAny(modelName, systemPrompt, userMsg, jsonMode, 90*time.Second)
 			if err != nil {
 				return false, truncateRunes(err.Error(), 180)
 			}
@@ -1463,7 +1463,7 @@ If the question is unsafe or asks for secrets/credentials, refuse briefly and ex
 	}
 
 	if isOllamaGuardProvider(string(providerName)) {
-		text, err := callOllamaChat(defaultOllamaBaseURL(), modelName, systemPrompt, userMsg, false, 90*time.Second)
+		text, err := callOllamaChatAny(modelName, systemPrompt, userMsg, false, 90*time.Second)
 		if err != nil {
 			return "", err
 		}

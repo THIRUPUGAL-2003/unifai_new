@@ -10,10 +10,13 @@ services:
       - APP_HOST=0.0.0.0
       - LOG_LEVEL=info
       - LOG_STYLE=json
-      # AI Guard Bot → Ollama on the same host (1Panel Docker). host.docker.internal reaches host :11434.
-      - BROWSER_AI_OLLAMA_URL=http://host.docker.internal:11434
+      # AI Guard Bot → Ollama (1Panel container on shared network; code also auto-fallbacks).
+      - BROWSER_AI_OLLAMA_URL=http://1Panel-ollama-IjuM:11434
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - default
+      - 1panel-network
     ports:
       - "8081:8081"
     dns:
@@ -24,6 +27,10 @@ services:
       - ./configs:/app/configs
       - ./configs/config.json:/app/data/config.json
     restart: unless-stopped
+
+networks:
+  1panel-network:
+    external: true
 
   # LAB ONLY: manual browser proxy to host:8082. Employee Guard EXE does NOT use this container.
   unifai_broswer_proxy:
