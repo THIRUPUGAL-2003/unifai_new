@@ -41,21 +41,20 @@ CACHE_TTL = 1
 # Default fallback is EMPTY — only admin-added Target Websites are monitored.
 DEFAULT_TARGET_DOMAINS: dict = {}
 
-# File upload endpoint patterns (ChatGPT / Claude / Gemini / Copilot / Drive)
+# Generic upload path tokens — any admin-added domain, not a product list.
 UPLOAD_ENDPOINTS = [
-    "/files", "/file", "/upload", "/attachment", "/attachments",
-    "/backend-api/files", "/v1/files", "/api/upload", "/file-upload",
+    "/files", "/file/", "/upload", "/uploads", "/attachment", "/attachments",
+    "/v1/files", "/api/upload", "/file-upload", "/fileupload", "/process_upload",
     "/upload/", "/media/upload", "/resumable", "/filepush", "/pushfile",
-    "/v1beta/files", "/upload/v1beta", "/drive/v3/files", "/upload/drive",
-    # Claude
-    "/convert_document", "/upload_document", "/api/organizations", "/chat_conversations",
-    # Copilot / M365
-    "/c/api/attachments", "/api/attachments", "/m365copilot/uploadfile", "/uploadfile",
-    # Perplexity
-    "/rest/uploads", "/uploads", "/api/upload", "/file/upload",
-    # ChatGPT (2024+)
-    "/process_upload", "/fileupload", "/backend-analyse",
+    "/convert_document", "/upload_document", "/api/attachments",
+    "/rest/uploads", "/file/upload",
 ]
+
+_GENERIC_UPLOAD_PATH_MARKERS = (
+    "/upload", "/uploads", "/files", "/file/", "/attachment", "/attachments",
+    "/media/upload", "/convert_document", "/filepush",
+    "/process_upload", "/file-upload", "/fileupload", "/resumable",
+)
 
 # Upload payload field indicators
 UPLOAD_PAYLOAD_KEYS = [
@@ -151,6 +150,7 @@ _UNIVERSAL_PROMPT_KEYS = (
     "search_query", "q", "follow_up_input", "user_message", "dsl_query",
     "search_focus", "user_text", "chat_input", "message_text", "entry",
     "followup", "follow_up", "search", "ask", "query_text",
+    "prompt_text", "user_prompt", "userPrompt", "chat_message", "msg",
 )
 
 # Deduplicate identical events per domain within this window (seconds).
@@ -1385,7 +1385,7 @@ def detect_chatgpt_file_upload(
     ct = (content_type or "").lower()
     data = raw or b""
 
-    if any(x in path_l for x in ("/backend-api/files", "/files/", "process_upload", "/attachments", "/upload")):
+    if any(x in path_l for x in _GENERIC_UPLOAD_PATH_MARKERS):
         if body_len >= 8:
             return True, f"File API ({path_l[:80]})"
     if "/backend-api/" in path_l:
@@ -1401,10 +1401,20 @@ def detect_chatgpt_file_upload(
     return False, ""
 
 
+def _path_looks_like_upload(path: str) -> bool:
+    """True for generic file-upload URL paths on any monitored domain."""
+    p = (path or "").lower().split("?", 1)[0]
+    if not p:
+        return False
+    return any(m in p for m in _GENERIC_UPLOAD_PATH_MARKERS)
+
+
 def is_unsubmitted_chat_body(path: str, body: str) -> bool:
-    """True only for ChatGPT prepare/draft/in-progress — finished Send must predict."""
+    """True only for prepare/draft/in-progress — finished Send must predict."""
     path_l = (path or "").lower()
-    if "prepare" in path_l or "autocomplet" in path_l or "partial" in path_l:
+    if "/prepare" in path_l or path_l.endswith("prepare") or "autocomplet" in path_l:
+        return True
+    if "partial_query" in (body or "") and "query_str" not in (body or ""):
         return True
     if not body:
         return False
@@ -1810,14 +1820,8 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
                 return True, f"File content-type ({(content_type or 'multipart').split(';')[0]})"
         return False, ""
 
-    # Upload URL paths — require binary / large non-JSON (ChatGPT /files JSON handshake ≠ upload)
-    path_looks_upload = any(
-        x in path_only
-        for x in (
-            "/attachments", "/attachment", "/convert_document", "/upload_document",
-            "/upload", "/files", "/filepush", "/m365copilot", "/media", "/mms",
-        )
-    )
+    # Upload URL paths — require binary / large non-JSON (tiny JSON handshake ≠ upload)
+    path_looks_upload = _path_looks_like_upload(path_only)
     for ep in UPLOAD_ENDPOINTS:
         if ep in path_only:
             path_looks_upload = True
@@ -1901,11 +1905,20 @@ def is_confident_file_upload(
     host_l = (host or "").lower()
     path_l = (path or "").lower().split("?", 1)[0]
 
-    # File API paths on admin-monitored domains — cache bytes for Send-time scan
-    if detect_target(host_l)[0] and (
-        "/backend-api/files" in path_l or "process_upload" in path_l or "/v1/files" in path_l
-    ):
-        if len(data) >= 32:
+    # File API paths on admin-monitored domains — cache real bytes, not tiny JSON handshakes.
+    if detect_target(host_l)[0] and _path_looks_like_upload(path_l) and len(data) >= 32:
+        if name and name_l not in _FAKE_UPLOAD_NAMES:
+            return True
+        if any(x in ct for x in (
+            "octet-stream", "multipart", "pdf", "image/", "audio/", "video/",
+            "msword", "officedocument",
+        )):
+            return True
+        if data[:5] == b"%PDF-" or (len(data) >= 2 and data[:2] == b"PK"):
+            return True
+        if b"filename=" in data[:16000].lower() or b"filename*=" in data[:16000].lower():
+            return True
+        if len(data) >= 2048:
             return True
 
     # WhatsApp / web.whatsapp sends lots of media-sync binary — never treat as AI file
@@ -1951,12 +1964,9 @@ def is_confident_file_upload(
             if got and got.lower() not in _FAKE_UPLOAD_NAMES:
                 return True
 
-    # Binary content-type alone is NOT enough (WhatsApp/Claude noise).
+    # Binary content-type alone is NOT enough (media-sync noise).
     # Require upload path + meaningful size + binary type.
-    uploadish = any(
-        x in path_l
-        for x in ("/upload", "/files", "/attachment", "/convert_document", "/filepush", "/media/")
-    )
+    uploadish = _path_looks_like_upload(path_l) or "/media/" in path_l
     if uploadish and len(data) >= 2048 and any(
         x in ct
         for x in (
@@ -4194,6 +4204,29 @@ def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
     return best
 
 
+def _extract_prompt_from_multipart(raw: str) -> str | None:
+    """Pull user text from multipart form fields (name=prompt/query/...) — not file parts."""
+    if not raw or "content-disposition" not in raw.lower():
+        return None
+    keys = "|".join(re.escape(k) for k in _UNIVERSAL_PROMPT_KEYS)
+    pat = (
+        rf'Content-Disposition:\s*form-data;\s*name="({keys})"'
+        rf'(?![^\r\n]*filename)[^\r\n]*(?:\r\n[^\r\n]+)*\r\n\r\n(.*?)(?:\r\n--|\Z)'
+    )
+    try:
+        for m in re.finditer(pat, raw, re.I | re.S):
+            val = (m.group(2) or "").strip()
+            if not val or val.startswith("------"):
+                continue
+            if looks_like_user_prompt(val) and not _is_opaque_wire_blob(val):
+                got = _clean_prompt_text(val)
+                if got:
+                    return got
+    except Exception:
+        pass
+    return None
+
+
 def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") -> str | None:
     """
     Extract ONLY the exact user-typed prompt text from a request body.
@@ -4210,9 +4243,9 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
                 return extract_chatgpt_prompt(text, body_bytes)
             return None
 
-        # Never treat raw multipart file bodies as chat prompts (logs WebKitFormBoundary junk).
+        # Multipart: extract prompt fields; never treat the raw boundary blob as chat text.
         if "multipart/form-data" in ct or "webkitformboundary" in text[:200].lower() or text.lstrip().startswith("------"):
-            return None
+            return _extract_prompt_from_multipart(text)
 
         # Body-shape parsers (any admin-monitored domain — no hostname lists).
         if "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
@@ -4876,6 +4909,40 @@ class BrowserAIInterceptor:
             except Exception as e:
                 print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
 
+    def _file_send_maybe_block(
+        self,
+        flow: http.HTTPFlow,
+        domain: str,
+        platform: str,
+        client_ip: str,
+        raw_text: str,
+        content_type: str,
+        path: str,
+    ) -> bool:
+        """Scan attached/cached files on Send. True if the request must be blocked."""
+        should_block_file, file_block_msg = enforce_file_send_policy(
+            platform=platform,
+            domain=domain,
+            host=flow.request.pretty_host,
+            client_ip=client_ip,
+            url=flow.request.url,
+            method=flow.request.method,
+            raw_text=raw_text,
+            content_type=content_type,
+            file_name_hint=(
+                extract_filename_from_upload(flow, raw_text)
+                if chat_carries_attachment(raw_text)
+                else extract_attachment_filename_from_send(raw_text)
+            ),
+            path=path,
+        )
+        if should_block_file:
+            make_blocked_response(
+                flow, "Block Upload", flow.request.pretty_host, reply_text=file_block_msg,
+            )
+            return True
+        return False
+
     # ── HTTP Request Interception ──────────────
 
     def request(self, flow: http.HTTPFlow) -> None:
@@ -4953,17 +5020,11 @@ class BrowserAIInterceptor:
         except Exception:
             raw_text = ""
 
-        host_role = resolve_host_role(host)
-
-        # Domain-add-only: extract user text first — same logic for Claude, ChatGPT, Perplexity, any site.
+        # Domain-add-only: extract user text first. Role labels never skip a real prompt/file.
         peek_prompt = extract_prompt_universal(
             raw_bytes, content_type, host=host, url=flow.request.url,
         )
         has_prompt = _should_intercept_extracted_prompt(peek_prompt, path, raw_text, domain)
-
-        # Main UI / file hosts skip CDN noise — but never skip when we already extracted user text.
-        if host_role == "ui" and not has_prompt:
-            return
 
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
         if is_upload:
@@ -4997,25 +5058,19 @@ class BrowserAIInterceptor:
                     f"[UnifAI Proxy] FILE CACHED (await Send — no log yet) | {domain} | "
                     f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
                 )
-                return
-            print(
-                f"[UnifAI Proxy] Ignoring weak upload signal | {host} | "
-                f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
-            )
-            # Fall through to normal prompt intercept
+                # Same request can be file+prompt (multipart). Pick-only uploads stop here.
+                if not has_prompt:
+                    return
+            else:
+                print(
+                    f"[UnifAI Proxy] Ignoring weak upload signal | {host} | "
+                    f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
+                )
 
-        # File-labeled host: uploads only — unless this POST carries extractable user text.
-        if host_role == "file" and not has_prompt:
-            return
-
-        # Drop multipart CDN noise — not chat+attachment sends that contain a prompt.
-        if not has_prompt and host_role != "chat" and (
-            "multipart/form-data" in (content_type or "").lower() or "webkitformboundary" in raw_text[:200].lower()
-        ):
-            return
-
-        # ── Domain-add-only intercept: extracted text → predict (no per-platform path list) ──
+        # ── Domain-add-only intercept: extracted text → file scan + predict ──
         if has_prompt:
+            if self._file_send_maybe_block(flow, domain, platform, client_ip, raw_text, content_type, path):
+                return
             self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
             return
 
@@ -5039,25 +5094,8 @@ class BrowserAIInterceptor:
         elif "prepare" in (path or "").lower() or "autocomplet" in (path or "").lower():
             return
 
-        # File attached + Send: Prompt Log + Allow/Block (ChatGPT / Claude / Gemini / Copilot)
-        should_block_file, file_block_msg = enforce_file_send_policy(
-            platform=platform,
-            domain=domain,
-            host=host,
-            client_ip=client_ip,
-            url=flow.request.url,
-            method=flow.request.method,
-            raw_text=raw_text,
-            content_type=content_type,
-            file_name_hint=(
-                extract_filename_from_upload(flow, raw_text)
-                if chat_carries_attachment(raw_text)
-                else extract_attachment_filename_from_send(raw_text)
-            ),
-            path=path,
-        )
-        if should_block_file:
-            make_blocked_response(flow, "Block Upload", host, reply_text=file_block_msg)
+        # File attached + Send (fallback path when extract missed on first pass)
+        if self._file_send_maybe_block(flow, domain, platform, client_ip, raw_text, content_type, path):
             return
 
         prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=flow.request.url)
@@ -5152,6 +5190,27 @@ class BrowserAIInterceptor:
         )
         if _should_intercept_extracted_prompt(ws_prompt, ws_path, content, domain):
             client_ip = get_client_ip(flow)
+            should_block_file, file_block_msg = enforce_file_send_policy(
+                platform=platform,
+                domain=domain,
+                host=host,
+                client_ip=client_ip,
+                url=flow.request.url,
+                method="WS",
+                raw_text=content,
+                content_type="application/json",
+                path=ws_path,
+            )
+            if should_block_file:
+                try:
+                    msg.drop()
+                except Exception:
+                    try:
+                        msg.kill()
+                    except Exception:
+                        pass
+                inject_websocket_reply(flow, host, (file_block_msg or "").strip())
+                return
             print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {ws_prompt[:80]!r}")
             mark_duplicate_event(domain, ws_prompt)
             allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
