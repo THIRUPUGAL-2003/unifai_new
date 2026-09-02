@@ -83,8 +83,7 @@ import {
 	BrowserTargetWebsite,
 	BrowserAIAgent,
 } from "@/lib/store/apis/browserAiApi";
-import { useGetAllKeysQuery, useGetModelsQuery, useGetProvidersQuery } from "@/lib/store/apis/providersApi";
-import { getProviderLabel } from "@/lib/constants/logs";
+import { useGetModelsQuery } from "@/lib/store/apis/providersApi";
 import { getApiBaseUrl } from "@/lib/utils/port";
 
 function GuardBotModelPicker({
@@ -644,31 +643,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	const { data: rulesData, refetch: refetchRules } = useGetBrowserAiRulesQuery(undefined, { pollingInterval: activePolling });
 	const { data: targetsData, refetch: refetchTargets } = useGetBrowserAiTargetsQuery(undefined, { pollingInterval: activePolling });
 	const { data: controlsData } = useGetBrowserAiControlsQuery(undefined, { pollingInterval: activePolling });
-	const { data: savedProviders = [] } = useGetProvidersQuery();
-	const { data: allProviderKeys = [], isSuccess: hasLoadedProviderKeys } = useGetAllKeysQuery();
-	const keyedProviderNames = useMemo(() => {
-		const names = new Set((allProviderKeys || []).map((k) => String(k.provider || "").toLowerCase()).filter(Boolean));
-		if (!hasLoadedProviderKeys) {
-			return (Array.isArray(savedProviders) ? savedProviders : [])
-				.map((p: any) => String(p?.name || p).toLowerCase())
-				.filter(Boolean);
-		}
-		return (Array.isArray(savedProviders) ? savedProviders : [])
-			.map((p: any) => String(p?.name || p).toLowerCase())
-			.filter((name) => names.has(name));
-	}, [savedProviders, allProviderKeys, hasLoadedProviderKeys]);
-	const guardBotProviderOptions = useMemo(() => {
-		const opts = keyedProviderNames.map((name) => ({ label: getProviderLabel(name), value: name }));
-		const current = [newRuleBotProvider, editRuleBotProvider]
-			.map((p) => String(p || "").toLowerCase())
-			.filter(Boolean);
-		for (const name of current) {
-			if (name && !opts.some((o) => o.value === name)) {
-				opts.unshift({ label: getProviderLabel(name), value: name });
-			}
-		}
-		return opts;
-	}, [keyedProviderNames, newRuleBotProvider, editRuleBotProvider]);
+	// Browser AI Guard Bot uses the local Ollama instance on the server — not cloud Model Providers.
+	const guardBotProviderOptions = useMemo(
+		() => [{ label: "Ollama", value: GUARD_BOT_OLLAMA_PROVIDER }],
+		[],
+	);
 	const {
 		data: agentsData,
 		refetch: refetchAgents,
