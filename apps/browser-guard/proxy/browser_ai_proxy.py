@@ -3614,6 +3614,121 @@ def _extract_pdf_regex(data: bytes) -> str:
     return "\n".join(texts)[:200_000]
 
 
+def _normalize_pdf_bytes(data: bytes) -> bytes:
+    """Return PDF payload bytes (direct or embedded in wrapper)."""
+    if not data:
+        return b""
+    if data.startswith(b"%PDF-"):
+        return data
+    if b"%PDF" in data[:1024]:
+        start = data.find(b"%PDF")
+        if start >= 0:
+            return data[start:]
+    start = data.find(b"%PDF-")
+    if start >= 0:
+        return data[start:]
+    return data
+
+
+def _pdf_text_sufficient(text: str, min_chars: int = 40) -> bool:
+    """True when PDF text layer looks usable (not empty/garbage)."""
+    if not text:
+        return False
+    compact = re.sub(r"\s+", " ", text).strip()
+    if len(compact) < min_chars:
+        return False
+    printable = sum(1 for ch in compact if ch.isprintable())
+    return printable / max(1, len(compact)) >= 0.85
+
+
+def _extract_pdf_embedded_images_ocr(data: bytes, max_images: int = 10) -> str:
+    """OCR embedded raster images inside a PDF (common for scanned documents)."""
+    parts: list[str] = []
+    for b64 in _extract_pdf_images(data, max_images=max_images):
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            continue
+        t = _extract_image_windows_ocr(raw)
+        if not (t or "").strip():
+            t = _extract_image_tesseract(raw)
+        if (t or "").strip():
+            parts.append(t.strip())
+    return "\n\n".join(parts)
+
+
+def _extract_pdf_pymupdf_ocr(data: bytes, max_pages: int = 10) -> str:
+    """Render PDF pages to images and OCR (scanned PDFs without a text layer)."""
+    data = _normalize_pdf_bytes(data)
+    if not data:
+        return ""
+    try:
+        import fitz  # pymupdf
+    except ImportError:
+        return ""
+    parts: list[str] = []
+    doc = None
+    try:
+        doc = fitz.open(stream=data, filetype="pdf")
+        for i, page in enumerate(doc):
+            if i >= max_pages:
+                break
+            try:
+                pix = page.get_pixmap(matrix=fitz.Matrix(2.0, 2.0), alpha=False)
+                png = pix.tobytes("png")
+            except Exception:
+                continue
+            t = _extract_image_windows_ocr(png)
+            if not (t or "").strip():
+                t = _extract_image_tesseract(png)
+            if (t or "").strip():
+                parts.append(t.strip())
+    except Exception as e:
+        print(f"[UnifAI Proxy] PDF page OCR failed (allowed): {e}")
+    finally:
+        if doc is not None:
+            try:
+                doc.close()
+            except Exception:
+                pass
+    return "\n\n".join(parts)
+
+
+def _extract_pdf_ocr(data: bytes, max_pages: int = 10) -> str:
+    """OCR fallback for scanned / low-text PDFs."""
+    data = _normalize_pdf_bytes(data)
+    if not data:
+        return ""
+    embedded = _extract_pdf_embedded_images_ocr(data, max_images=max_pages)
+    embedded_compact = re.sub(r"\s+", "", embedded or "")
+    if len(embedded_compact) >= 16:
+        return embedded[:200_000]
+    rendered = _extract_pdf_pymupdf_ocr(data, max_pages=max_pages)
+    if rendered and embedded:
+        return (embedded + "\n\n" + rendered)[:200_000]
+    return (rendered or embedded or "")[:200_000]
+
+
+def _extract_pdf_text_smart(data: bytes) -> str:
+    """
+    PDF text: fast text-layer extract first; OCR only when text layer is missing/weak.
+    """
+    data = _normalize_pdf_bytes(data)
+    if not data:
+        return ""
+    text = _extract_pdf_pypdf(data)
+    if _pdf_text_sufficient(text):
+        return text[:200_000]
+    regex_t = _extract_pdf_regex(data)
+    if _pdf_text_sufficient(regex_t):
+        return regex_t[:200_000]
+    ocr_t = _extract_pdf_ocr(data)
+    if ocr_t.strip():
+        print(f"[UnifAI Proxy] PDF OCR extracted {len(ocr_t.strip())} chars (scanned/low-text PDF)")
+        return ocr_t[:200_000]
+    return (text or regex_t or "")[:200_000]
+
+
 def _extract_pdf_images(data: bytes, max_images: int = 10) -> list[str]:
     """Extract embedded images from PDF pages as base64 strings (in-memory only)."""
     if not data:
@@ -3689,11 +3804,8 @@ def _upload_images_for_vision(raw_bytes: bytes, content_type: str = "", file_nam
 
 
 def _extract_pdf_text(data: bytes) -> str:
-    """Extract readable text from PDF bytes (pypdf if available, else lightweight fallback)."""
-    t = _extract_pdf_pypdf(data)
-    if t:
-        return t
-    return _extract_pdf_regex(data)
+    """Extract readable text from PDF (text layer first, then OCR for scanned PDFs)."""
+    return _extract_pdf_text_smart(data)
 
 
 def _xml_local(tag: str) -> str:
@@ -4478,7 +4590,9 @@ def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name
     try:
         if kind == "pdf":
             return _try_file_extract_chain(data, ct, fn, kind, [
+                ("pdf-smart", lambda: _extract_pdf_text_smart(data)),
                 ("pdf-pypdf", lambda: _extract_pdf_pypdf(data)),
+                ("pdf-ocr", lambda: _extract_pdf_ocr(data)),
                 ("pdf-regex", lambda: _extract_pdf_regex(data)),
                 ("plain-decode", lambda: _extract_plain_text_bytes(data)),
             ])
