@@ -434,10 +434,14 @@ def has_ai_bot_rules() -> bool:
 
 
 def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str) -> tuple[bool, str, str, str, str]:
-    """Regex decides locally first (fast). AI Guard Bot waits for backend LLM eval."""
-    # Fast path: local regex BLOCK — do not wait on AI bot (avoids Gemini spinner).
-    local_allowed, rule_triggered, action, redacted_prompt, reply_text = decide_prompt_locally(prompt)
-    if action == "Blocked" or not local_allowed:
+    """Regex (local) + AI Guard Bot (backend) — both run when bot rules exist; strictest action wins."""
+    local = decide_prompt_locally(prompt)
+    if has_ai_bot_rules():
+        backend = send_to_backend(platform, domain, prompt, client_ip, url, method)
+        return _merge_guard_decisions(local, backend)
+
+    allowed, rule_triggered, action, redacted_prompt, reply_text = local
+    if action == "Blocked" or not allowed:
         def _log_local_block() -> None:
             try:
                 payload = json.dumps({
@@ -469,13 +473,9 @@ def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url
         threading.Thread(target=_log_local_block, daemon=True).start()
         return False, rule_triggered, action or "Blocked", redacted_prompt, reply_text
 
-    # Local WARN must NOT skip AI Guard Bot — a BLOCK bot can still escalate.
-    if has_ai_bot_rules():
-        return send_to_backend(platform, domain, prompt, client_ip, url, method)
-
     if action in ("Redacted", "Warned"):
         log_prompt_async(platform, domain, prompt, client_ip, url, method)
-        return local_allowed, rule_triggered, action, redacted_prompt, reply_text
+        return allowed, rule_triggered, action, redacted_prompt, reply_text
 
     log_prompt_async(platform, domain, prompt, client_ip, url, method)
     return True, "", "Allowed", prompt, ""
@@ -553,10 +553,51 @@ def rule_matches_prompt(rule: dict, prompt: str) -> bool:
     return True
 
 
+def _redacted_forward(prompt: str, warning_message: str = "") -> str:
+    """ChatGPT receives full original prompt + redact notice. Logs keep original only."""
+    w = (warning_message or "").strip() or "This prompt triggered a UnifAI Guard redaction policy."
+    return f"{(prompt or '').rstrip()}\n\n[UNIFAI REDACTED] {w}"
+
+
 def _warned_forward(prompt: str, warning_message: str = "") -> str:
-    """ChatGPT receives full original prompt + warning. Logs keep original only (server-side)."""
-    w = (warning_message or "").strip() or "This prompt triggered a UnifAI Guard warning."
-    return f"{(prompt or '').rstrip()}\n\n[UNIFAI WARNING] {w}"
+    return _redacted_forward(prompt, warning_message)
+
+
+def _action_rank(action: str) -> int:
+    a = (action or "").upper()
+    if a in ("BLOCKED", "BLOCK"):
+        return 3
+    if a in ("REDACTED", "REDACT", "WARNED", "WARN"):
+        return 2
+    return 1
+
+
+def _merge_guard_decisions(
+    local: tuple[bool, str, str, str, str],
+    backend: tuple[bool, str, str, str, str] | None,
+) -> tuple[bool, str, str, str, str]:
+    """Merge regex (local) + AI bot (backend). BLOCK beats REDACT beats ALLOW."""
+    allowed_l, rule_l, action_l, forward_l, reply_l = local
+    if backend is None:
+        return local
+    allowed_b, rule_b, action_b, forward_b, reply_b = backend
+    rank_l = _action_rank(action_l)
+    rank_b = _action_rank(action_b)
+    if not allowed_l:
+        rank_l = max(rank_l, 3)
+    if not allowed_b:
+        rank_b = max(rank_b, 3)
+    if rank_l >= rank_b:
+        pick = (allowed_l, rule_l, action_l, forward_l, reply_l)
+    else:
+        pick = (allowed_b, rule_b, action_b, forward_b, reply_b)
+    allowed, rule, action, forward, reply = pick
+    if _action_rank(action) >= 3:
+        allowed = False
+        action = "Blocked"
+    elif _action_rank(action) >= 2 and action not in ("Redacted",):
+        action = "Redacted"
+    return allowed, rule, action, forward, reply
 
 
 def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
@@ -568,12 +609,12 @@ def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
         if not rule_matches_prompt(r, prompt):
             continue
         rule_action = (r.get("action") or "BLOCK").upper()
-        if rule_action == "REDACT":
-            rule_action = "WARN"
+        if rule_action == "WARN":
+            rule_action = "REDACT"
         if rule_action == "BLOCK":
             return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
-        if rule_action == "WARN":
-            return True, r["name"], "Warned", _warned_forward(prompt, r.get("warning_message", "")), ""
+        if rule_action == "REDACT":
+            return True, r["name"], "Redacted", _redacted_forward(prompt, r.get("warning_message", "")), ""
     if looks_like_secret_token(prompt):
         for r in rules:
             n = (r.get("name") or "").lower()
@@ -3005,37 +3046,46 @@ def _scan_upload_for_rules(
     client_ip: str = "",
     url: str = "",
     method: str = "",
-) -> tuple[str, bool, str, str, str]:
+) -> tuple[str, bool, str, str, str, list[str]]:
     """Scan file bytes on Send only — extract by type, then apply Guard Rules (+ AI bot if configured)."""
     scanned = ""
     rule_hit = False
     rule_name = ""
     rule_action = ""
     excerpt = ""
+    upload_images: list[str] = []
     try:
         if raw_bytes:
-            scanned = extract_upload_text_for_rules(raw_bytes, content_type, "", file_label)
+            scanned = extract_upload_text_for_rules(raw_bytes, content_type, raw_text or "", file_label)
         upload_images = _upload_images_for_vision(raw_bytes or b"", content_type, file_label) if raw_bytes else []
         if scanned:
             excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
             rule_hit, rule_name, rule_action = match_guard_rules_on_text(scanned)
             rule_action = (rule_action or "").upper()
-        # AI Guard Bot on extracted file text and/or vision images (Send-time only)
-        if has_ai_bot_rules() and not rule_hit and platform and domain and (scanned or upload_images):
+            if rule_action == "WARN":
+                rule_action = "REDACT"
+        # AI Guard Bot on extracted file text and/or vision images — always when bot rules exist.
+        if has_ai_bot_rules() and platform and domain and (scanned or upload_images):
             try:
                 allowed, rt, action, _, _ = send_to_backend(
                     platform, domain, (scanned or "")[:50_000], client_ip, url, method or "POST",
                     upload_images=upload_images,
+                    evaluation_only=True,
                 )
                 act = (action or "").upper()
-                if not allowed and act in ("BLOCKED", "BLOCK"):
+                if (not allowed or act in ("BLOCKED", "BLOCK")) and act not in ("REDACTED", "REDACT", "WARNED", "WARN"):
                     rule_hit = True
                     rule_name = rt or "AI Guard Bot"
                     rule_action = "BLOCK"
-                elif act in ("WARNED", "WARN", "REDACTED", "REDACT"):
+                elif act in ("REDACTED", "REDACT", "WARNED", "WARN"):
+                    if _action_rank(rule_action) < 2:
+                        rule_hit = True
+                        rule_name = rt or "AI Guard Bot"
+                        rule_action = "REDACT"
+                elif not allowed:
                     rule_hit = True
                     rule_name = rt or "AI Guard Bot"
-                    rule_action = "WARN"
+                    rule_action = "BLOCK"
             except Exception as e:
                 print(f"[UnifAI Proxy] AI bot file scan failed (allowed): {e}")
     except Exception as e:
@@ -3045,7 +3095,8 @@ def _scan_upload_for_rules(
         rule_name = ""
         rule_action = ""
         excerpt = ""
-    return scanned, rule_hit, rule_name, rule_action, excerpt
+        upload_images = []
+    return scanned, rule_hit, rule_name, rule_action, excerpt, upload_images
 
 
 def _process_one_cached_file_on_send(
@@ -3139,42 +3190,39 @@ def _process_one_cached_file_on_send_impl(
             cached_ct = inline_ct or content_type
             if inline_name and inline_name.lower() not in _FAKE_UPLOAD_NAMES:
                 file_label = inline_name
-    scanned, rule_hit, rule_name, rule_action, excerpt = _scan_upload_for_rules(
+    scanned, rule_hit, rule_name, rule_action, excerpt, upload_images = _scan_upload_for_rules(
         cached_bytes, cached_ct, raw_text or "", file_label, cached,
         platform=platform, domain=domain, client_ip=client_ip, url=url, method=method,
     )
 
     block_all = controls_active("block_upload")
-    block_for_rule = bool(
+    has_scan_content = bool((scanned or "").strip() or upload_images)
+    block_for_rule = bool(rule_hit and rule_action == "BLOCK" and has_scan_content)
+    redact_for_rule = bool(
         rule_hit
-        and rule_action in ("BLOCK", "REDACT")
-        and bool(scanned)
-    )
-    warn_for_rule = bool(
-        rule_hit
-        and rule_action == "WARN"
+        and rule_action == "REDACT"
         and not block_all
-        and bool(scanned)
+        and has_scan_content
     )
     tag = _upload_log_tag(file_label, cached_ct, cached_bytes)
 
-    if warn_for_rule:
-        warn_log = f"{tag} {file_label} — Warned ({rule_name or 'policy'})"
-        dedupe_key = f"upload-send-warn|{rule_name}|{file_label}"
+    if redact_for_rule:
+        redact_log = f"{tag} {file_label} — Redacted ({rule_name or 'policy'})"
+        dedupe_key = f"upload-send-redact|{rule_name}|{file_label}"
         if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
-            print(f"[UnifAI Proxy] FILE SEND WARNED | {client_ip} → {host} | {file_label}")
+            print(f"[UnifAI Proxy] FILE SEND REDACTED | {client_ip} → {host} | {file_label}")
             ok = post_upload_intercept(
                 platform=platform,
-                prompt=warn_log,
+                prompt=redact_log,
                 client_ip=client_ip,
                 domain=domain,
                 url=url,
                 method=method,
                 file_name=file_label,
                 is_blocked=False,
-                raw_bytes=cached_bytes,
                 content_type=cached_ct,
                 extracted_text=scanned,
+                upload_images=upload_images,
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
@@ -3203,9 +3251,9 @@ def _process_one_cached_file_on_send_impl(
                 file_name=file_label,
                 is_blocked=True,
                 blocked_reason=blocked_reason,
-                raw_bytes=cached_bytes,
                 content_type=cached_ct,
                 extracted_text=scanned,
+                upload_images=upload_images,
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
@@ -3224,9 +3272,9 @@ def _process_one_cached_file_on_send_impl(
             method=method,
             file_name=file_label,
             is_blocked=False,
-            raw_bytes=cached_bytes,
             content_type=cached_ct,
             extracted_text=scanned,
+            upload_images=upload_images,
         )
         if ok:
             mark_duplicate_event(domain, dedupe_key)
@@ -3252,8 +3300,8 @@ def enforce_file_send_policy(
     On chat Send with a real attached file (any monitored AI domain):
       - Block Upload ON  → block on Send only (file may attach in UI first)
       - Block Upload OFF → extract PDF/image/Office/voice text → Guard Rules
-          BLOCK/REDACT → block Send
-          WARN         → log Warned, allow Send
+          BLOCK        → block Send
+          REDACT       → log Redacted, allow Send
           no match     → Allowed
 
     Typed-only prompts return (False, "", 0) so normal text Guard Rules still run.
@@ -3349,8 +3397,9 @@ def post_upload_intercept(
     raw_bytes: bytes | None = None,
     content_type: str = "",
     extracted_text: str = "",
+    upload_images: list[str] | None = None,
 ) -> bool:
-    """Log file event on Send; store any file bytes via /api/browser-ai/intercept-file."""
+    """Log file event on Send — filename + extracted text in metadata only (no file storage)."""
     metadata = {
         "domain": domain,
         "url": url,
@@ -3366,51 +3415,41 @@ def post_upload_intercept(
     ext = (extracted_text or "").strip()
     if ext:
         metadata["extracted_text"] = ext[:50_000]
-    elif raw_bytes:
-        metadata["extracted_text"] = ""
+    if upload_images:
+        metadata["upload_images"] = upload_images[:10]
 
-    payload, ctype, fname = extract_upload_file_payload(raw_bytes or b"", content_type, file_name)
-    if payload:
-        try:
-            boundary = f"----UnifAI{int(time.time() * 1000)}"
-            safe_name = (fname or file_name or "attachment").replace('"', "")
-            parts: list[bytes] = []
+    safe_name = (file_name or "attachment").replace('"', "")
+    ctype = (content_type or "application/octet-stream").strip() or "application/octet-stream"
+    try:
+        boundary = f"----UnifAI{int(time.time() * 1000)}"
+        parts: list[bytes] = []
 
-            def add_field(name: str, value: str) -> None:
-                parts.append(
-                    f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode("utf-8")
-                )
-
-            add_field("platform", platform)
-            add_field("prompt", prompt)
-            add_field("client_ip", client_ip)
-            add_field("agent_id", UNIFAI_AGENT_ID or "")
-            add_field("agent_hostname", UNIFAI_AGENT_HOSTNAME or "")
-            add_field("file_name", safe_name)
-            add_field("content_type", ctype or "application/octet-stream")
-            add_field("metadata", json.dumps(metadata))
+        def add_field(name: str, value: str) -> None:
             parts.append(
-                (
-                    f"--{boundary}\r\n"
-                    f'Content-Disposition: form-data; name="file"; filename="{safe_name}"\r\n'
-                    f"Content-Type: {ctype or 'application/octet-stream'}\r\n\r\n"
-                ).encode("utf-8")
-                + payload
-                + b"\r\n"
+                f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n".encode("utf-8")
             )
-            parts.append(f"--{boundary}--\r\n".encode("utf-8"))
-            body = b"".join(parts)
-            req = urllib.request.Request(
-                f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept-file",
-                data=body,
-                headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-                method="POST",
-            )
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                if 200 <= getattr(resp, "status", 200) < 300:
-                    return True
-        except Exception as e:
-            print(f"[UnifAI Proxy WARNING] intercept-file failed, falling back to JSON: {e}")
+
+        add_field("platform", platform)
+        add_field("prompt", prompt)
+        add_field("client_ip", client_ip)
+        add_field("agent_id", UNIFAI_AGENT_ID or "")
+        add_field("agent_hostname", UNIFAI_AGENT_HOSTNAME or "")
+        add_field("file_name", safe_name)
+        add_field("content_type", ctype)
+        add_field("metadata", json.dumps(metadata))
+        parts.append(f"--{boundary}--\r\n".encode("utf-8"))
+        body = b"".join(parts)
+        req = urllib.request.Request(
+            f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept-file",
+            data=body,
+            headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=12) as resp:
+            if 200 <= getattr(resp, "status", 200) < 300:
+                return True
+    except Exception as e:
+        print(f"[UnifAI Proxy WARNING] intercept-file failed, falling back to JSON: {e}")
 
     try:
         payload_json = json.dumps({
@@ -3419,6 +3458,7 @@ def post_upload_intercept(
             "client_ip": client_ip,
             "agent_id": UNIFAI_AGENT_ID,
             "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+            "upload_images": upload_images or [],
             "metadata": metadata,
         }).encode("utf-8")
         req = urllib.request.Request(
@@ -4916,7 +4956,7 @@ def get_client_ip(flow: http.HTTPFlow) -> str:
         return "127.0.0.1"
 
 
-def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str, upload_images: list[str] | None = None) -> tuple[bool, str, str, str, str]:
+def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str, upload_images: list[str] | None = None, evaluation_only: bool = False) -> tuple[bool, str, str, str, str]:
     """
     Send intercepted prompt to UnifAI backend /api/browser-ai/intercept.
     Backend handles guard rule matching and returns allowed/blocked decision.
@@ -4936,6 +4976,8 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
                 "method": method,
                 "agent_id": UNIFAI_AGENT_ID,
                 "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+                "evaluation_only": bool(evaluation_only),
+                "upload_scan": bool(evaluation_only),
             },
         }).encode("utf-8")
 
@@ -4954,9 +4996,9 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
                 rule_triggered = res_data.get("rule_triggered", "")
                 action = res_data.get("action", "Allowed")
                 redacted_prompt = res_data.get("forward_prompt") or res_data.get("redacted_prompt", prompt)
-                # If backend says Warned but returned the raw prompt, append warning locally.
-                if (action or "") == "Warned" and redacted_prompt == prompt:
-                    redacted_prompt = _warned_forward(prompt, res_data.get("warning_message", ""))
+                # If backend says Redacted but returned the raw prompt, append notice locally.
+                if (action or "") in ("Redacted", "Warned") and redacted_prompt == prompt:
+                    redacted_prompt = _redacted_forward(prompt, res_data.get("warning_message", ""))
                 reply_text = (res_data.get("reply_text") or "").strip()
                 eval_error = (res_data.get("eval_error") or "").strip()
                 if eval_error:
@@ -4974,12 +5016,12 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
         if not rule_matches_prompt(r, prompt):
             continue
         rule_action = (r.get("action") or "BLOCK").upper()
-        if rule_action == "REDACT":
-            rule_action = "WARN"
+        if rule_action == "WARN":
+            rule_action = "REDACT"
         if rule_action == "BLOCK":
             return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
-        if rule_action == "WARN":
-            return True, r["name"], "Warned", _warned_forward(prompt, r.get("warning_message", "")), ""
+        if rule_action == "REDACT":
+            return True, r["name"], "Redacted", _redacted_forward(prompt, r.get("warning_message", "")), ""
 
     # Backend / evaluator miss — allow traffic; regex rules already ran locally.
     if _fail_open() or has_ai_bot_rules():
@@ -5665,10 +5707,7 @@ class BrowserAIInterceptor:
             )
             if blocked:
                 return
-            # File row logged above — do not also log embedded PDF/doc text as a separate prompt.
-            self._log_attachment_send_caption(
-                flow, domain, platform, client_ip, raw_text, peek_prompt, has_prompt,
-            )
+            # File row logged above — do not also log caption or embedded doc text as a separate prompt.
             return
 
         # ── Domain-add-only intercept: extracted user text → predict ──
@@ -5704,9 +5743,6 @@ class BrowserAIInterceptor:
             if blocked:
                 return
             if n_processed > 0:
-                self._log_attachment_send_caption(
-                    flow, domain, platform, client_ip, raw_text, peek_prompt, has_prompt,
-                )
                 return
 
         prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=flow.request.url)

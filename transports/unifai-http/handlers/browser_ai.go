@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -692,6 +693,25 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		payload.Metadata["agent_hostname"] = strings.TrimSpace(payload.AgentHostname)
 	}
 
+	evalOnly, _ := payload.Metadata["evaluation_only"].(bool)
+	if evalOnly {
+		allowed, action, ruleTriggered, ruleWarning := h.evaluateGuardOnly(ctx, payload.Prompt, payload.UploadImages)
+		forwardPrompt := payload.Prompt
+		if action == "Redacted" || action == "Warned" {
+			forwardPrompt = logstore.FormatWarnedForwardPrompt(payload.Prompt, ruleWarning)
+		}
+		SendJSON(ctx, map[string]any{
+			"status":          "success",
+			"allowed":         allowed,
+			"action":          action,
+			"rule_triggered":  ruleTriggered,
+			"warning_message": ruleWarning,
+			"forward_prompt":  forwardPrompt,
+			"redacted_prompt": forwardPrompt,
+		})
+		return
+	}
+
 	logEntry, ruleWarning, err := h.manager.InterceptPrompt(ctx, payload.Platform, payload.Prompt, payload.ClientIP, payload.Metadata)
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
@@ -814,9 +834,9 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					securityVerdict = "violation"
 					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 					break
-				} else if ruleAction == "WARN" {
-					logEntry.Action = "Warned"
-					logEntry.Status = fmt.Sprintf("Warned (%s)", rule.Name)
+				} else if ruleAction == "REDACT" {
+					logEntry.Action = "Redacted"
+					logEntry.Status = fmt.Sprintf("Redacted (%s)", rule.Name)
 					logEntry.RiskScore = sevScore
 					if logEntry.RiskScore > 70 {
 						logEntry.RiskScore = 65
@@ -828,7 +848,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					if sevLabel == "CRITICAL" || sevLabel == "HIGH" {
 						logEntry.PredictiveRisk = "HIGH"
 					}
-					logEntry.PredictedCategory = "AI_GUARD_BOT_WARNING"
+					logEntry.PredictedCategory = "AI_GUARD_BOT_REDACT"
 					logEntry.RuleTriggered = rule.Name
 					ruleWarning = strings.TrimSpace(rule.WarningMessage)
 					evalError = ""
@@ -932,8 +952,173 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	})
 }
 
-// interceptFile accepts multipart upload from Guard/proxy: form fields + optional file bytes.
-// Stores attachments under APP_DIR/attachments and links them on the intercept log for View/Download.
+func getMetadataString(metadata map[string]any, key string) string {
+	if metadata == nil {
+		return ""
+	}
+	v, ok := metadata[key].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(v)
+}
+
+func parseUploadImagesMetadata(metadata map[string]any) []string {
+	if metadata == nil {
+		return nil
+	}
+	raw, ok := metadata["upload_images"]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		out := make([]string, 0, len(v))
+		for _, s := range v {
+			if t := strings.TrimSpace(s); t != "" {
+				out = append(out, t)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+// evaluateGuardOnly runs regex + AI Guard Bot rules without persisting a log row (file-scan pre-check).
+func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt string, uploadImages []string) (allowed bool, action, ruleTriggered, ruleWarning string) {
+	allowed = true
+	action = "Allowed"
+	prompt = strings.TrimSpace(prompt)
+	rules, _ := h.manager.GetRules(ctx)
+	for _, rule := range rules {
+		if !rule.Active || strings.ToLower(rule.RuleType) == "ai_bot" || rule.Pattern == "" {
+			continue
+		}
+		re, err := regexp.Compile("(?i)" + rule.Pattern)
+		if err != nil || !re.MatchString(prompt) {
+			continue
+		}
+		ruleTriggered = rule.Name
+		ruleWarning = strings.TrimSpace(rule.WarningMessage)
+		ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
+		if ruleAction == "BLOCK" {
+			return false, "Blocked", ruleTriggered, ruleWarning
+		}
+		if ruleAction == "REDACT" {
+			allowed = true
+			action = "Redacted"
+		}
+	}
+	for _, rule := range rules {
+		if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
+			continue
+		}
+		applyAIBotDefaults(&rule)
+		if strings.TrimSpace(rule.BotPrompt) == "" && strings.TrimSpace(rule.BotReferenceImage) == "" {
+			continue
+		}
+		if (isVisionGuardModel(rule.BotModel) || strings.TrimSpace(rule.BotReferenceImage) != "") && len(uploadImages) == 0 {
+			continue
+		}
+		violated, evalErr := h.evaluateAIBotRule(rule, prompt, uploadImages)
+		if evalErr != "" {
+			continue
+		}
+		if !violated {
+			continue
+		}
+		ruleTriggered = rule.Name
+		ruleWarning = strings.TrimSpace(rule.WarningMessage)
+		ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
+		if ruleAction == "BLOCK" {
+			return false, "Blocked", ruleTriggered, ruleWarning
+		}
+		if ruleAction == "REDACT" {
+			allowed = true
+			action = "Redacted"
+		}
+	}
+	return allowed, action, ruleTriggered, ruleWarning
+}
+
+// runAIBotOnLogEntry evaluates active AI Guard Bot rules against file/voice extracted content.
+func (h *BrowserAIHandler) runAIBotOnLogEntry(ctx *fasthttp.RequestCtx, logEntry *logstore.BrowserAILog, content string, uploadImages []string, ruleWarning *string) {
+	if logEntry == nil || logEntry.Action == "Blocked" {
+		return
+	}
+	content = strings.TrimSpace(content)
+	if content == "" && len(uploadImages) == 0 {
+		return
+	}
+	rules, _ := h.manager.GetRules(ctx)
+	for _, rule := range rules {
+		if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
+			continue
+		}
+		applyAIBotDefaults(&rule)
+		if strings.TrimSpace(rule.BotPrompt) == "" && strings.TrimSpace(rule.BotReferenceImage) == "" {
+			continue
+		}
+		if (isVisionGuardModel(rule.BotModel) || strings.TrimSpace(rule.BotReferenceImage) != "") && len(uploadImages) == 0 {
+			continue
+		}
+		violated, evalErr := h.evaluateAIBotRule(rule, content, uploadImages)
+		if evalErr != "" {
+			logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", rule.Name)
+			logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
+			logEntry.RuleTriggered = rule.Name
+			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+			continue
+		}
+		if !violated {
+			logEntry.Status = "Allowed (AI Guard Bot: security OK)"
+			logEntry.PredictedCategory = "AI_GUARD_BOT_CLEAR"
+			logEntry.RuleTriggered = rule.Name
+			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+			continue
+		}
+		ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
+		sevScore, sevLabel := logstore.GuardSeverityScore(rule.Severity)
+		if ruleAction == "BLOCK" {
+			logEntry.Action = "Blocked"
+			logEntry.Status = fmt.Sprintf("Blocked (%s)", rule.Name)
+			logEntry.RiskScore = sevScore
+			if logEntry.RiskScore < 80 {
+				logEntry.RiskScore = 90
+			}
+			logEntry.PredictiveRisk = sevLabel
+			logEntry.PredictedCategory = "AI_GUARD_BOT_VIOLATION"
+			logEntry.RuleTriggered = rule.Name
+			if ruleWarning != nil {
+				*ruleWarning = strings.TrimSpace(rule.WarningMessage)
+			}
+			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+			return
+		}
+		if ruleAction == "REDACT" {
+			logEntry.Action = "Redacted"
+			logEntry.Status = fmt.Sprintf("Redacted (%s)", rule.Name)
+			logEntry.RiskScore = sevScore
+			logEntry.PredictedCategory = "AI_GUARD_BOT_REDACT"
+			logEntry.RuleTriggered = rule.Name
+			if ruleWarning != nil {
+				*ruleWarning = strings.TrimSpace(rule.WarningMessage)
+			}
+			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+		}
+	}
+}
+
+// interceptFile accepts multipart metadata from Guard/proxy (filename + extracted text; no file storage).
 func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	h.ensureDB(ctx)
 
@@ -960,7 +1145,6 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	agentID := getForm("agent_id")
 	agentHostname := getForm("agent_hostname")
 	metaRaw := getForm("metadata")
-	contentTypeHint := getForm("content_type")
 
 	metadata := map[string]any{}
 	if metaRaw != "" {
@@ -983,37 +1167,7 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	}
 	metadata["upload_scan"] = true
 
-	var fileBytes []byte
 	fileName := getForm("file_name")
-	if form.File != nil {
-		for _, headers := range form.File {
-			if len(headers) == 0 {
-				continue
-			}
-			fh := headers[0]
-			if fileName == "" && fh.Filename != "" {
-				fileName = fh.Filename
-			}
-			if contentTypeHint == "" && fh.Header != nil {
-				contentTypeHint = strings.TrimSpace(fh.Header.Get("Content-Type"))
-			}
-			f, openErr := fh.Open()
-			if openErr != nil {
-				continue
-			}
-			buf := make([]byte, browserAIAttachmentMaxBytes+1)
-			n, _ := f.Read(buf)
-			_ = f.Close()
-			if n > 0 {
-				if n > browserAIAttachmentMaxBytes {
-					SendError(ctx, fasthttp.StatusRequestEntityTooLarge, "file too large (max 20MB)")
-					return
-				}
-				fileBytes = buf[:n]
-				break
-			}
-		}
-	}
 	if fileName != "" {
 		metadata["file_name"] = fileName
 	}
@@ -1031,13 +1185,14 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	if len(fileBytes) > 0 {
-		safeName := sanitizeAttachmentFileName(fileName)
-		if safeName == "attachment" || filepath.Ext(safeName) == "" {
-			safeName = ensureAttachmentExt(fileName, contentTypeHint)
-		}
-		logEntry.AttachmentName = safeName
-		// Upload bytes are scanned in-memory by the Guard proxy; do not persist files on disk.
+	extractedText := strings.TrimSpace(getMetadataString(metadata, "extracted_text"))
+	uploadImages := parseUploadImagesMetadata(metadata)
+	if logEntry.Action != "Blocked" && (extractedText != "" || len(uploadImages) > 0) {
+		h.runAIBotOnLogEntry(ctx, logEntry, extractedText, uploadImages, &ruleWarning)
+	}
+
+	if fileName != "" {
+		logEntry.AttachmentName = sanitizeAttachmentFileName(fileName)
 	}
 
 	SendJSON(ctx, map[string]any{
@@ -1197,10 +1352,10 @@ func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
 		message = securityVerdictMessage("eval_failed", rule.Name) + " " + evalErr
 		message += " (live traffic is allowed — only confirmed violations block.)"
 	} else if violated {
-		if rule.Action == "WARN" {
-			verdict = "warning"
+		if rule.Action == "REDACT" || rule.Action == "WARN" {
+			verdict = "redact"
 			wouldWarn = true
-			message = securityVerdictMessage("warning", rule.Name)
+			message = securityVerdictMessage("redact", rule.Name)
 		} else {
 			verdict = "violation"
 			wouldBlock = true

@@ -133,7 +133,7 @@ type BrowserGuardRule struct {
 	BotReferenceImage      string `gorm:"type:text" json:"bot_reference_image,omitempty"`   // Base64 reference template (vision rules)
 	BotReferenceImageType  string `json:"bot_reference_image_type,omitempty"`                 // e.g. image/png
 	Severity               string `json:"severity"`                                           // "CRITICAL", "HIGH", "MEDIUM"
-	Action         string    `json:"action"`                      // "BLOCK" or "WARN" (legacy "REDACT" is normalized to "WARN")
+	Action         string    `json:"action"`                      // "BLOCK" or "REDACT" (legacy WARN/ALERT normalized to REDACT)
 	Pattern        string    `json:"pattern"`
 	Active         bool      `json:"active"`
 	Description    string    `json:"description"`
@@ -382,11 +382,12 @@ func (m *BrowserAIManager) GetRules(ctx context.Context) ([]BrowserGuardRule, er
 	if err != nil {
 		return rules, err
 	}
-	// Legacy REDACT → WARN (persist so UI no longer shows REDACT).
+	// Legacy WARN/ALERT → REDACT (UI uses REDACT, not WARN).
 	for i := range rules {
-		if strings.EqualFold(strings.TrimSpace(rules[i].Action), "REDACT") {
-			_ = m.db.WithContext(ctx).Model(&BrowserGuardRule{}).Where("id = ?", rules[i].ID).Update("action", "WARN").Error
-			rules[i].Action = "WARN"
+		a := strings.ToUpper(strings.TrimSpace(rules[i].Action))
+		if a == "WARN" || a == "ALERT" {
+			_ = m.db.WithContext(ctx).Model(&BrowserGuardRule{}).Where("id = ?", rules[i].ID).Update("action", "REDACT").Error
+			rules[i].Action = "REDACT"
 		}
 	}
 	return rules, nil
@@ -919,9 +920,8 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		return pi != pj && !pi && pj
 	})
 
-	// Proxy already decided Blocked (upload / site lock) — do not let a WARN rule downgrade it.
+	// Proxy already decided Blocked (upload / site lock) — do not let a REDACT rule downgrade it.
 	alreadyBlocked := action == "Blocked"
-	// Upload audit lines are not chat prompts — skip regex DLP on "[FILE UPLOAD] …".
 	uploadScan := false
 	if v, ok := metadata["upload_scan"].(bool); ok && v {
 		uploadScan = true
@@ -930,23 +930,34 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		strings.HasPrefix(strings.TrimSpace(promptFull), "[VOICE UPLOAD]") {
 		uploadScan = true
 	}
+	regexScanText := promptFull
+	if uploadScan {
+		if ext, ok := metadata["extracted_text"].(string); ok && strings.TrimSpace(ext) != "" {
+			regexScanText = strings.TrimSpace(ext)
+		} else {
+			regexScanText = ""
+		}
+	}
 
 	for _, rule := range rules {
-		if alreadyBlocked || uploadScan {
+		if alreadyBlocked {
+			break
+		}
+		if uploadScan && regexScanText == "" {
 			break
 		}
 		if strings.ToLower(rule.RuleType) == "ai_bot" || rule.Pattern == "" {
 			continue
 		}
 		re, err := regexp.Compile("(?i)" + rule.Pattern)
-		if err != nil || !re.MatchString(promptFull) {
+		if err != nil || !re.MatchString(regexScanText) {
 			continue
 		}
-		if isPhoneLikeRule(rule.Name, rule.Pattern) && looksLikeSecretToken(promptFull) {
+		if isPhoneLikeRule(rule.Name, rule.Pattern) && looksLikeSecretToken(regexScanText) {
 			continue
 		}
-		if loc := re.FindStringIndex(promptFull); loc != nil && loc[0] >= 3 {
-			if strings.EqualFold(promptFull[loc[0]-3:loc[0]], "sk-") {
+		if loc := re.FindStringIndex(regexScanText); loc != nil && loc[0] >= 3 {
+			if strings.EqualFold(regexScanText[loc[0]-3:loc[0]], "sk-") {
 				continue
 			}
 		}
@@ -968,10 +979,10 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 			}
 			predictedCategory = "SECURITY_POLICY_VIOLATION"
 			break
-		} else if ruleAction == "WARN" {
-			// Log keeps the real prompt; ChatGPT gets prompt+warning via forward_prompt on the API.
-			action = "Warned"
-			status = fmt.Sprintf("Warned (%s)", rule.Name)
+		} else if ruleAction == "REDACT" {
+			// Log keeps the real prompt; ChatGPT gets prompt + redact notice via forward_prompt on the API.
+			action = "Redacted"
+			status = fmt.Sprintf("Redacted (%s)", rule.Name)
 			riskScore = sevScore
 			if riskScore > 70 {
 				riskScore = 60
@@ -1127,14 +1138,12 @@ func (m *BrowserAIManager) UpdateLogActionStatus(ctx context.Context, logID, act
 	return m.db.WithContext(ctx).Model(&BrowserAILog{}).Where("id = ?", logID).Updates(updates).Error
 }
 
-// NormalizeGuardRuleAction maps legacy REDACT to WARN. Only BLOCK and WARN are supported.
+// NormalizeGuardRuleAction maps legacy WARN/ALERT to REDACT. Supported: BLOCK and REDACT.
 func NormalizeGuardRuleAction(action string) string {
 	a := strings.ToUpper(strings.TrimSpace(action))
 	switch a {
-	case "WARN", "ALERT":
-		return "WARN"
-	case "REDACT":
-		return "WARN"
+	case "REDACT", "WARN", "ALERT":
+		return "REDACT"
 	case "BLOCK":
 		return "BLOCK"
 	case "":
@@ -1144,14 +1153,14 @@ func NormalizeGuardRuleAction(action string) string {
 	}
 }
 
-// FormatWarnedForwardPrompt is what ChatGPT/browser receives on WARN: full original prompt + warning.
+// FormatWarnedForwardPrompt is what ChatGPT/browser receives on REDACT: full original prompt + notice.
 // Prompt Logs still store the original prompt only.
 func FormatWarnedForwardPrompt(original, warningMessage string) string {
 	w := strings.TrimSpace(warningMessage)
 	if w == "" {
-		w = "This prompt triggered a UnifAI Guard warning."
+		w = "This prompt triggered a UnifAI Guard redaction policy."
 	}
-	return strings.TrimRight(original, " \t\r\n") + "\n\n[UNIFAI WARNING] " + w
+	return strings.TrimRight(original, " \t\r\n") + "\n\n[UNIFAI REDACTED] " + w
 }
 
 // SecurityReplyForRule returns only the admin-authored warning. Empty if none was set.

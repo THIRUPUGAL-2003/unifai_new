@@ -103,7 +103,7 @@ function GuardBotModelPicker({
 		const seen = new Set<string>();
 		const opts: { label: string; value: string }[] = [];
 		for (const name of data?.models || []) {
-			const trimmed = String(name || "").trim();
+			const trimmed = String(name || "").trim().replace(/:latest$/i, "");
 			if (!trimmed || seen.has(trimmed)) continue;
 			seen.add(trimmed);
 			opts.push({ label: trimmed, value: trimmed });
@@ -166,7 +166,7 @@ function logActionBadge(log: {
 		return chip("bg-sky-950/80 text-sky-300 border-sky-700/60", <Bot className="h-3 w-3 shrink-0" />, "Bot");
 	}
 	if (log.action === "Redacted" || log.action === "Warned") {
-		return chip("bg-amber-950/80 text-amber-300 border-amber-700/60", <AlertCircle className="h-3 w-3 shrink-0" />, "Warned");
+		return chip("bg-amber-950/80 text-amber-300 border-amber-700/60", <AlertCircle className="h-3 w-3 shrink-0" />, "Redacted");
 	}
 	return chip("bg-emerald-950/80 text-emerald-400 border-emerald-700/60", <CheckCircle2 className="h-3 w-3 shrink-0" />, "Allowed");
 }
@@ -275,9 +275,9 @@ function securityVerdictFromLog(log: BrowserAILogEntry): { title: string; detail
 			tone: "bad",
 		};
 	}
-	if (cat === "AI_GUARD_BOT_WARNING") {
+	if (cat === "AI_GUARD_BOT_REDACT" || cat === "AI_GUARD_BOT_WARNING") {
 		return {
-			title: "Security warning — allowed with notice",
+			title: "Security notice — allowed with redaction",
 			detail: `AI Guard Bot flagged this prompt${log.rule_triggered ? ` (${log.rule_triggered})` : ""}.`,
 			tone: "warn",
 		};
@@ -296,10 +296,10 @@ function securityVerdictFromLog(log: BrowserAILogEntry): { title: string; detail
 			tone: "bad",
 		};
 	}
-	if (action === "warned") {
+	if (action === "redacted" || action === "warned") {
 		return {
-			title: "Security warning",
-			detail: log.rule_triggered ? `Warned by rule: ${log.rule_triggered}` : (log.status || "Warned by Guard policy."),
+			title: "Security redaction",
+			detail: log.rule_triggered ? `Redacted by rule: ${log.rule_triggered}` : (log.status || "Redacted by Guard policy."),
 			tone: "warn",
 		};
 	}
@@ -555,7 +555,7 @@ export default function BrowserAiPage() {
 	const [newRuleBotReferenceImageType, setNewRuleBotReferenceImageType] = useState("");
 	const [newRuleBotReferenceImagePreview, setNewRuleBotReferenceImagePreview] = useState("");
 	const [newRuleSeverity, setNewRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
-	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "WARN">("BLOCK");
+	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "REDACT">("BLOCK");
 	const [newRulePattern, setNewRulePattern] = useState("");
 	const [newRuleDescription, setNewRuleDescription] = useState("");
 	const [newRuleWarningMessage, setNewRuleWarningMessage] = useState("");
@@ -590,7 +590,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	const [editRuleBotReferenceImageType, setEditRuleBotReferenceImageType] = useState("");
 	const [editRuleBotReferenceImagePreview, setEditRuleBotReferenceImagePreview] = useState("");
 	const [editRuleSeverity, setEditRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
-	const [editRuleAction, setEditRuleAction] = useState<"BLOCK" | "WARN">("BLOCK");
+	const [editRuleAction, setEditRuleAction] = useState<"BLOCK" | "REDACT">("BLOCK");
 	const [editRulePattern, setEditRulePattern] = useState("");
 	const [editRuleDescription, setEditRuleDescription] = useState("");
 	const [editRuleWarningMessage, setEditRuleWarningMessage] = useState("");
@@ -1033,7 +1033,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	const activeRulesCount = rules.filter((r) => r.active).length;
 	const monitoredTargetsCount = targets.filter((t) => t.monitored).length;
 	const blockedCount = logs.filter((l) => l.action === "Blocked").length;
-	const warnedCount = logs.filter((l) => l.action === "Warned" || l.action === "Redacted").length;
+	const warnedCount = logs.filter((l) => l.action === "Redacted" || l.action === "Warned").length;
 	const highRiskCount = logs.filter((l) => (l.risk_score || 0) >= 70 || l.predictive_risk === "HIGH" || l.predictive_risk === "CRITICAL").length;
 	const avgRiskScore = logs.length > 0 ? Math.round(logs.reduce((acc, curr) => acc + (curr.risk_score || 10), 0) / logs.length) : 0;
 
@@ -1360,12 +1360,12 @@ type RelatedHostEntry = { host: string; role: HostRole };
 						<Card className="bg-card border-border">
 							<CardHeader className="pb-2">
 								<CardDescription className="flex items-center gap-1.5">
-									<AlertCircle className="h-3.5 w-3.5 text-amber-400" /> Warnings
+									<AlertCircle className="h-3.5 w-3.5 text-amber-400" /> Redacted
 								</CardDescription>
 								<CardTitle className="text-3xl font-bold text-amber-400">{warnedCount}</CardTitle>
 							</CardHeader>
 							<CardContent>
-								<p className="text-xs text-muted-foreground">Prompt forwarded with warning attached</p>
+								<p className="text-xs text-muted-foreground">Prompt forwarded with redaction notice</p>
 							</CardContent>
 						</Card>
 
@@ -1544,7 +1544,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									<SelectContent>
 										<SelectItem value="all">All Status</SelectItem>
 										<SelectItem value="Allowed">Allowed</SelectItem>
-										<SelectItem value="Warned">Warned</SelectItem>
+										<SelectItem value="Redacted">Redacted</SelectItem>
+										<SelectItem value="Warned">Warned (legacy)</SelectItem>
 										<SelectItem value="Blocked">Blocked (DLP / rules)</SelectItem>
 										<SelectItem value="SiteBlocked">Site Blocked (full website)</SelectItem>
 										<SelectItem value="Bot Answered">Bot Answered</SelectItem>
@@ -1958,7 +1959,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 														</SelectTrigger>
 														<SelectContent>
 															<SelectItem value="BLOCK">BLOCK (Security Reject)</SelectItem>
-															<SelectItem value="WARN">WARN (Prompt + warning in chat)</SelectItem>
+															<SelectItem value="REDACT">REDACT (Prompt + redaction notice in chat)</SelectItem>
 														</SelectContent>
 													</Select>
 												</div>
@@ -2073,7 +2074,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 														</Badge>
 													) : (
 														<Badge className="bg-amber-950/80 text-amber-300 border-amber-700 gap-1 text-[11px]">
-															<AlertCircle className="h-3 w-3" /> WARN
+															<AlertCircle className="h-3 w-3" /> REDACT
 														</Badge>
 													)}
 												</div>
@@ -2145,7 +2146,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 																	: "",
 															);
 															setEditRuleSeverity(rule.severity);
-															setEditRuleAction(rule.action === "REDACT" || rule.action === "WARN" ? "WARN" : "BLOCK");
+															setEditRuleAction(rule.action === "BLOCK" ? "BLOCK" : "REDACT");
 															setEditRulePattern(rule.pattern || "");
 															setEditRuleDescription(rule.description || "");
 															setEditRuleWarningMessage(rule.warning_message || "");
@@ -2770,7 +2771,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 										</SelectTrigger>
 										<SelectContent>
 											<SelectItem value="BLOCK">BLOCK (Security Reject)</SelectItem>
-											<SelectItem value="WARN">WARN (Prompt + warning in chat)</SelectItem>
+											<SelectItem value="REDACT">REDACT (Prompt + redaction notice in chat)</SelectItem>
 										</SelectContent>
 									</Select>
 								</div>

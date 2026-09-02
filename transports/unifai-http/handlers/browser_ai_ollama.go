@@ -424,6 +424,7 @@ func fetchOllamaTags(baseURL string, timeout time.Duration) ([]string, error) {
 	out := make([]string, 0, len(parsed.Models))
 	for _, m := range parsed.Models {
 		name := strings.TrimSpace(m.Name)
+		name = strings.TrimSuffix(name, ":latest")
 		if name == "" || seen[name] {
 			continue
 		}
