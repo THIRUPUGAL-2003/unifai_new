@@ -89,6 +89,7 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.POST("/api/browser-ai/intercept-file", lib.ChainMiddlewares(h.interceptFile, middlewares...))
 	r.GET("/api/browser-ai/attachments/{id}", lib.ChainMiddlewares(h.getAttachment, middlewares...))
 	r.POST("/api/browser-ai/rules/test-bot", lib.ChainMiddlewares(h.testAIGuardBot, middlewares...))
+	r.GET("/api/browser-ai/ollama-models", lib.ChainMiddlewares(h.getOllamaModels, middlewares...))
 }
 
 func (h *BrowserAIHandler) getLogs(ctx *fasthttp.RequestCtx) {
@@ -138,6 +139,18 @@ func (h *BrowserAIHandler) getRules(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	SendJSON(ctx, map[string]any{"rules": rules})
+}
+
+func (h *BrowserAIHandler) getOllamaModels(ctx *fasthttp.RequestCtx) {
+	models, baseURL, err := listOllamaInstalledModels(10 * time.Second)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusBadGateway, err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{
+		"models":   models,
+		"base_url": baseURL,
+	})
 }
 
 func (h *BrowserAIHandler) createRule(ctx *fasthttp.RequestCtx) {

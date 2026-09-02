@@ -64,6 +64,7 @@ import {
 	useGetBrowserAiLogsQuery,
 	useClearBrowserAiLogsMutation,
 	useGetBrowserAiRulesQuery,
+	useGetBrowserAiOllamaModelsQuery,
 	useCreateBrowserAiRuleMutation,
 	useUpdateBrowserAiRuleMutation,
 	useDeleteBrowserAiRuleMutation,
@@ -83,7 +84,6 @@ import {
 	BrowserTargetWebsite,
 	BrowserAIAgent,
 } from "@/lib/store/apis/browserAiApi";
-import { useGetModelsQuery } from "@/lib/store/apis/providersApi";
 import { getApiBaseUrl } from "@/lib/utils/port";
 
 function GuardBotModelPicker({
@@ -97,30 +97,20 @@ function GuardBotModelPicker({
 	onChange: (model: string) => void;
 	disabled?: boolean;
 }) {
-	const { data, isFetching } = useGetModelsQuery(
-		{ provider, limit: 5000, unfiltered: true },
-		{ skip: !provider },
-	);
+	const isOllama = (provider || "").toLowerCase() === "ollama";
+	const { data, isFetching, isError } = useGetBrowserAiOllamaModelsQuery(undefined, { skip: !isOllama });
 	const options = useMemo(() => {
 		const seen = new Set<string>();
 		const opts: { label: string; value: string }[] = [];
-		for (const m of data?.models || []) {
-			const name = String(m?.name || "").trim();
-			if (!name || seen.has(name)) continue;
-			seen.add(name);
-			opts.push({ label: name, value: name });
+		for (const name of data?.models || []) {
+			const trimmed = String(name || "").trim();
+			if (!trimmed || seen.has(trimmed)) continue;
+			seen.add(trimmed);
+			opts.push({ label: trimmed, value: trimmed });
 		}
 		const current = String(value || "").trim();
 		if (current && !seen.has(current)) {
 			opts.unshift({ label: current, value: current });
-		}
-		if (provider === "ollama") {
-			for (const name of ["llava:7b", "llava:13b", "llama3.2", "llama3.2-vision"]) {
-				if (!seen.has(name)) {
-					opts.push({ label: name, value: name });
-					seen.add(name);
-				}
-			}
 		}
 		return opts;
 	}, [data, value]);
@@ -130,10 +120,10 @@ function GuardBotModelPicker({
 			options={options}
 			value={value || null}
 			onValueChange={(v) => onChange(String(v || ""))}
-			placeholder={!provider ? "Select a provider first" : isFetching ? "Loading models..." : "Select model"}
+			placeholder={!isOllama ? "Ollama only" : isFetching ? "Loading models from server..." : isError ? "Could not reach Ollama server" : "Select model"}
 			hideClear
-			disabled={disabled || !provider}
-			emptyMessage={provider ? "No models found for this provider" : "Select a provider first"}
+			disabled={disabled || !isOllama}
+			emptyMessage={isError ? "Ollama server unreachable — check 76.13.243.253:11434" : "No models on Ollama server"}
 			searchPlaceholder="Search models..."
 			data-testid="browser-ai-guard-bot-model"
 		/>

@@ -363,3 +363,75 @@ func callOllamaChat(baseURL, model, systemPrompt, userMsg string, jsonMode bool,
 	}
 	return text, nil
 }
+
+type ollamaTagsResponse struct {
+	Models []struct {
+		Name string `json:"name"`
+	} `json:"models"`
+}
+
+// listOllamaInstalledModels returns model names from the live Ollama /api/tags endpoint.
+func listOllamaInstalledModels(timeout time.Duration) ([]string, string, error) {
+	if timeout <= 0 {
+		timeout = 10 * time.Second
+	}
+	var errs []string
+	for _, base := range ollamaBaseURLCandidates() {
+		names, err := fetchOllamaTags(base, timeout)
+		if err == nil {
+			rememberWorkingOllamaURL(base)
+			return names, base, nil
+		}
+		errs = append(errs, truncateRunes(err.Error(), 120))
+	}
+	if len(errs) == 0 {
+		return nil, "", fmt.Errorf("ollama unreachable: no candidate URLs configured")
+	}
+	return nil, "", fmt.Errorf("ollama unreachable (%d tries): %s", len(errs), strings.Join(errs, "; "))
+}
+
+func fetchOllamaTags(baseURL string, timeout time.Duration) ([]string, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		return nil, fmt.Errorf("empty ollama base URL")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/api/tags", nil)
+	if err != nil {
+		return nil, fmt.Errorf("ollama tags request failed: %w", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("ollama unreachable at %s: %w", baseURL, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("ollama tags read failed: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("ollama HTTP %d: %s", resp.StatusCode, truncateRunes(string(respBody), 180))
+	}
+
+	var parsed ollamaTagsResponse
+	if err := sonic.Unmarshal(respBody, &parsed); err != nil {
+		return nil, fmt.Errorf("ollama tags decode failed: %w", err)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(parsed.Models))
+	for _, m := range parsed.Models {
+		name := strings.TrimSpace(m.Name)
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	if len(out) == 0 {
+		return nil, fmt.Errorf("ollama at %s returned no models", baseURL)
+	}
+	return out, nil
+}
