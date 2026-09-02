@@ -203,7 +203,7 @@ export function NewMessageInputView() {
 					</div>
 				</div>
 			)}
-			<div className="mb-1 flex items-center">
+			<div className="mb-1 flex items-center gap-2">
 				<MessageRoleSwitcher
 					role={inputRole}
 					disabled={isStreaming}
@@ -213,16 +213,18 @@ export function NewMessageInputView() {
 					}}
 					restrictedRoles={["system", "tool"]}
 				/>
+				{canAttach && (
+					<PromptFileImportBar
+						className="ml-auto shrink-0"
+						disabled={isStreaming}
+						onAttachmentsAdded={handleAddAttachments}
+					/>
+				)}
 			</div>
-			{canAttach && (
-				<div className="mb-2 space-y-2">
-					<PromptFileImportBar disabled={isStreaming} onAttachmentsAdded={handleAddAttachments} />
-					{hasImageAttachment && !supportsVision && (
-						<p className="text-muted-foreground text-xs">
-							Image attached. Select a vision-capable model if the provider should process images.
-						</p>
-					)}
-				</div>
+			{canAttach && hasImageAttachment && !supportsVision && (
+				<p className="text-muted-foreground mb-2 text-xs">
+					Image attached. Select a vision-capable model if the provider should process images.
+				</p>
 			)}
 			{attachments.length > 0 && (
 				<div className="mb-2 flex flex-wrap gap-2">

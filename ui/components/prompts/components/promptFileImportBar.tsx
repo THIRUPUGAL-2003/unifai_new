@@ -2,9 +2,43 @@ import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { MessageContent } from "@/lib/message";
 import { Mic, Paperclip, Square } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { fileToAttachment, filesToAttachments, PROMPT_FILE_ACCEPT, PROMPT_FILE_ACCEPT_LABEL } from "../utils/attachment";
+
+function getSupportedAudioMimeType(): string {
+	const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus", "audio/mp4", "audio/wav"];
+	for (const type of candidates) {
+		if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)) {
+			return type;
+		}
+	}
+	return "";
+}
+
+function getMicrophoneErrorMessage(error: unknown): string {
+	if (error instanceof DOMException) {
+		switch (error.name) {
+			case "NotAllowedError":
+			case "PermissionDeniedError":
+				return "Microphone permission denied. Allow microphone access in your browser settings and try again.";
+			case "NotFoundError":
+			case "DevicesNotFoundError":
+				return "No microphone found. Connect a microphone and try again.";
+			case "NotReadableError":
+			case "TrackStartError":
+				return "Microphone is in use by another app. Close other apps using the mic and try again.";
+			case "SecurityError":
+				return "Microphone blocked on insecure (HTTP) pages. Open the app via HTTPS or localhost.";
+			default:
+				break;
+		}
+	}
+	if (typeof window !== "undefined" && !window.isSecureContext) {
+		return "Microphone requires a secure connection (HTTPS or localhost).";
+	}
+	return "Microphone access denied or unavailable.";
+}
 
 interface PromptFileImportBarProps {
 	disabled?: boolean;
@@ -35,15 +69,52 @@ export function PromptFileImportBar({ disabled, onAttachmentsAdded, className = 
 		mediaRecorderRef.current = null;
 	}, []);
 
+	const cleanupStream = useCallback(() => {
+		mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+		mediaStreamRef.current = null;
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			if (mediaRecorderRef.current?.state !== "inactive") {
+				mediaRecorderRef.current?.stop();
+			}
+			cleanupStream();
+		};
+	}, [cleanupStream]);
+
 	const startRecording = useCallback(async () => {
+		if (typeof window !== "undefined" && !window.isSecureContext) {
+			toast.error("Microphone requires HTTPS or localhost", {
+				description: "Open this page with https:// or use localhost to record voice.",
+			});
+			return;
+		}
 		if (!navigator.mediaDevices?.getUserMedia) {
 			toast.error("Voice recording is not supported in this browser");
 			return;
 		}
+		if (typeof MediaRecorder === "undefined") {
+			toast.error("Audio recording is not supported in this browser");
+			return;
+		}
+
+		const mimeType = getSupportedAudioMimeType();
+		if (!mimeType) {
+			toast.error("No supported audio format found in this browser");
+			return;
+		}
+
 		try {
-			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			const stream = await navigator.mediaDevices.getUserMedia({
+				audio: {
+					echoCancellation: true,
+					noiseSuppression: true,
+					autoGainControl: true,
+				},
+			});
 			mediaStreamRef.current = stream;
-			const recorder = new MediaRecorder(stream);
+			const recorder = new MediaRecorder(stream, { mimeType });
 			audioChunksRef.current = [];
 
 			recorder.ondataavailable = (event) => {
@@ -52,19 +123,34 @@ export function PromptFileImportBar({ disabled, onAttachmentsAdded, className = 
 				}
 			};
 
-			recorder.onstop = async () => {
-				mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
-				mediaStreamRef.current = null;
+			recorder.onerror = () => {
+				cleanupStream();
 				setIsRecording(false);
+				mediaRecorderRef.current = null;
+				toast.error("Recording failed. Please try again.");
+			};
 
-				const mimeType = recorder.mimeType || "audio/webm";
-				const blob = new Blob(audioChunksRef.current, { type: mimeType });
+			recorder.onstop = async () => {
+				cleanupStream();
+				setIsRecording(false);
+				mediaRecorderRef.current = null;
+
+				const recordedMimeType = recorder.mimeType || mimeType;
+				const blob = new Blob(audioChunksRef.current, { type: recordedMimeType });
+				audioChunksRef.current = [];
 				if (blob.size === 0) {
+					toast.error("No audio captured. Try recording again.");
 					return;
 				}
 
-				const ext = mimeType.includes("webm") ? "webm" : mimeType.includes("ogg") ? "ogg" : "wav";
-				const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: mimeType });
+				const ext = recordedMimeType.includes("webm")
+					? "webm"
+					: recordedMimeType.includes("ogg")
+						? "ogg"
+						: recordedMimeType.includes("mp4")
+							? "m4a"
+							: "wav";
+				const file = new File([blob], `voice-${Date.now()}.${ext}`, { type: recordedMimeType });
 				const attachment = await fileToAttachment(file);
 				if (attachment) {
 					onAttachmentsAdded([attachment]);
@@ -72,13 +158,17 @@ export function PromptFileImportBar({ disabled, onAttachmentsAdded, className = 
 				}
 			};
 
-			recorder.start();
+			recorder.start(250);
 			mediaRecorderRef.current = recorder;
 			setIsRecording(true);
-		} catch {
-			toast.error("Microphone access denied or unavailable");
+			toast.message("Recording...", { description: "Click Stop when finished." });
+		} catch (error) {
+			cleanupStream();
+			setIsRecording(false);
+			mediaRecorderRef.current = null;
+			toast.error(getMicrophoneErrorMessage(error));
 		}
-	}, [onAttachmentsAdded]);
+	}, [cleanupStream, onAttachmentsAdded]);
 
 	const toggleRecording = useCallback(() => {
 		if (disabled) return;
@@ -90,7 +180,7 @@ export function PromptFileImportBar({ disabled, onAttachmentsAdded, className = 
 	}, [disabled, isRecording, startRecording, stopRecording]);
 
 	return (
-		<div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
+		<div className={`flex flex-wrap items-center justify-end gap-1.5 ${className}`}>
 			<input
 				ref={fileInputRef}
 				type="file"
