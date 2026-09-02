@@ -372,9 +372,19 @@ const GUARD_BOT_OLLAMA_MODEL = "llama3.2";
 const GUARD_BOT_OLLAMA_ENDPOINT = "http://76.13.243.253:11434";
 const GUARD_BOT_REFERENCE_IMAGE_MAX_BYTES = 512 * 1024;
 
-function isVisionGuardModel(model: string): boolean {
+function isMultimodalGuardModel(model: string): boolean {
 	const m = (model || "").toLowerCase();
+	return m.includes("gemma4") || m.includes("gemma-4");
+}
+
+function isVisionOnlyGuardModel(model: string): boolean {
+	const m = (model || "").toLowerCase();
+	if (isMultimodalGuardModel(m)) return false;
 	return m.includes("llava") || m.includes("vision") || m.includes("bakllava");
+}
+
+function isVisionGuardModel(model: string): boolean {
+	return isVisionOnlyGuardModel(model) || isMultimodalGuardModel(model);
 }
 
 function referenceImageDataUrl(base64: string, contentType = "image/png"): string {
@@ -425,6 +435,7 @@ function GuardRuleAIEvaluatorFields({
 	providerOptions: { label: string; value: string }[];
 }) {
 	const visionModel = isVisionGuardModel(botModel);
+	const multimodalModel = isMultimodalGuardModel(botModel);
 	return (
 		<div className="space-y-3 rounded-lg border border-purple-900/40 bg-purple-950/20 p-3">
 			<div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
@@ -457,9 +468,11 @@ function GuardRuleAIEvaluatorFields({
 				</div>
 			</div>
 			<p className="text-[11px] text-muted-foreground">
-				{visionModel
-					? "LLaVA vision model — compares uploaded PDF/image content against your policy and reference template. Files are scanned in memory only."
-					: "Text model — evaluates prompts and extracted file text. Regex rules still run first."}
+				{multimodalModel
+					? "Gemma 4 multimodal — evaluates prompts, extracted file text, and image uploads (PDF pages, photos). Regex rules still run first."
+					: visionModel
+						? "LLaVA vision model — compares uploaded PDF/image content against your policy and reference template. Files are scanned in memory only."
+						: "Text model — evaluates prompts and extracted file text. Regex rules still run first."}
 			</p>
 			<div className="space-y-1.5">
 				<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>

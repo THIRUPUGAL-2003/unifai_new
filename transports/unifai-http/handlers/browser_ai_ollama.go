@@ -152,9 +152,33 @@ func applyGuardBotDefaults(provider, model string) (string, string) {
 	return provider, model
 }
 
-func isVisionGuardModel(model string) bool {
+func isMultimodalGuardModel(model string) bool {
 	m := strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(m, "gemma4") || strings.Contains(m, "gemma-4")
+}
+
+func isVisionOnlyGuardModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if isMultimodalGuardModel(m) {
+		return false
+	}
 	return strings.Contains(m, "llava") || strings.Contains(m, "vision") || strings.Contains(m, "bakllava")
+}
+
+func isVisionGuardModel(model string) bool {
+	return isVisionOnlyGuardModel(model) || isMultimodalGuardModel(model)
+}
+
+// skipAIBotRuleWithoutImages skips vision-only rules (LLaVA) when no upload images.
+// Multimodal models (e.g. gemma4) still run on text-only prompts and extracted file text.
+func skipAIBotRuleWithoutImages(model, referenceImage string, uploadImages []string) bool {
+	if len(uploadImages) > 0 {
+		return false
+	}
+	if isMultimodalGuardModel(model) {
+		return false
+	}
+	return isVisionOnlyGuardModel(model) || strings.TrimSpace(referenceImage) != ""
 }
 
 func normalizeBase64Image(raw string) string {
@@ -187,7 +211,7 @@ func validateAIBotRuleFields(rule *logstore.BrowserGuardRule) error {
 			rule.BotReferenceImageType = "image/png"
 		}
 	}
-	if isVisionGuardModel(rule.BotModel) && rule.BotReferenceImage == "" && rule.BotPrompt == "" {
+	if isVisionOnlyGuardModel(rule.BotModel) && rule.BotReferenceImage == "" && rule.BotPrompt == "" {
 		return fmt.Errorf("LLaVA vision rules require a security policy prompt and/or reference template image")
 	}
 	return nil

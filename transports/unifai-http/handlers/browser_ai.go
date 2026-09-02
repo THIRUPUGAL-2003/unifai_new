@@ -785,7 +785,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 				}
 				continue
 			}
-			if (isVisionGuardModel(rule.BotModel) || strings.TrimSpace(rule.BotReferenceImage) != "") && len(payload.UploadImages) == 0 {
+			if skipAIBotRuleWithoutImages(rule.BotModel, rule.BotReferenceImage, payload.UploadImages) {
 				continue
 			}
 			var violated bool
@@ -1041,7 +1041,7 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 		if strings.TrimSpace(rule.BotPrompt) == "" && strings.TrimSpace(rule.BotReferenceImage) == "" {
 			continue
 		}
-		if (isVisionGuardModel(rule.BotModel) || strings.TrimSpace(rule.BotReferenceImage) != "") && len(uploadImages) == 0 {
+		if skipAIBotRuleWithoutImages(rule.BotModel, rule.BotReferenceImage, uploadImages) {
 			continue
 		}
 		violated := rulePatternMatches(rule, prompt)
@@ -1158,7 +1158,7 @@ func (h *BrowserAIHandler) runAIBotOnLogEntry(ctx *fasthttp.RequestCtx, logEntry
 		if strings.TrimSpace(rule.BotPrompt) == "" && strings.TrimSpace(rule.BotReferenceImage) == "" {
 			continue
 		}
-		if (isVisionGuardModel(rule.BotModel) || strings.TrimSpace(rule.BotReferenceImage) != "") && len(uploadImages) == 0 {
+		if skipAIBotRuleWithoutImages(rule.BotModel, rule.BotReferenceImage, uploadImages) {
 			continue
 		}
 		var violated bool
