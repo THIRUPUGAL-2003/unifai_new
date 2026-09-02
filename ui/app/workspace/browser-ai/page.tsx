@@ -130,6 +130,23 @@ function GuardBotModelPicker({
 	);
 }
 
+function guardRuleNoticeCopy(action: "BLOCK" | "REDACT") {
+	if (action === "BLOCK") {
+		return {
+			label: "Block message (shown when rejected)",
+			placeholder: "Message employees see when this rule blocks their prompt...",
+			hint: "Shown in chat when the rule blocks. Leave blank for the default block message.",
+			listLabel: "Block message",
+		};
+	}
+	return {
+		label: "Redaction notice (appended in chat)",
+		placeholder: "Notice appended when this rule redacts — e.g. Sensitive data detected. Do not share API keys.",
+		hint: "Prompt is still sent; this notice is appended as [UNIFAI REDACTED]. Leave blank for the default notice.",
+		listLabel: "Redaction notice",
+	};
+}
+
 function isSiteBlockLog(log: {
 	user_prompt_preview?: string;
 	user_prompt_full?: string;
@@ -1890,7 +1907,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 										{ruleError && <div className="mx-5 mt-3 p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{ruleError}</div>}
 
-										<div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+										<div className="flex-1 overflow-y-auto overflow-x-hidden px-5 py-4 space-y-4 min-w-0">
 											{/* Rule Engine Type Toggle */}
 											<div className="space-y-1.5">
 												<Label>Rule Engine Type</Label>
@@ -1969,12 +1986,13 @@ type RelatedHostEntry = { host: string; role: HostRole };
 												<div className="space-y-1.5">
 													<Label>Regex Pattern</Label>
 													<Input
-														placeholder="e.g. sk-[a-zA-Z0-9]{32} or \b\d{10,12}\b"
+														placeholder="e.g. sk-[a-zA-Z0-9]{20,}"
 														value={newRulePattern}
 														onChange={(e) => setNewRulePattern(e.target.value)}
 													/>
 													<p className="text-[11px] text-muted-foreground">
-														Evaluated in microseconds using Golang RE2 regular expressions.
+														One RE2 regex per rule. Example:{" "}
+														<code className="text-[10px]">{"\\b\\d{10,12}\\b"}</code> for phone numbers.
 													</p>
 												</div>
 											) : (
@@ -2010,15 +2028,15 @@ type RelatedHostEntry = { host: string; role: HostRole };
 												<Textarea placeholder="Rule context and usage..." value={newRuleDescription} onChange={(e) => setNewRuleDescription(e.target.value)} />
 											</div>
 											<div className="space-y-1.5">
-												<Label>Warning message (shown when blocked)</Label>
+												<Label>{guardRuleNoticeCopy(newRuleAction).label}</Label>
 												<Textarea
-													placeholder="Message employees see in the chat when this rule blocks their prompt..."
+													placeholder={guardRuleNoticeCopy(newRuleAction).placeholder}
 													value={newRuleWarningMessage}
 													onChange={(e) => setNewRuleWarningMessage(e.target.value)}
 													rows={3}
 												/>
 												<p className="text-xs text-muted-foreground">
-													Employees see only this text when the rule blocks. Leave blank for no in-chat warning.
+													{guardRuleNoticeCopy(newRuleAction).hint}
 												</p>
 											</div>
 										</div>
@@ -2085,7 +2103,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 												{rule.warning_message ? (
 													<div className="rounded-md border border-amber-800/40 bg-amber-950/20 px-3 py-2">
-														<p className="text-[10px] uppercase tracking-wide text-amber-300/80 mb-1">Warning message</p>
+														<p className="text-[10px] uppercase tracking-wide text-amber-300/80 mb-1">
+															{guardRuleNoticeCopy(rule.action === "BLOCK" ? "BLOCK" : "REDACT").listLabel}
+														</p>
 														<p className="text-xs text-amber-100/90 whitespace-pre-wrap break-words">{rule.warning_message}</p>
 													</div>
 												) : null}
@@ -2706,7 +2726,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 						{ruleError && <div className="mx-5 mt-3 p-3 bg-red-950/60 border border-red-800 text-red-400 rounded-md text-xs">{ruleError}</div>}
 
-						<div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+						<div className="flex-1 overflow-y-auto overflow-x-hidden px-5 py-4 space-y-4 min-w-0">
 							{/* Rule Engine Type Toggle */}
 							<div className="space-y-1.5">
 								<Label>Rule Engine Type</Label>
@@ -2818,15 +2838,15 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<Textarea value={editRuleDescription} onChange={(e) => setEditRuleDescription(e.target.value)} />
 							</div>
 							<div className="space-y-1.5">
-								<Label>Warning message (shown when blocked)</Label>
+								<Label>{guardRuleNoticeCopy(editRuleAction).label}</Label>
 								<Textarea
 									value={editRuleWarningMessage}
 									onChange={(e) => setEditRuleWarningMessage(e.target.value)}
-									placeholder="Message employees see in the chat when this rule blocks their prompt..."
+									placeholder={guardRuleNoticeCopy(editRuleAction).placeholder}
 									rows={3}
 								/>
 								<p className="text-xs text-muted-foreground">
-									Employees see only this text when the rule blocks. Leave blank for no in-chat warning.
+									{guardRuleNoticeCopy(editRuleAction).hint}
 								</p>
 							</div>
 						</div>
