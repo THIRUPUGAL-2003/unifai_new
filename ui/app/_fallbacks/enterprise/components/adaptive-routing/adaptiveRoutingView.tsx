@@ -5,7 +5,6 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Link } from "@tanstack/react-router";
 import { getErrorMessage } from "@/lib/store";
-import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import { useGetLoadBalancerRoutesQuery, useUpdateLoadBalancerConfigMutation } from "@enterprise/lib/store/apis/loadBalancerApi";
 import { LoadBalancerConfig } from "@enterprise/lib/types/workspace";
 import { Activity, Gauge, Route, Settings2 } from "lucide-react";
@@ -31,7 +30,6 @@ export default function AdaptiveRoutingView() {
 
 	return (
 		<div className="flex w-full flex-col gap-6 p-1">
-			<RuntimeLimitBanner description="Adaptive route selection pins weighted provider API keys during inference when enabled." />
 			<div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
 				<div>
 					<h1 className="flex items-center gap-2 text-2xl font-semibold">

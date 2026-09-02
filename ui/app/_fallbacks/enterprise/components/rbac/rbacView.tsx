@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getErrorMessage } from "@/lib/store";
-import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import {
 	useCreateRoleMutation,
 	useDeleteRoleMutation,
@@ -84,7 +83,6 @@ export default function RBACView() {
 
 	return (
 		<div className="flex h-full flex-col gap-4">
-			<RuntimeLimitBanner description="Roles and permissions are enforced on dashboard API routes and UI gates for non-admin users." />
 			<div className="grid h-full grid-cols-1 gap-4 lg:grid-cols-[320px_1fr]">
 			<div className="flex flex-col gap-3">
 				<div className="flex items-center justify-between">

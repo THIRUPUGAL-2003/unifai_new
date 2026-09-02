@@ -6,7 +6,6 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getErrorMessage } from "@/lib/store";
-import RuntimeLimitBanner from "@enterprise/components/views/runtimeLimitBanner";
 import {
 	useActivateAccessProfileMutation,
 	useCloneAccessProfileMutation,
@@ -106,7 +105,6 @@ export default function AccessProfilesIndexView() {
 
 	return (
 		<div className="flex h-full w-full flex-col gap-4">
-			<RuntimeLimitBanner description="Profiles propagate provider configs, budgets, and rate limits to linked virtual keys when activated." />
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="flex items-center gap-2 text-2xl font-semibold">
