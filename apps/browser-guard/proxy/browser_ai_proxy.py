@@ -170,7 +170,8 @@ _cached_blocked: dict = {}  # domain -> platform_name (full site lock)
 _cached_roles: dict[str, str] = {}  # domain -> host_role (ui|chat|file|"")
 # Admin Target Websites grouped for file-upload cache sharing (platform_name + parent_id).
 _cached_families: dict[str, frozenset[str]] = {}
-_cached_rules: list = []   # list of {"name": str, "pattern": str, "action": str, "active": bool}
+_cached_rules: list = []   # regex rules: {"name", "pattern", "regex", "action", "warning_message"}
+_cached_rule_catalog: dict[str, dict] = {}  # all active rules by name — from admin UI only
 _cached_has_ai_bot = False
 _domains_fetched_at: float = 0
 _rules_fetched_at: float = 0
@@ -387,7 +388,7 @@ def get_guard_rules() -> list:
     Returns only admin-created rules. Empty list means nothing is matched.
     Never falls back to hardcoded patterns.
     """
-    global _cached_rules, _cached_has_ai_bot, _rules_fetched_at
+    global _cached_rules, _cached_rule_catalog, _cached_has_ai_bot, _rules_fetched_at
     now = time.time()
     if now - _rules_fetched_at < CACHE_TTL:
         return _cached_rules
@@ -396,32 +397,45 @@ def get_guard_rules() -> list:
     if data is not None:
         rules = data.get("rules", [])
         compiled = []
+        catalog: dict[str, dict] = {}
         has_ai_bot = False
         for r in rules:
             if not r.get("active", False):
                 continue
-            # Any active AI bot must hit the backend (including incomplete BLOCK bots —
-            # backend fail-closes those). Do not require provider/model/prompt here.
-            if str(r.get("rule_type") or "").strip().lower() == "ai_bot":
+            name = (r.get("name") or "").strip()
+            rule_type = str(r.get("rule_type") or "").strip().lower()
+            action = (r.get("action") or "BLOCK").upper()
+            if action == "WARN":
+                action = "REDACT"
+            if name:
+                catalog[name] = {
+                    "name": name,
+                    "rule_type": rule_type,
+                    "action": action,
+                    "warning_message": (r.get("warning_message") or "").strip(),
+                    "pattern": (r.get("pattern") or "").strip(),
+                }
+            if rule_type == "ai_bot":
                 has_ai_bot = True
-            pattern = r.get("pattern", "").strip()
+            pattern = (r.get("pattern") or "").strip()
             if not pattern:
                 continue
             try:
                 compiled.append({
-                    "name": r.get("name", "Unknown Rule"),
+                    "name": name or "Unknown Rule",
                     "pattern": pattern,
                     "regex": re.compile(pattern, re.IGNORECASE),
-                    "action": r.get("action", "BLOCK"),  # BLOCK or WARN (legacy REDACT→WARN)
+                    "action": action,
                     "severity": r.get("severity", "HIGH"),
                     "warning_message": (r.get("warning_message") or "").strip(),
                 })
             except re.error:
                 pass
         _cached_rules = compiled
+        _cached_rule_catalog = catalog
         _cached_has_ai_bot = has_ai_bot
         _rules_fetched_at = now
-        print(f"[UnifAI Proxy] Refreshed {len(compiled)} guard rules from backend.")
+        print(f"[UnifAI Proxy] Refreshed {len(compiled)} regex rules, {len(catalog)} active rules from backend.")
         return _cached_rules
 
     # Backend unreachable: keep last cache (may be empty). Do not invent rules.
@@ -556,7 +570,16 @@ def rule_matches_prompt(rule: dict, prompt: str) -> bool:
 def _redacted_forward(prompt: str, warning_message: str = "") -> str:
     """ChatGPT receives full original prompt + redact notice. Logs keep original only."""
     w = (warning_message or "").strip() or "This prompt triggered a UnifAI Guard redaction policy."
-    return f"{(prompt or '').rstrip()}\n\n[UNIFAI REDACTED] {w}"
+    body = (prompt or "").rstrip()
+    if body:
+        return f"{body}\n\n[UNIFAI REDACTED] {w}"
+    return f"[UNIFAI REDACTED] {w}"
+
+
+def _redact_notice_for_rule(rule_name: str) -> str:
+    """Build chat redaction notice from admin rule config only."""
+    w = _warning_for_rule_name(rule_name)
+    return _redacted_forward("", w).strip()
 
 
 def _warned_forward(prompt: str, warning_message: str = "") -> str:
@@ -3073,18 +3096,19 @@ def _scan_upload_for_rules(
                     evaluation_only=True,
                 )
                 act = (action or "").upper()
-                if (not allowed or act in ("BLOCKED", "BLOCK")) and act not in ("REDACTED", "REDACT", "WARNED", "WARN"):
+                rt_name = (rt or "").strip()
+                if rt_name and (not allowed or act in ("BLOCKED", "BLOCK")) and act not in ("REDACTED", "REDACT", "WARNED", "WARN"):
                     rule_hit = True
-                    rule_name = rt or "AI Guard Bot"
+                    rule_name = rt_name
                     rule_action = "BLOCK"
-                elif act in ("REDACTED", "REDACT", "WARNED", "WARN"):
+                elif rt_name and act in ("REDACTED", "REDACT", "WARNED", "WARN"):
                     if _action_rank(rule_action) < 2:
                         rule_hit = True
-                        rule_name = rt or "AI Guard Bot"
+                        rule_name = rt_name
                         rule_action = "REDACT"
-                elif not allowed:
+                elif rt_name and not allowed:
                     rule_hit = True
-                    rule_name = rt or "AI Guard Bot"
+                    rule_name = rt_name
                     rule_action = "BLOCK"
             except Exception as e:
                 print(f"[UnifAI Proxy] AI bot file scan failed (allowed): {e}")
@@ -3112,8 +3136,8 @@ def _process_one_cached_file_on_send(
     content_type: str = "",
     file_name_hint: str = "",
     has_attach: bool = False,
-) -> tuple[bool, str]:
-    """Process one file on chat Send. Returns (should_block_send, block_message)."""
+) -> tuple[bool, str, str]:
+    """Process one file on chat Send. Returns (should_block_send, block_message, redact_notice)."""
     try:
         return _process_one_cached_file_on_send_impl(
             cached=cached,
@@ -3130,7 +3154,7 @@ def _process_one_cached_file_on_send(
         )
     except Exception as e:
         print(f"[UnifAI Proxy] file send policy error (allowed): {e}")
-        return False, ""
+        return False, "", ""
 
 
 def _process_one_cached_file_on_send_impl(
@@ -3146,7 +3170,7 @@ def _process_one_cached_file_on_send_impl(
     content_type: str = "",
     file_name_hint: str = "",
     has_attach: bool = False,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, str]:
     fname = (file_name_hint or "").strip() or extract_attachment_filename_from_send(raw_text or "")
     if cached:
         fname = fname or (cached.get("file_name") or "").strip()
@@ -3170,7 +3194,7 @@ def _process_one_cached_file_on_send_impl(
     )
     real_name = bool(fname and fname.lower() not in _FAKE_UPLOAD_NAMES)
     if not real_cached and not real_name and not has_attach:
-        return False, ""
+        return False, "", ""
 
     file_label = fname if real_name else (
         cached_name if cached_name and cached_name.lower() not in _FAKE_UPLOAD_NAMES else "attachment"
@@ -3226,7 +3250,8 @@ def _process_one_cached_file_on_send_impl(
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
-        return False, ""
+        notice = _redact_notice_for_rule(rule_name)
+        return False, "", notice
 
     if block_all or block_for_rule:
         blocked_reason = "Block Upload" if block_all else (rule_name or "Guard Rule (file content)")
@@ -3257,7 +3282,7 @@ def _process_one_cached_file_on_send_impl(
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
-        return True, msg
+        return True, msg, ""
 
     clean_log = f"{tag} {file_label} — Allowed"
     dedupe_key = f"upload-send-allowed|{file_label}"
@@ -3280,7 +3305,7 @@ def _process_one_cached_file_on_send_impl(
             mark_duplicate_event(domain, dedupe_key)
         else:
             print(f"[UnifAI Proxy WARNING] Allowed file log failed to post | {file_label}")
-    return False, ""
+    return False, "", ""
 
 
 def enforce_file_send_policy(
@@ -3295,17 +3320,16 @@ def enforce_file_send_policy(
     content_type: str = "",
     file_name_hint: str = "",
     path: str = "",
-) -> tuple[bool, str, int]:
+) -> tuple[bool, str, str, int]:
     """
     On chat Send with a real attached file (any monitored AI domain):
       - Block Upload ON  → block on Send only (file may attach in UI first)
       - Block Upload OFF → extract PDF/image/Office/voice text → Guard Rules
           BLOCK        → block Send
-          REDACT       → log Redacted, allow Send
+          REDACT       → log Redacted, allow Send (+ chat notice when possible)
           no match     → Allowed
 
-    Typed-only prompts return (False, "", 0) so normal text Guard Rules still run.
-    Third value = number of cached files processed on this Send.
+    Returns (should_block, block_message, redact_notice, files_processed).
     """
     has_attach = (
         chat_carries_attachment(raw_text)
@@ -3320,7 +3344,7 @@ def enforce_file_send_policy(
         cached_list = take_recent_confident_caches_for_send(domain)
 
     if not has_attach and not cached_list:
-        return False, "", 0
+        return False, "", "", 0
 
     if not cached_list and has_attach:
         inline_bytes, inline_ct, inline_name = extract_inline_attachment_bytes(raw_text or "")
@@ -3333,7 +3357,7 @@ def enforce_file_send_policy(
             }]
 
     if not cached_list:
-        return False, "", 0
+        return False, "", "", 0
 
     # One log row per unique filename on a single Send (ChatGPT may match the same cache twice).
     deduped: list[dict] = []
@@ -3349,11 +3373,12 @@ def enforce_file_send_policy(
     get_control_settings()
     should_block = False
     block_msg = ""
+    redact_notice = ""
     hint = (file_name_hint or "").strip()
     processed = 0
     for i, cached in enumerate(cached_list):
         per_hint = (cached.get("file_name") or "").strip() or (hint if i == 0 else "")
-        sb, msg = _process_one_cached_file_on_send(
+        sb, msg, rn = _process_one_cached_file_on_send(
             cached=cached,
             platform=platform,
             domain=domain,
@@ -3370,7 +3395,9 @@ def enforce_file_send_policy(
         if sb:
             should_block = True
             block_msg = msg or block_msg
-    return should_block, block_msg, processed
+        if rn:
+            redact_notice = rn
+    return should_block, block_msg, redact_notice, processed
 
 
 def _upload_log_tag(file_name: str = "", content_type: str = "", raw_bytes: bytes = b"") -> str:
@@ -5045,10 +5072,32 @@ def _warning_for_rule_name(rule_name: str) -> str:
     name = (rule_name or "").strip()
     if not name:
         return ""
-    for r in get_guard_rules():
+    get_guard_rules()
+    entry = _cached_rule_catalog.get(name)
+    if entry:
+        return (entry.get("warning_message") or "").strip()
+    for r in _cached_rules:
         if (r.get("name") or "").strip() == name:
             return (r.get("warning_message") or "").strip()
     return ""
+
+
+def inject_file_redact_notice(raw_text: str, notice: str, user_caption: str = "") -> str | None:
+    """Append redaction notice to chat Send body. Log keeps original; browser gets notice."""
+    notice = (notice or "").strip()
+    if not notice or not raw_text:
+        return None
+    caption = (user_caption or "").strip()
+    if caption:
+        return inject_warned_prompt(raw_text, caption, _redacted_forward(caption, notice.replace("[UNIFAI REDACTED]", "").strip()))
+    if notice in raw_text:
+        return raw_text
+    escaped = json.dumps(notice)[1:-1]
+    if '"content":' in raw_text or '"text":' in raw_text:
+        for needle in ('"content":"', '"text":"', '"parts":["'):
+            if needle in raw_text:
+                return raw_text.replace(needle, needle + escaped + "\\n\\n", 1)
+    return raw_text + "\n" + notice
 
 
 def _ws_frames_copilot(reply: str) -> list[bytes]:
@@ -5536,7 +5585,7 @@ class BrowserAIInterceptor:
         path: str,
     ) -> tuple[bool, int]:
         """Scan attached/cached files on Send. Returns (blocked, files_processed)."""
-        should_block_file, file_block_msg, n_processed = enforce_file_send_policy(
+        should_block_file, file_block_msg, redact_notice, n_processed = enforce_file_send_policy(
             platform=platform,
             domain=domain,
             host=flow.request.pretty_host,
@@ -5557,6 +5606,20 @@ class BrowserAIInterceptor:
                 flow, "Block Upload", flow.request.pretty_host, reply_text=file_block_msg,
             )
             return True, n_processed
+        if redact_notice:
+            caption = extract_prompt_universal(
+                flow.request.content or b"", content_type, host=flow.request.pretty_host, url=flow.request.url,
+            ) or ""
+            caption = (caption or "").strip()
+            try:
+                new_content = inject_file_redact_notice(raw_text, redact_notice, caption)
+                if new_content:
+                    flow.request.content = new_content.encode("utf-8")
+                    print(f"[UnifAI Proxy] FILE REDACT notice injected | {domain}")
+                else:
+                    print(f"[UnifAI Proxy Warning] FILE REDACT inject miss | {domain}")
+            except Exception as e:
+                print(f"[UnifAI Proxy Warning] FILE REDACT inject failed: {e}")
         return False, n_processed
 
     def _log_attachment_send_caption(

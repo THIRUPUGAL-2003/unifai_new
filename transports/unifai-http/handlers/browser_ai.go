@@ -754,7 +754,6 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	evalError := ""
 	securityVerdict := "not_evaluated" // clear | violation | warning | eval_failed | misconfigured | not_evaluated
 	aiBotCheckedOK := false
-	aiBotClearRule := ""
 	// Evaluate AI Guard Bot whenever the prompt is still allowed (Allowed or Warned).
 	// A regex WARN must not short-circuit a stronger AI Guard Bot BLOCK policy.
 	if allowed {
@@ -789,7 +788,13 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			if (isVisionGuardModel(rule.BotModel) || strings.TrimSpace(rule.BotReferenceImage) != "") && len(payload.UploadImages) == 0 {
 				continue
 			}
-			violated, evalErr := h.evaluateAIBotRule(rule, payload.Prompt, payload.UploadImages)
+			var violated bool
+			var evalErr string
+			if rulePatternMatches(rule, payload.Prompt) {
+				violated = true
+			} else {
+				violated, evalErr = h.evaluateAIBotRule(rule, payload.Prompt, payload.UploadImages)
+			}
 			if evalErr != "" {
 				evalError = evalErr
 				ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
@@ -858,18 +863,15 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			} else {
 				// Model said no violation — security policy met for this bot rule.
 				aiBotCheckedOK = true
-				aiBotClearRule = rule.Name
 				if securityVerdict == "not_evaluated" || securityVerdict == "clear" {
 					securityVerdict = "clear"
 				}
 			}
 		}
-		if allowed && aiBotCheckedOK && securityVerdict == "clear" {
+		if allowed && aiBotCheckedOK && securityVerdict == "clear" && logEntry.Action == "Allowed" {
 			logEntry.Status = "Allowed (AI Guard Bot: security OK)"
 			logEntry.PredictedCategory = "AI_GUARD_BOT_CLEAR"
-			if logEntry.RuleTriggered == "" {
-				logEntry.RuleTriggered = aiBotClearRule
-			}
+			logEntry.RuleTriggered = ""
 			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 		}
 	}
@@ -993,6 +995,19 @@ func parseUploadImagesMetadata(metadata map[string]any) []string {
 	}
 }
 
+func rulePatternMatches(rule logstore.BrowserGuardRule, text string) bool {
+	pattern := strings.TrimSpace(rule.Pattern)
+	text = strings.TrimSpace(text)
+	if pattern == "" || text == "" {
+		return false
+	}
+	re, err := regexp.Compile("(?i)" + pattern)
+	if err != nil {
+		return false
+	}
+	return re.MatchString(text)
+}
+
 // evaluateGuardOnly runs regex + AI Guard Bot rules without persisting a log row (file-scan pre-check).
 func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt string, uploadImages []string) (allowed bool, action, ruleTriggered, ruleWarning string) {
 	allowed = true
@@ -1029,7 +1044,11 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 		if (isVisionGuardModel(rule.BotModel) || strings.TrimSpace(rule.BotReferenceImage) != "") && len(uploadImages) == 0 {
 			continue
 		}
-		violated, evalErr := h.evaluateAIBotRule(rule, prompt, uploadImages)
+		violated := rulePatternMatches(rule, prompt)
+		var evalErr string
+		if !violated {
+			violated, evalErr = h.evaluateAIBotRule(rule, prompt, uploadImages)
+		}
 		if evalErr != "" {
 			continue
 		}
@@ -1060,6 +1079,7 @@ func (h *BrowserAIHandler) runAIBotOnLogEntry(ctx *fasthttp.RequestCtx, logEntry
 		return
 	}
 	rules, _ := h.manager.GetRules(ctx)
+	anyClear := false
 	for _, rule := range rules {
 		if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
 			continue
@@ -1071,19 +1091,26 @@ func (h *BrowserAIHandler) runAIBotOnLogEntry(ctx *fasthttp.RequestCtx, logEntry
 		if (isVisionGuardModel(rule.BotModel) || strings.TrimSpace(rule.BotReferenceImage) != "") && len(uploadImages) == 0 {
 			continue
 		}
-		violated, evalErr := h.evaluateAIBotRule(rule, content, uploadImages)
+		var violated bool
+		var evalErr string
+		if rulePatternMatches(rule, content) {
+			violated = true
+		} else {
+			violated, evalErr = h.evaluateAIBotRule(rule, content, uploadImages)
+		}
 		if evalErr != "" {
-			logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", rule.Name)
-			logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
-			logEntry.RuleTriggered = rule.Name
-			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+			if logEntry.Action == "Allowed" {
+				logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", rule.Name)
+				logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
+				logEntry.RuleTriggered = rule.Name
+				_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+			}
 			continue
 		}
 		if !violated {
-			logEntry.Status = "Allowed (AI Guard Bot: security OK)"
-			logEntry.PredictedCategory = "AI_GUARD_BOT_CLEAR"
-			logEntry.RuleTriggered = rule.Name
-			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+			if logEntry.Action == "Allowed" {
+				anyClear = true
+			}
 			continue
 		}
 		ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
@@ -1115,6 +1142,12 @@ func (h *BrowserAIHandler) runAIBotOnLogEntry(ctx *fasthttp.RequestCtx, logEntry
 			}
 			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 		}
+	}
+	if anyClear && logEntry.Action == "Allowed" {
+		logEntry.Status = "Allowed (AI Guard Bot: security OK)"
+		logEntry.PredictedCategory = "AI_GUARD_BOT_CLEAR"
+		logEntry.RuleTriggered = ""
+		_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 	}
 }
 
@@ -1403,6 +1436,10 @@ func stringFromUpdate(updates map[string]any, key string) string {
 
 func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, userPrompt string, uploadImages []string) (bool, string) {
 	applyAIBotDefaults(&rule)
+
+	if rulePatternMatches(rule, userPrompt) {
+		return true, ""
+	}
 
 	providerName, modelName := resolveGuardBotModel(rule.BotProvider, rule.BotModel)
 	if providerName == "" || strings.TrimSpace(modelName) == "" {

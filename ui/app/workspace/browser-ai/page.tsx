@@ -3480,12 +3480,23 @@ type RelatedHostEntry = { host: string; role: HostRole };
 										<p className="text-sm font-semibold">{selectedLog.est_tokens} tokens</p>
 									</div>
 									<div className="rounded-lg border border-border/80 bg-background/60 p-3.5 space-y-1">
-										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Rule Triggered</Label>
-										<p className={`text-sm font-semibold ${selectedLog.rule_triggered ? "text-purple-300" : "text-muted-foreground"}`}>
-											{selectedLog.rule_triggered || "None"}
+										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Violated Rule</Label>
+										<p className={`text-sm font-semibold ${selectedLog.rule_triggered && selectedLog.action !== "Allowed" ? "text-purple-300" : "text-muted-foreground"}`}>
+											{selectedLog.action === "Allowed" && (selectedLog.predicted_category || "").toUpperCase() === "AI_GUARD_BOT_CLEAR"
+												? "None (checked — no violation)"
+												: (selectedLog.rule_triggered || "None")}
 										</p>
 									</div>
 								</div>
+
+								{isFileUploadLog(selectedLog) && logExtractedText(selectedLog) ? (
+									<div className="space-y-2">
+										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Extracted file text (used for bot check)</Label>
+										<pre className="p-3.5 bg-background border border-border rounded-lg font-mono text-[11px] max-h-36 overflow-auto whitespace-pre-wrap break-words">
+											{logExtractedText(selectedLog).slice(0, 4000)}
+										</pre>
+									</div>
+								) : null}
 
 								{selectedLog.metadata ? (
 									<div className="space-y-2">
