@@ -595,6 +595,62 @@ def _action_rank(action: str) -> int:
     return 1
 
 
+def _file_scan_guard_metadata(
+    scanned: str,
+    upload_images: list[str],
+    rule_hit: bool,
+    rule_name: str,
+    rule_action: str,
+    *,
+    scan_evaluated: bool = False,
+) -> dict:
+    """Proxy scan decision for backend log — avoids duplicate guard evaluation."""
+    has_content = bool((scanned or "").strip() or upload_images)
+    if not has_content:
+        return {}
+    if not scan_evaluated and not rule_hit:
+        return {}
+    meta: dict = {"scan_guard_decided": True}
+    act = (rule_action or "").upper()
+    if rule_hit and act == "BLOCK":
+        meta["scan_guard_action"] = "Blocked"
+    elif rule_hit and act in ("REDACT", "WARN"):
+        meta["scan_guard_action"] = "Redacted"
+    else:
+        meta["scan_guard_action"] = "Allowed"
+    if rule_hit and (rule_name or "").strip():
+        meta["scan_rule_triggered"] = rule_name.strip()
+        w = _warning_for_rule_name(rule_name)
+        if w:
+            meta["scan_warning_message"] = w
+    return meta
+
+
+def _merge_file_scan_backend(
+    rule_hit: bool,
+    rule_name: str,
+    rule_action: str,
+    allowed: bool,
+    rt_name: str,
+    action: str,
+) -> tuple[bool, str, str]:
+    """Merge backend file-scan result (regex + bot) into local rule decision."""
+    rt = (rt_name or "").strip()
+    if not rt:
+        return rule_hit, rule_name, rule_action
+    act = (action or "").upper()
+    if (not allowed or act in ("BLOCKED", "BLOCK")) and act not in ("REDACTED", "REDACT", "WARNED", "WARN"):
+        if _action_rank("BLOCK") >= _action_rank(rule_action):
+            return True, rt, "BLOCK"
+    elif act in ("REDACTED", "REDACT", "WARNED", "WARN"):
+        if _action_rank("REDACT") >= _action_rank(rule_action):
+            return True, rt, "REDACT"
+    elif not allowed:
+        if _action_rank("BLOCK") >= _action_rank(rule_action):
+            return True, rt, "BLOCK"
+    return rule_hit, rule_name, rule_action
+
+
 def _merge_guard_decisions(
     local: tuple[bool, str, str, str, str],
     backend: tuple[bool, str, str, str, str] | None,
@@ -3069,7 +3125,7 @@ def _scan_upload_for_rules(
     client_ip: str = "",
     url: str = "",
     method: str = "",
-) -> tuple[str, bool, str, str, str, list[str]]:
+) -> tuple[str, bool, str, str, str, list[str], bool]:
     """Scan file bytes on Send only — extract by type, then apply Guard Rules (+ AI bot if configured)."""
     scanned = ""
     rule_hit = False
@@ -3077,6 +3133,7 @@ def _scan_upload_for_rules(
     rule_action = ""
     excerpt = ""
     upload_images: list[str] = []
+    scan_evaluated = False
     try:
         if raw_bytes:
             scanned = extract_upload_text_for_rules(raw_bytes, content_type, raw_text or "", file_label)
@@ -3087,29 +3144,22 @@ def _scan_upload_for_rules(
             rule_action = (rule_action or "").upper()
             if rule_action == "WARN":
                 rule_action = "REDACT"
-        # AI Guard Bot on extracted file text and/or vision images — always when bot rules exist.
-        if has_ai_bot_rules() and platform and domain and (scanned or upload_images):
+        # Backend: regex + bot on extracted text / vision images (when any active rules exist).
+        has_regex = bool(get_guard_rules())
+        run_backend = bool(
+            platform and domain and (scanned or upload_images) and (has_ai_bot_rules() or has_regex)
+        )
+        if run_backend:
+            scan_evaluated = True
             try:
                 allowed, rt, action, _, _ = send_to_backend(
                     platform, domain, (scanned or "")[:50_000], client_ip, url, method or "POST",
                     upload_images=upload_images,
                     evaluation_only=True,
                 )
-                act = (action or "").upper()
-                rt_name = (rt or "").strip()
-                if rt_name and (not allowed or act in ("BLOCKED", "BLOCK")) and act not in ("REDACTED", "REDACT", "WARNED", "WARN"):
-                    rule_hit = True
-                    rule_name = rt_name
-                    rule_action = "BLOCK"
-                elif rt_name and act in ("REDACTED", "REDACT", "WARNED", "WARN"):
-                    if _action_rank(rule_action) < 2:
-                        rule_hit = True
-                        rule_name = rt_name
-                        rule_action = "REDACT"
-                elif rt_name and not allowed:
-                    rule_hit = True
-                    rule_name = rt_name
-                    rule_action = "BLOCK"
+                rule_hit, rule_name, rule_action = _merge_file_scan_backend(
+                    rule_hit, rule_name, rule_action, allowed, rt, action or "",
+                )
             except Exception as e:
                 print(f"[UnifAI Proxy] AI bot file scan failed (allowed): {e}")
     except Exception as e:
@@ -3120,7 +3170,8 @@ def _scan_upload_for_rules(
         rule_action = ""
         excerpt = ""
         upload_images = []
-    return scanned, rule_hit, rule_name, rule_action, excerpt, upload_images
+        scan_evaluated = False
+    return scanned, rule_hit, rule_name, rule_action, excerpt, upload_images, scan_evaluated
 
 
 def _process_one_cached_file_on_send(
@@ -3214,13 +3265,16 @@ def _process_one_cached_file_on_send_impl(
             cached_ct = inline_ct or content_type
             if inline_name and inline_name.lower() not in _FAKE_UPLOAD_NAMES:
                 file_label = inline_name
-    scanned, rule_hit, rule_name, rule_action, excerpt, upload_images = _scan_upload_for_rules(
+    scanned, rule_hit, rule_name, rule_action, excerpt, upload_images, scan_evaluated = _scan_upload_for_rules(
         cached_bytes, cached_ct, raw_text or "", file_label, cached,
         platform=platform, domain=domain, client_ip=client_ip, url=url, method=method,
     )
 
     block_all = controls_active("block_upload")
     has_scan_content = bool((scanned or "").strip() or upload_images)
+    scan_guard = _file_scan_guard_metadata(
+        scanned, upload_images, rule_hit, rule_name, rule_action, scan_evaluated=scan_evaluated,
+    )
     block_for_rule = bool(rule_hit and rule_action == "BLOCK" and has_scan_content)
     redact_for_rule = bool(
         rule_hit
@@ -3247,6 +3301,7 @@ def _process_one_cached_file_on_send_impl(
                 content_type=cached_ct,
                 extracted_text=scanned,
                 upload_images=upload_images,
+                scan_guard=scan_guard,
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
@@ -3279,6 +3334,7 @@ def _process_one_cached_file_on_send_impl(
                 content_type=cached_ct,
                 extracted_text=scanned,
                 upload_images=upload_images,
+                scan_guard=scan_guard,
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
@@ -3300,6 +3356,7 @@ def _process_one_cached_file_on_send_impl(
             content_type=cached_ct,
             extracted_text=scanned,
             upload_images=upload_images,
+            scan_guard=scan_guard,
         )
         if ok:
             mark_duplicate_event(domain, dedupe_key)
@@ -3425,6 +3482,7 @@ def post_upload_intercept(
     content_type: str = "",
     extracted_text: str = "",
     upload_images: list[str] | None = None,
+    scan_guard: dict | None = None,
 ) -> bool:
     """Log file event on Send — filename + extracted text in metadata only (no file storage)."""
     metadata = {
@@ -3437,6 +3495,8 @@ def post_upload_intercept(
         "agent_id": UNIFAI_AGENT_ID,
         "agent_hostname": UNIFAI_AGENT_HOSTNAME,
     }
+    if scan_guard:
+        metadata.update(scan_guard)
     if blocked_reason:
         metadata["blocked_reason"] = blocked_reason
     ext = (extracted_text or "").strip()
@@ -3585,6 +3645,35 @@ def _extract_pdf_images(data: bytes, max_images: int = 10) -> list[str]:
     return out
 
 
+def _extract_office_images(data: bytes, max_images: int = 10) -> list[str]:
+    """Extract embedded images from docx/xlsx/pptx for LLaVA vision rules."""
+    zdata = _office_zip_bytes(data)
+    if not zdata:
+        return []
+    out: list[str] = []
+    image_ext = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff")
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            for name in zf.namelist():
+                if len(out) >= max_images:
+                    break
+                low = name.lower()
+                if not (
+                    low.startswith("word/media/")
+                    or low.startswith("xl/media/")
+                    or low.startswith("ppt/media/")
+                ):
+                    continue
+                if not any(low.endswith(ext) for ext in image_ext):
+                    continue
+                raw = zf.read(name)
+                if raw and len(raw) >= 64:
+                    out.append(base64.b64encode(raw).decode("ascii"))
+    except Exception as e:
+        print(f"[UnifAI Proxy] office image extract failed (allowed): {e}")
+    return out
+
+
 def _upload_images_for_vision(raw_bytes: bytes, content_type: str = "", file_name: str = "", max_images: int = 10) -> list[str]:
     """Build base64 image list from an upload for LLaVA vision rules."""
     if not raw_bytes:
@@ -3594,6 +3683,8 @@ def _upload_images_for_vision(raw_bytes: bytes, content_type: str = "", file_nam
         return [base64.b64encode(raw_bytes).decode("ascii")]
     if kind == "pdf":
         return _extract_pdf_images(raw_bytes, max_images=max_images)
+    if kind in ("docx", "xlsx", "pptx"):
+        return _extract_office_images(raw_bytes, max_images=max_images)
     return []
 
 

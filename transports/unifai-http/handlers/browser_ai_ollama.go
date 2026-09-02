@@ -34,6 +34,15 @@ type ollamaChatRequest struct {
 	Messages []ollamaChatMessage `json:"messages"`
 	Stream   bool                `json:"stream"`
 	Format   string              `json:"format,omitempty"`
+	Options  map[string]any      `json:"options,omitempty"`
+}
+
+// ollamaGuardEvalOptions keeps guard bot decisions deterministic (same input → same output).
+func ollamaGuardEvalOptions() map[string]any {
+	return map[string]any{
+		"temperature": 0,
+		"num_predict": 128,
+	}
 }
 
 type ollamaChatResponse struct {
@@ -238,6 +247,7 @@ func callOllamaVision(baseURL, model, systemPrompt, userMsg string, images []str
 		Model:    model,
 		Messages: messages,
 		Stream:   false,
+		Options:  ollamaGuardEvalOptions(),
 	}
 	if jsonMode {
 		reqBody.Format = "json"
@@ -314,6 +324,7 @@ func callOllamaChat(baseURL, model, systemPrompt, userMsg string, jsonMode bool,
 		Model:    model,
 		Messages: messages,
 		Stream:   false,
+		Options:  ollamaGuardEvalOptions(),
 	}
 	if jsonMode {
 		reqBody.Format = "json"

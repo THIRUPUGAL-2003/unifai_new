@@ -1069,6 +1069,76 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 	return allowed, action, ruleTriggered, ruleWarning
 }
 
+func guardActionRank(action string) int {
+	switch strings.ToLower(strings.TrimSpace(action)) {
+	case "blocked", "block":
+		return 3
+	case "redacted", "redact", "warned", "warn":
+		return 2
+	default:
+		return 1
+	}
+}
+
+// applyScanGuardFromMetadata uses the proxy's guard scan result (regex + bot already evaluated on Send).
+func (h *BrowserAIHandler) applyScanGuardFromMetadata(ctx *fasthttp.RequestCtx, logEntry *logstore.BrowserAILog, metadata map[string]any, ruleWarning *string) bool {
+	if logEntry == nil || metadata == nil {
+		return false
+	}
+	decided, _ := metadata["scan_guard_decided"].(bool)
+	if !decided {
+		return false
+	}
+	action := strings.TrimSpace(getMetadataString(metadata, "scan_guard_action"))
+	if action == "" {
+		return false
+	}
+	// Keep stricter InterceptPrompt regex result — never downgrade Blocked/Redacted to Allowed.
+	if guardActionRank(logEntry.Action) > guardActionRank(action) {
+		return true
+	}
+	if logEntry.Action == "Blocked" {
+		return true
+	}
+	ruleName := getMetadataString(metadata, "scan_rule_triggered")
+	warn := getMetadataString(metadata, "scan_warning_message")
+
+	switch strings.ToLower(action) {
+	case "blocked", "block":
+		logEntry.Action = "Blocked"
+		if ruleName != "" {
+			logEntry.Status = fmt.Sprintf("Blocked (%s)", ruleName)
+		} else {
+			logEntry.Status = "Blocked (Guard Rule)"
+		}
+		logEntry.RuleTriggered = ruleName
+		logEntry.RiskScore = 90
+		logEntry.PredictiveRisk = "HIGH"
+		logEntry.PredictedCategory = "AI_GUARD_BOT_VIOLATION"
+	case "redacted", "redact", "warned", "warn":
+		logEntry.Action = "Redacted"
+		if ruleName != "" {
+			logEntry.Status = fmt.Sprintf("Redacted (%s)", ruleName)
+		} else {
+			logEntry.Status = "Redacted (Guard Rule)"
+		}
+		logEntry.RuleTriggered = ruleName
+		logEntry.RiskScore = 65
+		logEntry.PredictiveRisk = "MEDIUM"
+		logEntry.PredictedCategory = "AI_GUARD_BOT_REDACT"
+	default:
+		logEntry.Action = "Allowed"
+		logEntry.Status = "Allowed (AI Guard Bot: security OK)"
+		logEntry.RuleTriggered = ""
+		logEntry.PredictedCategory = "AI_GUARD_BOT_CLEAR"
+	}
+	if warn != "" && ruleWarning != nil {
+		*ruleWarning = warn
+	}
+	_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+	return true
+}
+
 // runAIBotOnLogEntry evaluates active AI Guard Bot rules against file/voice extracted content.
 func (h *BrowserAIHandler) runAIBotOnLogEntry(ctx *fasthttp.RequestCtx, logEntry *logstore.BrowserAILog, content string, uploadImages []string, ruleWarning *string) {
 	if logEntry == nil || logEntry.Action == "Blocked" {
@@ -1220,7 +1290,8 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 
 	extractedText := strings.TrimSpace(getMetadataString(metadata, "extracted_text"))
 	uploadImages := parseUploadImagesMetadata(metadata)
-	if logEntry.Action != "Blocked" && (extractedText != "" || len(uploadImages) > 0) {
+	scanApplied := h.applyScanGuardFromMetadata(ctx, logEntry, metadata, &ruleWarning)
+	if !scanApplied && logEntry.Action != "Blocked" && (extractedText != "" || len(uploadImages) > 0) {
 		h.runAIBotOnLogEntry(ctx, logEntry, extractedText, uploadImages, &ruleWarning)
 	}
 
