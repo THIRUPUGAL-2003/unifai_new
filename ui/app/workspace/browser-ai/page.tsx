@@ -147,6 +147,13 @@ function guardRuleNoticeCopy(action: "BLOCK" | "REDACT") {
 	};
 }
 
+function guardRuleActionHint(action: "BLOCK" | "REDACT") {
+	if (action === "BLOCK") {
+		return "Stops the prompt or file send and shows a block message.";
+	}
+	return "Allows send; appends a [UNIFAI REDACTED] notice in chat.";
+}
+
 function isSiteBlockLog(log: {
 	user_prompt_preview?: string;
 	user_prompt_full?: string;
@@ -1894,7 +1901,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 											<Plus className="h-4 w-4" /> Add Rule
 										</Button>
 									</DialogTrigger>
-									<DialogContent className="bg-card border-border text-foreground sm:max-w-lg max-h-[88vh] flex flex-col p-0 overflow-hidden">
+									<DialogContent className="bg-card border-border text-foreground w-[calc(100%-2rem)] sm:max-w-xl max-h-[88vh] flex flex-col p-0 overflow-hidden">
 										<DialogHeader className="p-5 pb-3 shrink-0 border-b border-border/60">
 											<DialogTitle className="flex items-center gap-2 text-base">
 												<Shield className="h-5 w-5 text-primary" />
@@ -1954,11 +1961,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 												/>
 											</div>
 
-											<div className="grid grid-cols-2 gap-3">
-												<div className="space-y-1.5">
+											<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+												<div className="space-y-1.5 min-w-0">
 													<Label>Severity</Label>
 													<Select value={newRuleSeverity} onValueChange={(v: any) => setNewRuleSeverity(v)}>
-														<SelectTrigger>
+														<SelectTrigger className="w-full">
 															<SelectValue />
 														</SelectTrigger>
 														<SelectContent>
@@ -1968,17 +1975,20 @@ type RelatedHostEntry = { host: string; role: HostRole };
 														</SelectContent>
 													</Select>
 												</div>
-												<div className="space-y-1.5">
+												<div className="space-y-1.5 min-w-0">
 													<Label>Action</Label>
 													<Select value={newRuleAction} onValueChange={(v: any) => setNewRuleAction(v)}>
-														<SelectTrigger>
+														<SelectTrigger className="w-full">
 															<SelectValue />
 														</SelectTrigger>
 														<SelectContent>
-															<SelectItem value="BLOCK">BLOCK (Security Reject)</SelectItem>
-															<SelectItem value="REDACT">REDACT (Prompt + redaction notice in chat)</SelectItem>
+															<SelectItem value="BLOCK">BLOCK</SelectItem>
+															<SelectItem value="REDACT">REDACT</SelectItem>
 														</SelectContent>
 													</Select>
+													<p className="text-[11px] text-muted-foreground break-words">
+														{guardRuleActionHint(newRuleAction)}
+													</p>
 												</div>
 											</div>
 
@@ -2035,7 +2045,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 													onChange={(e) => setNewRuleWarningMessage(e.target.value)}
 													rows={3}
 												/>
-												<p className="text-xs text-muted-foreground">
+												<p className="text-xs text-muted-foreground break-words">
 													{guardRuleNoticeCopy(newRuleAction).hint}
 												</p>
 											</div>
@@ -2715,7 +2725,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 				{/* EDIT RULE DIALOG */}
 				<Dialog open={editRuleDialogOpen} onOpenChange={setEditRuleDialogOpen}>
-					<DialogContent className="bg-card border-border text-foreground sm:max-w-lg max-h-[88vh] flex flex-col p-0 overflow-hidden">
+					<DialogContent className="bg-card border-border text-foreground w-[calc(100%-2rem)] sm:max-w-xl max-h-[88vh] flex flex-col p-0 overflow-hidden">
 						<DialogHeader className="p-5 pb-3 shrink-0 border-b border-border/60">
 							<DialogTitle className="flex items-center gap-2 text-base">
 								<Pencil className="h-5 w-5 text-primary" />
@@ -2769,11 +2779,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<Input value={editRuleName} onChange={(e) => setEditRuleName(e.target.value)} />
 							</div>
 
-							<div className="grid grid-cols-2 gap-3">
-								<div className="space-y-1.5">
+							<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+								<div className="space-y-1.5 min-w-0">
 									<Label>Severity</Label>
 									<Select value={editRuleSeverity} onValueChange={(v: any) => setEditRuleSeverity(v)}>
-										<SelectTrigger>
+										<SelectTrigger className="w-full">
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>
@@ -2783,17 +2793,20 @@ type RelatedHostEntry = { host: string; role: HostRole };
 										</SelectContent>
 									</Select>
 								</div>
-								<div className="space-y-1.5">
+								<div className="space-y-1.5 min-w-0">
 									<Label>Action</Label>
 									<Select value={editRuleAction} onValueChange={(v: any) => setEditRuleAction(v)}>
-										<SelectTrigger>
+										<SelectTrigger className="w-full">
 											<SelectValue />
 										</SelectTrigger>
 										<SelectContent>
-											<SelectItem value="BLOCK">BLOCK (Security Reject)</SelectItem>
-											<SelectItem value="REDACT">REDACT (Prompt + redaction notice in chat)</SelectItem>
+											<SelectItem value="BLOCK">BLOCK</SelectItem>
+											<SelectItem value="REDACT">REDACT</SelectItem>
 										</SelectContent>
 									</Select>
+									<p className="text-[11px] text-muted-foreground break-words">
+										{guardRuleActionHint(editRuleAction)}
+									</p>
 								</div>
 							</div>
 
@@ -2845,7 +2858,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									placeholder={guardRuleNoticeCopy(editRuleAction).placeholder}
 									rows={3}
 								/>
-								<p className="text-xs text-muted-foreground">
+								<p className="text-xs text-muted-foreground break-words">
 									{guardRuleNoticeCopy(editRuleAction).hint}
 								</p>
 							</div>
