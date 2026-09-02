@@ -12,6 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Fragment } from "react";
+import { DOCS } from "@/lib/constants/docs";
 
 import { SheetNavigationButtons } from "@/components/sheetNavigationButtons";
 import { CodeEditor } from "@/components/ui/codeEditor";
@@ -568,7 +569,7 @@ export default function MCPClientSheet({
 														<Tooltip>
 															<TooltipTrigger asChild>
 																<a
-																	href=""
+																	href={DOCS.mcp}
 																	target="_blank"
 																	rel="noopener noreferrer"
 																	data-testid="code-mode-link-help"
@@ -1140,7 +1141,7 @@ export default function MCPClientSheet({
 																	<Tooltip>
 																		<TooltipTrigger asChild>
 																			<a
-																				href=""
+																				href={DOCS.mcp}
 																				target="_blank"
 																				rel="noopener noreferrer"
 																				aria-label="Learn more about Auto-execute and Agent Mode"

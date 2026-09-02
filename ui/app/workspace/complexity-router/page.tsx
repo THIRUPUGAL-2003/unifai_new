@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scrollArea";
 import { TagInput } from "@/components/ui/tagInput";
+import { DOCS } from "@/lib/constants/docs";
 import { getErrorMessage } from "@/lib/store";
 import {
 	useGetComplexityAnalyzerConfigQuery,
@@ -348,7 +349,7 @@ export default function ComplexityRouterPage() {
 						</p>
 					</div>
 					<Button asChild variant="outline" size="sm" className="w-fit shrink-0" data-testid="complexity-router-docs-link">
-						<a href={""} target="_blank" rel="noopener noreferrer">
+						<a href={DOCS.complexityRouter} target="_blank" rel="noopener noreferrer">
 							<ExternalLink className="size-3.5" />
 							Docs
 						</a>

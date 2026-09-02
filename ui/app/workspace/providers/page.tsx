@@ -64,11 +64,13 @@ export default function Providers() {
 	const knownProviders = ProviderNames.map((name) => ({ name }));
 
 	useEffect(() => {
-		if (!provider) return;
-		const newSelectedProvider = configuredProviders.find((p) => p.name === provider);
-		if (newSelectedProvider) {
-			dispatch(setSelectedProvider(newSelectedProvider));
+		if (!provider || isLoadingProviders) return;
+
+		const cachedProvider = configuredProviders.find((p) => p.name === provider);
+		if (cachedProvider) {
+			dispatch(setSelectedProvider(cachedProvider));
 		}
+
 		getProvider(provider)
 			.unwrap()
 			.then((providerInfo) => {
@@ -79,7 +81,6 @@ export default function Providers() {
 					dispatch(
 						setSelectedProvider({
 							name: provider as ModelProviderName,
-
 							concurrency_and_buffer_size: DefaultPerformanceConfig,
 							network_config: DefaultNetworkConfig,
 							custom_provider_config: undefined,
@@ -95,7 +96,7 @@ export default function Providers() {
 					description: `We encountered an error while getting provider config: ${getErrorMessage(err)}`,
 				});
 			});
-	}, [provider, isLoadingProviders]);
+	}, [provider, isLoadingProviders, configuredProviderNamesKey, dispatch, getProvider]);
 
 	useEffect(() => {
 		if (selectedProvider || configuredProviders.length === 0 || provider) return;

@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { CodeEditor } from "@/components/ui/codeEditor";
 import { FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { DOCS } from "@/lib/constants/docs";
 import { Info, PlusIcon } from "lucide-react";
 import { useState } from "react";
 import { UseFormReturn } from "react-hook-form";
@@ -30,7 +31,7 @@ export function PluginFormFragment({ form, isEditMode = false }: PluginFormFragm
 						? "Update your plugin configuration. Plugin name and path are read-only."
 						: "Install a custom plugin by providing an absolute file path or HTTP URL accessible to UnifAI deployment (.so)."}{" "}
 					<a
-						href=""
+						href={DOCS.plugins}
 						target="_blank"
 						rel="noopener noreferrer"
 						className="text-primary hover:underline"

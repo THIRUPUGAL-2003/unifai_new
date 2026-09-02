@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { getErrorMessage, useGetCoreConfigQuery, useUpdateCoreConfigMutation } from "@/lib/store";
 import { CompatConfig, DefaultCoreConfig } from "@/lib/types/config";
+import { DOCS } from "@/lib/constants/docs";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -63,7 +64,7 @@ export default function CompatibilityView() {
 					Configure request conversions and compatibility fallbacks.{" "}
 					<a
 						className="text-primary underline"
-						href=""
+						href={DOCS.dropInReplacement}
 						target="_blank"
 						rel="noopener noreferrer"
 						data-testid="litellm-docs-link"

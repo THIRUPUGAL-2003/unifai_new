@@ -5,6 +5,7 @@ import { SecretVarInput } from "@/components/ui/secretVarInput";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { DOCS } from "@/lib/constants/docs";
 import { IS_ENTERPRISE } from "@/lib/constants/config";
 import { getErrorMessage, useGetCoreConfigQuery, useUpdateCoreConfigMutation } from "@/lib/store";
 import { AuthConfig, CoreConfig, DefaultCoreConfig } from "@/lib/types/config";
@@ -299,7 +300,7 @@ export default function SecurityView() {
 								: "Require a virtual key for all inference requests."}{" "}
 							See{" "}
 							<a
-								href=""
+								href={DOCS.virtualKeys}
 								target="_blank"
 								rel="noopener noreferrer"
 								className="text-primary underline"
