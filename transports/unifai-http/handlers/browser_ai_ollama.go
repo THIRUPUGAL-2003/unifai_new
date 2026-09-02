@@ -16,15 +16,17 @@ import (
 )
 
 const (
-	browserAIGuardBotDefaultProvider = "ollama"
-	browserAIGuardBotDefaultModel      = "llama3.2"
-	browserAIGuardBotDefaultOllamaURL  = "http://76.13.243.253:11434"
-	browserAIGuardBotMaxPromptRunes    = 50000
+	browserAIGuardBotDefaultProvider   = "ollama"
+	browserAIGuardBotDefaultModel        = "llama3.2"
+	browserAIGuardBotDefaultOllamaURL    = "http://76.13.243.253:11434"
+	browserAIGuardBotMaxPromptRunes      = 50000
+	browserAIGuardBotMaxReferenceImageB  = 512 * 1024 // 512 KiB raw base64 payload limit
 )
 
 type ollamaChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string   `json:"role"`
+	Content string   `json:"content"`
+	Images  []string `json:"images,omitempty"`
 }
 
 type ollamaChatRequest struct {
@@ -139,6 +141,151 @@ func applyGuardBotDefaults(provider, model string) (string, string) {
 		model = browserAIGuardBotDefaultModel
 	}
 	return provider, model
+}
+
+func isVisionGuardModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	return strings.Contains(m, "llava") || strings.Contains(m, "vision") || strings.Contains(m, "bakllava")
+}
+
+func normalizeBase64Image(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if idx := strings.Index(raw, "base64,"); idx >= 0 {
+		raw = raw[idx+len("base64,"):]
+	}
+	return strings.TrimSpace(raw)
+}
+
+func validateAIBotRuleFields(rule *logstore.BrowserGuardRule) error {
+	if rule == nil {
+		return fmt.Errorf("rule is nil")
+	}
+	applyAIBotDefaults(rule)
+	rule.BotPrompt = strings.TrimSpace(rule.BotPrompt)
+	rule.BotReferenceImage = normalizeBase64Image(rule.BotReferenceImage)
+	rule.BotReferenceImageType = strings.TrimSpace(rule.BotReferenceImageType)
+	if rule.BotPrompt == "" && rule.BotReferenceImage == "" {
+		return fmt.Errorf("evaluation prompt or reference template image is required for AI Guard Bot rule")
+	}
+	if rule.BotReferenceImage != "" {
+		if len(rule.BotReferenceImage) > browserAIGuardBotMaxReferenceImageB*2 {
+			return fmt.Errorf("reference template image is too large (max %d KB)", browserAIGuardBotMaxReferenceImageB/1024)
+		}
+		if rule.BotReferenceImageType == "" {
+			rule.BotReferenceImageType = "image/png"
+		}
+	}
+	if isVisionGuardModel(rule.BotModel) && rule.BotReferenceImage == "" && rule.BotPrompt == "" {
+		return fmt.Errorf("LLaVA vision rules require a security policy prompt and/or reference template image")
+	}
+	return nil
+}
+
+func callOllamaVisionAny(model, systemPrompt, userMsg string, images []string, jsonMode bool, timeout time.Duration) (string, error) {
+	var errs []string
+	for _, base := range ollamaBaseURLCandidates() {
+		text, err := callOllamaVision(base, model, systemPrompt, userMsg, images, jsonMode, timeout)
+		if err == nil {
+			rememberWorkingOllamaURL(base)
+			return text, nil
+		}
+		errs = append(errs, truncateRunes(err.Error(), 120))
+	}
+	if len(errs) == 0 {
+		return "", fmt.Errorf("ollama unreachable: no candidate URLs configured")
+	}
+	return "", fmt.Errorf("ollama unreachable (%d tries): %s", len(errs), strings.Join(errs, "; "))
+}
+
+func callOllamaVision(baseURL, model, systemPrompt, userMsg string, images []string, jsonMode bool, timeout time.Duration) (string, error) {
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	if baseURL == "" {
+		baseURL = defaultOllamaBaseURL()
+	}
+	model = strings.TrimSpace(model)
+	if model == "" {
+		model = browserAIGuardBotDefaultModel
+	}
+
+	cleanImages := make([]string, 0, len(images))
+	for _, img := range images {
+		img = normalizeBase64Image(img)
+		if img != "" {
+			cleanImages = append(cleanImages, img)
+		}
+	}
+
+	messages := make([]ollamaChatMessage, 0, 2)
+	if strings.TrimSpace(systemPrompt) != "" {
+		messages = append(messages, ollamaChatMessage{
+			Role:    "system",
+			Content: systemPrompt,
+		})
+	}
+	userMessage := ollamaChatMessage{
+		Role:    "user",
+		Content: userMsg,
+	}
+	if len(cleanImages) > 0 {
+		userMessage.Images = cleanImages
+	}
+	messages = append(messages, userMessage)
+
+	reqBody := ollamaChatRequest{
+		Model:    model,
+		Messages: messages,
+		Stream:   false,
+	}
+	if jsonMode {
+		reqBody.Format = "json"
+	}
+
+	body, err := sonic.Marshal(reqBody)
+	if err != nil {
+		return "", fmt.Errorf("ollama vision request encode failed: %w", err)
+	}
+
+	if timeout <= 0 {
+		timeout = 120 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/api/chat", bytes.NewReader(body))
+	if err != nil {
+		return "", fmt.Errorf("ollama vision request failed: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("ollama unreachable at %s: %w", baseURL, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("ollama vision response read failed: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("ollama HTTP %d: %s", resp.StatusCode, truncateRunes(string(respBody), 180))
+	}
+
+	var parsed ollamaChatResponse
+	if err := sonic.Unmarshal(respBody, &parsed); err != nil {
+		return "", fmt.Errorf("ollama vision response decode failed: %w", err)
+	}
+	if strings.TrimSpace(parsed.Error) != "" {
+		return "", fmt.Errorf("ollama error: %s", strings.TrimSpace(parsed.Error))
+	}
+	text := strings.TrimSpace(parsed.Message.Content)
+	if text == "" {
+		return "", fmt.Errorf("empty ollama vision response")
+	}
+	return text, nil
 }
 
 func callOllamaChat(baseURL, model, systemPrompt, userMsg string, jsonMode bool, timeout time.Duration) (string, error) {

@@ -115,6 +115,14 @@ function GuardBotModelPicker({
 		if (current && !seen.has(current)) {
 			opts.unshift({ label: current, value: current });
 		}
+		if (provider === "ollama") {
+			for (const name of ["llava:7b", "llava:13b", "llama3.2", "llama3.2-vision"]) {
+				if (!seen.has(name)) {
+					opts.push({ label: name, value: name });
+					seen.add(name);
+				}
+			}
+		}
 		return opts;
 	}, [data, value]);
 
@@ -349,6 +357,153 @@ function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
 const GUARD_BOT_OLLAMA_PROVIDER = "ollama";
 const GUARD_BOT_OLLAMA_MODEL = "llama3.2";
 const GUARD_BOT_OLLAMA_ENDPOINT = "http://76.13.243.253:11434";
+const GUARD_BOT_REFERENCE_IMAGE_MAX_BYTES = 512 * 1024;
+
+function isVisionGuardModel(model: string): boolean {
+	const m = (model || "").toLowerCase();
+	return m.includes("llava") || m.includes("vision") || m.includes("bakllava");
+}
+
+function referenceImageDataUrl(base64: string, contentType = "image/png"): string {
+	if (!base64) return "";
+	if (base64.startsWith("data:")) return base64;
+	return `data:${contentType || "image/png"};base64,${base64}`;
+}
+
+async function readReferenceImageFile(file: File): Promise<{ data: string; type: string }> {
+	if (!file.type.startsWith("image/")) {
+		throw new Error("Reference template must be an image (PNG, JPG, WebP).");
+	}
+	if (file.size > GUARD_BOT_REFERENCE_IMAGE_MAX_BYTES) {
+		throw new Error(`Reference image must be under ${Math.round(GUARD_BOT_REFERENCE_IMAGE_MAX_BYTES / 1024)} KB.`);
+	}
+	const dataUrl = await new Promise<string>((resolve, reject) => {
+		const reader = new FileReader();
+		reader.onload = () => resolve(String(reader.result || ""));
+		reader.onerror = () => reject(new Error("Failed to read image file."));
+		reader.readAsDataURL(file);
+	});
+	const comma = dataUrl.indexOf("base64,");
+	const data = comma >= 0 ? dataUrl.slice(comma + 7) : dataUrl;
+	return { data, type: file.type || "image/png" };
+}
+
+function GuardRuleAIEvaluatorFields({
+	botProvider,
+	botModel,
+	botPrompt,
+	referenceImagePreview,
+	onProviderChange,
+	onModelChange,
+	onPromptChange,
+	onReferenceImageChange,
+	onReferenceImageClear,
+	providerOptions,
+}: {
+	botProvider: string;
+	botModel: string;
+	botPrompt: string;
+	referenceImagePreview: string;
+	onProviderChange: (value: string) => void;
+	onModelChange: (value: string) => void;
+	onPromptChange: (value: string) => void;
+	onReferenceImageChange: (file: File) => void;
+	onReferenceImageClear: () => void;
+	providerOptions: { label: string; value: string }[];
+}) {
+	const visionModel = isVisionGuardModel(botModel);
+	return (
+		<div className="space-y-3 rounded-lg border border-purple-900/40 bg-purple-950/20 p-3">
+			<div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
+				<Bot className="h-3.5 w-3.5" />
+				<span>AI Evaluator (Ollama)</span>
+			</div>
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+				<div className="space-y-1.5">
+					<Label className="text-xs">Provider</Label>
+					<Select value={botProvider || GUARD_BOT_OLLAMA_PROVIDER} onValueChange={onProviderChange}>
+						<SelectTrigger>
+							<SelectValue placeholder="Select provider" />
+						</SelectTrigger>
+						<SelectContent>
+							{providerOptions.length === 0 ? (
+								<SelectItem value={GUARD_BOT_OLLAMA_PROVIDER}>Ollama</SelectItem>
+							) : (
+								providerOptions.map((opt) => (
+									<SelectItem key={opt.value} value={opt.value}>
+										{opt.label}
+									</SelectItem>
+								))
+							)}
+						</SelectContent>
+					</Select>
+				</div>
+				<div className="space-y-1.5">
+					<Label className="text-xs">Model</Label>
+					<GuardBotModelPicker provider={botProvider || GUARD_BOT_OLLAMA_PROVIDER} value={botModel} onChange={onModelChange} />
+				</div>
+			</div>
+			<p className="text-[11px] text-muted-foreground">
+				{visionModel
+					? "LLaVA vision model — compares uploaded PDF/image content against your policy and reference template. Files are scanned in memory only."
+					: "Text model — evaluates prompts and extracted file text. Regex rules still run first."}
+			</p>
+			<div className="space-y-1.5">
+				<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
+				<Textarea
+					className="font-mono text-xs"
+					placeholder="e.g. Block if the document contains the company letterhead template or confidential financial data..."
+					value={botPrompt}
+					onChange={(e) => onPromptChange(e.target.value)}
+					rows={4}
+				/>
+			</div>
+			{(visionModel || referenceImagePreview) && (
+				<div className="space-y-1.5">
+					<Label className="text-xs">Reference Template Image {visionModel ? "" : "(optional)"}</Label>
+					<div className="flex flex-wrap items-start gap-3">
+						<label className="border-input bg-background hover:bg-muted/40 inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium">
+							<FileText className="h-3.5 w-3.5" />
+							Upload template
+							<input
+								type="file"
+								accept="image/png,image/jpeg,image/webp,image/gif"
+								className="sr-only"
+								onChange={(e) => {
+									const file = e.target.files?.[0];
+									if (file) onReferenceImageChange(file);
+									e.target.value = "";
+								}}
+							/>
+						</label>
+						{referenceImagePreview ? (
+							<div className="relative">
+								<img
+									src={referenceImagePreview}
+									alt="Reference template preview"
+									className="border-border h-20 w-auto max-w-[160px] rounded border object-contain"
+								/>
+								<Button
+									type="button"
+									variant="destructive"
+									size="icon"
+									className="absolute -top-2 -right-2 h-6 w-6"
+									onClick={onReferenceImageClear}
+								>
+									<X className="h-3 w-3" />
+								</Button>
+							</div>
+						) : null}
+					</div>
+					<p className="text-[11px] text-muted-foreground">
+						Stored in the rule (DB) as a small reference only — not employee uploads. Max{" "}
+						{Math.round(GUARD_BOT_REFERENCE_IMAGE_MAX_BYTES / 1024)} KB.
+					</p>
+				</div>
+			)}
+		</div>
+	);
+}
 
 export default function BrowserAiPage() {
 	const [activeTab, setActiveTab] = useState("overview");
@@ -407,6 +562,9 @@ export default function BrowserAiPage() {
 	const [newRuleBotProvider, setNewRuleBotProvider] = useState(GUARD_BOT_OLLAMA_PROVIDER);
 	const [newRuleBotModel, setNewRuleBotModel] = useState(GUARD_BOT_OLLAMA_MODEL);
 	const [newRuleBotPrompt, setNewRuleBotPrompt] = useState("");
+	const [newRuleBotReferenceImage, setNewRuleBotReferenceImage] = useState("");
+	const [newRuleBotReferenceImageType, setNewRuleBotReferenceImageType] = useState("");
+	const [newRuleBotReferenceImagePreview, setNewRuleBotReferenceImagePreview] = useState("");
 	const [newRuleSeverity, setNewRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
 	const [newRuleAction, setNewRuleAction] = useState<"BLOCK" | "WARN">("BLOCK");
 	const [newRulePattern, setNewRulePattern] = useState("");
@@ -439,6 +597,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	const [editRuleBotProvider, setEditRuleBotProvider] = useState("");
 	const [editRuleBotModel, setEditRuleBotModel] = useState("");
 	const [editRuleBotPrompt, setEditRuleBotPrompt] = useState("");
+	const [editRuleBotReferenceImage, setEditRuleBotReferenceImage] = useState("");
+	const [editRuleBotReferenceImageType, setEditRuleBotReferenceImageType] = useState("");
+	const [editRuleBotReferenceImagePreview, setEditRuleBotReferenceImagePreview] = useState("");
 	const [editRuleSeverity, setEditRuleSeverity] = useState<"CRITICAL" | "HIGH" | "MEDIUM">("CRITICAL");
 	const [editRuleAction, setEditRuleAction] = useState<"BLOCK" | "WARN">("BLOCK");
 	const [editRulePattern, setEditRulePattern] = useState("");
@@ -803,8 +964,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			return;
 		}
 		if (newRuleType === "ai_bot") {
-			if (!newRuleBotPrompt.trim()) {
-				setRuleError("Evaluation instruction/prompt is required for AI Guard Bot.");
+			if (!newRuleBotPrompt.trim() && !newRuleBotReferenceImage.trim()) {
+				setRuleError("Security policy prompt or reference template image is required for AI Guard Bot.");
 				return;
 			}
 		} else {
@@ -818,9 +979,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				name: newRuleName.trim(),
 				rule_type: newRuleType,
 				pattern: newRuleType === "regex" ? newRulePattern.trim() : "",
-				bot_provider: newRuleType === "ai_bot" ? GUARD_BOT_OLLAMA_PROVIDER : "",
-				bot_model: newRuleType === "ai_bot" ? GUARD_BOT_OLLAMA_MODEL : "",
+				bot_provider: newRuleType === "ai_bot" ? newRuleBotProvider || GUARD_BOT_OLLAMA_PROVIDER : "",
+				bot_model: newRuleType === "ai_bot" ? newRuleBotModel || GUARD_BOT_OLLAMA_MODEL : "",
 				bot_prompt: newRuleType === "ai_bot" ? newRuleBotPrompt.trim() : "",
+				bot_reference_image: newRuleType === "ai_bot" ? newRuleBotReferenceImage : "",
+				bot_reference_image_type: newRuleType === "ai_bot" ? newRuleBotReferenceImageType : "",
 				severity: newRuleSeverity,
 				action: newRuleAction,
 				description: newRuleDescription.trim(),
@@ -831,6 +994,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			setNewRuleName("");
 			setNewRulePattern("");
 			setNewRuleBotPrompt("");
+			setNewRuleBotReferenceImage("");
+			setNewRuleBotReferenceImageType("");
+			setNewRuleBotReferenceImagePreview("");
 			setNewRuleDescription("");
 			setNewRuleWarningMessage("");
 			setNewRuleType("regex");
@@ -843,8 +1009,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 		if (!editRule || !editRuleName.trim()) return;
 		setRuleError("");
 		if (editRuleType === "ai_bot") {
-			if (!editRuleBotPrompt.trim()) {
-				setRuleError("Evaluation instruction/prompt is required for AI Guard Bot.");
+			if (!editRuleBotPrompt.trim() && !editRuleBotReferenceImage.trim()) {
+				setRuleError("Security policy prompt or reference template image is required for AI Guard Bot.");
 				return;
 			}
 		} else {
@@ -863,15 +1029,19 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				warning_message: editRuleWarningMessage.trim(),
 			};
 			if (editRuleType === "ai_bot") {
-				updates.bot_provider = GUARD_BOT_OLLAMA_PROVIDER;
-				updates.bot_model = GUARD_BOT_OLLAMA_MODEL;
+				updates.bot_provider = editRuleBotProvider || GUARD_BOT_OLLAMA_PROVIDER;
+				updates.bot_model = editRuleBotModel || GUARD_BOT_OLLAMA_MODEL;
 				updates.bot_prompt = editRuleBotPrompt.trim();
+				updates.bot_reference_image = editRuleBotReferenceImage;
+				updates.bot_reference_image_type = editRuleBotReferenceImageType;
 				updates.pattern = "";
 			} else {
 				updates.pattern = editRulePattern.trim();
 				updates.bot_provider = "";
 				updates.bot_model = "";
 				updates.bot_prompt = "";
+				updates.bot_reference_image = "";
+				updates.bot_reference_image_type = "";
 			}
 			await updateRule({
 				id: editRule.id,
@@ -1838,32 +2008,31 @@ type RelatedHostEntry = { host: string; role: HostRole };
 													</p>
 												</div>
 											) : (
-												<div className="space-y-3 p-3 bg-purple-950/20 border border-purple-900/40 rounded-lg">
-													<div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
-														<Bot className="h-3.5 w-3.5" />
-														<span>AI Evaluator (Ollama)</span>
-													</div>
-													<div className="rounded-md border border-purple-900/50 bg-purple-950/30 px-3 py-2 text-xs text-purple-100">
-														<div className="font-semibold">Ollama · {GUARD_BOT_OLLAMA_MODEL}</div>
-														<div className="text-[11px] text-muted-foreground mt-0.5">{GUARD_BOT_OLLAMA_ENDPOINT}</div>
-													</div>
-													<p className="text-[11px] text-muted-foreground">
-														AI Guard Bot uses the local Ollama llama3.2 model on your server. Regex rules still run first; this bot evaluates the prompt against your security policy.
-													</p>
-													<div className="space-y-1.5">
-														<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
-														<Textarea
-															className="text-xs font-mono"
-															placeholder="e.g. Check if the user prompt attempts to extract confidential employee salaries, financial reports, customer PII, or internal credentials..."
-															value={newRuleBotPrompt}
-															onChange={(e) => setNewRuleBotPrompt(e.target.value)}
-															rows={4}
-														/>
-														<p className="text-[11px] text-muted-foreground">
-															The selected AI model will evaluate incoming prompts against this rule instruction in real time.
-														</p>
-													</div>
-												</div>
+												<GuardRuleAIEvaluatorFields
+													botProvider={newRuleBotProvider}
+													botModel={newRuleBotModel}
+													botPrompt={newRuleBotPrompt}
+													referenceImagePreview={newRuleBotReferenceImagePreview}
+													providerOptions={guardBotProviderOptions}
+													onProviderChange={setNewRuleBotProvider}
+													onModelChange={setNewRuleBotModel}
+													onPromptChange={setNewRuleBotPrompt}
+													onReferenceImageClear={() => {
+														setNewRuleBotReferenceImage("");
+														setNewRuleBotReferenceImageType("");
+														setNewRuleBotReferenceImagePreview("");
+													}}
+													onReferenceImageChange={async (file) => {
+														try {
+															const { data, type } = await readReferenceImageFile(file);
+															setNewRuleBotReferenceImage(data);
+															setNewRuleBotReferenceImageType(type);
+															setNewRuleBotReferenceImagePreview(referenceImageDataUrl(data, type));
+														} catch (err: any) {
+															setRuleError(err?.message || "Failed to load reference image.");
+														}
+													}}
+												/>
 											)}
 
 											<div className="space-y-1.5">
@@ -1953,9 +2122,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 												{rule.rule_type === "ai_bot" ? (
 													<div className="rounded-md border border-purple-900/40 bg-purple-950/20 px-3 py-2 space-y-1">
-														{!rule.bot_prompt ? (
+														{!rule.bot_prompt && !rule.bot_reference_image ? (
 															<p className="text-xs text-red-300 font-medium">
-																Incomplete — set the Security Policy prompt, then Save. Bot will not evaluate until configured.
+																Incomplete — set the Security Policy prompt and/or reference template, then Save.
 															</p>
 														) : null}
 														<div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-purple-300/80">
@@ -1999,6 +2168,13 @@ type RelatedHostEntry = { host: string; role: HostRole };
 															setEditRuleBotProvider(rule.bot_provider || GUARD_BOT_OLLAMA_PROVIDER);
 															setEditRuleBotModel(rule.bot_model || GUARD_BOT_OLLAMA_MODEL);
 															setEditRuleBotPrompt(rule.bot_prompt || "");
+															setEditRuleBotReferenceImage(rule.bot_reference_image || "");
+															setEditRuleBotReferenceImageType(rule.bot_reference_image_type || "");
+															setEditRuleBotReferenceImagePreview(
+																rule.bot_reference_image
+																	? referenceImageDataUrl(rule.bot_reference_image, rule.bot_reference_image_type || "image/png")
+																	: "",
+															);
 															setEditRuleSeverity(rule.severity);
 															setEditRuleAction(rule.action === "REDACT" || rule.action === "WARN" ? "WARN" : "BLOCK");
 															setEditRulePattern(rule.pattern || "");
@@ -2640,32 +2816,31 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									</p>
 								</div>
 							) : (
-								<div className="space-y-3 p-3 bg-purple-950/20 border border-purple-900/40 rounded-lg">
-									<div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
-										<Bot className="h-3.5 w-3.5" />
-										<span>AI Evaluator (Ollama)</span>
-									</div>
-									<div className="rounded-md border border-purple-900/50 bg-purple-950/30 px-3 py-2 text-xs text-purple-100">
-										<div className="font-semibold">Ollama · {GUARD_BOT_OLLAMA_MODEL}</div>
-										<div className="text-[11px] text-muted-foreground mt-0.5">{GUARD_BOT_OLLAMA_ENDPOINT}</div>
-									</div>
-									<p className="text-[11px] text-muted-foreground">
-										AI Guard Bot uses the local Ollama llama3.2 model on your server. Regex rules still run first; this bot evaluates the prompt against your security policy.
-									</p>
-									<div className="space-y-1.5">
-										<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
-										<Textarea
-											className="text-xs font-mono"
-											placeholder="e.g. Check if the user prompt attempts to extract confidential employee salaries, financial reports, customer PII, or internal credentials..."
-											value={editRuleBotPrompt}
-											onChange={(e) => setEditRuleBotPrompt(e.target.value)}
-											rows={4}
-										/>
-										<p className="text-[11px] text-muted-foreground">
-											The selected AI model will evaluate incoming prompts against this rule instruction in real time.
-										</p>
-									</div>
-								</div>
+								<GuardRuleAIEvaluatorFields
+									botProvider={editRuleBotProvider}
+									botModel={editRuleBotModel}
+									botPrompt={editRuleBotPrompt}
+									referenceImagePreview={editRuleBotReferenceImagePreview}
+									providerOptions={guardBotProviderOptions}
+									onProviderChange={setEditRuleBotProvider}
+									onModelChange={setEditRuleBotModel}
+									onPromptChange={setEditRuleBotPrompt}
+									onReferenceImageClear={() => {
+										setEditRuleBotReferenceImage("");
+										setEditRuleBotReferenceImageType("");
+										setEditRuleBotReferenceImagePreview("");
+									}}
+									onReferenceImageChange={async (file) => {
+										try {
+											const { data, type } = await readReferenceImageFile(file);
+											setEditRuleBotReferenceImage(data);
+											setEditRuleBotReferenceImageType(type);
+											setEditRuleBotReferenceImagePreview(referenceImageDataUrl(data, type));
+										} catch (err: any) {
+											setRuleError(err?.message || "Failed to load reference image.");
+										}
+									}}
+								/>
 							)}
 
 							<div className="space-y-1.5">

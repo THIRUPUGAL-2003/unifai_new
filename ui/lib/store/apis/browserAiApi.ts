@@ -61,6 +61,8 @@ export interface BrowserGuardRule {
 	bot_provider?: string;
 	bot_model?: string;
 	bot_prompt?: string;
+	bot_reference_image?: string;
+	bot_reference_image_type?: string;
 	severity: "CRITICAL" | "HIGH" | "MEDIUM";
 	action: "BLOCK" | "WARN" | "REDACT";
 	pattern?: string;

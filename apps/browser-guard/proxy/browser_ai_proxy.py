@@ -13,6 +13,7 @@ Features:
 """
 
 import asyncio
+import base64
 import io
 import json
 import os
@@ -3014,15 +3015,17 @@ def _scan_upload_for_rules(
     try:
         if raw_bytes:
             scanned = extract_upload_text_for_rules(raw_bytes, content_type, "", file_label)
+        upload_images = _upload_images_for_vision(raw_bytes or b"", content_type, file_label) if raw_bytes else []
         if scanned:
             excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
             rule_hit, rule_name, rule_action = match_guard_rules_on_text(scanned)
             rule_action = (rule_action or "").upper()
-        # AI Guard Bot on extracted file text (Send-time only)
-        if scanned and has_ai_bot_rules() and not rule_hit and platform and domain:
+        # AI Guard Bot on extracted file text and/or vision images (Send-time only)
+        if has_ai_bot_rules() and not rule_hit and platform and domain and (scanned or upload_images):
             try:
                 allowed, rt, action, _, _ = send_to_backend(
-                    platform, domain, scanned[:50_000], client_ip, url, method or "POST",
+                    platform, domain, (scanned or "")[:50_000], client_ip, url, method or "POST",
+                    upload_images=upload_images,
                 )
                 act = (action or "").upper()
                 if not allowed and act in ("BLOCKED", "BLOCK"):
@@ -3482,6 +3485,49 @@ def _extract_pdf_regex(data: bytes) -> str:
     for m in re.finditer(r"[ -~]{12,}", raw):
         texts.append(m.group(0))
     return "\n".join(texts)[:200_000]
+
+
+def _extract_pdf_images(data: bytes, max_images: int = 10) -> list[str]:
+    """Extract embedded images from PDF pages as base64 strings (in-memory only)."""
+    if not data:
+        return []
+    if b"%PDF" not in data[:1024] and not data.startswith(b"%PDF"):
+        start = data.find(b"%PDF")
+        if start < 0:
+            return []
+        data = data[start:]
+    out: list[str] = []
+    try:
+        from pypdf import PdfReader
+
+        reader = PdfReader(io.BytesIO(data), strict=False)
+        for page in reader.pages[:20]:
+            if len(out) >= max_images:
+                break
+            images = getattr(page, "images", None)
+            if not images:
+                continue
+            for img in images:
+                if len(out) >= max_images:
+                    break
+                raw = getattr(img, "data", None)
+                if raw and len(raw) >= 64:
+                    out.append(base64.b64encode(raw).decode("ascii"))
+    except Exception as e:
+        print(f"[UnifAI Proxy] pdf image extract failed (allowed): {e}")
+    return out
+
+
+def _upload_images_for_vision(raw_bytes: bytes, content_type: str = "", file_name: str = "", max_images: int = 10) -> list[str]:
+    """Build base64 image list from an upload for LLaVA vision rules."""
+    if not raw_bytes:
+        return []
+    kind = _classify_upload_kind(raw_bytes, content_type, file_name)
+    if kind == "image":
+        return [base64.b64encode(raw_bytes).decode("ascii")]
+    if kind == "pdf":
+        return _extract_pdf_images(raw_bytes, max_images=max_images)
+    return []
 
 
 def _extract_pdf_text(data: bytes) -> str:
@@ -4870,7 +4916,7 @@ def get_client_ip(flow: http.HTTPFlow) -> str:
         return "127.0.0.1"
 
 
-def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str) -> tuple[bool, str, str, str, str]:
+def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str, upload_images: list[str] | None = None) -> tuple[bool, str, str, str, str]:
     """
     Send intercepted prompt to UnifAI backend /api/browser-ai/intercept.
     Backend handles guard rule matching and returns allowed/blocked decision.
@@ -4883,6 +4929,7 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             "client_ip": client_ip,
             "agent_id": UNIFAI_AGENT_ID,
             "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+            "upload_images": upload_images or [],
             "metadata": {
                 "domain": domain,
                 "url": url,

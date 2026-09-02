@@ -153,8 +153,8 @@ func (h *BrowserAIHandler) createRule(ctx *fasthttp.RequestCtx) {
 	}
 	if strings.ToLower(rule.RuleType) == "ai_bot" {
 		applyAIBotDefaults(&rule)
-		if strings.TrimSpace(rule.BotPrompt) == "" {
-			SendError(ctx, fasthttp.StatusBadRequest, "Evaluation prompt is required for AI Guard Bot rule")
+		if err := validateAIBotRuleFields(&rule); err != nil {
+			SendError(ctx, fasthttp.StatusBadRequest, err.Error())
 			return
 		}
 	} else {
@@ -192,7 +192,9 @@ func (h *BrowserAIHandler) updateRule(ctx *fasthttp.RequestCtx) {
 	_, hasBotPrompt := updates["bot_prompt"]
 	_, hasBotProvider := updates["bot_provider"]
 	_, hasBotModel := updates["bot_model"]
-	needsAIBotCheck := ruleType == "ai_bot" || hasBotPrompt || hasBotProvider || hasBotModel
+	_, hasBotReferenceImage := updates["bot_reference_image"]
+	_, hasBotReferenceImageType := updates["bot_reference_image_type"]
+	needsAIBotCheck := ruleType == "ai_bot" || hasBotPrompt || hasBotProvider || hasBotModel || hasBotReferenceImage || hasBotReferenceImageType
 	if needsAIBotCheck {
 		if existingRules, getErr := h.manager.GetRules(ctx); getErr == nil {
 			for i := range existingRules {
@@ -212,26 +214,34 @@ func (h *BrowserAIHandler) updateRule(ctx *fasthttp.RequestCtx) {
 				if !hasBotModel {
 					updates["bot_model"] = existing.BotModel
 				}
+				if !hasBotReferenceImage {
+					updates["bot_reference_image"] = existing.BotReferenceImage
+				}
+				if !hasBotReferenceImageType {
+					updates["bot_reference_image_type"] = existing.BotReferenceImageType
+				}
 				break
 			}
 		}
 	}
 	if ruleType == "ai_bot" {
-		botPrompt, _ := updates["bot_prompt"].(string)
-		botProvider, _ := updates["bot_provider"].(string)
-		botModel, _ := updates["bot_model"].(string)
 		tmp := logstore.BrowserGuardRule{
-			RuleType:    "ai_bot",
-			BotProvider: botProvider,
-			BotModel:    botModel,
+			RuleType:              "ai_bot",
+			BotProvider:           stringFromUpdate(updates, "bot_provider"),
+			BotModel:              stringFromUpdate(updates, "bot_model"),
+			BotPrompt:             stringFromUpdate(updates, "bot_prompt"),
+			BotReferenceImage:     stringFromUpdate(updates, "bot_reference_image"),
+			BotReferenceImageType: stringFromUpdate(updates, "bot_reference_image_type"),
 		}
-		applyAIBotDefaults(&tmp)
-		updates["bot_provider"] = tmp.BotProvider
-		updates["bot_model"] = tmp.BotModel
-		if strings.TrimSpace(botPrompt) == "" {
-			SendError(ctx, fasthttp.StatusBadRequest, "Evaluation prompt is required for AI Guard Bot rule")
+		if err := validateAIBotRuleFields(&tmp); err != nil {
+			SendError(ctx, fasthttp.StatusBadRequest, err.Error())
 			return
 		}
+		updates["bot_provider"] = tmp.BotProvider
+		updates["bot_model"] = tmp.BotModel
+		updates["bot_prompt"] = tmp.BotPrompt
+		updates["bot_reference_image"] = tmp.BotReferenceImage
+		updates["bot_reference_image_type"] = tmp.BotReferenceImageType
 	}
 
 	if err := h.manager.UpdateRule(ctx, id, updates); err != nil {
@@ -644,6 +654,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		ClientIP      string         `json:"client_ip"`
 		AgentID       string         `json:"agent_id"`
 		AgentHostname string         `json:"agent_hostname"`
+		UploadImages  []string       `json:"upload_images"`
 		Metadata      map[string]any `json:"metadata"`
 	}
 
@@ -720,7 +731,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 				continue
 			}
 			applyAIBotDefaults(&rule)
-			if strings.TrimSpace(rule.BotPrompt) == "" {
+			if strings.TrimSpace(rule.BotPrompt) == "" && strings.TrimSpace(rule.BotReferenceImage) == "" {
 				// Misconfigured bot rule — do not silently skip BLOCK policies.
 				if logstore.NormalizeGuardRuleAction(rule.Action) == "BLOCK" {
 					logEntry.Action = "Blocked"
@@ -742,7 +753,10 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 				}
 				continue
 			}
-			violated, evalErr := h.evaluateAIBotRule(rule, payload.Prompt)
+			if (isVisionGuardModel(rule.BotModel) || strings.TrimSpace(rule.BotReferenceImage) != "") && len(payload.UploadImages) == 0 {
+				continue
+			}
+			violated, evalErr := h.evaluateAIBotRule(rule, payload.Prompt, payload.UploadImages)
 			if evalErr != "" {
 				evalError = evalErr
 				ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
@@ -1005,17 +1019,12 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	}
 
 	if len(fileBytes) > 0 {
-		stored, ctype, storeErr := storeBrowserAIAttachment(logEntry.ID, fileName, fileBytes, contentTypeHint)
-		if storeErr == nil {
-			safeName := sanitizeAttachmentFileName(fileName)
-			if safeName == "attachment" || filepath.Ext(safeName) == "" {
-				safeName = ensureAttachmentExt(fileName, ctype)
-			}
-			_ = h.manager.UpdateLogAttachment(ctx, logEntry.ID, safeName, stored, ctype)
-			logEntry.AttachmentName = safeName
-			logEntry.AttachmentStoredName = stored
-			logEntry.AttachmentContentType = ctype
+		safeName := sanitizeAttachmentFileName(fileName)
+		if safeName == "attachment" || filepath.Ext(safeName) == "" {
+			safeName = ensureAttachmentExt(fileName, contentTypeHint)
 		}
+		logEntry.AttachmentName = safeName
+		// Upload bytes are scanned in-memory by the Guard proxy; do not persist files on disk.
 	}
 
 	SendJSON(ctx, map[string]any{
@@ -1165,7 +1174,7 @@ func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
 		rule.Name = "Test AI Guard Bot"
 	}
 	applyAIBotDefaults(&rule)
-	violated, evalErr := h.evaluateAIBotRule(rule, sample)
+	violated, evalErr := h.evaluateAIBotRule(rule, sample, nil)
 	verdict := "clear"
 	message := securityVerdictMessage("clear", rule.Name)
 	wouldBlock := false
@@ -1213,12 +1222,28 @@ func resolveGuardBotModel(provider, model string) (schemas.ModelProvider, string
 	return schemas.ModelProvider(pLower), model
 }
 
-func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, userPrompt string) (bool, string) {
+func stringFromUpdate(updates map[string]any, key string) string {
+	if updates == nil {
+		return ""
+	}
+	v, ok := updates[key].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(v)
+}
+
+func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, userPrompt string, uploadImages []string) (bool, string) {
 	applyAIBotDefaults(&rule)
 
 	providerName, modelName := resolveGuardBotModel(rule.BotProvider, rule.BotModel)
 	if providerName == "" || strings.TrimSpace(modelName) == "" {
 		return false, "guard bot provider/model missing"
+	}
+
+	useVision := len(uploadImages) > 0 && (isVisionGuardModel(modelName) || strings.TrimSpace(rule.BotReferenceImage) != "")
+	if useVision {
+		return h.evaluateAIBotVisionRule(rule, userPrompt, uploadImages, providerName, modelName)
 	}
 
 	systemPrompt := `You are a DLP classifier. Apply ONLY the admin SECURITY_POLICY to USER_PROMPT.
@@ -1328,6 +1353,71 @@ Reply with one JSON object and nothing else:
 		return violated, ""
 	}
 	return false, errMsg + "; retry: " + errMsg2
+}
+
+func (h *BrowserAIHandler) evaluateAIBotVisionRule(rule logstore.BrowserGuardRule, userPrompt string, uploadImages []string, providerName schemas.ModelProvider, modelName string) (bool, string) {
+	systemPrompt := `You are a DLP vision classifier. Apply ONLY the admin SECURITY_POLICY to uploaded document image(s).
+
+- The first image (when present) is the admin REFERENCE_TEMPLATE to match against.
+- Remaining images are from the user upload (PDF page images, photos, scans).
+- If the upload visually matches the reference template or violates SECURITY_POLICY, set violation true.
+- If there is no meaningful visual match or policy violation, set violation false.
+
+Reply with one JSON object and nothing else:
+{"violation":true} or {"violation":false}`
+
+	policy := strings.TrimSpace(rule.BotPrompt)
+	if policy == "" {
+		policy = "Block uploads that visually match the reference template image."
+	}
+
+	userMsg := fmt.Sprintf(
+		"SECURITY_POLICY:\n%s\n\nEXTRACTED_TEXT (if any):\n%s\n\nEvaluate the attached upload image(s). JSON only.",
+		policy,
+		truncateRunes(userPrompt, browserAIGuardBotMaxPromptRunes),
+	)
+
+	images := make([]string, 0, 1+len(uploadImages))
+	if ref := normalizeBase64Image(rule.BotReferenceImage); ref != "" {
+		images = append(images, ref)
+	}
+	for _, img := range uploadImages {
+		if cleaned := normalizeBase64Image(img); cleaned != "" {
+			images = append(images, cleaned)
+		}
+	}
+	if len(images) == 0 {
+		return false, "no vision images to evaluate"
+	}
+
+	if isOllamaGuardProvider(string(providerName)) {
+		runOllama := func(jsonMode bool) (bool, string) {
+			rawText, err := callOllamaVisionAny(modelName, systemPrompt, userMsg, images, jsonMode, 120*time.Second)
+			if err != nil {
+				return false, truncateRunes(err.Error(), 180)
+			}
+			rawText = stripEvalMarkdown(rawText)
+			if rawText == "" {
+				return false, "empty vision evaluator response"
+			}
+			violated, recognized := parseAIBotDecision(rawText)
+			if !recognized {
+				return false, "vision evaluator returned unparseable output: " + truncateRunes(rawText, 80)
+			}
+			return violated, ""
+		}
+		violated, errMsg := runOllama(true)
+		if errMsg == "" {
+			return violated, ""
+		}
+		violated, errMsg2 := runOllama(false)
+		if errMsg2 == "" {
+			return violated, ""
+		}
+		return false, errMsg + "; retry: " + errMsg2
+	}
+
+	return false, "vision guard bot requires ollama provider"
 }
 
 func unifaiErrorMessage(err *schemas.UnifAIError) string {

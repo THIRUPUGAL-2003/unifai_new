@@ -129,8 +129,10 @@ type BrowserGuardRule struct {
 	RuleType       string    `json:"rule_type"`                   // "regex" (default) or "ai_bot"
 	BotProvider    string    `json:"bot_provider"`                // e.g. "openai", "anthropic", "gemini"
 	BotModel       string    `json:"bot_model"`                   // e.g. "gpt-4o-mini", "claude-3-5-haiku"
-	BotPrompt      string    `gorm:"type:text" json:"bot_prompt"` // Custom evaluation instruction for the LLM
-	Severity       string    `json:"severity"`                    // "CRITICAL", "HIGH", "MEDIUM"
+	BotPrompt              string `gorm:"type:text" json:"bot_prompt"`                        // Custom evaluation instruction for the LLM
+	BotReferenceImage      string `gorm:"type:text" json:"bot_reference_image,omitempty"`   // Base64 reference template (vision rules)
+	BotReferenceImageType  string `json:"bot_reference_image_type,omitempty"`                 // e.g. image/png
+	Severity               string `json:"severity"`                                           // "CRITICAL", "HIGH", "MEDIUM"
 	Action         string    `json:"action"`                      // "BLOCK" or "WARN" (legacy "REDACT" is normalized to "WARN")
 	Pattern        string    `json:"pattern"`
 	Active         bool      `json:"active"`
@@ -407,6 +409,8 @@ func (m *BrowserAIManager) CreateRule(ctx context.Context, rule *BrowserGuardRul
 	rule.BotProvider = strings.TrimSpace(rule.BotProvider)
 	rule.BotModel = strings.TrimSpace(rule.BotModel)
 	rule.BotPrompt = strings.TrimSpace(rule.BotPrompt)
+	rule.BotReferenceImage = strings.TrimSpace(rule.BotReferenceImage)
+	rule.BotReferenceImageType = strings.TrimSpace(rule.BotReferenceImageType)
 	rule.Pattern = strings.TrimSpace(rule.Pattern)
 	rule.Description = strings.TrimSpace(rule.Description)
 	rule.WarningMessage = strings.TrimSpace(rule.WarningMessage)
@@ -425,13 +429,14 @@ func (m *BrowserAIManager) UpdateRule(ctx context.Context, id string, updates ma
 		"name": true, "severity": true, "action": true, "pattern": true,
 		"active": true, "description": true, "warning_message": true,
 		"rule_type": true, "bot_provider": true, "bot_model": true, "bot_prompt": true,
+		"bot_reference_image": true, "bot_reference_image_type": true,
 	}
 	filtered := make(map[string]any, len(updates))
 	for k, v := range updates {
 		if !allowed[k] {
 			continue
 		}
-		if s, ok := v.(string); ok && (k == "name" || k == "pattern" || k == "description" || k == "warning_message" || k == "severity" || k == "action" || k == "rule_type" || k == "bot_provider" || k == "bot_model" || k == "bot_prompt") {
+		if s, ok := v.(string); ok && (k == "name" || k == "pattern" || k == "description" || k == "warning_message" || k == "severity" || k == "action" || k == "rule_type" || k == "bot_provider" || k == "bot_model" || k == "bot_prompt" || k == "bot_reference_image" || k == "bot_reference_image_type") {
 			if k == "action" {
 				filtered[k] = NormalizeGuardRuleAction(s)
 			} else {
