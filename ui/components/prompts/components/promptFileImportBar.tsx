@@ -44,10 +44,9 @@ interface PromptFileImportBarProps {
 	disabled?: boolean;
 	onAttachmentsAdded: (attachments: MessageContent[]) => void;
 	className?: string;
-	compact?: boolean;
 }
 
-export function PromptFileImportBar({ disabled, onAttachmentsAdded, className = "", compact = false }: PromptFileImportBarProps) {
+export function PromptFileImportBar({ disabled, onAttachmentsAdded, className = "" }: PromptFileImportBarProps) {
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const [isRecording, setIsRecording] = useState(false);
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -199,37 +198,44 @@ export function PromptFileImportBar({ disabled, onAttachmentsAdded, className = 
 				<TooltipTrigger asChild>
 					<Button
 						type="button"
-						variant="outline"
-						size={compact ? "sm" : "sm"}
+						variant="ghost"
+						size="icon"
 						disabled={disabled}
 						onClick={() => fileInputRef.current?.click()}
-						className={compact ? "h-7 gap-1 px-2 text-xs" : "h-8 gap-1.5 text-xs"}
+						className="text-muted-foreground hover:text-foreground h-7 w-7"
+						aria-label="Import files"
 						data-testid="prompt-import-files-button"
 					>
 						<Paperclip className="h-3.5 w-3.5" />
-						{compact ? "Files" : "Import files"}
 					</Button>
 				</TooltipTrigger>
 				<TooltipContent side="top" className="max-w-xs">
-					<p>{PROMPT_FILE_ACCEPT_LABEL}</p>
+					<p className="font-medium">Import files</p>
+					<p className="text-muted-foreground text-xs">{PROMPT_FILE_ACCEPT_LABEL}</p>
 				</TooltipContent>
 			</Tooltip>
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<Button
 						type="button"
-						variant={isRecording ? "destructive" : "outline"}
-						size="sm"
+						variant={isRecording ? "destructive" : "ghost"}
+						size="icon"
 						disabled={disabled}
 						onClick={toggleRecording}
-						className={compact ? "h-7 gap-1 px-2 text-xs" : "h-8 gap-1.5 text-xs"}
+						className={
+							isRecording
+								? "h-7 w-7"
+								: "text-muted-foreground hover:text-foreground h-7 w-7"
+						}
+						aria-label={isRecording ? "Stop recording" : "Record voice"}
 						data-testid="prompt-record-voice-button"
 					>
 						{isRecording ? <Square className="h-3 w-3 fill-current" /> : <Mic className="h-3.5 w-3.5" />}
-						{isRecording ? "Stop" : compact ? "Voice" : "Record voice"}
 					</Button>
 				</TooltipTrigger>
-				<TooltipContent side="top">Record audio from your microphone</TooltipContent>
+				<TooltipContent side="top">
+					{isRecording ? "Stop recording" : "Record voice"}
+				</TooltipContent>
 			</Tooltip>
 		</div>
 	);
