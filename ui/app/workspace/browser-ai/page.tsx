@@ -35,7 +35,10 @@ import {
 	Paperclip,
 	Sparkles,
 	Loader2,
+	Cloud,
 } from "lucide-react";
+import { getProviderLabel } from "@/lib/constants/logs";
+import { useGetModelsQuery, useGetProvidersQuery } from "@/lib/store/apis/providersApi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -123,14 +126,70 @@ function GuardBotModelPicker({
 			options={options}
 			value={value || null}
 			onValueChange={(v) => onChange(String(v || ""))}
-			placeholder={!isOllama ? "Ollama only" : isFetching ? "Loading models from server..." : isError ? "Could not reach Ollama server" : "Select model"}
+			placeholder={!isOllama ? "Select Download model source first" : isFetching ? "Loading models from server..." : isError ? "Could not reach Ollama server" : "Select model"}
 			hideClear
 			disabled={disabled || !isOllama}
-			emptyMessage={isError ? "Ollama server unreachable — check 76.13.243.253:11434" : "No models on Ollama server"}
+			emptyMessage={isError ? "Ollama server unreachable — check server Ollama" : "No models on Ollama server"}
 			searchPlaceholder="Search models..."
 			data-testid="browser-ai-guard-bot-model"
 		/>
 	);
+}
+
+function GuardBotOutsourceModelPicker({
+	provider,
+	value,
+	onChange,
+	disabled,
+}: {
+	provider: string;
+	value: string;
+	onChange: (model: string) => void;
+	disabled?: boolean;
+}) {
+	const { data, isFetching, isError } = useGetModelsQuery(
+		{ provider: provider || undefined, limit: 1000, unfiltered: true },
+		{ skip: !provider },
+	);
+	const options = useMemo(() => {
+		const seen = new Set<string>();
+		const opts: { label: string; value: string }[] = [];
+		for (const m of data?.models || []) {
+			const name = String(m?.name || "").trim();
+			if (!name || seen.has(name)) continue;
+			seen.add(name);
+			opts.push({ label: name, value: name });
+		}
+		const current = String(value || "").trim();
+		if (current && !seen.has(current)) {
+			opts.unshift({ label: current, value: current });
+		}
+		return opts;
+	}, [data, value]);
+
+	return (
+		<ComboboxSelect
+			options={options}
+			value={value || null}
+			onValueChange={(v) => onChange(String(v || ""))}
+			placeholder={!provider ? "Select provider first" : isFetching ? "Loading catalog models..." : isError ? "Could not load models" : "Select model"}
+			hideClear
+			disabled={disabled || !provider}
+			emptyMessage={!provider ? "Pick a provider" : "No models — add API keys under Model Providers"}
+			searchPlaceholder="Search catalog models..."
+			data-testid="browser-ai-guard-bot-outsource-model"
+		/>
+	);
+}
+
+const GUARD_BOT_OLLAMA_PROVIDER = "ollama";
+const GUARD_BOT_OLLAMA_MODEL = "llama3.2";
+const GUARD_BOT_OLLAMA_ENDPOINT = "http://76.13.243.253:11434";
+const GUARD_BOT_REFERENCE_IMAGE_MAX_BYTES = 512 * 1024;
+
+function isDownloadGuardSource(provider: string): boolean {
+	const p = (provider || "").trim().toLowerCase();
+	return !p || p === GUARD_BOT_OLLAMA_PROVIDER;
 }
 
 function guardRuleNoticeCopy(action: "BLOCK" | "REDACT") {
@@ -370,11 +429,6 @@ function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
 	);
 }
 
-const GUARD_BOT_OLLAMA_PROVIDER = "ollama";
-const GUARD_BOT_OLLAMA_MODEL = "llama3.2";
-const GUARD_BOT_OLLAMA_ENDPOINT = "http://76.13.243.253:11434";
-const GUARD_BOT_REFERENCE_IMAGE_MAX_BYTES = 512 * 1024;
-
 function isMultimodalGuardModel(model: string): boolean {
 	const m = (model || "").toLowerCase();
 	return m.includes("gemma4") || m.includes("gemma-4");
@@ -431,7 +485,7 @@ function GuardRuleAIEvaluatorFields({
 	onGenerateRegex,
 	onReferenceImageChange,
 	onReferenceImageClear,
-	providerOptions,
+	outsourceProviderOptions,
 }: {
 	botProvider: string;
 	botModel: string;
@@ -449,41 +503,121 @@ function GuardRuleAIEvaluatorFields({
 	onGenerateRegex: () => void;
 	onReferenceImageChange: (file: File) => void;
 	onReferenceImageClear: () => void;
-	providerOptions: { label: string; value: string }[];
+	outsourceProviderOptions: { label: string; value: string }[];
 }) {
 	const visionModel = isVisionGuardModel(botModel);
 	const multimodalModel = isMultimodalGuardModel(botModel);
+	const modelSource: "download" | "outsource" = isDownloadGuardSource(botProvider) ? "download" : "outsource";
+	const activeOutsourceProvider =
+		botProvider && !isDownloadGuardSource(botProvider)
+			? botProvider
+			: outsourceProviderOptions[0]?.value || "";
+
+	const setModelSource = (source: "download" | "outsource") => {
+		if (source === "download") {
+			onProviderChange(GUARD_BOT_OLLAMA_PROVIDER);
+			onModelChange(GUARD_BOT_OLLAMA_MODEL);
+			return;
+		}
+		const first = outsourceProviderOptions[0]?.value || "";
+		if (isDownloadGuardSource(botProvider) || !botProvider) {
+			onProviderChange(first);
+			onModelChange("");
+		}
+	};
+
 	return (
 		<div className="space-y-3 rounded-lg border border-purple-900/40 bg-purple-950/20 p-3">
 			<div className="flex items-center gap-1.5 text-xs font-semibold text-purple-300">
 				<Bot className="h-3.5 w-3.5" />
-				<span>AI Evaluator (Ollama)</span>
+				<span>AI Evaluator</span>
 			</div>
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+
+			<div className="space-y-1.5">
+				<Label className="text-xs">Model source</Label>
+				<div className="grid grid-cols-2 gap-2 p-1 bg-background/50 rounded-lg border border-border">
+					<button
+						type="button"
+						onClick={() => setModelSource("download")}
+						className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-[11px] font-semibold transition-all ${
+							modelSource === "download" ? "bg-purple-600 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+						}`}
+					>
+						<Download className="h-3.5 w-3.5" />
+						Download model
+					</button>
+					<button
+						type="button"
+						onClick={() => setModelSource("outsource")}
+						className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-[11px] font-semibold transition-all ${
+							modelSource === "outsource" ? "bg-purple-600 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+						}`}
+					>
+						<Cloud className="h-3.5 w-3.5" />
+						Outsource model
+					</button>
+				</div>
+				<p className="text-[11px] text-muted-foreground">
+					{modelSource === "download"
+						? "Uses Ollama models pulled on the Guard server (llama3.2, gemma4, llava, …)."
+						: "Uses Model Providers + API keys from this UnifAI workspace (OpenRouter, OpenAI, etc.)."}
+				</p>
+			</div>
+
+			{modelSource === "download" ? (
 				<div className="space-y-1.5">
-					<Label className="text-xs">Provider</Label>
-					<Select value={botProvider || GUARD_BOT_OLLAMA_PROVIDER} onValueChange={onProviderChange}>
-						<SelectTrigger>
-							<SelectValue placeholder="Select provider" />
-						</SelectTrigger>
-						<SelectContent>
-							{providerOptions.length === 0 ? (
-								<SelectItem value={GUARD_BOT_OLLAMA_PROVIDER}>Ollama</SelectItem>
-							) : (
-								providerOptions.map((opt) => (
-									<SelectItem key={opt.value} value={opt.value}>
-										{opt.label}
+					<Label className="text-xs">Ollama model</Label>
+					<GuardBotModelPicker provider={GUARD_BOT_OLLAMA_PROVIDER} value={botModel} onChange={onModelChange} />
+				</div>
+			) : (
+				<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+					<div className="space-y-1.5">
+						<Label className="text-xs">Provider</Label>
+						<Select
+							value={activeOutsourceProvider}
+							onValueChange={(v) => {
+								onProviderChange(v);
+								onModelChange("");
+							}}
+						>
+							<SelectTrigger>
+								<SelectValue placeholder="Select provider" />
+							</SelectTrigger>
+							<SelectContent>
+								{outsourceProviderOptions.length === 0 ? (
+									<SelectItem value="__none" disabled>
+										No providers configured
 									</SelectItem>
-								))
-							)}
-						</SelectContent>
-					</Select>
+								) : (
+									outsourceProviderOptions.map((opt) => (
+										<SelectItem key={opt.value} value={opt.value}>
+											{opt.label}
+										</SelectItem>
+									))
+								)}
+							</SelectContent>
+						</Select>
+						{outsourceProviderOptions.length === 0 ? (
+							<p className="text-[11px] text-amber-400">
+								Add a provider and API key under{" "}
+								<a href="/workspace/providers" className="underline underline-offset-2">
+									Model Providers
+								</a>
+								.
+							</p>
+						) : null}
+					</div>
+					<div className="space-y-1.5">
+						<Label className="text-xs">Model</Label>
+						<GuardBotOutsourceModelPicker
+							provider={activeOutsourceProvider}
+							value={botModel}
+							onChange={onModelChange}
+						/>
+					</div>
 				</div>
-				<div className="space-y-1.5">
-					<Label className="text-xs">Model</Label>
-					<GuardBotModelPicker provider={botProvider || GUARD_BOT_OLLAMA_PROVIDER} value={botModel} onChange={onModelChange} />
-				</div>
-			</div>
+			)}
+
 			<p className="text-[11px] text-muted-foreground">
 				{multimodalModel
 					? "Gemma 4 multimodal — evaluates prompts, extracted file text, and image uploads (PDF pages, photos)."
@@ -518,7 +652,7 @@ function GuardRuleAIEvaluatorFields({
 				</div>
 				<p className="text-[11px] text-muted-foreground">
 					{evalMode === "ai"
-						? "Ollama checks every prompt/file extract against your policy (slower, meaning-aware)."
+						? "Selected model checks every prompt/file extract against your policy (slower, meaning-aware)."
 						: "Model writes a regex from your policy; that regex matches prompts + extracted file/audio text (fast, like Regex rules)."}
 				</p>
 			</div>
@@ -754,11 +888,16 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	const { data: rulesData, refetch: refetchRules } = useGetBrowserAiRulesQuery(undefined, { pollingInterval: activePolling });
 	const { data: targetsData, refetch: refetchTargets } = useGetBrowserAiTargetsQuery(undefined, { pollingInterval: activePolling });
 	const { data: controlsData } = useGetBrowserAiControlsQuery(undefined, { pollingInterval: activePolling });
-	// Browser AI Guard Bot uses the local Ollama instance on the server — not cloud Model Providers.
-	const guardBotProviderOptions = useMemo(
-		() => [{ label: "Ollama", value: GUARD_BOT_OLLAMA_PROVIDER }],
-		[],
-	);
+	const { data: providersData } = useGetProvidersQuery();
+	// Outsource = configured Model Providers (OpenRouter, OpenAI, …). Download = Ollama on server.
+	const outsourceProviderOptions = useMemo(() => {
+		const opts = (providersData || [])
+			.map((p) => String(p?.name || "").trim())
+			.filter((name) => name && name.toLowerCase() !== GUARD_BOT_OLLAMA_PROVIDER)
+			.map((name) => ({ label: getProviderLabel(name), value: name }));
+		opts.sort((a, b) => a.label.localeCompare(b.label));
+		return opts;
+	}, [providersData]);
 	const {
 		data: agentsData,
 		refetch: refetchAgents,
@@ -1072,6 +1211,16 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setRuleError("Generate or enter a regex pattern, or switch to AI Prompt evaluate mode.");
 				return;
 			}
+			if (newRuleBotEvalMode === "ai") {
+				if (!isDownloadGuardSource(newRuleBotProvider) && !newRuleBotProvider.trim()) {
+					setRuleError("Select an Outsource provider (or switch to Download model).");
+					return;
+				}
+				if (!newRuleBotModel.trim()) {
+					setRuleError("Select a model for AI Guard Bot.");
+					return;
+				}
+			}
 		} else {
 			if (!newRulePattern.trim()) {
 				setRuleError("Regex pattern is required for Regex rule.");
@@ -1092,7 +1241,10 @@ type RelatedHostEntry = { host: string; role: HostRole };
 						? newRulePattern.trim()
 						: newRuleGeneratedPattern.trim(),
 				bot_provider: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotProvider || GUARD_BOT_OLLAMA_PROVIDER : "",
-				bot_model: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotModel || GUARD_BOT_OLLAMA_MODEL : "",
+				bot_model:
+					newRuleType === "ai_bot" && !saveAsGeneratedRegex
+						? newRuleBotModel || (isDownloadGuardSource(newRuleBotProvider) ? GUARD_BOT_OLLAMA_MODEL : "")
+						: "",
 				bot_prompt: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotPrompt.trim() : "",
 				bot_reference_image: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotReferenceImage : "",
 				bot_reference_image_type: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotReferenceImageType : "",
@@ -1151,7 +1303,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				e?.data?.error?.message ||
 					e?.data?.message ||
 					e?.message ||
-					"Failed to generate regex from Ollama.",
+					"Failed to generate regex from policy.",
 			);
 		}
 	};
@@ -1167,6 +1319,16 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			if (editRuleBotEvalMode === "regex" && !editRuleGeneratedPattern.trim()) {
 				setRuleError("Generate or enter a regex pattern, or switch to AI Prompt evaluate mode.");
 				return;
+			}
+			if (editRuleBotEvalMode === "ai") {
+				if (!isDownloadGuardSource(editRuleBotProvider) && !editRuleBotProvider.trim()) {
+					setRuleError("Select an Outsource provider (or switch to Download model).");
+					return;
+				}
+				if (!editRuleBotModel.trim()) {
+					setRuleError("Select a model for AI Guard Bot.");
+					return;
+				}
 			}
 		} else {
 			if (!editRulePattern.trim()) {
@@ -1196,7 +1358,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				}
 			} else if (editRuleType === "ai_bot") {
 				updates.bot_provider = editRuleBotProvider || GUARD_BOT_OLLAMA_PROVIDER;
-				updates.bot_model = editRuleBotModel || GUARD_BOT_OLLAMA_MODEL;
+				updates.bot_model = editRuleBotModel || (isDownloadGuardSource(editRuleBotProvider) ? GUARD_BOT_OLLAMA_MODEL : "");
 				updates.bot_prompt = editRuleBotPrompt.trim();
 				updates.bot_reference_image = editRuleBotReferenceImage;
 				updates.bot_reference_image_type = editRuleBotReferenceImageType;
@@ -2188,7 +2350,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 													generatedPattern={newRuleGeneratedPattern}
 													generateError={newRuleGenerateError}
 													generating={generatingRegex}
-													providerOptions={guardBotProviderOptions}
+													outsourceProviderOptions={outsourceProviderOptions}
 													onProviderChange={setNewRuleBotProvider}
 													onModelChange={setNewRuleBotModel}
 													onPromptChange={setNewRuleBotPrompt}
@@ -3011,7 +3173,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									generatedPattern={editRuleGeneratedPattern}
 									generateError={editRuleGenerateError}
 									generating={generatingRegex}
-									providerOptions={guardBotProviderOptions}
+									outsourceProviderOptions={outsourceProviderOptions}
 									onProviderChange={setEditRuleBotProvider}
 									onModelChange={setEditRuleBotModel}
 									onPromptChange={setEditRuleBotPrompt}

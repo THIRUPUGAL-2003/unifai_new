@@ -1527,7 +1527,8 @@ func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
 	})
 }
 
-// generateRegexFromPolicy asks Ollama to turn a security-policy prompt into a RE2 regex.
+// generateRegexFromPolicy turns a security-policy prompt into a RE2 regex
+// using Download (Ollama) or Outsource (configured Model Providers) models.
 func (h *BrowserAIHandler) generateRegexFromPolicy(ctx *fasthttp.RequestCtx) {
 	var payload struct {
 		BotProvider string `json:"bot_provider"`
@@ -1551,10 +1552,11 @@ func (h *BrowserAIHandler) generateRegexFromPolicy(ctx *fasthttp.RequestCtx) {
 	if model == "" {
 		model = browserAIGuardBotDefaultModel
 	}
-	if !isOllamaGuardProvider(provider) {
-		SendError(ctx, fasthttp.StatusBadRequest, "generate-regex currently supports Ollama only")
-		return
-	}
+	provider, model = applyGuardBotDefaults(provider, model)
+	providerName, modelName := resolveGuardBotModel(provider, model)
+	provider = string(providerName)
+	model = modelName
+
 	// Vision-only models are poor at regex generation — prefer text chat models.
 	if isVisionOnlyGuardModelName(model) {
 		SendError(ctx, fasthttp.StatusBadRequest, "pick a text model (e.g. llama3.2) to generate regex — vision models are for images")
@@ -1601,36 +1603,103 @@ If unsure, return a tight keyword alternation with word boundaries, e.g. \b(sala
 		truncateRunes(policy, 8000),
 	)
 
-	runOnce := func(jsonMode bool) (string, error) {
-		return callOllamaChatAny(model, systemPrompt, userMsg, jsonMode, 90*time.Second)
-	}
-	raw, err := runOnce(true)
-	if err != nil || strings.TrimSpace(raw) == "" {
-		raw2, err2 := runOnce(false)
-		if err2 != nil {
-			msg := err.Error()
-			if err != nil && err2 != nil {
-				msg = err.Error() + "; retry: " + err2.Error()
+	var raw string
+	var genErr error
+	genSource := "ollama"
+
+	if isOllamaGuardProvider(provider) {
+		runOnce := func(jsonMode bool) (string, error) {
+			return callOllamaChatAny(model, systemPrompt, userMsg, jsonMode, 90*time.Second)
+		}
+		raw, genErr = runOnce(true)
+		if genErr != nil || strings.TrimSpace(raw) == "" {
+			raw2, err2 := runOnce(false)
+			if err2 == nil && strings.TrimSpace(raw2) != "" {
+				raw, genErr = raw2, nil
+			} else if genErr == nil {
+				genErr = err2
 			} else if err2 != nil {
-				msg = err2.Error()
+				genErr = fmt.Errorf("%v; retry: %v", genErr, err2)
 			}
-			// Last resort: keyword escape of the policy itself
-			if fb, fFocus, fNotes, ok := fallbackKeywordRegex(policy); ok {
-				SendJSON(ctx, map[string]any{
-					"status":   "success",
-					"pattern":  fb,
-					"focus":    fFocus,
-					"notes":    fNotes + " (Ollama failed: " + truncateRunes(msg, 80) + ")",
-					"model":    model,
-					"provider": provider,
-					"source":   "fallback",
-				})
-				return
-			}
-			SendError(ctx, fasthttp.StatusBadGateway, "Ollama generate-regex failed: "+truncateRunes(msg, 180))
+		}
+	} else {
+		genSource = "outsource"
+		if h.client == nil {
+			SendError(ctx, fasthttp.StatusBadGateway, "unifai client not available for outsource model")
 			return
 		}
-		raw = raw2
+		maxTokens := 256
+		temp := 0.0
+		responseFormat := any(map[string]any{"type": "json_object"})
+		unifaiReq := &schemas.UnifAIChatRequest{
+			Provider: schemas.ModelProvider(provider),
+			Model:    model,
+			Input: []schemas.ChatMessage{
+				{
+					Role: schemas.ChatMessageRoleSystem,
+					Content: &schemas.ChatMessageContent{
+						ContentStr: schemas.Ptr(systemPrompt),
+					},
+				},
+				{
+					Role: schemas.ChatMessageRoleUser,
+					Content: &schemas.ChatMessageContent{
+						ContentStr: schemas.Ptr(userMsg),
+					},
+				},
+			},
+			Params: &schemas.ChatParameters{
+				MaxCompletionTokens: &maxTokens,
+				Temperature:         &temp,
+				ResponseFormat:      &responseFormat,
+			},
+		}
+		runOutsource := func() (string, error) {
+			deadline := time.Now().Add(45 * time.Second)
+			unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
+			unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
+			unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
+			resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
+			if unifaiErr != nil {
+				return "", fmt.Errorf("%s", unifaiErrorMessage(unifaiErr))
+			}
+			return evaluatorChoiceText(resp), nil
+		}
+		raw, genErr = runOutsource()
+		if genErr != nil || strings.TrimSpace(raw) == "" {
+			if unifaiReq.Params != nil {
+				unifaiReq.Params.ResponseFormat = nil
+			}
+			raw2, err2 := runOutsource()
+			if err2 == nil && strings.TrimSpace(raw2) != "" {
+				raw, genErr = raw2, nil
+			} else if genErr == nil {
+				genErr = err2
+			} else if err2 != nil {
+				genErr = fmt.Errorf("%v; retry: %v", genErr, err2)
+			}
+		}
+	}
+
+	if genErr != nil || strings.TrimSpace(raw) == "" {
+		msg := "generate-regex failed"
+		if genErr != nil {
+			msg = genErr.Error()
+		}
+		if fb, fFocus, fNotes, ok := fallbackKeywordRegex(policy); ok {
+			SendJSON(ctx, map[string]any{
+				"status":   "success",
+				"pattern":  fb,
+				"focus":    fFocus,
+				"notes":    fNotes + " (model failed: " + truncateRunes(msg, 80) + ")",
+				"model":    model,
+				"provider": provider,
+				"source":   "fallback",
+			})
+			return
+		}
+		SendError(ctx, fasthttp.StatusBadGateway, "generate-regex failed: "+truncateRunes(msg, 180))
+		return
 	}
 	raw = stripEvalMarkdown(strings.TrimSpace(raw))
 	pattern, focus, notes := parseGeneratedRegexPayload(raw)
@@ -1673,7 +1742,7 @@ If unsure, return a tight keyword alternation with word boundaries, e.g. \b(sala
 		"notes":    notes,
 		"model":    model,
 		"provider": provider,
-		"source":   "ollama",
+		"source":   genSource,
 	})
 }
 
