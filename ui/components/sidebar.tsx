@@ -160,7 +160,7 @@ const getSidebarItemHref = (item: Pick<SidebarItem, "url" | "queryParam">) => {
 	return item.queryParam ? `${item.url}?tab=${item.queryParam}` : item.url;
 };
 
-const splitUrlAndQuery = (url: string): { to: string; search?: Record<string, string> } => {
+const splitUrlAndQuery = (url: string): { to: string; search?: any } => {
 	const [to, query] = url.split("?");
 	if (!query) return { to };
 	const search = Object.fromEntries(new URLSearchParams(query).entries());
@@ -343,7 +343,7 @@ const SidebarItemView = ({
 			<SidebarMenuButton asChild tooltip={item.title} className={buttonClassName}>
 				<Link
 					to={itemTo as any}
-					search={itemSearch}
+					search={itemSearch as any}
 					preload="intent"
 					data-nav-url={item.url}
 					onClick={isSidebarCollapsed ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
@@ -408,7 +408,7 @@ const SidebarItemView = ({
 									) : (
 										<Link
 											to={flyoutTo as any}
-											search={flyoutSearch}
+											search={flyoutSearch as any}
 											preload="intent"
 											data-testid={`sidebar-subitem-link-${subSlug}`}
 											className={`flex h-7 items-center rounded-sm px-2 ${isSubItemActive ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}
@@ -467,7 +467,7 @@ const SidebarItemView = ({
 									</SidebarMenuSubButton>
 								) : (
 									<SidebarMenuSubButton asChild className={subItemClassName}>
-										<Link to={subItemTo as any} search={subItemSearch} preload="intent" data-nav-url={subItemHref}>
+										<Link to={subItemTo as any} search={subItemSearch as any} preload="intent" data-nav-url={subItemHref}>
 											{subInner}
 										</Link>
 									</SidebarMenuSubButton>
@@ -547,7 +547,7 @@ export default function AppSidebar() {
 	// strictly typed, but our sidebar items come from a runtime config).
 	const navigate = useCallback((url: string) => {
 		const { to, search } = splitUrlAndQuery(url);
-		tsNavigate({ to: to as any, search });
+		tsNavigate({ to: to as any, search: search as any });
 	}, [tsNavigate]);
 	const [mounted, setMounted] = useState(false);
 	const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
