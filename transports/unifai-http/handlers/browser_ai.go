@@ -1561,19 +1561,43 @@ func (h *BrowserAIHandler) generateRegexFromPolicy(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	systemPrompt := `You convert a DLP security policy into ONE Go/RE2-compatible regular expression.
+	// Fast path: common policies → known-good RE2 patterns (do not trust weak model output).
+	if pattern, focus, notes, ok := heuristicRegexFromPolicy(policy); ok {
+		SendJSON(ctx, map[string]any{
+			"status":   "success",
+			"pattern":  pattern,
+			"focus":    focus,
+			"notes":    notes,
+			"model":    model,
+			"provider": provider,
+			"source":   "heuristic",
+		})
+		return
+	}
 
-Rules:
-- Output JSON only: {"pattern":"...","focus":"...","notes":"..."}
-- pattern must be a single regex that matches the policy's MAIN forbidden content in user/file text.
-- Prefer precise patterns (words, IDs, formats). Avoid matching everything (no .*).
-- Do not use lookarounds or backreferences (RE2). Case-insensitive matching is applied by the engine.
-- focus = short phrase of what the regex targets.
-- notes = one short caution for the admin.
-- If the policy is too vague for a regex, still return the best practical keyword/phrase pattern.`
+	systemPrompt := `You are a regex generator for a DLP engine (Go RE2).
+
+Return ONLY one JSON object:
+{"pattern":"<regex>","focus":"<short>","notes":"<short>"}
+
+HARD RULES for "pattern":
+- Must be a REAL regular expression that can match text (digits, words, emails, keys, etc.).
+- NEVER invent fake patterns like []word[] or empty [].
+- NEVER output English sentences as the pattern.
+- Prefer \b, \d, [A-Za-z], |, (), {n,m}.
+- No lookbehind/lookahead, no backreferences (RE2).
+- Keep pattern under 200 characters.
+- Case folding is applied by the engine (?i), so do not rely on case.
+
+Examples:
+Policy "mobile number" / "phone" → {"pattern":"\\b(?:\\+?91[\\s-]*)?[6-9]\\d{9}\\b","focus":"Indian mobile","notes":"Edit if you need other country formats"}
+Policy "email" → {"pattern":"\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b","focus":"email","notes":""}
+Policy "openai api key" → {"pattern":"\\bsk-[A-Za-z0-9]{20,}\\b","focus":"OpenAI API key","notes":""}
+
+If unsure, return a tight keyword alternation with word boundaries, e.g. \b(salary|ctc|payslip)\b`
 
 	userMsg := fmt.Sprintf(
-		"SECURITY_POLICY:\n%s\n\nReturn JSON only with pattern, focus, notes.",
+		"SECURITY_POLICY:\n%s\n\nJSON only. pattern must be a valid RE2 regex string.",
 		truncateRunes(policy, 8000),
 	)
 
@@ -1590,6 +1614,19 @@ Rules:
 			} else if err2 != nil {
 				msg = err2.Error()
 			}
+			// Last resort: keyword escape of the policy itself
+			if fb, fFocus, fNotes, ok := fallbackKeywordRegex(policy); ok {
+				SendJSON(ctx, map[string]any{
+					"status":   "success",
+					"pattern":  fb,
+					"focus":    fFocus,
+					"notes":    fNotes + " (Ollama failed: " + truncateRunes(msg, 80) + ")",
+					"model":    model,
+					"provider": provider,
+					"source":   "fallback",
+				})
+				return
+			}
 			SendError(ctx, fasthttp.StatusBadGateway, "Ollama generate-regex failed: "+truncateRunes(msg, 180))
 			return
 		}
@@ -1597,13 +1634,37 @@ Rules:
 	}
 	raw = stripEvalMarkdown(strings.TrimSpace(raw))
 	pattern, focus, notes := parseGeneratedRegexPayload(raw)
-	if pattern == "" {
-		SendError(ctx, fasthttp.StatusBadGateway, "model did not return a usable regex pattern")
+	pattern = sanitizeGeneratedRegex(pattern)
+	if !isUsableGeneratedRegex(pattern) {
+		if fb, fFocus, fNotes, ok := heuristicRegexFromPolicy(policy); ok {
+			SendJSON(ctx, map[string]any{
+				"status":   "success",
+				"pattern":  fb,
+				"focus":    fFocus,
+				"notes":    fNotes + " (model output was not a usable regex; used built-in pattern)",
+				"model":    model,
+				"provider": provider,
+				"source":   "heuristic",
+			})
+			return
+		}
+		if fb, fFocus, fNotes, ok := fallbackKeywordRegex(policy); ok {
+			SendJSON(ctx, map[string]any{
+				"status":   "success",
+				"pattern":  fb,
+				"focus":    fFocus,
+				"notes":    fNotes + " (model output was not a usable regex)",
+				"model":    model,
+				"provider": provider,
+				"source":   "fallback",
+			})
+			return
+		}
+		SendError(ctx, fasthttp.StatusBadGateway, "model did not return a usable regex pattern — try a clearer policy (e.g. \"block Indian 10-digit mobile numbers\")")
 		return
 	}
-	if _, err := regexp.Compile("(?i)" + pattern); err != nil {
-		SendError(ctx, fasthttp.StatusBadGateway, "generated pattern is not valid regex: "+err.Error())
-		return
+	if focus == "" {
+		focus = "policy match"
 	}
 	SendJSON(ctx, map[string]any{
 		"status":   "success",
@@ -1612,6 +1673,7 @@ Rules:
 		"notes":    notes,
 		"model":    model,
 		"provider": provider,
+		"source":   "ollama",
 	})
 }
 
@@ -1621,6 +1683,111 @@ func isVisionOnlyGuardModelName(model string) bool {
 		return false
 	}
 	return strings.Contains(m, "llava") || strings.Contains(m, "vision") || strings.Contains(m, "bakllava")
+}
+
+func sanitizeGeneratedRegex(pattern string) string {
+	pattern = strings.TrimSpace(pattern)
+	pattern = strings.Trim(pattern, "`\"'")
+	pattern = strings.TrimPrefix(pattern, "(?i)")
+	pattern = strings.TrimPrefix(pattern, "(?m)")
+	pattern = strings.TrimSpace(pattern)
+	return pattern
+}
+
+func isUsableGeneratedRegex(pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	if pattern == "" || len(pattern) < 2 || len(pattern) > 400 {
+		return false
+	}
+	// Reject garbage like []direct[]and[]dial[]
+	if strings.Contains(pattern, "[]") {
+		return false
+	}
+	if strings.Count(pattern, " ") > 8 && !strings.ContainsAny(pattern, `\[\].*+?{}|()\\`) {
+		return false // looks like a sentence, not a regex
+	}
+	lower := strings.ToLower(pattern)
+	for _, bad := range []string{"http://", "https://", "return ", "policy", "you should"} {
+		if strings.Contains(lower, bad) {
+			return false
+		}
+	}
+	if _, err := regexp.Compile("(?i)" + pattern); err != nil {
+		return false
+	}
+	// Must have at least one "regex-ish" token or a simple word with boundaries
+	hasMeta := strings.ContainsAny(pattern, `\.*+?[]{}|()^$`)
+	if !hasMeta {
+		// plain keyword ok if single token-ish
+		if strings.Contains(pattern, " ") {
+			return false
+		}
+	}
+	return true
+}
+
+func heuristicRegexFromPolicy(policy string) (pattern, focus, notes string, ok bool) {
+	p := strings.ToLower(strings.TrimSpace(policy))
+	p = strings.ReplaceAll(p, "-", " ")
+	p = strings.ReplaceAll(p, "_", " ")
+
+	switch {
+	case strings.Contains(p, "mobile") || strings.Contains(p, "phone") || strings.Contains(p, "cell"):
+		// Indian mobiles + optional +91; also generic 10–12 digit runs
+		return `\b(?:\+?91[\s-]*)?[6-9]\d{9}\b|\b\d{10,12}\b`,
+			"mobile / phone number",
+			"Matches Indian 10-digit mobiles (optional +91) and generic 10–12 digit numbers. Edit if too broad.",
+			true
+	case strings.Contains(p, "aadhaar") || strings.Contains(p, "aadhar") || strings.Contains(p, "uidai"):
+		return `\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b`, "Aadhaar number", "12-digit Aadhaar-like pattern.", true
+	case strings.Contains(p, "pan") && (strings.Contains(p, "card") || strings.Contains(p, "income") || len(p) < 20):
+		return `\b[A-Z]{5}\d{4}[A-Z]\b`, "PAN", "Indian PAN format.", true
+	case strings.Contains(p, "email") || strings.Contains(p, "e-mail"):
+		return `\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b`, "email address", "", true
+	case strings.Contains(p, "salary") || strings.Contains(p, "ctc") || strings.Contains(p, "payslip") || strings.Contains(p, "payroll"):
+		return `\b(salary|ctc|payslip|payroll|compensation|take[\s-]?home)\b`, "salary / payroll terms", "Keyword match — tighten if needed.", true
+	case strings.Contains(p, "api key") || strings.Contains(p, "openai") || strings.Contains(p, "sk-"):
+		return `\bsk-[A-Za-z0-9]{20,}\b`, "OpenAI-style API key", "", true
+	case strings.Contains(p, "credit card") || strings.Contains(p, "card number"):
+		return `\b(?:\d[ -]*?){13,19}\b`, "card-like digit run", "Broad digit pattern — review before production.", true
+	default:
+		return "", "", "", false
+	}
+}
+
+func fallbackKeywordRegex(policy string) (pattern, focus, notes string, ok bool) {
+	policy = strings.TrimSpace(policy)
+	if policy == "" {
+		return "", "", "", false
+	}
+	// Take up to 6 meaningful words
+	reWord := regexp.MustCompile(`[A-Za-z][A-Za-z0-9]{1,32}`)
+	words := reWord.FindAllString(policy, 8)
+	uniq := make([]string, 0, 6)
+	seen := map[string]bool{}
+	for _, w := range words {
+		lw := strings.ToLower(w)
+		if len(lw) < 3 || seen[lw] {
+			continue
+		}
+		switch lw {
+		case "the", "and", "for", "with", "from", "that", "this", "block", "detect", "policy", "number", "numbers":
+			continue
+		}
+		seen[lw] = true
+		uniq = append(uniq, regexp.QuoteMeta(lw))
+		if len(uniq) >= 6 {
+			break
+		}
+	}
+	if len(uniq) == 0 {
+		return "", "", "", false
+	}
+	pattern = `\b(?:` + strings.Join(uniq, "|") + `)\b`
+	if _, err := regexp.Compile("(?i)" + pattern); err != nil {
+		return "", "", "", false
+	}
+	return pattern, "policy keywords", "Simple keyword regex from your policy text. Edit for better accuracy.", true
 }
 
 func parseGeneratedRegexPayload(raw string) (pattern, focus, notes string) {
@@ -1649,14 +1816,13 @@ func parseGeneratedRegexPayload(raw string) (pattern, focus, notes string) {
 		pattern = strings.ReplaceAll(pattern, `\"`, `"`)
 		return strings.TrimSpace(pattern), "", ""
 	}
-	// Last resort: first non-empty line that looks like a regex
+	// Last resort: first non-empty line that looks like a usable regex
 	for _, line := range strings.Split(raw, "\n") {
-		line = strings.TrimSpace(line)
-		line = strings.Trim(line, "`\"'")
+		line = sanitizeGeneratedRegex(line)
 		if line == "" || strings.HasPrefix(line, "{") {
 			continue
 		}
-		if len(line) >= 3 && len(line) < 500 {
+		if isUsableGeneratedRegex(line) {
 			return line, "", ""
 		}
 	}
