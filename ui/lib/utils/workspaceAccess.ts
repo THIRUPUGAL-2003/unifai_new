@@ -33,9 +33,13 @@ export async function fetchSessionAuth(forceRefresh = false): Promise<SessionAut
 
 	pendingAuthPromise = (async () => {
 		try {
+			const controller = new AbortController();
+			const timeoutId = setTimeout(() => controller.abort(), 3000);
 			const res = await fetch(`${getApiBaseUrl()}/session/is-auth-enabled`, {
 				credentials: "include",
+				signal: controller.signal,
 			});
+			clearTimeout(timeoutId);
 			if (res.ok) {
 				const data = await res.json();
 				cachedAuth = { data, timestamp: Date.now() };

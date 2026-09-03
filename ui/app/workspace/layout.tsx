@@ -28,6 +28,6 @@ export const Route = createFileRoute("/workspace")({
 		}
 	},
 	pendingComponent: PendingComponent,
-	pendingMs: 0,
+	pendingMs: 800,
 	component: RouteComponent,
 });
