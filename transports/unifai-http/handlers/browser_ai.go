@@ -38,6 +38,7 @@ func NewBrowserAIHandler(configStore configstore.ConfigStore, config *lib.Config
 		manager:     manager,
 	}
 	h.initDB()
+	startBrowserAIAttachmentCleanup(manager)
 	return h
 }
 
@@ -90,6 +91,7 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.POST("/api/browser-ai/intercept-file", lib.ChainMiddlewares(h.interceptFile, middlewares...))
 	r.GET("/api/browser-ai/attachments/{id}", lib.ChainMiddlewares(h.getAttachment, middlewares...))
 	r.POST("/api/browser-ai/rules/test-bot", lib.ChainMiddlewares(h.testAIGuardBot, middlewares...))
+	r.POST("/api/browser-ai/rules/generate-regex", lib.ChainMiddlewares(h.generateRegexFromPolicy, middlewares...))
 	r.GET("/api/browser-ai/ollama-models", lib.ChainMiddlewares(h.getOllamaModels, middlewares...))
 }
 
@@ -1221,7 +1223,9 @@ func (h *BrowserAIHandler) runAIBotOnLogEntry(ctx *fasthttp.RequestCtx, logEntry
 	}
 }
 
-// interceptFile accepts multipart metadata from Guard/proxy (filename + extracted text; no file storage).
+// interceptFile accepts multipart metadata + optional file bytes from Guard/proxy.
+// Filename + extracted text are permanent in Prompt Logs.
+// File bytes are stored temporarily (~10 minutes) for View/Download, then deleted.
 func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	h.ensureDB(ctx)
 
@@ -1248,6 +1252,7 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	agentID := getForm("agent_id")
 	agentHostname := getForm("agent_hostname")
 	metaRaw := getForm("metadata")
+	contentTypeHint := getForm("content_type")
 
 	metadata := map[string]any{}
 	if metaRaw != "" {
@@ -1282,6 +1287,17 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 		}
 	}
 
+	// Optional file part for temp View (does not affect extract/predict — already done on proxy).
+	uploadName, uploadBytes, uploadErr := readMultipartUploadFile(form.File)
+	if uploadErr != nil {
+		// Keep logging even if temp file store is rejected (size etc.)
+		uploadBytes = nil
+	}
+	if fileName == "" && uploadName != "" {
+		fileName = uploadName
+		metadata["file_name"] = fileName
+	}
+
 	logEntry, ruleWarning, err := h.manager.InterceptPrompt(ctx, platform, prompt, clientIP, metadata)
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
@@ -1295,9 +1311,26 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 		h.runAIBotOnLogEntry(ctx, logEntry, extractedText, uploadImages, &ruleWarning)
 	}
 
-	if fileName != "" {
-		logEntry.AttachmentName = sanitizeAttachmentFileName(fileName)
+	safeName := sanitizeAttachmentFileName(fileName)
+	if safeName != "" {
+		logEntry.AttachmentName = safeName
+		// Permanent filename on the log (even if temp file store is skipped).
+		_ = h.manager.UpdateLogAttachment(ctx, logEntry.ID, safeName, "", contentTypeHint)
 	}
+
+	if len(uploadBytes) >= 32 {
+		stored, ctype, storeErr := storeBrowserAIAttachment(logEntry.ID, safeName, uploadBytes, contentTypeHint)
+		if storeErr == nil && stored != "" {
+			if err := h.manager.UpdateLogAttachment(ctx, logEntry.ID, safeName, stored, ctype); err == nil {
+				logEntry.AttachmentStoredName = stored
+				logEntry.AttachmentContentType = ctype
+				logEntry.AttachmentName = safeName
+			}
+		}
+	}
+
+	// Opportunistic cleanup of expired temp files
+	go purgeExpiredBrowserAIAttachments(h.manager)
 
 	SendJSON(ctx, map[string]any{
 		"status":          "success",
@@ -1319,23 +1352,36 @@ func (h *BrowserAIHandler) getAttachment(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	logEntry, err := h.manager.GetLogByID(ctx, idStr)
-	if err != nil || logEntry == nil || strings.TrimSpace(logEntry.AttachmentStoredName) == "" {
+	if err != nil || logEntry == nil {
 		SendError(ctx, fasthttp.StatusNotFound, "attachment not found")
-		return
-	}
-	path, err := resolveBrowserAIAttachmentPath(logEntry.AttachmentStoredName)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusNotFound, "attachment file missing")
-		return
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusNotFound, "attachment file missing")
 		return
 	}
 	name := strings.TrimSpace(logEntry.AttachmentName)
 	if name == "" {
 		name = "attachment"
+	}
+	stored := strings.TrimSpace(logEntry.AttachmentStoredName)
+	if stored == "" {
+		SendError(ctx, fasthttp.StatusGone, "file expired (available for 10 minutes only); log and filename remain")
+		return
+	}
+	path, err := resolveBrowserAIAttachmentPath(stored)
+	if err != nil {
+		_ = h.manager.ClearLogAttachmentFile(ctx, logEntry.ID)
+		SendError(ctx, fasthttp.StatusGone, "file expired (available for 10 minutes only); log and filename remain")
+		return
+	}
+	if browserAIAttachmentExpired(path) {
+		_ = os.Remove(path)
+		_ = h.manager.ClearLogAttachmentFile(ctx, logEntry.ID)
+		SendError(ctx, fasthttp.StatusGone, "file expired (available for 10 minutes only); log and filename remain")
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		_ = h.manager.ClearLogAttachmentFile(ctx, logEntry.ID)
+		SendError(ctx, fasthttp.StatusGone, "file expired (available for 10 minutes only); log and filename remain")
+		return
 	}
 	ctype := sniffAttachmentContentType(data, name, logEntry.AttachmentContentType)
 	if len(data) >= 5 && string(data[:5]) == "%PDF-" {
@@ -1479,6 +1525,142 @@ func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
 		"bot_provider":      rule.BotProvider,
 		"bot_model":         rule.BotModel,
 	})
+}
+
+// generateRegexFromPolicy asks Ollama to turn a security-policy prompt into a RE2 regex.
+func (h *BrowserAIHandler) generateRegexFromPolicy(ctx *fasthttp.RequestCtx) {
+	var payload struct {
+		BotProvider string `json:"bot_provider"`
+		BotModel    string `json:"bot_model"`
+		BotPrompt   string `json:"bot_prompt"`
+	}
+	if err := sonic.Unmarshal(ctx.PostBody(), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "invalid JSON payload")
+		return
+	}
+	policy := strings.TrimSpace(payload.BotPrompt)
+	if policy == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "bot_prompt is required")
+		return
+	}
+	provider := strings.TrimSpace(payload.BotProvider)
+	model := strings.TrimSpace(payload.BotModel)
+	if provider == "" {
+		provider = browserAIGuardBotDefaultProvider
+	}
+	if model == "" {
+		model = browserAIGuardBotDefaultModel
+	}
+	if !isOllamaGuardProvider(provider) {
+		SendError(ctx, fasthttp.StatusBadRequest, "generate-regex currently supports Ollama only")
+		return
+	}
+	// Vision-only models are poor at regex generation — prefer text chat models.
+	if isVisionOnlyGuardModelName(model) {
+		SendError(ctx, fasthttp.StatusBadRequest, "pick a text model (e.g. llama3.2) to generate regex — vision models are for images")
+		return
+	}
+
+	systemPrompt := `You convert a DLP security policy into ONE Go/RE2-compatible regular expression.
+
+Rules:
+- Output JSON only: {"pattern":"...","focus":"...","notes":"..."}
+- pattern must be a single regex that matches the policy's MAIN forbidden content in user/file text.
+- Prefer precise patterns (words, IDs, formats). Avoid matching everything (no .*).
+- Do not use lookarounds or backreferences (RE2). Case-insensitive matching is applied by the engine.
+- focus = short phrase of what the regex targets.
+- notes = one short caution for the admin.
+- If the policy is too vague for a regex, still return the best practical keyword/phrase pattern.`
+
+	userMsg := fmt.Sprintf(
+		"SECURITY_POLICY:\n%s\n\nReturn JSON only with pattern, focus, notes.",
+		truncateRunes(policy, 8000),
+	)
+
+	runOnce := func(jsonMode bool) (string, error) {
+		return callOllamaChatAny(model, systemPrompt, userMsg, jsonMode, 90*time.Second)
+	}
+	raw, err := runOnce(true)
+	if err != nil || strings.TrimSpace(raw) == "" {
+		raw2, err2 := runOnce(false)
+		if err2 != nil {
+			msg := err.Error()
+			if err != nil && err2 != nil {
+				msg = err.Error() + "; retry: " + err2.Error()
+			} else if err2 != nil {
+				msg = err2.Error()
+			}
+			SendError(ctx, fasthttp.StatusBadGateway, "Ollama generate-regex failed: "+truncateRunes(msg, 180))
+			return
+		}
+		raw = raw2
+	}
+	raw = stripEvalMarkdown(strings.TrimSpace(raw))
+	pattern, focus, notes := parseGeneratedRegexPayload(raw)
+	if pattern == "" {
+		SendError(ctx, fasthttp.StatusBadGateway, "model did not return a usable regex pattern")
+		return
+	}
+	if _, err := regexp.Compile("(?i)" + pattern); err != nil {
+		SendError(ctx, fasthttp.StatusBadGateway, "generated pattern is not valid regex: "+err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{
+		"status":   "success",
+		"pattern":  pattern,
+		"focus":    focus,
+		"notes":    notes,
+		"model":    model,
+		"provider": provider,
+	})
+}
+
+func isVisionOnlyGuardModelName(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if strings.Contains(m, "gemma4") || strings.Contains(m, "gemma-4") {
+		return false
+	}
+	return strings.Contains(m, "llava") || strings.Contains(m, "vision") || strings.Contains(m, "bakllava")
+}
+
+func parseGeneratedRegexPayload(raw string) (pattern, focus, notes string) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", ""
+	}
+	var obj struct {
+		Pattern string `json:"pattern"`
+		Focus   string `json:"focus"`
+		Notes   string `json:"notes"`
+		Regex   string `json:"regex"`
+	}
+	if err := sonic.Unmarshal([]byte(raw), &obj); err == nil {
+		pattern = strings.TrimSpace(obj.Pattern)
+		if pattern == "" {
+			pattern = strings.TrimSpace(obj.Regex)
+		}
+		return pattern, strings.TrimSpace(obj.Focus), strings.TrimSpace(obj.Notes)
+	}
+	// Fallback: extract "pattern":"..."
+	re := regexp.MustCompile(`(?i)"pattern"\s*:\s*"((?:\\.|[^"\\])*)"`)
+	if m := re.FindStringSubmatch(raw); len(m) > 1 {
+		pattern = m[1]
+		pattern = strings.ReplaceAll(pattern, `\\`, `\`)
+		pattern = strings.ReplaceAll(pattern, `\"`, `"`)
+		return strings.TrimSpace(pattern), "", ""
+	}
+	// Last resort: first non-empty line that looks like a regex
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		line = strings.Trim(line, "`\"'")
+		if line == "" || strings.HasPrefix(line, "{") {
+			continue
+		}
+		if len(line) >= 3 && len(line) < 500 {
+			return line, "", ""
+		}
+	}
+	return "", "", ""
 }
 
 func resolveGuardBotModel(provider, model string) (schemas.ModelProvider, string) {

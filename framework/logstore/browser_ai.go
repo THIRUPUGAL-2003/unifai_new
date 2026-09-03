@@ -1077,16 +1077,51 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 }
 
 // UpdateLogAttachment links a stored upload file to an intercept log.
+// When storedName is empty, only attachment_name / content_type are updated (permanent name).
 func (m *BrowserAIManager) UpdateLogAttachment(ctx context.Context, logID, name, storedName, contentType string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.db == nil || strings.TrimSpace(logID) == "" || strings.TrimSpace(storedName) == "" {
+	if m.db == nil || strings.TrimSpace(logID) == "" {
+		return nil
+	}
+	updates := map[string]any{}
+	if n := strings.TrimSpace(name); n != "" {
+		updates["attachment_name"] = n
+	}
+	if s := strings.TrimSpace(storedName); s != "" {
+		updates["attachment_stored_name"] = s
+	}
+	if c := strings.TrimSpace(contentType); c != "" {
+		updates["attachment_content_type"] = c
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	return m.db.WithContext(ctx).Model(&BrowserAILog{}).Where("id = ?", logID).Updates(updates).Error
+}
+
+// ClearLogAttachmentFile removes the temp disk pointer only — keeps attachment_name forever.
+func (m *BrowserAIManager) ClearLogAttachmentFile(ctx context.Context, logID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil || strings.TrimSpace(logID) == "" {
 		return nil
 	}
 	return m.db.WithContext(ctx).Model(&BrowserAILog{}).Where("id = ?", logID).Updates(map[string]any{
-		"attachment_name":         strings.TrimSpace(name),
-		"attachment_stored_name":  strings.TrimSpace(storedName),
-		"attachment_content_type": strings.TrimSpace(contentType),
+		"attachment_stored_name": "",
+	}).Error
+}
+
+// ClearLogAttachmentFileByStoredName clears stored file refs that match a disk basename.
+func (m *BrowserAIManager) ClearLogAttachmentFileByStoredName(ctx context.Context, storedName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	storedName = strings.TrimSpace(storedName)
+	if m.db == nil || storedName == "" {
+		return nil
+	}
+	return m.db.WithContext(ctx).Model(&BrowserAILog{}).Where("attachment_stored_name = ?", storedName).Updates(map[string]any{
+		"attachment_stored_name": "",
 	}).Error
 }
 

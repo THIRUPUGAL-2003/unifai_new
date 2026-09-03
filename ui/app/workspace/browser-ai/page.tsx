@@ -33,6 +33,8 @@ import {
 	Bot,
 	Save,
 	Paperclip,
+	Sparkles,
+	Loader2,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -68,6 +70,7 @@ import {
 	useCreateBrowserAiRuleMutation,
 	useUpdateBrowserAiRuleMutation,
 	useDeleteBrowserAiRuleMutation,
+	useGenerateBrowserAiRegexFromPolicyMutation,
 	useGetBrowserAiControlsQuery,
 	useUpdateBrowserAiControlsMutation,
 	useGetBrowserAiTargetsQuery,
@@ -416,9 +419,16 @@ function GuardRuleAIEvaluatorFields({
 	botModel,
 	botPrompt,
 	referenceImagePreview,
+	evalMode,
+	generatedPattern,
+	generateError,
+	generating,
 	onProviderChange,
 	onModelChange,
 	onPromptChange,
+	onEvalModeChange,
+	onGeneratedPatternChange,
+	onGenerateRegex,
 	onReferenceImageChange,
 	onReferenceImageClear,
 	providerOptions,
@@ -427,9 +437,16 @@ function GuardRuleAIEvaluatorFields({
 	botModel: string;
 	botPrompt: string;
 	referenceImagePreview: string;
+	evalMode: "ai" | "regex";
+	generatedPattern: string;
+	generateError?: string;
+	generating?: boolean;
 	onProviderChange: (value: string) => void;
 	onModelChange: (value: string) => void;
 	onPromptChange: (value: string) => void;
+	onEvalModeChange: (mode: "ai" | "regex") => void;
+	onGeneratedPatternChange: (value: string) => void;
+	onGenerateRegex: () => void;
 	onReferenceImageChange: (file: File) => void;
 	onReferenceImageClear: () => void;
 	providerOptions: { label: string; value: string }[];
@@ -469,22 +486,83 @@ function GuardRuleAIEvaluatorFields({
 			</div>
 			<p className="text-[11px] text-muted-foreground">
 				{multimodalModel
-					? "Gemma 4 multimodal — evaluates prompts, extracted file text, and image uploads (PDF pages, photos). Regex rules still run first."
+					? "Gemma 4 multimodal — evaluates prompts, extracted file text, and image uploads (PDF pages, photos)."
 					: visionModel
-						? "LLaVA vision model — compares uploaded PDF/image content against your policy and reference template. Files are scanned in memory only."
-						: "Text model — evaluates prompts and extracted file text. Regex rules still run first."}
+						? "LLaVA vision model — compares uploaded PDF/image content against your policy and reference template."
+						: "Text model — evaluates prompts and extracted file text."}
 			</p>
+
+			<div className="space-y-1.5">
+				<Label className="text-xs">Check mode</Label>
+				<div className="grid grid-cols-2 gap-2 p-1 bg-background/50 rounded-lg border border-border">
+					<button
+						type="button"
+						onClick={() => onEvalModeChange("ai")}
+						className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-[11px] font-semibold transition-all ${
+							evalMode === "ai" ? "bg-purple-600 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+						}`}
+					>
+						<Bot className="h-3.5 w-3.5" />
+						AI Prompt evaluate
+					</button>
+					<button
+						type="button"
+						onClick={() => onEvalModeChange("regex")}
+						className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-[11px] font-semibold transition-all ${
+							evalMode === "regex" ? "bg-cyan-600 text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
+						}`}
+					>
+						<Zap className="h-3.5 w-3.5" />
+						Generated Regex
+					</button>
+				</div>
+				<p className="text-[11px] text-muted-foreground">
+					{evalMode === "ai"
+						? "Ollama checks every prompt/file extract against your policy (slower, meaning-aware)."
+						: "Model writes a regex from your policy; that regex matches prompts + extracted file/audio text (fast, like Regex rules)."}
+				</p>
+			</div>
+
 			<div className="space-y-1.5">
 				<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
 				<Textarea
 					className="font-mono text-xs"
-					placeholder="e.g. Block if the document contains the company letterhead template or confidential financial data..."
+					placeholder="e.g. Block if the document contains confidential financial data, salary, CTC, or bank account numbers..."
 					value={botPrompt}
 					onChange={(e) => onPromptChange(e.target.value)}
 					rows={4}
 				/>
 			</div>
-			{(visionModel || referenceImagePreview) && (
+
+			<div className="space-y-1.5">
+				<div className="flex flex-wrap items-center justify-between gap-2">
+					<Label className="text-xs">Generated Regex</Label>
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						className="h-8 gap-1.5 text-xs"
+						disabled={generating || !botPrompt.trim()}
+						onClick={onGenerateRegex}
+					>
+						{generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+						{generating ? "Generating…" : "Generate Regex from policy"}
+					</Button>
+				</div>
+				<Input
+					className="font-mono text-xs"
+					placeholder="Click Generate — or paste/edit a regex here"
+					value={generatedPattern}
+					onChange={(e) => onGeneratedPatternChange(e.target.value)}
+				/>
+				{generateError ? <p className="text-[11px] text-red-400">{generateError}</p> : null}
+				<p className="text-[11px] text-muted-foreground">
+					Review/edit before save. Applies to typed prompts and extracted file/audio text.
+					{evalMode === "regex" ? " Saving in Generated Regex mode creates a fast Regex rule." : " Optional while using AI Prompt mode."}
+				</p>
+			</div>
+
+			{(visionModel || referenceImagePreview) && evalMode === "ai" && (
 				<div className="space-y-1.5">
 					<Label className="text-xs">Reference Template Image {visionModel ? "" : "(optional)"}</Label>
 					<div className="flex flex-wrap items-start gap-3">
@@ -596,6 +674,9 @@ export default function BrowserAiPage() {
 	const [newRulePattern, setNewRulePattern] = useState("");
 	const [newRuleDescription, setNewRuleDescription] = useState("");
 	const [newRuleWarningMessage, setNewRuleWarningMessage] = useState("");
+	const [newRuleBotEvalMode, setNewRuleBotEvalMode] = useState<"ai" | "regex">("ai");
+	const [newRuleGeneratedPattern, setNewRuleGeneratedPattern] = useState("");
+	const [newRuleGenerateError, setNewRuleGenerateError] = useState("");
 
 type RelatedHostEntry = { host: string; role: HostRole };
 
@@ -632,6 +713,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	const [editRuleDescription, setEditRuleDescription] = useState("");
 	const [editRuleWarningMessage, setEditRuleWarningMessage] = useState("");
 	const [editRuleDialogOpen, setEditRuleDialogOpen] = useState(false);
+	const [editRuleBotEvalMode, setEditRuleBotEvalMode] = useState<"ai" | "regex">("ai");
+	const [editRuleGeneratedPattern, setEditRuleGeneratedPattern] = useState("");
+	const [editRuleGenerateError, setEditRuleGenerateError] = useState("");
 
 	const activePolling = liveUpdatesEnabled ? 3000 : undefined;
 
@@ -792,6 +876,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 					credentials: "include",
 				});
 				if (!res.ok) {
+					if (res.status === 410) {
+						throw new Error("File expired (kept 10 minutes for View). Log and filename remain.");
+					}
 					throw new Error(res.status === 404 ? "File not found on server" : `Failed to load file (${res.status})`);
 				}
 				const blob = await res.blob();
@@ -842,7 +929,13 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				`${getApiBaseUrl()}/browser-ai/attachments/${encodeURIComponent(log.id)}?download=1`,
 				{ credentials: "include" },
 			);
-			if (!res.ok) throw new Error("Download failed");
+			if (!res.ok) {
+				if (res.status === 410) {
+					setPdfError("File expired (kept 10 minutes for View). Log and filename remain.");
+					return;
+				}
+				throw new Error("Download failed");
+			}
 			const blob = await res.blob();
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");
@@ -861,6 +954,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	const [createRule] = useCreateBrowserAiRuleMutation();
 	const [updateRule] = useUpdateBrowserAiRuleMutation();
 	const [deleteRule] = useDeleteBrowserAiRuleMutation();
+	const [generateRegexFromPolicy, { isLoading: generatingRegex }] = useGenerateBrowserAiRegexFromPolicyMutation();
 	const [updateControls] = useUpdateBrowserAiControlsMutation();
 	const [createTarget] = useCreateBrowserAiTargetMutation();
 	const [updateTarget] = useUpdateBrowserAiTargetMutation();
@@ -974,6 +1068,10 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setRuleError("Security policy prompt or reference template image is required for AI Guard Bot.");
 				return;
 			}
+			if (newRuleBotEvalMode === "regex" && !newRuleGeneratedPattern.trim()) {
+				setRuleError("Generate or enter a regex pattern, or switch to AI Prompt evaluate mode.");
+				return;
+			}
 		} else {
 			if (!newRulePattern.trim()) {
 				setRuleError("Regex pattern is required for Regex rule.");
@@ -981,18 +1079,26 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			}
 		}
 		try {
+			const saveAsGeneratedRegex = newRuleType === "ai_bot" && newRuleBotEvalMode === "regex";
+			const policyNote = newRuleBotPrompt.trim()
+				? `Generated from policy: ${newRuleBotPrompt.trim().slice(0, 500)}`
+				: "";
 			await createRule({
 				name: newRuleName.trim(),
-				rule_type: newRuleType,
-				pattern: newRuleType === "regex" ? newRulePattern.trim() : "",
-				bot_provider: newRuleType === "ai_bot" ? newRuleBotProvider || GUARD_BOT_OLLAMA_PROVIDER : "",
-				bot_model: newRuleType === "ai_bot" ? newRuleBotModel || GUARD_BOT_OLLAMA_MODEL : "",
-				bot_prompt: newRuleType === "ai_bot" ? newRuleBotPrompt.trim() : "",
-				bot_reference_image: newRuleType === "ai_bot" ? newRuleBotReferenceImage : "",
-				bot_reference_image_type: newRuleType === "ai_bot" ? newRuleBotReferenceImageType : "",
+				rule_type: saveAsGeneratedRegex ? "regex" : newRuleType,
+				pattern: saveAsGeneratedRegex
+					? newRuleGeneratedPattern.trim()
+					: newRuleType === "regex"
+						? newRulePattern.trim()
+						: newRuleGeneratedPattern.trim(),
+				bot_provider: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotProvider || GUARD_BOT_OLLAMA_PROVIDER : "",
+				bot_model: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotModel || GUARD_BOT_OLLAMA_MODEL : "",
+				bot_prompt: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotPrompt.trim() : "",
+				bot_reference_image: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotReferenceImage : "",
+				bot_reference_image_type: newRuleType === "ai_bot" && !saveAsGeneratedRegex ? newRuleBotReferenceImageType : "",
 				severity: newRuleSeverity,
 				action: newRuleAction,
-				description: newRuleDescription.trim(),
+				description: (newRuleDescription.trim() || (saveAsGeneratedRegex ? policyNote : "")).trim(),
 				warning_message: newRuleWarningMessage.trim(),
 				active: true,
 			}).unwrap();
@@ -1006,8 +1112,47 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			setNewRuleDescription("");
 			setNewRuleWarningMessage("");
 			setNewRuleType("regex");
+			setNewRuleBotEvalMode("ai");
+			setNewRuleGeneratedPattern("");
+			setNewRuleGenerateError("");
 		} catch (e: any) {
 			setRuleError(e?.data?.message || "Failed to create rule");
+		}
+	};
+
+	const runGenerateRegex = async (which: "new" | "edit") => {
+		const prompt = which === "new" ? newRuleBotPrompt.trim() : editRuleBotPrompt.trim();
+		const provider = which === "new" ? newRuleBotProvider : editRuleBotProvider;
+		const model = which === "new" ? newRuleBotModel : editRuleBotModel;
+		const setErr = which === "new" ? setNewRuleGenerateError : setEditRuleGenerateError;
+		const setPat = which === "new" ? setNewRuleGeneratedPattern : setEditRuleGeneratedPattern;
+		setErr("");
+		if (!prompt) {
+			setErr("Enter a security policy prompt first.");
+			return;
+		}
+		try {
+			const res = await generateRegexFromPolicy({
+				bot_provider: provider || GUARD_BOT_OLLAMA_PROVIDER,
+				bot_model: model || GUARD_BOT_OLLAMA_MODEL,
+				bot_prompt: prompt,
+			}).unwrap();
+			const pat = (res.pattern || "").trim();
+			if (!pat) {
+				setErr("Model returned an empty pattern.");
+				return;
+			}
+			setPat(pat);
+			if (res.focus || res.notes) {
+				setErr([res.focus && `Focus: ${res.focus}`, res.notes].filter(Boolean).join(" — "));
+			}
+		} catch (e: any) {
+			setErr(
+				e?.data?.error?.message ||
+					e?.data?.message ||
+					e?.message ||
+					"Failed to generate regex from Ollama.",
+			);
 		}
 	};
 
@@ -1019,6 +1164,10 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setRuleError("Security policy prompt or reference template image is required for AI Guard Bot.");
 				return;
 			}
+			if (editRuleBotEvalMode === "regex" && !editRuleGeneratedPattern.trim()) {
+				setRuleError("Generate or enter a regex pattern, or switch to AI Prompt evaluate mode.");
+				return;
+			}
 		} else {
 			if (!editRulePattern.trim()) {
 				setRuleError("Regex pattern is required for Regex rule.");
@@ -1026,21 +1175,32 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			}
 		}
 		try {
+			const saveAsGeneratedRegex = editRuleType === "ai_bot" && editRuleBotEvalMode === "regex";
 			const updates: Record<string, any> = {
 				name: editRuleName.trim(),
-				rule_type: editRuleType,
+				rule_type: saveAsGeneratedRegex ? "regex" : editRuleType,
 				severity: editRuleSeverity,
 				action: editRuleAction,
 				description: editRuleDescription.trim(),
 				warning_message: editRuleWarningMessage.trim(),
 			};
-			if (editRuleType === "ai_bot") {
+			if (saveAsGeneratedRegex) {
+				updates.pattern = editRuleGeneratedPattern.trim();
+				updates.bot_provider = "";
+				updates.bot_model = "";
+				updates.bot_prompt = "";
+				updates.bot_reference_image = "";
+				updates.bot_reference_image_type = "";
+				if (!updates.description && editRuleBotPrompt.trim()) {
+					updates.description = `Generated from policy: ${editRuleBotPrompt.trim().slice(0, 500)}`;
+				}
+			} else if (editRuleType === "ai_bot") {
 				updates.bot_provider = editRuleBotProvider || GUARD_BOT_OLLAMA_PROVIDER;
 				updates.bot_model = editRuleBotModel || GUARD_BOT_OLLAMA_MODEL;
 				updates.bot_prompt = editRuleBotPrompt.trim();
 				updates.bot_reference_image = editRuleBotReferenceImage;
 				updates.bot_reference_image_type = editRuleBotReferenceImageType;
-				updates.pattern = "";
+				updates.pattern = editRuleGeneratedPattern.trim();
 			} else {
 				updates.pattern = editRulePattern.trim();
 				updates.bot_provider = "";
@@ -2024,10 +2184,17 @@ type RelatedHostEntry = { host: string; role: HostRole };
 													botModel={newRuleBotModel}
 													botPrompt={newRuleBotPrompt}
 													referenceImagePreview={newRuleBotReferenceImagePreview}
+													evalMode={newRuleBotEvalMode}
+													generatedPattern={newRuleGeneratedPattern}
+													generateError={newRuleGenerateError}
+													generating={generatingRegex}
 													providerOptions={guardBotProviderOptions}
 													onProviderChange={setNewRuleBotProvider}
 													onModelChange={setNewRuleBotModel}
 													onPromptChange={setNewRuleBotPrompt}
+													onEvalModeChange={setNewRuleBotEvalMode}
+													onGeneratedPatternChange={setNewRuleGeneratedPattern}
+													onGenerateRegex={() => runGenerateRegex("new")}
 													onReferenceImageClear={() => {
 														setNewRuleBotReferenceImage("");
 														setNewRuleBotReferenceImageType("");
@@ -2193,6 +2360,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 															setEditRulePattern(rule.pattern || "");
 															setEditRuleDescription(rule.description || "");
 															setEditRuleWarningMessage(rule.warning_message || "");
+															setEditRuleBotEvalMode("ai");
+															setEditRuleGeneratedPattern(rule.pattern || "");
+															setEditRuleGenerateError("");
 															setEditRuleDialogOpen(true);
 														}}
 														className="h-8 w-8 text-muted-foreground hover:text-foreground"
@@ -2837,10 +3007,17 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									botModel={editRuleBotModel}
 									botPrompt={editRuleBotPrompt}
 									referenceImagePreview={editRuleBotReferenceImagePreview}
+									evalMode={editRuleBotEvalMode}
+									generatedPattern={editRuleGeneratedPattern}
+									generateError={editRuleGenerateError}
+									generating={generatingRegex}
 									providerOptions={guardBotProviderOptions}
 									onProviderChange={setEditRuleBotProvider}
 									onModelChange={setEditRuleBotModel}
 									onPromptChange={setEditRuleBotPrompt}
+									onEvalModeChange={setEditRuleBotEvalMode}
+									onGeneratedPatternChange={setEditRuleGeneratedPattern}
+									onGenerateRegex={() => runGenerateRegex("edit")}
 									onReferenceImageClear={() => {
 										setEditRuleBotReferenceImage("");
 										setEditRuleBotReferenceImageType("");

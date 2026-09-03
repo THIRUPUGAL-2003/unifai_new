@@ -63,7 +63,8 @@ UPLOAD_PAYLOAD_KEYS = [
     '"mime_type"', '"mimeType"', '"asset_pointer"', '"attachment"',
     '"fileData"', '"inline_data"', '"inlineData"',
     "application/vnd.openxmlformats", "application/msword",
-    "application/pdf", ".docx", ".xlsx", ".pptx",
+    "application/pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".ppt",
+    ".odt", ".ods", ".odp", ".rtf",
 ]
 
 # Binary / document content-types used for local file attachments
@@ -2433,9 +2434,12 @@ def extract_filename_from_upload(flow: http.HTTPFlow, raw_text: str = "") -> str
     path_clean = (flow.request.path or "").split("?", 1)[0]
     last_seg = path_clean.rsplit("/", 1)[-1]
     if "." in last_seg and any(last_seg.lower().endswith(ext) for ext in (
-        ".pdf", ".docx", ".xlsx", ".pptx", ".txt", ".csv", ".json",
-        ".png", ".jpg", ".jpeg", ".zip", ".tar", ".gz", ".py", ".js",
-        ".wav", ".mp3", ".m4a", ".webm",
+        ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".xlsm", ".pptx", ".ppt",
+        ".odt", ".ods", ".odp", ".rtf", ".html", ".htm", ".xml",
+        ".txt", ".csv", ".json", ".md", ".log",
+        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff",
+        ".zip", ".tar", ".gz", ".py", ".js",
+        ".wav", ".mp3", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".opus", ".wma",
     )):
         name = urllib.parse.unquote(last_seg)
         if name.lower() not in _FAKE_UPLOAD_NAMES:
@@ -3136,11 +3140,23 @@ def _scan_upload_for_rules(
     scan_evaluated = False
     try:
         if raw_bytes:
-            scanned = extract_upload_text_for_rules(raw_bytes, content_type, raw_text or "", file_label)
-        upload_images = _upload_images_for_vision(raw_bytes or b"", content_type, file_label) if raw_bytes else []
+            try:
+                scanned = extract_upload_text_for_rules(raw_bytes, content_type, raw_text or "", file_label) or ""
+            except Exception as e:
+                print(f"[UnifAI Proxy] extract_upload_text_for_rules failed (allowed): {e}")
+                scanned = ""
+        try:
+            upload_images = _upload_images_for_vision(raw_bytes or b"", content_type, file_label) if raw_bytes else []
+        except Exception as e:
+            print(f"[UnifAI Proxy] upload vision images failed (allowed): {e}")
+            upload_images = []
         if scanned:
             excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
-            rule_hit, rule_name, rule_action = match_guard_rules_on_text(scanned)
+            try:
+                rule_hit, rule_name, rule_action = match_guard_rules_on_text(scanned)
+            except Exception as e:
+                print(f"[UnifAI Proxy] local file regex failed (allowed): {e}")
+                rule_hit, rule_name, rule_action = False, "", ""
             rule_action = (rule_action or "").upper()
             if rule_action == "WARN":
                 rule_action = "REDACT"
@@ -3164,13 +3180,14 @@ def _scan_upload_for_rules(
                 print(f"[UnifAI Proxy] AI bot file scan failed (allowed): {e}")
     except Exception as e:
         print(f"[UnifAI Proxy] file rule scan failed (allowed): {e}")
-        scanned = ""
-        rule_hit = False
-        rule_name = ""
-        rule_action = ""
-        excerpt = ""
-        upload_images = []
-        scan_evaluated = False
+        # Keep any partial extract/local regex already computed — do not wipe on late errors.
+        if not scanned:
+            rule_hit = False
+            rule_name = ""
+            rule_action = ""
+            excerpt = ""
+            upload_images = []
+            scan_evaluated = False
     return scanned, rule_hit, rule_name, rule_action, excerpt, upload_images, scan_evaluated
 
 
@@ -3298,6 +3315,7 @@ def _process_one_cached_file_on_send_impl(
                 method=method,
                 file_name=file_label,
                 is_blocked=False,
+                raw_bytes=cached_bytes,
                 content_type=cached_ct,
                 extracted_text=scanned,
                 upload_images=upload_images,
@@ -3331,6 +3349,7 @@ def _process_one_cached_file_on_send_impl(
                 file_name=file_label,
                 is_blocked=True,
                 blocked_reason=blocked_reason,
+                raw_bytes=cached_bytes,
                 content_type=cached_ct,
                 extracted_text=scanned,
                 upload_images=upload_images,
@@ -3353,6 +3372,7 @@ def _process_one_cached_file_on_send_impl(
             method=method,
             file_name=file_label,
             is_blocked=False,
+            raw_bytes=cached_bytes,
             content_type=cached_ct,
             extracted_text=scanned,
             upload_images=upload_images,
@@ -3484,7 +3504,12 @@ def post_upload_intercept(
     upload_images: list[str] | None = None,
     scan_guard: dict | None = None,
 ) -> bool:
-    """Log file event on Send — filename + extracted text in metadata only (no file storage)."""
+    """
+    Log file event on Send.
+    Always posts filename + extracted text (permanent in Prompt Logs).
+    Also attaches file bytes (when present, capped) so backend can temp-store
+    for ~10 minutes of View/Download, then auto-delete the file only.
+    """
     metadata = {
         "domain": domain,
         "url": url,
@@ -3505,8 +3530,43 @@ def post_upload_intercept(
     if upload_images:
         metadata["upload_images"] = upload_images[:10]
 
-    safe_name = (file_name or "attachment").replace('"', "")
+    safe_name = (file_name or "attachment").replace('"', "").replace("\r", "").replace("\n", "")
+    if not safe_name:
+        safe_name = "attachment"
     ctype = (content_type or "application/octet-stream").strip() or "application/octet-stream"
+
+    # Prefer clean payload (multipart unwrap / PDF island) for View storage
+    file_payload = b""
+    file_ctype = ctype
+    file_label = safe_name
+    try:
+        if raw_bytes and len(raw_bytes) >= 32:
+            payload, sniffed_ct, sniffed_name = extract_upload_file_payload(
+                raw_bytes, content_type, safe_name,
+            )
+            if payload and len(payload) >= 32:
+                file_payload = payload
+                if sniffed_ct:
+                    file_ctype = sniffed_ct
+                if sniffed_name and sniffed_name.lower() not in _FAKE_UPLOAD_NAMES:
+                    file_label = sniffed_name.replace('"', "").replace("\r", "").replace("\n", "")
+            else:
+                # Raw body if it does not look like chat JSON metadata
+                sample = raw_bytes[:64].lstrip()
+                if sample[:1] not in (b"{", b"["):
+                    file_payload = raw_bytes
+    except Exception as e:
+        print(f"[UnifAI Proxy] upload payload prepare failed (log without file): {e}")
+        file_payload = b""
+
+    max_attach = 20 * 1024 * 1024
+    if len(file_payload) > max_attach:
+        print(
+            f"[UnifAI Proxy] upload file too large for temp View store "
+            f"({len(file_payload)} bytes) — logging name+extract only"
+        )
+        file_payload = b""
+
     try:
         boundary = f"----UnifAI{int(time.time() * 1000)}"
         parts: list[bytes] = []
@@ -3521,9 +3581,19 @@ def post_upload_intercept(
         add_field("client_ip", client_ip)
         add_field("agent_id", UNIFAI_AGENT_ID or "")
         add_field("agent_hostname", UNIFAI_AGENT_HOSTNAME or "")
-        add_field("file_name", safe_name)
-        add_field("content_type", ctype)
+        add_field("file_name", file_label)
+        add_field("content_type", file_ctype)
         add_field("metadata", json.dumps(metadata))
+        if file_payload:
+            # Backend reads form file field "file" for 10-minute temp View storage
+            hdr = (
+                f"--{boundary}\r\n"
+                f"Content-Disposition: form-data; name=\"file\"; filename=\"{file_label}\"\r\n"
+                f"Content-Type: {file_ctype}\r\n\r\n"
+            ).encode("utf-8")
+            parts.append(hdr)
+            parts.append(file_payload)
+            parts.append(b"\r\n")
         parts.append(f"--{boundary}--\r\n".encode("utf-8"))
         body = b"".join(parts)
         req = urllib.request.Request(
@@ -3532,7 +3602,9 @@ def post_upload_intercept(
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=12) as resp:
+        # Larger timeout when uploading file bytes
+        timeout = 30 if file_payload else 12
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             if 200 <= getattr(resp, "status", 200) < 300:
                 return True
     except Exception as e:
@@ -4045,6 +4117,257 @@ def _extract_office_text(data: bytes, content_type: str = "", file_name: str = "
     return ""
 
 
+def _looks_like_ole(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    """True for legacy OLE Compound File binary Office (.doc/.xls/.ppt)."""
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    # Careful: str.endswith(".doc") is also true for ".docx"
+    if fn.endswith((".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm")):
+        return False
+    if fn.endswith((".doc", ".xls", ".ppt", ".msg")):
+        return True
+    if any(x in ct for x in (
+        "msword", "ms-excel", "ms-powerpoint", "application/vnd.ms-excel",
+        "application/vnd.ms-powerpoint", "application/vnd.ms-office",
+    )) and "openxmlformats" not in ct:
+        # Content-type alone can lie (some clients send msword for docx) —
+        # prefer magic bytes when present.
+        if data and data[:2] == b"PK":
+            return False
+        if data and data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+            return True
+        if data and len(data) >= 8:
+            return data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        return True
+    return bool(data) and data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+
+
+def _extract_binary_string_runs(data: bytes, *, min_chars: int = 4) -> str:
+    """Harvest printable ASCII + UTF-16LE runs from binary office blobs (DLP-oriented)."""
+    if not data:
+        return ""
+    # Cap work on huge uploads
+    blob = data[: 12 * 1024 * 1024]
+    parts: list[str] = []
+    seen: set[str] = set()
+
+    def add(s: str) -> None:
+        s = re.sub(r"\s+", " ", (s or "").strip())
+        if len(s) < min_chars:
+            return
+        key = s[:120].lower()
+        if key in seen:
+            return
+        seen.add(key)
+        parts.append(s)
+
+    # ASCII printable runs
+    for m in re.finditer(rb"[\x20-\x7e]{%d,}" % min_chars, blob):
+        try:
+            add(m.group(0).decode("ascii", errors="ignore"))
+        except Exception:
+            continue
+        if len(parts) >= 4000:
+            break
+
+    # UTF-16LE printable runs (common in .doc/.xls/.ppt)
+    i = 0
+    n = len(blob)
+    while i + (min_chars * 2) <= n and len(parts) < 5000:
+        if blob[i + 1] != 0 or not (0x20 <= blob[i] <= 0x7E):
+            i += 1
+            continue
+        chars: list[str] = []
+        j = i
+        while j + 1 < n and blob[j + 1] == 0 and 0x20 <= blob[j] <= 0x7E:
+            chars.append(chr(blob[j]))
+            j += 2
+            if len(chars) >= 800:
+                break
+        if len(chars) >= min_chars:
+            add("".join(chars))
+            i = j
+        else:
+            i += 1
+
+    # Skip OLE/CFB structural noise tokens
+    noise = (
+        "root entry", "workbook", "worddocument", "powerpoint document",
+        "summaryinformation", "documentsummaryinformation", "compobj",
+        "1table", "0table", "data", "current user", "pictures",
+    )
+    cleaned = []
+    for p in parts:
+        low = p.lower()
+        if low in noise or low.startswith(("_____", "objinfo", "workbook")):
+            continue
+        if re.fullmatch(r"[0-9A-Fa-f]{8,}", p):
+            continue
+        cleaned.append(p)
+    return "\n".join(cleaned)[:200_000]
+
+
+def _extract_ole_office_text(data: bytes, content_type: str = "", file_name: str = "") -> str:
+    """Best-effort text from legacy .doc / .xls / .ppt (OLE CFB) without third-party libs."""
+    if not data:
+        return ""
+    try:
+        if not _looks_like_ole(data, content_type, file_name) and data[:8] != b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+            fn = (file_name or "").lower()
+            if not fn.endswith((".doc", ".xls", ".ppt")):
+                return ""
+        return _extract_binary_string_runs(data, min_chars=4)
+    except Exception as e:
+        print(f"[UnifAI Proxy] OLE office extract failed (allowed): {e}")
+        return ""
+
+
+def _looks_like_rtf(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    if fn.endswith(".rtf") or "rtf" in ct or "richtext" in ct:
+        return True
+    head = (data or b"")[:64].lstrip()
+    return head.startswith(b"{\\rtf")
+
+
+def _extract_rtf_text(data: bytes) -> str:
+    """Strip RTF control words and keep readable text for Guard Rules."""
+    if not data:
+        return ""
+    try:
+        raw = data[: 4 * 1024 * 1024].decode("latin-1", errors="ignore")
+    except Exception:
+        return ""
+    if "\\rtf" not in raw[:200].lower() and not raw.lstrip().startswith("{\\rtf"):
+        return ""
+    try:
+        # Hex escapes \'hh
+        def _hex_repl(m: re.Match) -> str:
+            try:
+                return chr(int(m.group(1), 16))
+            except Exception:
+                return ""
+
+        text = re.sub(r"\\'([0-9a-fA-F]{2})", _hex_repl, raw)
+        # Unicode \uN?
+        def _u_repl(m: re.Match) -> str:
+            try:
+                n = int(m.group(1))
+                if n < 0:
+                    n = 65536 + n
+                return chr(n)
+            except Exception:
+                return ""
+
+        text = re.sub(r"\\u(-?\d+)\??", _u_repl, text)
+        # Drop destinations like {\*\...}
+        text = re.sub(r"\{\\\*[^}]*\}", " ", text)
+        # Control words / symbols
+        text = re.sub(r"\\[a-zA-Z]+\d* ?", " ", text)
+        text = re.sub(r"\\[^a-zA-Z\s]", " ", text)
+        text = text.replace("{", " ").replace("}", " ")
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:200_000]
+    except Exception as e:
+        print(f"[UnifAI Proxy] RTF extract failed (allowed): {e}")
+        return ""
+
+
+def _looks_like_opendocument(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    if fn.endswith((".odt", ".ods", ".odp")) or "opendocument" in ct:
+        return True
+    zdata = _office_zip_bytes(data) if data else None
+    if not zdata:
+        return False
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            names = set(zf.namelist())
+            return "content.xml" in names and (
+                "mimetype" in names or any(n.startswith("META-INF/") for n in names)
+            )
+    except Exception:
+        return False
+
+
+def _extract_opendocument_text(data: bytes) -> str:
+    """Extract text from ODF (.odt/.ods/.odp) content.xml."""
+    zdata = _office_zip_bytes(data)
+    if not zdata:
+        return ""
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            if "content.xml" not in zf.namelist():
+                return ""
+            xml = zf.read("content.xml")
+    except Exception:
+        return ""
+    try:
+        root = ET.fromstring(xml)
+    except Exception:
+        return ""
+    parts: list[str] = []
+    for el in root.iter():
+        loc = _xml_local(el.tag)
+        if loc in ("p", "h", "span", "a", "text", "s"):
+            if el.text and el.text.strip():
+                parts.append(el.text.strip())
+            if el.tail and el.tail.strip():
+                parts.append(el.tail.strip())
+        elif el.text and el.text.strip() and loc not in ("script", "style", "binary-data"):
+            # Spreadsheet cell values etc.
+            if len(el.text.strip()) >= 2:
+                parts.append(el.text.strip())
+    # Dedupe adjacent
+    out: list[str] = []
+    prev = ""
+    for p in parts:
+        if p == prev:
+            continue
+        out.append(p)
+        prev = p
+    return "\n".join(out)[:200_000]
+
+
+def _looks_like_html(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    if fn.endswith((".html", ".htm", ".xhtml")) or "text/html" in ct or "xhtml" in ct:
+        return True
+    head = (data or b"")[:256].lstrip().lower()
+    return head.startswith(b"<!doctype html") or head.startswith(b"<html") or b"<html" in head[:64]
+
+
+def _extract_html_text(data: bytes) -> str:
+    """Strip tags from HTML uploads so regex rules can scan page text."""
+    if not data:
+        return ""
+    try:
+        raw = data[: 4 * 1024 * 1024].decode("utf-8", errors="ignore")
+        if not raw.strip():
+            raw = data[: 4 * 1024 * 1024].decode("latin-1", errors="ignore")
+    except Exception:
+        return ""
+    try:
+        text = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", raw)
+        text = re.sub(r"(?is)<!--.*?-->", " ", text)
+        text = re.sub(r"(?s)<[^>]+>", " ", text)
+        text = (
+            text.replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", '"')
+            .replace("&#39;", "'")
+        )
+        text = re.sub(r"\s+", " ", text).strip()
+        return text[:200_000]
+    except Exception:
+        return ""
+
+
 def _looks_like_image(data: bytes, content_type: str = "", file_name: str = "") -> bool:
     ct = (content_type or "").lower()
     fn = (file_name or "").lower()
@@ -4483,11 +4806,20 @@ def _extract_plain_text_bytes(data: bytes) -> str:
         return ""
     if data[:2] == b"PK" or data[:5] == b"%PDF-":
         return ""
+    if data[:8] == b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1":
+        return ""
+    sample = data[: 4 * 1024 * 1024]
+    text = ""
     try:
-        text = data.decode("utf-8")
+        if sample.startswith(b"\xff\xfe") or sample.startswith(b"\xfe\xff"):
+            text = sample.decode("utf-16", errors="ignore")
+        elif len(sample) >= 4 and sample[1:2] == b"\x00" and sample[3:4] == b"\x00":
+            text = sample.decode("utf-16-le", errors="ignore")
+        else:
+            text = sample.decode("utf-8")
     except Exception:
         try:
-            text = data.decode("latin-1", errors="ignore")
+            text = sample.decode("latin-1", errors="ignore")
         except Exception:
             return ""
     # Heuristic: enough printable ratio
@@ -4512,18 +4844,26 @@ def _classify_upload_kind(data: bytes, content_type: str = "", file_name: str = 
         return "image"
     if _looks_like_audio(data, content_type, file_name):
         return "audio"
+    if _looks_like_rtf(data, content_type, file_name):
+        return "rtf"
+    if _looks_like_html(data, content_type, file_name):
+        return "html"
     if _looks_like_docx(data, content_type, file_name):
         return "docx"
     if _looks_like_xlsx(data, content_type, file_name):
         return "xlsx"
     if _looks_like_pptx(data, content_type, file_name):
         return "pptx"
-    if fn.endswith((".txt", ".csv", ".json", ".md", ".log")) or any(
-        x in ct for x in ("text/", "csv", "json")
+    if _looks_like_opendocument(data, content_type, file_name):
+        return "odf"
+    if _looks_like_ole(data, content_type, file_name):
+        return "ole"
+    if fn.endswith((".txt", ".csv", ".json", ".md", ".log", ".xml", ".yaml", ".yml", ".ini", ".cfg")) or any(
+        x in ct for x in ("text/", "csv", "json", "xml", "yaml")
     ):
         return "plain"
     if data[:2] == b"PK" or b"PK\x03\x04" in data[:8192]:
-        # Unknown OOXML zip — sniff inner layout
+        # Unknown OOXML / ODF zip — sniff inner layout
         zdata = _office_zip_bytes(data)
         if zdata:
             try:
@@ -4535,6 +4875,8 @@ def _classify_upload_kind(data: bytes, content_type: str = "", file_name: str = 
                         return "xlsx"
                     if any(n.startswith("ppt/slides/") for n in names):
                         return "pptx"
+                    if "content.xml" in names:
+                        return "odf"
             except Exception:
                 pass
         return "zip"
@@ -4587,6 +4929,17 @@ def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name
     kind = _classify_upload_kind(data, content_type, file_name)
     ct = content_type
     fn = file_name
+    # Shared fallbacks used by several kinds + unknown
+    common_fallbacks = [
+        ("rtf", lambda: _extract_rtf_text(data)),
+        ("html", lambda: _extract_html_text(data)),
+        ("odf", lambda: _extract_opendocument_text(data)),
+        ("ole-office", lambda: _extract_ole_office_text(data, ct, fn)),
+        ("docx-xml", lambda: _extract_docx_text(data)),
+        ("xlsx-xml", lambda: _extract_xlsx_text(data)),
+        ("pptx-xml", lambda: _extract_pptx_text(data)),
+        ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+    ]
     try:
         if kind == "pdf":
             return _try_file_extract_chain(data, ct, fn, kind, [
@@ -4599,18 +4952,51 @@ def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name
 
         if kind == "docx":
             steps = _office_extract_steps(data, "docx")
+            steps.append(("ole-office", lambda: _extract_ole_office_text(data, ct, fn)))
             steps.append(("plain-decode", lambda: _extract_plain_text_bytes(data)))
             return _try_file_extract_chain(data, ct, fn, kind, steps)
 
         if kind == "xlsx":
             steps = _office_extract_steps(data, "xlsx")
+            steps.append(("ole-office", lambda: _extract_ole_office_text(data, ct, fn)))
             steps.append(("plain-decode", lambda: _extract_plain_text_bytes(data)))
             return _try_file_extract_chain(data, ct, fn, kind, steps)
 
         if kind == "pptx":
             steps = _office_extract_steps(data, "pptx")
+            steps.append(("ole-office", lambda: _extract_ole_office_text(data, ct, fn)))
             steps.append(("plain-decode", lambda: _extract_plain_text_bytes(data)))
             return _try_file_extract_chain(data, ct, fn, kind, steps)
+
+        if kind == "ole":
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("ole-office", lambda: _extract_ole_office_text(data, ct, fn)),
+                ("docx-xml", lambda: _extract_docx_text(data)),
+                ("xlsx-xml", lambda: _extract_xlsx_text(data)),
+                ("pptx-xml", lambda: _extract_pptx_text(data)),
+                ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+            ])
+
+        if kind == "rtf":
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("rtf", lambda: _extract_rtf_text(data)),
+                ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+            ])
+
+        if kind == "odf":
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("odf", lambda: _extract_opendocument_text(data)),
+                ("docx-xml", lambda: _extract_docx_text(data)),
+                ("xlsx-xml", lambda: _extract_xlsx_text(data)),
+                ("pptx-xml", lambda: _extract_pptx_text(data)),
+                ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+            ])
+
+        if kind == "html":
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("html", lambda: _extract_html_text(data)),
+                ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+            ])
 
         if kind == "image":
             return _try_file_extract_chain(data, ct, fn, kind, [
@@ -4629,19 +5015,28 @@ def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name
         if kind == "plain":
             return _try_file_extract_chain(data, ct, fn, kind, [
                 ("plain-utf8", lambda: _extract_plain_text_bytes(data)),
+                ("html", lambda: _extract_html_text(data)),
+                ("rtf", lambda: _extract_rtf_text(data)),
                 ("pdf-pypdf", lambda: _extract_pdf_pypdf(data)),
                 ("docx-xml", lambda: _extract_docx_text(data)),
             ])
 
         if kind == "zip":
-            steps = _office_extract_steps(data, "docx")
+            steps = [
+                ("odf", lambda: _extract_opendocument_text(data)),
+            ] + _office_extract_steps(data, "docx")
             steps.append(("plain-decode", lambda: _extract_plain_text_bytes(data)))
             return _try_file_extract_chain(data, ct, fn, kind, steps)
 
-        # Unknown: try every sensible extractor in order
+        # Unknown: try every sensible extractor in order (never crash the proxy)
         return _try_file_extract_chain(data, ct, fn, kind or "unknown", [
+            ("pdf-smart", lambda: _extract_pdf_text_smart(data)),
             ("pdf-pypdf", lambda: _extract_pdf_pypdf(data)),
             ("pdf-regex", lambda: _extract_pdf_regex(data)),
+            ("rtf", lambda: _extract_rtf_text(data)),
+            ("html", lambda: _extract_html_text(data)),
+            ("odf", lambda: _extract_opendocument_text(data)),
+            ("ole-office", lambda: _extract_ole_office_text(data, ct, fn)),
             ("docx-xml", lambda: _extract_docx_text(data)),
             ("xlsx-xml", lambda: _extract_xlsx_text(data)),
             ("pptx-xml", lambda: _extract_pptx_text(data)),
@@ -4652,6 +5047,18 @@ def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name
         ])
     except Exception as e:
         print(f"[UnifAI Proxy] file extract ({kind}) failed — allowed: {e}")
+        # Last-resort safe extract so regex still has a chance
+        try:
+            for label, fn_step in common_fallbacks:
+                try:
+                    t = (fn_step() or "").strip()
+                    if t:
+                        print(f"[UnifAI Proxy] file extract emergency OK ({label}) | {fn or kind}")
+                        return t[:200_000]
+                except Exception:
+                    continue
+        except Exception:
+            pass
     return ""
 
 
@@ -4663,8 +5070,9 @@ def extract_upload_text_for_rules(
 ) -> str:
     """
     Pull text from an upload body so Guard Rules can scan file contents
-    (PDF, Word, Excel, PowerPoint, image OCR, voice STT, plain text, multipart).
-    Uses one extractor per detected file type.
+    (PDF, Word doc/docx, Excel xls/xlsx, PowerPoint ppt/pptx, ODF, RTF, HTML,
+    image OCR, voice STT, plain text, multipart).
+    Uses one extractor per detected file type with safe fallbacks.
     """
     try:
         parts: list[str] = []
@@ -4733,16 +5141,21 @@ def extract_upload_text_for_rules(
 
 def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
     """
-    Apply active Guard Rules to arbitrary text (prompt or file content).
+    Apply active Guard Rules to arbitrary text (prompt, file extract, or audio STT).
+    Same matching semantics as typed prompts (phone/secret-token nuance included).
     Returns (matched, rule_name, action).
     """
     if not text or len(text.strip()) < 1:
         return False, "", ""
-    rules = get_guard_rules()
+    rules = sorted(
+        get_guard_rules(),
+        key=lambda r: 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0,
+    )
     for r in rules:
         try:
-            if r["regex"].search(text):
-                return True, r.get("name", "Guard Rule"), (r.get("action") or "BLOCK").upper()
+            if not rule_matches_prompt(r, text):
+                continue
+            return True, r.get("name", "Guard Rule"), (r.get("action") or "BLOCK").upper()
         except Exception:
             continue
     return False, "", ""

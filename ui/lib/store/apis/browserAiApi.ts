@@ -185,6 +185,28 @@ export const browserAiApi = baseApi.injectEndpoints({
 			}),
 		}),
 
+		generateBrowserAiRegexFromPolicy: builder.mutation<
+			{
+				status: string;
+				pattern: string;
+				focus?: string;
+				notes?: string;
+				model?: string;
+				provider?: string;
+			},
+			{
+				bot_provider: string;
+				bot_model: string;
+				bot_prompt: string;
+			}
+		>({
+			query: (body) => ({
+				url: "/browser-ai/rules/generate-regex",
+				method: "POST",
+				body,
+			}),
+		}),
+
 		getBrowserAiControls: builder.query<{ controls: BrowserControlSettings }, void>({
 			query: () => "/browser-ai/controls",
 			providesTags: ["BrowserAiControls" as any],
@@ -294,6 +316,7 @@ export const {
 	useUpdateBrowserAiRuleMutation,
 	useDeleteBrowserAiRuleMutation,
 	useTestBrowserAiGuardBotMutation,
+	useGenerateBrowserAiRegexFromPolicyMutation,
 	useGetBrowserAiControlsQuery,
 	useUpdateBrowserAiControlsMutation,
 	useGetBrowserAiTargetsQuery,

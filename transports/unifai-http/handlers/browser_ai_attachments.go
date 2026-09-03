@@ -1,20 +1,35 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+
+	"github.com/unifai/unifai/framework/logstore"
 )
 
 const browserAIAttachmentMaxBytes = 20 << 20 // 20 MiB
 
+// browserAIAttachmentTTL — temp View/Download window; log + filename stay forever.
+const browserAIAttachmentTTL = 10 * time.Minute
+
 var unsafeAttachmentNameChars = regexp.MustCompile(`[^a-zA-Z0-9._\- ]+`)
+
+var (
+	browserAIAttachCleanOnce sync.Once
+	browserAIAttachCleanStop chan struct{}
+)
 
 // browserAIAttachmentDir stores intercepted uploads under APP_DIR/attachments (or ./data/attachments).
 // Legacy APP_DIR/pdf is still resolved for older logs.
@@ -436,4 +451,105 @@ func resolveBrowserAIAttachmentPath(storedName string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("attachment not found")
+}
+
+func browserAIAttachmentExpired(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return true
+	}
+	return time.Since(info.ModTime()) > browserAIAttachmentTTL
+}
+
+// startBrowserAIAttachmentCleanup deletes temp upload files older than TTL.
+// Prompt log rows and attachment_name stay permanent; only disk bytes are removed.
+func startBrowserAIAttachmentCleanup(manager *logstore.BrowserAIManager) {
+	browserAIAttachCleanOnce.Do(func() {
+		browserAIAttachCleanStop = make(chan struct{})
+		go func() {
+			// Initial sweep shortly after boot
+			purgeExpiredBrowserAIAttachments(manager)
+			ticker := time.NewTicker(1 * time.Minute)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					purgeExpiredBrowserAIAttachments(manager)
+				case <-browserAIAttachCleanStop:
+					return
+				}
+			}
+		}()
+	})
+}
+
+func purgeExpiredBrowserAIAttachments(manager *logstore.BrowserAIManager) {
+	cutoff := time.Now().Add(-browserAIAttachmentTTL)
+	for _, dirFn := range []func() string{browserAIAttachmentDir, browserAIPdfDir} {
+		dir := dirFn()
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, ent := range entries {
+			if ent.IsDir() {
+				continue
+			}
+			name := ent.Name()
+			info, err := ent.Info()
+			if err != nil {
+				continue
+			}
+			if info.ModTime().After(cutoff) {
+				continue
+			}
+			path := filepath.Join(dir, name)
+			_ = os.Remove(path)
+			if manager != nil {
+				_ = manager.ClearLogAttachmentFileByStoredName(context.Background(), name)
+			}
+		}
+	}
+}
+
+// readMultipartUploadFile reads the optional "file" form part (temp View storage).
+func readMultipartUploadFile(formFiles map[string][]*multipart.FileHeader) (filename string, data []byte, err error) {
+	if formFiles == nil {
+		return "", nil, nil
+	}
+	headers := formFiles["file"]
+	if len(headers) == 0 {
+		// Some clients may use "upload" / "attachment"
+		for _, key := range []string{"upload", "attachment", "file_data"} {
+			if len(formFiles[key]) > 0 {
+				headers = formFiles[key]
+				break
+			}
+		}
+	}
+	if len(headers) == 0 {
+		return "", nil, nil
+	}
+	fh := headers[0]
+	if fh == nil {
+		return "", nil, nil
+	}
+	if fh.Size > browserAIAttachmentMaxBytes {
+		return "", nil, fmt.Errorf("file too large")
+	}
+	f, err := fh.Open()
+	if err != nil {
+		return "", nil, err
+	}
+	defer f.Close()
+	limited := io.LimitReader(f, browserAIAttachmentMaxBytes+1)
+	data, err = io.ReadAll(limited)
+	if err != nil {
+		return "", nil, err
+	}
+	if len(data) > browserAIAttachmentMaxBytes {
+		return "", nil, fmt.Errorf("file too large")
+	}
+	name := strings.TrimSpace(fh.Filename)
+	return name, data, nil
 }
