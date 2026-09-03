@@ -5,20 +5,32 @@ services:
     image: unifai-local:latest
     container_name: zen_gauss_v1
     environment:
-      - APP_DIR=/app/data
-      - APP_PORT=8081
-      - APP_HOST=0.0.0.0
-      - LOG_LEVEL=info
-      - LOG_STYLE=json
-      # AI Guard Bot → Ollama (1Panel container on shared network; code also auto-fallbacks).
-      - BROWSER_AI_OLLAMA_URL=http://1Panel-ollama-IjuM:11434
+      - APP_DIR=${APP_DIR:-/app/data}
+      - APP_PORT=${APP_PORT:-8081}
+      - APP_HOST=${APP_HOST:-0.0.0.0}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - LOG_STYLE=${LOG_STYLE:-json}
+      - SERVER_DOMAIN=${SERVER_DOMAIN:-https://unifaiv2.dev-yp.com}
+      # Database Configuration
+      - DB_TYPE=${DB_TYPE:-postgres}
+      - DB_HOST=${DB_HOST:-76.13.243.253}
+      - DB_PORT=${DB_PORT:-32768}
+      - DB_NAME=${DB_NAME:-Unifai_test}
+      - DB_USER=${DB_USER:-Unifai_test}
+      - DB_PASSWORD=${DB_PASSWORD:-YP2025-2026yp}
+      - DB_SSL_MODE=${DB_SSL_MODE:-disable}
+      # Admin Credentials
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@yespanchi.com}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-YP2025-2026yp}
+      # AI Guard Bot → Ollama
+      - BROWSER_AI_OLLAMA_URL=${OLLAMA_URL:-http://1Panel-ollama-IjuM:11434}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
       - default
       - 1panel-network
     ports:
-      - "8081:8081"
+      - "${APP_PORT:-8081}:${APP_PORT:-8081}"
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -33,12 +45,12 @@ services:
   unifai_broswer_proxy:
     image: mitmproxy/mitmproxy:latest
     container_name: unifai_broswer_proxy
-    command: mitmdump -s /app/proxy/browser_ai_proxy.py -p 8082 --set listen_host=0.0.0.0 --set block_global=false --set ssl_insecure=true --set ignore_hosts='^(localhost|127\.0\.0\.1|zen_gauss_v1)'
+    command: mitmdump -s /app/proxy/browser_ai_proxy.py -p ${PROXY_PORT:-8082} --set listen_host=0.0.0.0 --set block_global=false --set ssl_insecure=true --set ignore_hosts='^(localhost|127\.0\.0\.1|zen_gauss_v1)'
     environment:
-      - UNIFAI_BACKEND_URL=http://zen_gauss_v1:8081
+      - UNIFAI_BACKEND_URL=http://zen_gauss_v1:${APP_PORT:-8081}
       - UNIFAI_FAIL_OPEN=0
     ports:
-      - "8082:8082"
+      - "${PROXY_PORT:-8082}:${PROXY_PORT:-8082}"
     volumes:
       - ./apps/browser-guard/proxy:/app/proxy
     depends_on:

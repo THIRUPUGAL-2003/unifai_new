@@ -5,22 +5,22 @@
     "type": "postgres",
     "config": {
       "host": {
-        "value": "76.13.243.253"
+        "value": "env.DB_HOST"
       },
       "port": {
-        "value": "32768"
+        "value": "env.DB_PORT"
       },
       "db_name": {
-        "value": "Unifai_test"
+        "value": "env.DB_NAME"
       },
       "user": {
-        "value": "Unifai_test"
+        "value": "env.DB_USER"
       },
       "password": {
-        "value": "YP2025-2026yp"
+        "value": "env.DB_PASSWORD"
       },
       "ssl_mode": {
-        "value": "disable"
+        "value": "env.DB_SSL_MODE"
       }
     }
   },
@@ -29,22 +29,22 @@
     "type": "postgres",
     "config": {
       "host": {
-        "value": "76.13.243.253"
+        "value": "env.DB_HOST"
       },
       "port": {
-        "value": "32768"
+        "value": "env.DB_PORT"
       },
       "db_name": {
-        "value": "Unifai_test"
+        "value": "env.DB_NAME"
       },
       "user": {
-        "value": "Unifai_test"
+        "value": "env.DB_USER"
       },
       "password": {
-        "value": "YP2025-2026yp"
+        "value": "env.DB_PASSWORD"
       },
       "ssl_mode": {
-        "value": "disable"
+        "value": "env.DB_SSL_MODE"
       }
     }
   },
@@ -60,7 +60,7 @@
       "*"
     ],
     "max_request_body_size_mb": 100,
-    "mcp_external_client_url": "https://unifaiv2.dev-yp.com",
+    "mcp_external_client_url": "env.SERVER_DOMAIN",
     "compat": {
       "should_convert_params": false
     }
@@ -69,10 +69,10 @@
     "auth_config": {
       "is_enabled": true,
       "admin_username": {
-        "value": "admin@yespanchi.com"
+        "value": "env.ADMIN_EMAIL"
       },
       "admin_password": {
-        "value": "YP2025-2026yp"
+        "value": "env.ADMIN_PASSWORD"
       }
     }
   },

@@ -107,9 +107,9 @@ console.log(response.choices[0].message.content);`
 						<a href="#features" className="hover:text-[#45f3ff] transition-colors">Features</a>
 						<a href="#code" className="hover:text-[#45f3ff] transition-colors">Quickstart</a>
 						<a href="#architecture" className="hover:text-[#45f3ff] transition-colors">Architecture</a>
-						<a href="/workspace/docs" className="hover:text-[#45f3ff] transition-colors flex items-center gap-1">
+						<Link to="/workspace/docs" className="hover:text-[#45f3ff] transition-colors flex items-center gap-1">
 							Docs <ExternalLink className="h-3 w-3" />
-						</a>
+						</Link>
 					</div>
 
 					<div className="hidden md:flex items-center gap-4">
@@ -150,9 +150,9 @@ console.log(response.choices[0].message.content);`
 						<a href="#features" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-lg hover:text-[#45f3ff]">Features</a>
 						<a href="#code" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-lg hover:text-[#45f3ff]">Quickstart</a>
 						<a href="#architecture" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-lg hover:text-[#45f3ff]">Architecture</a>
-						<a href="/workspace/docs" className="block py-2 text-lg hover:text-[#45f3ff] flex items-center gap-1.5">
+						<Link to="/workspace/docs" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-lg hover:text-[#45f3ff] flex items-center gap-1.5">
 							Docs <ExternalLink className="h-4 w-4" />
-						</a>
+						</Link>
 						<div className="h-px bg-[#1f2833]/60 my-4" />
 						{isLoggedIn ? (
 							<Button
@@ -229,12 +229,12 @@ console.log(response.choices[0].message.content);`
 								Get Started Instantly
 								<ArrowRight className="h-5 w-5 ml-2" />
 							</Button>
-							<a
-								href="/workspace/docs"
+							<Link
+								to="/workspace/docs"
 								className="w-full sm:w-auto h-12 px-8 flex items-center justify-center border border-[#1f2833] bg-[#0b0c10]/40 hover:bg-[#1f2833]/30 font-semibold text-white rounded-lg text-base transition-colors"
 							>
 								Read the Docs
-							</a>
+							</Link>
 						</>
 					)}
 				</div>

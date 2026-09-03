@@ -13,18 +13,44 @@ export interface SessionAuth {
 	allowed_sections?: string;
 }
 
-export async function fetchSessionAuth(): Promise<SessionAuth | null> {
-	try {
-		const res = await fetch(`${getApiBaseUrl()}/session/is-auth-enabled`, {
-			credentials: "include",
-		});
-		if (res.ok) {
-			return res.json();
-		}
-	} catch {
-		// fall through
+let cachedAuth: { data: SessionAuth | null; timestamp: number } | null = null;
+let pendingAuthPromise: Promise<SessionAuth | null> | null = null;
+const AUTH_CACHE_TTL_MS = 30_000; // 30 seconds
+
+export function invalidateSessionAuthCache() {
+	cachedAuth = null;
+	pendingAuthPromise = null;
+}
+
+export async function fetchSessionAuth(forceRefresh = false): Promise<SessionAuth | null> {
+	const now = Date.now();
+	if (!forceRefresh && cachedAuth && now - cachedAuth.timestamp < AUTH_CACHE_TTL_MS) {
+		return cachedAuth.data;
 	}
-	return null;
+	if (!forceRefresh && pendingAuthPromise) {
+		return pendingAuthPromise;
+	}
+
+	pendingAuthPromise = (async () => {
+		try {
+			const res = await fetch(`${getApiBaseUrl()}/session/is-auth-enabled`, {
+				credentials: "include",
+			});
+			if (res.ok) {
+				const data = await res.json();
+				cachedAuth = { data, timestamp: Date.now() };
+				return data;
+			}
+		} catch {
+			// fall through
+		} finally {
+			pendingAuthPromise = null;
+		}
+		cachedAuth = { data: null, timestamp: Date.now() };
+		return null;
+	})();
+
+	return pendingAuthPromise;
 }
 
 export function getDefaultWorkspacePath(auth: SessionAuth | null | undefined): string {

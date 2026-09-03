@@ -160,6 +160,13 @@ const getSidebarItemHref = (item: Pick<SidebarItem, "url" | "queryParam">) => {
 	return item.queryParam ? `${item.url}?tab=${item.queryParam}` : item.url;
 };
 
+const splitUrlAndQuery = (url: string): { to: string; search?: Record<string, string> } => {
+	const [to, query] = url.split("?");
+	if (!query) return { to };
+	const search = Object.fromEntries(new URLSearchParams(query).entries());
+	return { to, search };
+};
+
 const slug = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 
 const TimeFilterPages = new Set(["/workspace/dashboard", "/workspace/logs", "/workspace/mcp-logs"]);
@@ -331,10 +338,12 @@ const SidebarItemView = ({
 			</SidebarMenuButton>
 		);
 	} else {
+		const { to: itemTo, search: itemSearch } = splitUrlAndQuery(item.url);
 		menuButton = (
 			<SidebarMenuButton asChild tooltip={item.title} className={buttonClassName}>
 				<Link
-					to={item.url as any}
+					to={itemTo as any}
+					search={itemSearch}
 					preload="intent"
 					data-nav-url={item.url}
 					onClick={isSidebarCollapsed ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
@@ -386,6 +395,7 @@ const SidebarItemView = ({
 									)}
 								</div>
 							);
+							const { to: flyoutTo, search: flyoutSearch } = splitUrlAndQuery(href);
 							return (
 								<div key={subItem.title} data-testid={`sidebar-flyout-subitem-${subSlug}`} onClick={() => setFlyoutOpen(false)}>
 									{subItem.hasAccess === false ? (
@@ -397,7 +407,8 @@ const SidebarItemView = ({
 										</div>
 									) : (
 										<Link
-											to={href as any}
+											to={flyoutTo as any}
+											search={flyoutSearch}
 											preload="intent"
 											data-testid={`sidebar-subitem-link-${subSlug}`}
 											className={`flex h-7 items-center rounded-sm px-2 ${isSubItemActive ? "bg-sidebar-accent" : "hover:bg-sidebar-accent"}`}
@@ -447,6 +458,7 @@ const SidebarItemView = ({
 								)}
 							</div>
 						);
+						const { to: subItemTo, search: subItemSearch } = splitUrlAndQuery(subItemHref);
 						return (
 							<SidebarMenuSubItem key={subItem.title}>
 								{subItem.hasAccess === false ? (
@@ -455,7 +467,7 @@ const SidebarItemView = ({
 									</SidebarMenuSubButton>
 								) : (
 									<SidebarMenuSubButton asChild className={subItemClassName}>
-										<Link to={subItemHref as any} preload="intent" data-nav-url={subItemHref}>
+										<Link to={subItemTo as any} search={subItemSearch} preload="intent" data-nav-url={subItemHref}>
 											{subInner}
 										</Link>
 									</SidebarMenuSubButton>
@@ -533,7 +545,10 @@ export default function AppSidebar() {
 	const tsNavigate = useNavigate();
 	// Wrapper that accepts arbitrary string URLs (TanStack Router's `to` is
 	// strictly typed, but our sidebar items come from a runtime config).
-	const navigate = useCallback((url: string) => tsNavigate({ to: url as string }), [tsNavigate]);
+	const navigate = useCallback((url: string) => {
+		const { to, search } = splitUrlAndQuery(url);
+		tsNavigate({ to: to as any, search });
+	}, [tsNavigate]);
 	const [mounted, setMounted] = useState(false);
 	const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
 	const [areCardsEmpty, setAreCardsEmpty] = useState(false);

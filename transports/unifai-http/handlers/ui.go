@@ -31,6 +31,18 @@ func (h *UIHandler) RegisterRoutes(router *router.Router, middlewares ...schemas
 	router.GET("/{filepath:*}", lib.ChainMiddlewares(h.serveDashboard, middlewares...))
 }
 
+var staticAssetExtensions = map[string]bool{
+	".js": true, ".mjs": true, ".css": true, ".map": true,
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".svg": true, ".ico": true, ".webp": true,
+	".woff": true, ".woff2": true, ".ttf": true, ".eot": true,
+	".json": true, ".txt": true, ".xml": true, ".pdf": true, ".wasm": true,
+}
+
+func isStaticAsset(filename string) bool {
+	ext := strings.ToLower(filepath.Ext(filename))
+	return staticAssetExtensions[ext]
+}
+
 // ServeDashboard serves the dashboard UI.
 func (h *UIHandler) serveDashboard(ctx *fasthttp.RequestCtx) {
 	// Get the request path
@@ -77,40 +89,33 @@ func (h *UIHandler) serveDashboard(ctx *fasthttp.RequestCtx) {
 		}
 	}
 
-	// Check if this is a static asset request (has file extension)
-	hasExtension := strings.Contains(filepath.Base(cleanPath), ".")
+	// Check if this is a static asset request (known static extension or under assets/)
+	isAsset := isStaticAsset(cleanPath) || strings.HasPrefix(cleanPath, "ui/assets/")
 
 	// Try to read the file from embedded filesystem
 	data, err := h.uiContent.ReadFile(cleanPath)
 	if err != nil {
-
-		// If it's a static asset (has extension) and not found, return 404
-		if hasExtension {
+		// If it's an actual static asset and not found, return 404
+		if isAsset {
 			ctx.SetStatusCode(fasthttp.StatusNotFound)
 			ctx.SetBodyString("404 - Static asset not found: " + requestPath)
 			return
 		}
 
-		// For routes without extensions (SPA routing), try {path}/index.html first
-		if !hasExtension {
-			indexPath := cleanPath + "/index.html"
-			data, err = h.uiContent.ReadFile(indexPath)
-			if err == nil {
-				cleanPath = indexPath
-			} else {
-				// If that fails, serve root index.html as fallback
-				data, err = h.uiContent.ReadFile("ui/index.html")
-				if err != nil {
-					ctx.SetStatusCode(fasthttp.StatusNotFound)
-					ctx.SetBodyString("404 - File not found")
-					return
-				}
-				cleanPath = "ui/index.html"
-			}
+		// For SPA routes, try {path}/index.html first
+		indexPath := cleanPath + "/index.html"
+		data, err = h.uiContent.ReadFile(indexPath)
+		if err == nil {
+			cleanPath = indexPath
 		} else {
-			ctx.SetStatusCode(fasthttp.StatusNotFound)
-			ctx.SetBodyString("404 - File not found")
-			return
+			// If that fails, serve root index.html as fallback
+			data, err = h.uiContent.ReadFile("ui/index.html")
+			if err != nil {
+				ctx.SetStatusCode(fasthttp.StatusNotFound)
+				ctx.SetBodyString("404 - File not found")
+				return
+			}
+			cleanPath = "ui/index.html"
 		}
 	}
 

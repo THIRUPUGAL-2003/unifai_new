@@ -95,8 +95,12 @@ coverage/
 
 # Build output
 dist/
+**/dist/
+build/
+**/build/
+transports/unifai-http/*.exe
 apps/browser-guard/dist/
-apps/browser-guard/build/.pyinstaller/
+apps/browser-guard/build/
 
 # Browser Guard build artifacts
 apps/browser-guard/dev/mitmproxy-ca-cert.p12
@@ -167,6 +171,7 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
 
 # vercel
 .vercel
