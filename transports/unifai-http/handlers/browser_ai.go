@@ -2110,7 +2110,99 @@ Reply with one JSON object and nothing else:
 		return false, errMsg + "; retry: " + errMsg2
 	}
 
-	return false, "vision guard bot requires ollama provider"
+	if h.client == nil {
+		return false, "unifai client not available"
+	}
+
+	// Outsource vision: send text + image data-URLs via UnifAI multimodal chat.
+	maxImages := 6
+	if len(images) > maxImages {
+		images = images[:maxImages]
+	}
+	blocks := make([]schemas.ChatContentBlock, 0, 1+len(images))
+	blocks = append(blocks, schemas.ChatContentBlock{
+		Type: schemas.ChatContentBlockTypeText,
+		Text: schemas.Ptr(userMsg),
+	})
+	for _, img := range images {
+		img = strings.TrimSpace(img)
+		if img == "" {
+			continue
+		}
+		dataURL := img
+		if !strings.HasPrefix(strings.ToLower(img), "data:") {
+			dataURL = "data:image/png;base64," + img
+		}
+		blocks = append(blocks, schemas.ChatContentBlock{
+			Type: schemas.ChatContentBlockTypeImage,
+			ImageURLStruct: &schemas.ChatInputImage{
+				URL: dataURL,
+			},
+		})
+	}
+	if len(blocks) < 2 {
+		return false, "no vision images to evaluate"
+	}
+
+	maxTokens := 128
+	temp := 0.0
+	responseFormat := any(map[string]any{"type": "json_object"})
+	unifaiReq := &schemas.UnifAIChatRequest{
+		Provider: providerName,
+		Model:    modelName,
+		Input: []schemas.ChatMessage{
+			{
+				Role: schemas.ChatMessageRoleSystem,
+				Content: &schemas.ChatMessageContent{
+					ContentStr: schemas.Ptr(systemPrompt),
+				},
+			},
+			{
+				Role: schemas.ChatMessageRoleUser,
+				Content: &schemas.ChatMessageContent{
+					ContentBlocks: blocks,
+				},
+			},
+		},
+		Params: &schemas.ChatParameters{
+			MaxCompletionTokens: &maxTokens,
+			Temperature:         &temp,
+			ResponseFormat:      &responseFormat,
+		},
+	}
+
+	runOnce := func() (bool, string) {
+		deadline := time.Now().Add(45 * time.Second)
+		unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
+		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
+		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
+		resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
+		if unifaiErr != nil {
+			return false, truncateRunes(unifaiErrorMessage(unifaiErr), 180)
+		}
+		rawText := stripEvalMarkdown(evaluatorChoiceText(resp))
+		if rawText == "" {
+			return false, "empty vision evaluator response"
+		}
+		violated, recognized := parseAIBotDecision(rawText)
+		if !recognized {
+			return false, "vision evaluator returned unparseable output: " + truncateRunes(rawText, 80)
+		}
+		return violated, ""
+	}
+
+	violated, errMsg := runOnce()
+	if errMsg == "" {
+		return violated, ""
+	}
+	if unifaiReq.Params != nil {
+		unifaiReq.Params.ResponseFormat = nil
+	}
+	violated, errMsg2 := runOnce()
+	if errMsg2 == "" {
+		return violated, ""
+	}
+	return false, errMsg + "; retry: " + errMsg2
 }
 
 func unifaiErrorMessage(err *schemas.UnifAIError) string {
