@@ -661,11 +661,14 @@ function GuardRuleAIEvaluatorFields({
 				<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
 				<Textarea
 					className="font-mono text-xs"
-					placeholder="e.g. Block if the document contains confidential financial data, salary, CTC, or bank account numbers..."
+					placeholder="Write a clear policy, e.g. Block personal human names (my name is X). Block phone numbers. Block API keys / passwords. Block salary or bank account numbers..."
 					value={botPrompt}
 					onChange={(e) => onPromptChange(e.target.value)}
 					rows={4}
 				/>
+				<p className="text-[11px] text-muted-foreground">
+					This text is what the model enforces on every prompt / file / audio extract. Be specific — short vague lines like &quot;mobile names not allowed&quot; often miss. Say what to block and give 1 example.
+				</p>
 			</div>
 
 			<div className="space-y-1.5">
@@ -1207,6 +1210,12 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setRuleError("Security policy prompt or reference template image is required for AI Guard Bot.");
 				return;
 			}
+			if (newRuleBotEvalMode === "ai" && newRuleBotPrompt.trim() && newRuleBotPrompt.trim().split(/\s+/).length < 4) {
+				setRuleError(
+					"Security policy is too short/vague. Write a clear rule (e.g. \"Block personal human names such as my name is X\").",
+				);
+				return;
+			}
 			if (newRuleBotEvalMode === "regex" && !newRuleGeneratedPattern.trim()) {
 				setRuleError("Generate or enter a regex pattern, or switch to AI Prompt evaluate mode.");
 				return;
@@ -1314,6 +1323,12 @@ type RelatedHostEntry = { host: string; role: HostRole };
 		if (editRuleType === "ai_bot") {
 			if (!editRuleBotPrompt.trim() && !editRuleBotReferenceImage.trim()) {
 				setRuleError("Security policy prompt or reference template image is required for AI Guard Bot.");
+				return;
+			}
+			if (editRuleBotEvalMode === "ai" && editRuleBotPrompt.trim() && editRuleBotPrompt.trim().split(/\s+/).length < 4) {
+				setRuleError(
+					"Security policy is too short/vague. Write a clear rule (e.g. \"Block personal human names such as my name is X\").",
+				);
 				return;
 			}
 			if (editRuleBotEvalMode === "regex" && !editRuleGeneratedPattern.trim()) {

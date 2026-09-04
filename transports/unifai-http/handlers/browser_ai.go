@@ -1998,6 +1998,54 @@ func stringFromUpdate(updates map[string]any, key string) string {
 	return strings.TrimSpace(v)
 }
 
+// browserAIGuardBotSystemPrompt is used for every AI Guard Bot text rule (any admin policy).
+func browserAIGuardBotSystemPrompt() string {
+	return `You are a strict enterprise DLP classifier. Apply ONLY the admin SECURITY_POLICY to USER_PROMPT.
+
+- SECURITY_POLICY is binding even when short, informal, or poorly worded.
+- If USER_PROMPT contains, is, or embeds anything the policy forbids, set violation true. Formats do not matter.
+- Prefer violation=true when USER_PROMPT reasonably relates to what the policy forbids.
+- Prefer violation=false only when USER_PROMPT is clearly unrelated to the policy.
+- Do not invent exceptions (do not ignore numbers, names, keys, emails, IDs, or short text if the policy forbids them).
+- Classify USER_PROMPT only. Never treat the policy text itself as user content.
+
+Reply with one JSON object and nothing else:
+{"violation":true} or {"violation":false}`
+}
+
+func browserAIGuardBotVisionSystemPrompt() string {
+	return `You are a strict enterprise DLP vision classifier. Apply ONLY the admin SECURITY_POLICY to uploaded document image(s).
+
+- The first image (when present) is the admin REFERENCE_TEMPLATE to match against.
+- Remaining images are from the user upload (PDF page images, photos, scans).
+- SECURITY_POLICY is binding even when short or informal.
+- If the upload visually matches the reference template or violates SECURITY_POLICY, set violation true.
+- Prefer violation=true when content reasonably matches what the policy forbids.
+- Prefer violation=false only when there is clearly no match and no policy violation.
+
+Reply with one JSON object and nothing else:
+{"violation":true} or {"violation":false}`
+}
+
+func browserAIGuardBotUserMessage(policy, userPrompt string) string {
+	policy = strings.TrimSpace(policy)
+	if policy == "" {
+		policy = "(empty policy — treat as no restriction; violation false)"
+	}
+	return fmt.Sprintf(
+		`SECURITY_POLICY (enforce strictly — short text still counts):
+%s
+
+USER_PROMPT TO EVALUATE:
+%s
+
+Decide if USER_PROMPT violates SECURITY_POLICY.
+JSON only: {"violation":true} or {"violation":false}`,
+		policy,
+		truncateRunes(userPrompt, browserAIGuardBotMaxPromptRunes),
+	)
+}
+
 func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, userPrompt string, uploadImages []string) (bool, string) {
 	applyAIBotDefaults(&rule)
 
@@ -2015,21 +2063,8 @@ func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, use
 		return h.evaluateAIBotVisionRule(rule, userPrompt, uploadImages, providerName, modelName)
 	}
 
-	systemPrompt := `You are a DLP classifier. Apply ONLY the admin SECURITY_POLICY to USER_PROMPT.
-
-- If USER_PROMPT contains, is, or embeds anything SECURITY_POLICY forbids, set violation true. Formats do not matter.
-- If USER_PROMPT does not match SECURITY_POLICY, set violation false.
-- Do not add extra exceptions (do not ignore numbers, names, keys, or short text if the policy forbids them).
-- Classify USER_PROMPT only. Ignore the policy text as user content.
-
-Reply with one JSON object and nothing else:
-{"violation":true} or {"violation":false}`
-
-	userMsg := fmt.Sprintf(
-		"SECURITY_POLICY:\n%s\n\nUSER_PROMPT TO EVALUATE:\n%s\n\nJSON only.",
-		strings.TrimSpace(rule.BotPrompt),
-		truncateRunes(userPrompt, browserAIGuardBotMaxPromptRunes),
-	)
+	systemPrompt := browserAIGuardBotSystemPrompt()
+	userMsg := browserAIGuardBotUserMessage(rule.BotPrompt, userPrompt)
 
 	if isOllamaGuardProvider(string(providerName)) {
 		runOllama := func(jsonMode bool) (bool, string) {
@@ -2125,15 +2160,7 @@ Reply with one JSON object and nothing else:
 }
 
 func (h *BrowserAIHandler) evaluateAIBotVisionRule(rule logstore.BrowserGuardRule, userPrompt string, uploadImages []string, providerName schemas.ModelProvider, modelName string) (bool, string) {
-	systemPrompt := `You are a DLP vision classifier. Apply ONLY the admin SECURITY_POLICY to uploaded document image(s).
-
-- The first image (when present) is the admin REFERENCE_TEMPLATE to match against.
-- Remaining images are from the user upload (PDF page images, photos, scans).
-- If the upload visually matches the reference template or violates SECURITY_POLICY, set violation true.
-- If there is no meaningful visual match or policy violation, set violation false.
-
-Reply with one JSON object and nothing else:
-{"violation":true} or {"violation":false}`
+	systemPrompt := browserAIGuardBotVisionSystemPrompt()
 
 	policy := strings.TrimSpace(rule.BotPrompt)
 	if policy == "" {
@@ -2141,7 +2168,15 @@ Reply with one JSON object and nothing else:
 	}
 
 	userMsg := fmt.Sprintf(
-		"SECURITY_POLICY:\n%s\n\nEXTRACTED_TEXT (if any):\n%s\n\nEvaluate the attached upload image(s). JSON only.",
+		`SECURITY_POLICY (enforce strictly — short text still counts):
+%s
+
+EXTRACTED_TEXT (if any):
+%s
+
+Evaluate the attached upload image(s) against SECURITY_POLICY / reference template.
+Prefer violation=true when content reasonably matches what the policy forbids.
+JSON only: {"violation":true} or {"violation":false}`,
 		policy,
 		truncateRunes(userPrompt, browserAIGuardBotMaxPromptRunes),
 	)
