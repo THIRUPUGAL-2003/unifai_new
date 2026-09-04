@@ -109,6 +109,8 @@ export interface CreateMCPClientRequest {
 	// the analogous role. Ignored for all other auth types.
 	user_headers?: Record<string, string>;
 	is_ping_available?: boolean;
+	// When true, available to all VKs with all tools allowed by default.
+	allow_on_all_virtual_keys?: boolean;
 }
 
 export interface OAuthFlowResponse {
