@@ -1,6 +1,576 @@
 {
-  "lastUpdatedAt": "2026-08-31T11:59:49Z",
+  "lastUpdatedAt": "2026-09-04T14:48:47Z",
   "servers": [
+    {
+      "name": "GitHub",
+      "description": "Official GitHub MCP — repos, issues, PRs, and code search via GitHub Copilot MCP.",
+      "category": "Developer Tools",
+      "connection_type": "http",
+      "connection_url": "https://api.githubcopilot.com/mcp/",
+      "auth_type": "oauth",
+      "publisher": "github",
+      "icon_url": "/images/mcp-servers/github_light.svg",
+      "docs_url": "https://github.com/github/github-mcp-server",
+      "tags": [
+        "official",
+        "github",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Notion",
+      "description": "Official Notion MCP — search and edit pages and databases in your workspace.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.notion.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "notion",
+      "icon_url": "/images/mcp-servers/notion.svg",
+      "docs_url": "https://developers.notion.com/docs/mcp",
+      "tags": [
+        "official",
+        "notion",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Stripe",
+      "description": "Official Stripe MCP — customers, subscriptions, payments, and billing tools.",
+      "category": "Finance",
+      "connection_type": "http",
+      "connection_url": "https://mcp.stripe.com/",
+      "auth_type": "oauth",
+      "publisher": "stripe",
+      "icon_url": "/images/mcp-servers/stripe.svg",
+      "docs_url": "https://docs.stripe.com/mcp",
+      "tags": [
+        "official",
+        "stripe",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Supabase",
+      "description": "Official Supabase MCP — manage projects, run SQL, and inspect schemas.",
+      "category": "Developer Tools",
+      "connection_type": "http",
+      "connection_url": "https://mcp.supabase.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "supabase",
+      "icon_url": "/images/mcp-servers/supabase.svg",
+      "docs_url": "https://supabase.com/docs/guides/getting-started/mcp",
+      "tags": [
+        "official",
+        "supabase",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Linear",
+      "description": "Official Linear MCP — issues, cycles, and project backlog over SSE.",
+      "category": "Developer Tools",
+      "connection_type": "sse",
+      "connection_url": "https://mcp.linear.app/sse",
+      "auth_type": "oauth",
+      "publisher": "linear",
+      "icon_url": "/images/mcp-servers/linear.svg",
+      "docs_url": "https://linear.app/docs/mcp",
+      "tags": [
+        "official",
+        "linear",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Slack",
+      "description": "Official Slack MCP — search workspace, read threads, and post updates.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.slack.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "slack",
+      "icon_url": "/images/mcp-servers/slack.svg",
+      "docs_url": "https://docs.slack.dev/ai/slack-mcp-server/",
+      "tags": [
+        "official",
+        "slack",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Sentry",
+      "description": "Official Sentry MCP — error tracking, issues, and monitoring context.",
+      "category": "Observability",
+      "connection_type": "http",
+      "connection_url": "https://mcp.sentry.dev/mcp",
+      "auth_type": "oauth",
+      "publisher": "sentry",
+      "icon_url": "/images/mcp-servers/sentry.svg",
+      "docs_url": "https://docs.sentry.io/product/sentry-mcp/",
+      "tags": [
+        "official",
+        "sentry",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Figma",
+      "description": "Official Figma MCP — design context, components, and Code Connect.",
+      "category": "Design",
+      "connection_type": "http",
+      "connection_url": "https://mcp.figma.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "figma",
+      "icon_url": "/images/mcp-servers/figma.svg",
+      "docs_url": "https://developers.figma.com/docs/figma-mcp-server/",
+      "tags": [
+        "official",
+        "figma",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Vercel",
+      "description": "Official Vercel MCP — projects, deployments, and docs for your Vercel account.",
+      "category": "Developer Tools",
+      "connection_type": "http",
+      "connection_url": "https://mcp.vercel.com",
+      "auth_type": "oauth",
+      "publisher": "vercel",
+      "icon_url": "/images/mcp-servers/vercel.svg",
+      "docs_url": "https://vercel.com/docs/mcp",
+      "tags": [
+        "official",
+        "vercel",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Cloudflare",
+      "description": "Official Cloudflare MCP — Workers, DNS, and account tooling.",
+      "category": "Developer Tools",
+      "connection_type": "http",
+      "connection_url": "https://mcp.cloudflare.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "cloudflare",
+      "icon_url": "/images/mcp-servers/cloudflare.svg",
+      "docs_url": "https://developers.cloudflare.com/agents/model-context-protocol/",
+      "tags": [
+        "official",
+        "cloudflare",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Neon",
+      "description": "Official Neon MCP — serverless Postgres projects, branches, and SQL.",
+      "category": "Developer Tools",
+      "connection_type": "http",
+      "connection_url": "https://mcp.neon.tech/mcp",
+      "auth_type": "oauth",
+      "publisher": "neon",
+      "icon_url": "/images/mcp-servers/neon.svg",
+      "docs_url": "https://neon.com/docs/ai/neon-mcp-server",
+      "tags": [
+        "official",
+        "neon",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "HubSpot",
+      "description": "Official HubSpot MCP — CRM contacts, companies, and deals (OAuth).",
+      "category": "CRM",
+      "connection_type": "http",
+      "connection_url": "https://mcp.hubspot.com",
+      "auth_type": "oauth",
+      "publisher": "hubspot",
+      "icon_url": "/images/mcp-servers/hubspot.png",
+      "docs_url": "https://developers.hubspot.com/ai-tools/mcp",
+      "tags": [
+        "official",
+        "hubspot",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Atlassian",
+      "description": "Official Atlassian MCP — Jira and Confluence context for agents.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.atlassian.com/v1/mcp",
+      "auth_type": "oauth",
+      "publisher": "atlassian",
+      "icon_url": "/images/mcp-servers/atlassian.svg",
+      "docs_url": "https://www.atlassian.com/platform/remote-mcp-server",
+      "tags": [
+        "official",
+        "atlassian",
+        "jira",
+        "confluence",
+        "oauth"
+      ]
+    },
+    {
+      "name": "Context7",
+      "description": "Upstash Context7 MCP — live, version-specific library docs for coding agents.",
+      "category": "Developer Tools",
+      "connection_type": "http",
+      "connection_url": "https://mcp.context7.com/mcp",
+      "auth_type": "none",
+      "publisher": "context7",
+      "icon_url": "/images/mcp-servers/context7.svg",
+      "docs_url": "https://context7.com",
+      "tags": [
+        "official",
+        "context7",
+        "docs",
+        "remote"
+      ]
+    },
+    {
+      "name": "Filesystem",
+      "description": "Official MCP filesystem server — read/write local files (stdio). Set path via install args if needed.",
+      "category": "Developer Tools",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-filesystem",
+          "."
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "modelcontextprotocol",
+      "icon_url": "/images/mcp-servers/filesystem.png",
+      "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
+      "tags": [
+        "official",
+        "filesystem",
+        "stdio",
+        "local"
+      ]
+    },
+    {
+      "name": "Brave Search",
+      "description": "Official Brave Search MCP — web search via Brave Search API (stdio).",
+      "category": "Search",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@modelcontextprotocol/server-brave-search"
+        ],
+        "envs": [
+          "BRAVE_API_KEY"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "brave",
+      "icon_url": "/images/mcp-servers/brave.png",
+      "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search",
+      "tags": [
+        "official",
+        "brave",
+        "search",
+        "stdio"
+      ]
+    },
+    {
+      "name": "Playwright",
+      "description": "Official Playwright MCP — browser automation and web testing tools (stdio).",
+      "category": "Automation",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@playwright/mcp@latest"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "playwright",
+      "icon_url": "/images/mcp-servers/playwright.png",
+      "docs_url": "https://github.com/microsoft/playwright-mcp",
+      "tags": [
+        "official",
+        "playwright",
+        "browser",
+        "stdio"
+      ]
+    },
+    {
+      "name": "Exa",
+      "description": "Exa MCP — neural web search and content retrieval for agents (stdio).",
+      "category": "Search",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "exa-mcp-server"
+        ],
+        "envs": [
+          "EXA_API_KEY"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "exa",
+      "icon_url": "/images/mcp-servers/exa.png",
+      "docs_url": "https://docs.exa.ai/reference/mcp-server",
+      "tags": [
+        "exa",
+        "search",
+        "stdio"
+      ]
+    },
+    {
+      "name": "Tavily",
+      "description": "Tavily MCP — AI search API for agents (stdio).",
+      "category": "Search",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "tavily-mcp"
+        ],
+        "envs": [
+          "TAVILY_API_KEY"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "tavily",
+      "icon_url": "/images/mcp-servers/tavily.png",
+      "docs_url": "https://docs.tavily.com/documentation/mcp",
+      "tags": [
+        "tavily",
+        "search",
+        "stdio"
+      ]
+    },
+    {
+      "name": "Hugging Face",
+      "description": "Hugging Face MCP — models, datasets, and Spaces tooling (remote).",
+      "category": "AI",
+      "connection_type": "http",
+      "connection_url": "https://huggingface.co/mcp",
+      "auth_type": "oauth",
+      "publisher": "huggingface",
+      "icon_url": "/images/mcp-servers/hugging_face.svg",
+      "docs_url": "https://huggingface.co/docs/hub/mcp",
+      "tags": [
+        "official",
+        "huggingface",
+        "remote",
+        "oauth"
+      ]
+    },
+    {
+      "name": "PostHog",
+      "description": "PostHog MCP — product analytics and feature flags (stdio).",
+      "category": "Observability",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@posthog/mcp"
+        ],
+        "envs": [
+          "POSTHOG_AUTH_HEADER"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "posthog",
+      "icon_url": "/images/mcp-servers/posthog.svg",
+      "docs_url": "https://posthog.com/docs/model-context-protocol",
+      "tags": [
+        "posthog",
+        "analytics",
+        "stdio"
+      ]
+    },
+    {
+      "name": "Shopify",
+      "description": "Shopify Dev MCP — storefront and Admin API tooling for Shopify apps (stdio).",
+      "category": "E-commerce",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@shopify/dev-mcp@latest"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "shopify",
+      "icon_url": "/images/mcp-servers/shopify.svg",
+      "docs_url": "https://shopify.dev/docs/apps/build/devmcp",
+      "tags": [
+        "shopify",
+        "stdio"
+      ]
+    },
+    {
+      "name": "Twilio",
+      "description": "Twilio MCP — messaging and communications APIs (stdio).",
+      "category": "Communications",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@twilio-alpha/mcp"
+        ],
+        "envs": [
+          "TWILIO_ACCOUNT_SID",
+          "TWILIO_API_KEY",
+          "TWILIO_API_SECRET"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "twilio",
+      "icon_url": "/images/mcp-servers/twilio.svg",
+      "docs_url": "https://www.twilio.com/docs/mcp",
+      "tags": [
+        "twilio",
+        "stdio"
+      ]
+    },
+    {
+      "name": "PayPal",
+      "description": "PayPal MCP — payments and commerce APIs (stdio).",
+      "category": "Finance",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@paypal/mcp"
+        ],
+        "envs": [
+          "PAYPAL_ACCESS_TOKEN"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "paypal",
+      "icon_url": "/images/mcp-servers/paypal.svg",
+      "docs_url": "https://developer.paypal.com/tools/mcp-server/",
+      "tags": [
+        "paypal",
+        "stdio"
+      ]
+    },
+    {
+      "name": "GitLab",
+      "description": "GitLab MCP — projects, MRs, and issues (stdio).",
+      "category": "Developer Tools",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@zereight/mcp-gitlab"
+        ],
+        "envs": [
+          "GITLAB_PERSONAL_ACCESS_TOKEN",
+          "GITLAB_API_URL"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "gitlab",
+      "icon_url": "/images/mcp-servers/gitlab.svg",
+      "docs_url": "https://docs.gitlab.com/user/gitlab_duo/model_context_protocol/",
+      "tags": [
+        "gitlab",
+        "stdio"
+      ]
+    },
+    {
+      "name": "Asana",
+      "description": "Asana MCP — tasks and projects (stdio).",
+      "category": "Productivity",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@roychri/mcp-server-asana"
+        ],
+        "envs": [
+          "ASANA_ACCESS_TOKEN"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "asana",
+      "icon_url": "/images/mcp-servers/asana-logo.svg",
+      "tags": [
+        "asana",
+        "stdio"
+      ]
+    },
+    {
+      "name": "ClickUp",
+      "description": "ClickUp MCP — tasks and workspaces (stdio).",
+      "category": "Productivity",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@taazkareem/clickup-mcp-server"
+        ],
+        "envs": [
+          "CLICKUP_API_KEY",
+          "CLICKUP_TEAM_ID"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "clickup",
+      "icon_url": "/images/mcp-servers/clickup.svg",
+      "tags": [
+        "clickup",
+        "stdio"
+      ]
+    },
+    {
+      "name": "Todoist",
+      "description": "Todoist MCP — personal task management (stdio).",
+      "category": "Productivity",
+      "connection_type": "stdio",
+      "stdio_config": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@abhiz123/todoist-mcp-server"
+        ],
+        "envs": [
+          "TODOIST_API_TOKEN"
+        ]
+      },
+      "auth_type": "none",
+      "publisher": "todoist",
+      "icon_url": "/images/mcp-servers/todoist.svg",
+      "tags": [
+        "todoist",
+        "stdio"
+      ]
+    },
     {
       "name": "inference.sh",
       "description": "Run 150+ AI apps   image, video, audio, LLMs, 3D and more. Browse, execute, stream results.",
@@ -8,7 +578,8 @@
       "connection_type": "http",
       "connection_url": "https://sh.inference.ac",
       "auth_type": "none",
-      "publisher": "ac.inference.sh"
+      "publisher": "ac.inference.sh",
+      "icon_url": "https://www.google.com/s2/favicons?domain=sh.inference.ac&sz=128"
     },
     {
       "name": "Docs Mcp",
@@ -17,7 +588,8 @@
       "connection_type": "http",
       "connection_url": "https://tandem.ac/mcp",
       "auth_type": "none",
-      "publisher": "ac.tandem"
+      "publisher": "ac.tandem",
+      "icon_url": "https://www.google.com/s2/favicons?domain=tandem.ac&sz=128"
     },
     {
       "name": "Inside Ads",
@@ -26,7 +598,8 @@
       "connection_type": "http",
       "connection_url": "https://app.inside.ad/api/mcp",
       "auth_type": "none",
-      "publisher": "ad.inside"
+      "publisher": "ad.inside",
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.inside.ad&sz=128"
     },
     {
       "name": "Propick Integration MCP",
@@ -35,7 +608,8 @@
       "connection_type": "http",
       "connection_url": "https://propick.ae/mcp",
       "auth_type": "none",
-      "publisher": "ae.propick"
+      "publisher": "ae.propick",
+      "icon_url": "https://www.google.com/s2/favicons?domain=propick.ae&sz=128"
     },
     {
       "name": "hood. — .hood name service",
@@ -44,7 +618,8 @@
       "connection_type": "http",
       "connection_url": "https://www.hood.ag/api/mcp",
       "auth_type": "none",
-      "publisher": "ag.hood"
+      "publisher": "ag.hood",
+      "icon_url": "https://www.google.com/s2/favicons?domain=www.hood.ag&sz=128"
     },
     {
       "name": "Goji",
@@ -53,7 +628,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.goji.agency/mcp",
       "auth_type": "none",
-      "publisher": "agency.goji"
+      "publisher": "agency.goji",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.goji.agency&sz=128"
     },
     {
       "name": "Pre-Trip compliance scanner",
@@ -82,7 +658,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.lona.agency/mcp",
       "auth_type": "none",
-      "publisher": "agency.lona"
+      "publisher": "agency.lona",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lona.agency&sz=128"
     },
     {
       "name": "1325.AI",
@@ -90,8 +667,13 @@
       "category": "Search",
       "connection_type": "http",
       "connection_url": "https://agoclnqfyinwjxdmjnns.supabase.co/functions/v1/mcp",
-      "auth_type": "none",
-      "publisher": "ai.1325"
+      "auth_type": "headers",
+      "publisher": "ai.1325",
+      "required_header_keys": [
+        "Authorization",
+        "apikey"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=agoclnqfyinwjxdmjnns.supabase.co&sz=128"
     },
     {
       "name": "aTars MCP",
@@ -100,7 +682,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.aarna.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.aarna"
+      "publisher": "ai.aarna",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.aarna.ai&sz=128"
     },
     {
       "name": "ABMeter",
@@ -109,7 +692,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.abmeter.ai",
       "auth_type": "none",
-      "publisher": "ai.abmeter"
+      "publisher": "ai.abmeter",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.abmeter.ai&sz=128"
     },
     {
       "name": "Ideation",
@@ -118,7 +702,8 @@
       "connection_type": "http",
       "connection_url": "https://actwise.ai/ideation/mcp/v1",
       "auth_type": "none",
-      "publisher": "ai.actwise"
+      "publisher": "ai.actwise",
+      "icon_url": "https://www.google.com/s2/favicons?domain=actwise.ai&sz=128"
     },
     {
       "name": "AdAdvisor MCP Server",
@@ -127,7 +712,8 @@
       "connection_type": "http",
       "connection_url": "https://api.adadvisor.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.adadvisor"
+      "publisher": "ai.adadvisor",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.adadvisor.ai&sz=128"
     },
     {
       "name": "Adeu",
@@ -150,7 +736,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.adoraads.ai/beauty",
       "auth_type": "none",
-      "publisher": "ai.adoraads"
+      "publisher": "ai.adoraads",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.adoraads.ai&sz=128"
     },
     {
       "name": "Google Ads",
@@ -159,7 +746,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.adplane.ai",
       "auth_type": "none",
-      "publisher": "ai.adplane"
+      "publisher": "ai.adplane",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.adplane.ai&sz=128"
     },
     {
       "name": "Adside",
@@ -168,7 +756,8 @@
       "connection_type": "http",
       "connection_url": "https://api.adside.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.adside"
+      "publisher": "ai.adside",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.adside.ai&sz=128"
     },
     {
       "name": "Advisors AI Service Navigator",
@@ -177,7 +766,8 @@
       "connection_type": "http",
       "connection_url": "https://advisorsai.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.advisorsai"
+      "publisher": "ai.advisorsai",
+      "icon_url": "https://www.google.com/s2/favicons?domain=advisorsai.ai&sz=128"
     },
     {
       "name": "Advisors AI Store Readiness Check",
@@ -186,7 +776,8 @@
       "connection_type": "http",
       "connection_url": "https://advisorsai.ai/store-readiness-mcp",
       "auth_type": "none",
-      "publisher": "ai.advisorsai"
+      "publisher": "ai.advisorsai",
+      "icon_url": "https://www.google.com/s2/favicons?domain=advisorsai.ai&sz=128"
     },
     {
       "name": "One-Page Readiness Check — 10 Signals, Arabic or English",
@@ -195,7 +786,8 @@
       "connection_type": "http",
       "connection_url": "https://advisorsai.ai/store-readiness-mcp",
       "auth_type": "none",
-      "publisher": "ai.advisorsai"
+      "publisher": "ai.advisorsai",
+      "icon_url": "https://www.google.com/s2/favicons?domain=advisorsai.ai&sz=128"
     },
     {
       "name": "AdWeave — Meta Ads MCP Server",
@@ -204,7 +796,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.adweave.ai/meta-ads-mcp",
       "auth_type": "none",
-      "publisher": "ai.adweave"
+      "publisher": "ai.adweave",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.adweave.ai&sz=128"
     },
     {
       "name": "Aether Wealth",
@@ -233,7 +826,8 @@
       "connection_type": "http",
       "connection_url": "https://afmr.ai/api/rpc",
       "auth_type": "none",
-      "publisher": "ai.afmr"
+      "publisher": "ai.afmr",
+      "icon_url": "https://www.google.com/s2/favicons?domain=afmr.ai&sz=128"
     },
     {
       "name": "Agentberg",
@@ -242,7 +836,8 @@
       "connection_type": "http",
       "connection_url": "https://agentberg.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentberg"
+      "publisher": "ai.agentberg",
+      "icon_url": "https://www.google.com/s2/favicons?domain=agentberg.ai&sz=128"
     },
     {
       "name": "AgentDM",
@@ -251,7 +846,8 @@
       "connection_type": "http",
       "connection_url": "https://api.agentdm.ai/api/v1/grid",
       "auth_type": "none",
-      "publisher": "ai.agentdm"
+      "publisher": "ai.agentdm",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentdm.ai&sz=128"
     },
     {
       "name": "AgentDM: Agent to Agent Communication Platform",
@@ -260,7 +856,8 @@
       "connection_type": "http",
       "connection_url": "https://api.agentdm.ai/mcp/v1/grid",
       "auth_type": "none",
-      "publisher": "ai.agentdm"
+      "publisher": "ai.agentdm",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentdm.ai&sz=128"
     },
     {
       "name": "Mcp",
@@ -269,7 +866,8 @@
       "connection_type": "http",
       "connection_url": "https://agentgates.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentgates"
+      "publisher": "ai.agentgates",
+      "icon_url": "https://www.google.com/s2/favicons?domain=agentgates.ai&sz=128"
     },
     {
       "name": "Agentic News",
@@ -278,7 +876,8 @@
       "connection_type": "http",
       "connection_url": "https://api.agentic-news.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentic-news"
+      "publisher": "ai.agentic-news",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentic-news.ai&sz=128"
     },
     {
       "name": "Affiliate Networks MCP",
@@ -309,7 +908,8 @@
       "connection_type": "http",
       "connection_url": "https://agenticfabricationnetwork.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agenticfabricationnetwork"
+      "publisher": "ai.agenticfabricationnetwork",
+      "icon_url": "https://www.google.com/s2/favicons?domain=agenticfabricationnetwork.ai&sz=128"
     },
     {
       "name": "Agentic Fabrication Network (AFN)",
@@ -318,7 +918,8 @@
       "connection_type": "http",
       "connection_url": "https://agenticfabricationnetwork.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agenticfabricationnetwork"
+      "publisher": "ai.agenticfabricationnetwork",
+      "icon_url": "https://www.google.com/s2/favicons?domain=agenticfabricationnetwork.ai&sz=128"
     },
     {
       "name": "Graffeo Coffee Roasting",
@@ -327,7 +928,8 @@
       "connection_type": "http",
       "connection_url": "https://api.agenticshelf.ai/m/graffeo/mcp",
       "auth_type": "none",
-      "publisher": "ai.agenticshelf"
+      "publisher": "ai.agenticshelf",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.agenticshelf.ai&sz=128"
     },
     {
       "name": "Agentic Shelf",
@@ -336,7 +938,8 @@
       "connection_type": "http",
       "connection_url": "https://api.agenticshelf.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agenticshelf"
+      "publisher": "ai.agenticshelf",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.agenticshelf.ai&sz=128"
     },
     {
       "name": "PuroAir",
@@ -345,7 +948,8 @@
       "connection_type": "http",
       "connection_url": "https://api.agenticshelf.ai/m/puroair/mcp",
       "auth_type": "none",
-      "publisher": "ai.agenticshelf"
+      "publisher": "ai.agenticshelf",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.agenticshelf.ai&sz=128"
     },
     {
       "name": "Agentic Terminal Directory",
@@ -354,7 +958,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.agenticterminal.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agenticterminal"
+      "publisher": "ai.agenticterminal",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.agenticterminal.ai&sz=128"
     },
     {
       "name": "Counterscript",
@@ -363,7 +968,8 @@
       "connection_type": "http",
       "connection_url": "https://rx.agentlookups.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentlookups"
+      "publisher": "ai.agentlookups",
+      "icon_url": "https://www.google.com/s2/favicons?domain=rx.agentlookups.ai&sz=128"
     },
     {
       "name": "CounterScript - Drug Price Benchmarks",
@@ -372,7 +978,8 @@
       "connection_type": "http",
       "connection_url": "https://rx.agentlookups.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentlookups"
+      "publisher": "ai.agentlookups",
+      "icon_url": "https://www.google.com/s2/favicons?domain=rx.agentlookups.ai&sz=128"
     },
     {
       "name": "GreenLight - Plug-in Solar Law Registry",
@@ -381,7 +988,8 @@
       "connection_type": "http",
       "connection_url": "https://solar.agentlookups.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentlookups"
+      "publisher": "ai.agentlookups",
+      "icon_url": "https://www.google.com/s2/favicons?domain=solar.agentlookups.ai&sz=128"
     },
     {
       "name": "Groundtruth",
@@ -390,7 +998,8 @@
       "connection_type": "http",
       "connection_url": "https://env.agentlookups.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentlookups"
+      "publisher": "ai.agentlookups",
+      "icon_url": "https://www.google.com/s2/favicons?domain=env.agentlookups.ai&sz=128"
     },
     {
       "name": "GroundTruth - Environmental Records",
@@ -399,7 +1008,8 @@
       "connection_type": "http",
       "connection_url": "https://env.agentlookups.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentlookups"
+      "publisher": "ai.agentlookups",
+      "icon_url": "https://www.google.com/s2/favicons?domain=env.agentlookups.ai&sz=128"
     },
     {
       "name": "Overassessed",
@@ -408,7 +1018,8 @@
       "connection_type": "http",
       "connection_url": "https://overassessed.agentlookups.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentlookups"
+      "publisher": "ai.agentlookups",
+      "icon_url": "https://www.google.com/s2/favicons?domain=overassessed.agentlookups.ai&sz=128"
     },
     {
       "name": "Plumbline",
@@ -417,7 +1028,8 @@
       "connection_type": "http",
       "connection_url": "https://contractors.agentlookups.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentlookups"
+      "publisher": "ai.agentlookups",
+      "icon_url": "https://www.google.com/s2/favicons?domain=contractors.agentlookups.ai&sz=128"
     },
     {
       "name": "Plumbline - Contractor License Checks",
@@ -426,7 +1038,8 @@
       "connection_type": "http",
       "connection_url": "https://contractors.agentlookups.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentlookups"
+      "publisher": "ai.agentlookups",
+      "icon_url": "https://www.google.com/s2/favicons?domain=contractors.agentlookups.ai&sz=128"
     },
     {
       "name": "AgentMesh",
@@ -435,7 +1048,8 @@
       "connection_type": "http",
       "connection_url": "https://api.agentmesh.ai/v1/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentmesh"
+      "publisher": "ai.agentmesh",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentmesh.ai&sz=128"
     },
     {
       "name": "AgentPlaybooks",
@@ -444,7 +1058,8 @@
       "connection_type": "http",
       "connection_url": "https://agentplaybooks.ai/api/mcp/manage",
       "auth_type": "none",
-      "publisher": "ai.agentplaybooks"
+      "publisher": "ai.agentplaybooks",
+      "icon_url": "https://www.google.com/s2/favicons?domain=agentplaybooks.ai&sz=128"
     },
     {
       "name": "Agentra",
@@ -453,7 +1068,8 @@
       "connection_type": "sse",
       "connection_url": "https://api.agentrapay.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentrapay"
+      "publisher": "ai.agentrapay",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentrapay.ai&sz=128"
     },
     {
       "name": "AgentRoam",
@@ -462,7 +1078,8 @@
       "connection_type": "http",
       "connection_url": "https://agentroam.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.agentroam"
+      "publisher": "ai.agentroam",
+      "icon_url": "https://www.google.com/s2/favicons?domain=agentroam.ai&sz=128"
     },
     {
       "name": "AgentTrust — Identity & Trust for A2A Agents",
@@ -860,7 +1477,8 @@
       "connection_type": "http",
       "connection_url": "https://app.ai-advisors.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.ai-advisors"
+      "publisher": "ai.ai-advisors",
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.ai-advisors.ai&sz=128"
     },
     {
       "name": "AIﾉアカリ☆ Agent Trust Receipt",
@@ -869,7 +1487,8 @@
       "connection_type": "http",
       "connection_url": "https://ai-akari.ai/mcp-trust",
       "auth_type": "none",
-      "publisher": "ai.ai-akari"
+      "publisher": "ai.ai-akari",
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai-akari.ai&sz=128"
     },
     {
       "name": "AIﾉアカリ☆ One-Minute Akari",
@@ -878,7 +1497,8 @@
       "connection_type": "http",
       "connection_url": "https://ai-akari.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.ai-akari"
+      "publisher": "ai.ai-akari",
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai-akari.ai&sz=128"
     },
     {
       "name": "AI-Portal — Enterprise GenAI Briefing",
@@ -887,7 +1507,8 @@
       "connection_type": "http",
       "connection_url": "https://www.ai-portal.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.ai-portal"
+      "publisher": "ai.ai-portal",
+      "icon_url": "https://www.google.com/s2/favicons?domain=www.ai-portal.ai&sz=128"
     },
     {
       "name": "AirShelf Catalog",
@@ -896,7 +1517,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.airshelf.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.airshelf"
+      "publisher": "ai.airshelf",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.airshelf.ai&sz=128"
     },
     {
       "name": "AIS Gateway — CVE prioritization + Agent Flight Recorder for AI agents",
@@ -905,7 +1527,8 @@
       "connection_type": "http",
       "connection_url": "https://api.aislabs.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.aislabs"
+      "publisher": "ai.aislabs",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.aislabs.ai&sz=128"
     },
     {
       "name": "AlphaCreek MCP",
@@ -914,7 +1537,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.alphacreek.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.alphacreek"
+      "publisher": "ai.alphacreek",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.alphacreek.ai&sz=128"
     },
     {
       "name": "AlphaCreek SEC Filings MCP",
@@ -923,7 +1547,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.alphacreek.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.alphacreek"
+      "publisher": "ai.alphacreek",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.alphacreek.ai&sz=128"
     },
     {
       "name": "AlpiX",
@@ -932,7 +1557,8 @@
       "connection_type": "http",
       "connection_url": "https://alpix.alpic.ai",
       "auth_type": "none",
-      "publisher": "ai.alpic.alpix"
+      "publisher": "ai.alpic.alpix",
+      "icon_url": "https://www.google.com/s2/favicons?domain=alpix.alpic.ai&sz=128"
     },
     {
       "name": "Alpic",
@@ -941,7 +1567,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.alpic.ai",
       "auth_type": "none",
-      "publisher": "ai.alpic.mcp"
+      "publisher": "ai.alpic.mcp",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.alpic.ai&sz=128"
     },
     {
       "name": "Test Mcp Server",
@@ -950,7 +1577,8 @@
       "connection_type": "http",
       "connection_url": "https://test.alpic.ai/",
       "auth_type": "none",
-      "publisher": "ai.alpic.test"
+      "publisher": "ai.alpic.test",
+      "icon_url": "https://www.google.com/s2/favicons?domain=test.alpic.ai&sz=128"
     },
     {
       "name": "Ambix",
@@ -959,7 +1587,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.ambix.ai",
       "auth_type": "none",
-      "publisher": "ai.ambix"
+      "publisher": "ai.ambix",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.ambix.ai&sz=128"
     },
     {
       "name": "Analytics Legends — SAP Analytics Intelligence",
@@ -968,7 +1597,8 @@
       "connection_type": "http",
       "connection_url": "https://analyticslegends.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.analyticslegends"
+      "publisher": "ai.analyticslegends",
+      "icon_url": "https://www.google.com/s2/favicons?domain=analyticslegends.ai&sz=128"
     },
     {
       "name": "Anki MCP Server",
@@ -1019,7 +1649,8 @@
       "connection_type": "sse",
       "connection_url": "https://mcp.anzenna.ai/sse",
       "auth_type": "none",
-      "publisher": "ai.anzenna"
+      "publisher": "ai.anzenna",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.anzenna.ai&sz=128"
     },
     {
       "name": "AppDeploy",
@@ -1028,7 +1659,8 @@
       "connection_type": "http",
       "connection_url": "https://api-v2.appdeploy.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.appdeploy"
+      "publisher": "ai.appdeploy",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api-v2.appdeploy.ai&sz=128"
     },
     {
       "name": "Seal",
@@ -1037,7 +1669,8 @@
       "connection_type": "http",
       "connection_url": "https://app.aqta.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.aqta"
+      "publisher": "ai.aqta",
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.aqta.ai&sz=128"
     },
     {
       "name": "Arclan MCP Registry",
@@ -1046,7 +1679,8 @@
       "connection_type": "http",
       "connection_url": "https://arclan.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.arclan"
+      "publisher": "ai.arclan",
+      "icon_url": "https://www.google.com/s2/favicons?domain=arclan.ai&sz=128"
     },
     {
       "name": "Enforcement Database",
@@ -1055,7 +1689,8 @@
       "connection_type": "http",
       "connection_url": "https://argushq.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.argushq"
+      "publisher": "ai.argushq",
+      "icon_url": "https://www.google.com/s2/favicons?domain=argushq.ai&sz=128"
     },
     {
       "name": "Arketo",
@@ -1064,7 +1699,8 @@
       "connection_type": "http",
       "connection_url": "https://arketo.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.arketo"
+      "publisher": "ai.arketo",
+      "icon_url": "https://www.google.com/s2/favicons?domain=arketo.ai&sz=128"
     },
     {
       "name": "ARPI MCP",
@@ -1073,7 +1709,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.arpi.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.arpi"
+      "publisher": "ai.arpi",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.arpi.ai&sz=128"
     },
     {
       "name": "Artidrop",
@@ -1082,7 +1719,8 @@
       "connection_type": "http",
       "connection_url": "https://artidrop.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.artidrop"
+      "publisher": "ai.artidrop",
+      "icon_url": "https://www.google.com/s2/favicons?domain=artidrop.ai&sz=128"
     },
     {
       "name": "Askline",
@@ -1091,7 +1729,8 @@
       "connection_type": "http",
       "connection_url": "https://askline.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.askline"
+      "publisher": "ai.askline",
+      "icon_url": "https://www.google.com/s2/favicons?domain=askline.ai&sz=128"
     },
     {
       "name": "Catalog",
@@ -1100,7 +1739,8 @@
       "connection_type": "http",
       "connection_url": "https://api.askmiles.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.askmiles"
+      "publisher": "ai.askmiles",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.askmiles.ai&sz=128"
     },
     {
       "name": "AssetLog",
@@ -1109,7 +1749,8 @@
       "connection_type": "http",
       "connection_url": "https://api.assetlog.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.assetlog"
+      "publisher": "ai.assetlog",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.assetlog.ai&sz=128"
     },
     {
       "name": "Supershopping",
@@ -1118,7 +1759,8 @@
       "connection_type": "http",
       "connection_url": "https://supershopping-mcp.atdev.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.atdev"
+      "publisher": "ai.atdev",
+      "icon_url": "https://www.google.com/s2/favicons?domain=supershopping-mcp.atdev.ai&sz=128"
     },
     {
       "name": "Atlas Mcp",
@@ -1127,7 +1769,8 @@
       "connection_type": "http",
       "connection_url": "https://api.atlasverified.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.atlasverified"
+      "publisher": "ai.atlasverified",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.atlasverified.ai&sz=128"
     },
     {
       "name": "Project Desk",
@@ -1136,7 +1779,8 @@
       "connection_type": "http",
       "connection_url": "https://atlier.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.atlier"
+      "publisher": "ai.atlier",
+      "icon_url": "https://www.google.com/s2/favicons?domain=atlier.ai&sz=128"
     },
     {
       "name": "Paseo",
@@ -1145,7 +1789,8 @@
       "connection_type": "http",
       "connection_url": "https://api.augmentev.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.augmentev"
+      "publisher": "ai.augmentev",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.augmentev.ai&sz=128"
     },
     {
       "name": "Travel World",
@@ -1154,7 +1799,8 @@
       "connection_type": "http",
       "connection_url": "https://travel.augworlds.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.augworlds"
+      "publisher": "ai.augworlds",
+      "icon_url": "https://www.google.com/s2/favicons?domain=travel.augworlds.ai&sz=128"
     },
     {
       "name": "Auralogs",
@@ -1163,7 +1809,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.auralogs.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.auralogs"
+      "publisher": "ai.auralogs",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.auralogs.ai&sz=128"
     },
     {
       "name": "AutEng MCP - Markdown Publishing & Document Share Links",
@@ -1172,7 +1819,8 @@
       "connection_type": "http",
       "connection_url": "https://auteng.ai/mcp/docs",
       "auth_type": "none",
-      "publisher": "ai.auteng"
+      "publisher": "ai.auteng",
+      "icon_url": "https://www.google.com/s2/favicons?domain=auteng.ai&sz=128"
     },
     {
       "name": "AutEng Document Publisher",
@@ -1181,7 +1829,8 @@
       "connection_type": "http",
       "connection_url": "https://auteng.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.auteng"
+      "publisher": "ai.auteng",
+      "icon_url": "https://www.google.com/s2/favicons?domain=auteng.ai&sz=128"
     },
     {
       "name": "Authoryze",
@@ -1190,7 +1839,8 @@
       "connection_type": "http",
       "connection_url": "https://authoryze.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.authoryze"
+      "publisher": "ai.authoryze",
+      "icon_url": "https://www.google.com/s2/favicons?domain=authoryze.ai&sz=128"
     },
     {
       "name": "Contextlayer Mcp",
@@ -1321,7 +1971,8 @@
       "connection_type": "http",
       "connection_url": "https://app.autoposting.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.autoposting"
+      "publisher": "ai.autoposting",
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.autoposting.ai&sz=128"
     },
     {
       "name": "AutoRFP.ai",
@@ -1330,7 +1981,8 @@
       "connection_type": "http",
       "connection_url": "https://{api_host}/mcp",
       "auth_type": "none",
-      "publisher": "ai.autorfp"
+      "publisher": "ai.autorfp",
+      "icon_url": "https://www.google.com/s2/favicons?domain={api_host}&sz=128"
     },
     {
       "name": "Auxen",
@@ -1339,7 +1991,8 @@
       "connection_type": "http",
       "connection_url": "https://api.auxen.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.auxen"
+      "publisher": "ai.auxen",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.auxen.ai&sz=128"
     },
     {
       "name": "Health",
@@ -1348,7 +2001,8 @@
       "connection_type": "http",
       "connection_url": "https://aviado.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.aviado"
+      "publisher": "ai.aviado",
+      "icon_url": "https://www.google.com/s2/favicons?domain=aviado.ai&sz=128"
     },
     {
       "name": "AwardCast Federal Contracts",
@@ -1357,7 +2011,8 @@
       "connection_type": "http",
       "connection_url": "https://awardcast.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.awardcast"
+      "publisher": "ai.awardcast",
+      "icon_url": "https://www.google.com/s2/favicons?domain=awardcast.ai&sz=128"
     },
     {
       "name": "AwrAIter — Telegram channels",
@@ -1366,7 +2021,8 @@
       "connection_type": "http",
       "connection_url": "https://awraiter.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.awraiter"
+      "publisher": "ai.awraiter",
+      "icon_url": "https://www.google.com/s2/favicons?domain=awraiter.ai&sz=128"
     },
     {
       "name": "Axon NeuroAutomata",
@@ -1375,7 +2031,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.neuroautomata.axonagentic.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.axonagentic"
+      "publisher": "ai.axonagentic",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.neuroautomata.axonagentic.ai&sz=128"
     },
     {
       "name": "AI Media Studio",
@@ -1384,7 +2041,8 @@
       "connection_type": "http",
       "connection_url": "https://ai-media-studio.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai-media-studio.b77.ai&sz=128"
     },
     {
       "name": "Apple Search Ads",
@@ -1393,7 +2051,8 @@
       "connection_type": "http",
       "connection_url": "https://apple-search-ads.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=apple-search-ads.b77.ai&sz=128"
     },
     {
       "name": "Chess Results",
@@ -1402,7 +2061,8 @@
       "connection_type": "http",
       "connection_url": "https://chess-results.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=chess-results.b77.ai&sz=128"
     },
     {
       "name": "Feedback",
@@ -1411,7 +2071,8 @@
       "connection_type": "http",
       "connection_url": "https://feedback.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=feedback.b77.ai&sz=128"
     },
     {
       "name": "Fibalo",
@@ -1420,7 +2081,8 @@
       "connection_type": "http",
       "connection_url": "https://fibalo.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=fibalo.b77.ai&sz=128"
     },
     {
       "name": "File Storage",
@@ -1429,7 +2091,8 @@
       "connection_type": "http",
       "connection_url": "https://file-storage.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=file-storage.b77.ai&sz=128"
     },
     {
       "name": "Google News",
@@ -1438,7 +2101,8 @@
       "connection_type": "http",
       "connection_url": "https://google-news.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=google-news.b77.ai&sz=128"
     },
     {
       "name": "Google Search Console",
@@ -1447,7 +2111,8 @@
       "connection_type": "http",
       "connection_url": "https://google-search-console.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=google-search-console.b77.ai&sz=128"
     },
     {
       "name": "Kinnovis Self-Storage",
@@ -1456,7 +2121,8 @@
       "connection_type": "http",
       "connection_url": "https://kinnovis-storage.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=kinnovis-storage.b77.ai&sz=128"
     },
     {
       "name": "Knowledge Base",
@@ -1465,7 +2131,8 @@
       "connection_type": "http",
       "connection_url": "https://knowledge-base.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=knowledge-base.b77.ai&sz=128"
     },
     {
       "name": "Nightscout",
@@ -1474,7 +2141,8 @@
       "connection_type": "http",
       "connection_url": "https://nightscout.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=nightscout.b77.ai&sz=128"
     },
     {
       "name": "SEO Content Factory",
@@ -1483,7 +2151,8 @@
       "connection_type": "http",
       "connection_url": "https://seo-content-factory.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=seo-content-factory.b77.ai&sz=128"
     },
     {
       "name": "Teamwork",
@@ -1492,7 +2161,8 @@
       "connection_type": "http",
       "connection_url": "https://teamwork.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=teamwork.b77.ai&sz=128"
     },
     {
       "name": "Time",
@@ -1501,7 +2171,8 @@
       "connection_type": "http",
       "connection_url": "https://time.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=time.b77.ai&sz=128"
     },
     {
       "name": "Web Analytics",
@@ -1510,7 +2181,8 @@
       "connection_type": "http",
       "connection_url": "https://web-analytics.b77.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.b77"
+      "publisher": "ai.b77",
+      "icon_url": "https://www.google.com/s2/favicons?domain=web-analytics.b77.ai&sz=128"
     },
     {
       "name": "Backengine Mcp",
@@ -1519,7 +2191,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.backengine.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.backengine"
+      "publisher": "ai.backengine",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.backengine.ai&sz=128"
     },
     {
       "name": "Inferventis MCP Server",
@@ -1528,7 +2201,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp-server-295985738387.europe-west1.run.app/mcp",
       "auth_type": "none",
-      "publisher": "ai.bankee"
+      "publisher": "ai.bankee",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp-server-295985738387.europe-west1.run.app&sz=128"
     },
     {
       "name": "Bareun — Korean NLP & Spell/Grammar Checking",
@@ -1537,7 +2211,8 @@
       "connection_type": "http",
       "connection_url": "https://api.bareun.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.bareun"
+      "publisher": "ai.bareun",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.bareun.ai&sz=128"
     },
     {
       "name": "Baselight",
@@ -1546,7 +2221,8 @@
       "connection_type": "http",
       "connection_url": "https://api.baselight.app/mcp",
       "auth_type": "none",
-      "publisher": "ai.baselight"
+      "publisher": "ai.baselight",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.baselight.app&sz=128"
     },
     {
       "name": "Basethread",
@@ -1555,7 +2231,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.basethread.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.basethread"
+      "publisher": "ai.basethread",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.basethread.ai&sz=128"
     },
     {
       "name": "Bassethound",
@@ -1564,7 +2241,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.bassethound.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.bassethound"
+      "publisher": "ai.bassethound",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.bassethound.ai&sz=128"
     },
     {
       "name": "BeatBandit MCP",
@@ -1573,7 +2251,8 @@
       "connection_type": "http",
       "connection_url": "https://beatbandit.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.beatbandit"
+      "publisher": "ai.beatbandit",
+      "icon_url": "https://www.google.com/s2/favicons?domain=beatbandit.ai&sz=128"
     },
     {
       "name": "Audit",
@@ -1582,7 +2261,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.beket.ai/registry/mcp",
       "auth_type": "none",
-      "publisher": "ai.beket"
+      "publisher": "ai.beket",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.beket.ai&sz=128"
     },
     {
       "name": "B4 Index",
@@ -1591,7 +2271,8 @@
       "connection_type": "http",
       "connection_url": "https://b4-index.vercel.app/mcp",
       "auth_type": "none",
-      "publisher": "ai.benroberts"
+      "publisher": "ai.benroberts",
+      "icon_url": "https://www.google.com/s2/favicons?domain=b4-index.vercel.app&sz=128"
     },
     {
       "name": "BetSlip Doctor",
@@ -1600,7 +2281,8 @@
       "connection_type": "http",
       "connection_url": "https://api.betslipdoctor.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.betslipdoctor"
+      "publisher": "ai.betslipdoctor",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.betslipdoctor.ai&sz=128"
     },
     {
       "name": "BetterPost",
@@ -1609,7 +2291,8 @@
       "connection_type": "http",
       "connection_url": "https://betterpost.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.betterpost"
+      "publisher": "ai.betterpost",
+      "icon_url": "https://www.google.com/s2/favicons?domain=betterpost.ai&sz=128"
     },
     {
       "name": "Bezal — Local Business Intelligence for AI Agents",
@@ -1618,7 +2301,8 @@
       "connection_type": "http",
       "connection_url": "https://app.bezal.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.bezal"
+      "publisher": "ai.bezal",
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.bezal.ai&sz=128"
     },
     {
       "name": "Bidclub",
@@ -1627,7 +2311,8 @@
       "connection_type": "http",
       "connection_url": "https://bidclub.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.bidclub"
+      "publisher": "ai.bidclub",
+      "icon_url": "https://www.google.com/s2/favicons?domain=bidclub.ai&sz=128"
     },
     {
       "name": "BidDeed MCP",
@@ -1636,7 +2321,8 @@
       "connection_type": "http",
       "connection_url": "https://biddeed.ai/api/mcp",
       "auth_type": "none",
-      "publisher": "ai.biddeed"
+      "publisher": "ai.biddeed",
+      "icon_url": "https://www.google.com/s2/favicons?domain=biddeed.ai&sz=128"
     },
     {
       "name": "Biel.ai",
@@ -1645,7 +2331,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.biel.ai/v2/{project_slug}/mcp",
       "auth_type": "none",
-      "publisher": "ai.biel"
+      "publisher": "ai.biel",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.biel.ai&sz=128"
     },
     {
       "name": "Bitroad",
@@ -1654,7 +2341,8 @@
       "connection_type": "http",
       "connection_url": "https://app.bitroad.ai/api/v1/mcp",
       "auth_type": "none",
-      "publisher": "ai.bitroad"
+      "publisher": "ai.bitroad",
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.bitroad.ai&sz=128"
     },
     {
       "name": "BittleBits GEO Assistant",
@@ -1663,7 +2351,8 @@
       "connection_type": "http",
       "connection_url": "https://bittlebits.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.bittlebits"
+      "publisher": "ai.bittlebits",
+      "icon_url": "https://www.google.com/s2/favicons?domain=bittlebits.ai&sz=128"
     },
     {
       "name": "BizMuse AI Music Video",
@@ -1700,7 +2389,8 @@
       "connection_type": "http",
       "connection_url": "https://blast-radius.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.blast-radius"
+      "publisher": "ai.blast-radius",
+      "icon_url": "https://www.google.com/s2/favicons?domain=blast-radius.ai&sz=128"
     },
     {
       "name": "Bloopo — Make Ads",
@@ -1709,7 +2399,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.bloopo.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.bloopo"
+      "publisher": "ai.bloopo",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.bloopo.ai&sz=128"
     },
     {
       "name": "Bloopo — AI Ad & Creative Studio",
@@ -1718,7 +2409,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.bloopo.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.bloopo"
+      "publisher": "ai.bloopo",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.bloopo.ai&sz=128"
     },
     {
       "name": "Web Search API for all your agents and LLMs",
@@ -1727,7 +2419,8 @@
       "connection_type": "http",
       "connection_url": "https://mcp.blopus.ai/mcp/",
       "auth_type": "none",
-      "publisher": "ai.blopus"
+      "publisher": "ai.blopus",
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.blopus.ai&sz=128"
     },
     {
       "name": "BlueNexus Universal MCP",
@@ -1736,7 +2429,8 @@
       "connection_type": "http",
       "connection_url": "https://api.bluenexus.ai/mcp",
       "auth_type": "none",
-      "publisher": "ai.bluenexus"
+      "publisher": "ai.bluenexus",
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.bluenexus.ai&sz=128"
     }
   ]
 }

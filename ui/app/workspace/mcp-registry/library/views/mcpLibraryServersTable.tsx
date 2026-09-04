@@ -10,7 +10,8 @@ import { BookIcon, Check, Download, LogIn, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { MCPLibraryDeleteDialog } from "./mcpLibraryDeleteDialog";
-import { authLabel, MCP_ICON_FALLBACK, transportIcon, transportLabel } from "./mcpLibraryServerCard";
+import { authLabel, transportIcon, transportLabel } from "./mcpLibraryServerCard";
+import { MCPLibraryIcon } from "./mcpLibraryIcon";
 
 interface MCPLibraryServersTableProps {
 	servers: MCPLibraryEntry[];
@@ -58,21 +59,7 @@ export function MCPLibraryServersTable({
 						return (
 							<TableRow key={server.slug} className="group" data-testid={`mcp-library-table-row-${server.slug}`}>
 								<TableCell>
-									<div className="bg-background flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md border shadow-xs">
-										{server.icon_url ? (
-											<img
-												src={server.icon_url}
-												alt=""
-												className="h-full w-full object-contain p-1.5"
-												onError={(event) => {
-													event.currentTarget.onerror = null;
-													event.currentTarget.src = MCP_ICON_FALLBACK;
-												}}
-											/>
-										) : (
-											<img src={"/images/mcp.svg"} alt="" className="h-full w-full object-contain p-1.5" />
-										)}
-									</div>
+									<MCPLibraryIcon server={server} className="h-10 w-10" />
 								</TableCell>
 								<TableCell className="min-w-72 whitespace-normal">
 									<div className="min-w-0 space-y-1">

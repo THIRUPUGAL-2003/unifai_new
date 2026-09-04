@@ -21,8 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { MCPHeadersAuthorizer } from "../../views/mcpHeadersAuthorizer";
 import { OAuth2Authorizer } from "../../views/oauth2Authorizer";
-
-const MCP_ICON_FALLBACK = "/images/mcp.svg";
+import { MCPLibraryIcon } from "./mcpLibraryIcon";
 
 interface MCPLibraryInstallSheetProps {
 	server: MCPLibraryEntry;
@@ -57,9 +56,34 @@ export function sanitizeServerName(name: string): string {
 	return /^[0-9]/.test(cleaned) || cleaned === "" ? `mcp_${cleaned}` : cleaned;
 }
 
+function inferLibraryAuthType(server: MCPLibraryEntry): MCPAuthType {
+	const catalog = (server.auth_type || "none") as MCPAuthType;
+	if (catalog !== "none") return catalog;
+	const url = (server.connection_url || "").toLowerCase();
+	// Supabase edge functions and similar gateways reject anonymous MCP init with 401.
+	if (url.includes("supabase.co") || url.includes("/functions/v1/")) {
+		return "headers";
+	}
+	return "none";
+}
+
+function hasFilledHeaders(headers?: Record<string, SecretVar> | null): boolean {
+	if (!headers) return false;
+	return Object.values(headers).some((h) => Boolean(h?.value?.trim() || h?.ref?.trim()));
+}
+
 function buildInitialValues(server: MCPLibraryEntry): CreateMCPClientRequest {
-	const authType = (server.auth_type || "none") as MCPAuthType;
+	const authType = inferLibraryAuthType(server);
 	const isStdio = server.connection_type === "stdio";
+	const requiredKeys = server.required_header_keys?.length
+		? server.required_header_keys
+		: authType === "headers"
+			? ["Authorization"]
+			: [];
+	const headers =
+		authType === "headers"
+			? Object.fromEntries(requiredKeys.map((key) => [key, { value: "", ref: "" }]))
+			: undefined;
 	return {
 		name: sanitizeServerName(server.name),
 		is_code_mode_client: false,
@@ -68,7 +92,7 @@ function buildInitialValues(server: MCPLibraryEntry): CreateMCPClientRequest {
 		connection_string: isStdio ? undefined : server.connection_url ? { value: server.connection_url, ref: "" } : emptySecretVar,
 		stdio_config: isStdio && server.stdio_config ? server.stdio_config : undefined,
 		auth_type: authType,
-		headers: authType === "headers" ? { Authorization: { value: "", ref: "" } } : undefined,
+		headers,
 	};
 }
 
@@ -270,6 +294,27 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 			}
 		}
 
+		if (authType === "headers" && !hasFilledHeaders(data.headers)) {
+			toast({
+				title: "API credentials required",
+				description: "This server needs Headers auth. Add a token (e.g. Authorization), then install again.",
+				variant: "destructive",
+			});
+			hasErrors = true;
+		}
+
+		if (server.connection_type === "stdio" && server.stdio_config?.envs?.length) {
+			const missing = server.stdio_config.envs.filter((name) => !envVars[name]?.trim());
+			if (missing.length > 0) {
+				toast({
+					title: "Environment variables required",
+					description: `Fill in: ${missing.join(", ")}`,
+					variant: "destructive",
+				});
+				hasErrors = true;
+			}
+		}
+
 		if (headersValidationError || hasErrors) return;
 
 		const isStdio = server.connection_type === "stdio";
@@ -351,15 +396,18 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 				setError("name", { message: getErrorMessage(error) });
 				return;
 			}
+			const message = getErrorMessage(error);
+			const needsAuthHint = /401|unauthorized|authentication|auth/i.test(message);
 			toast({
 				title: "Error",
-				description: getErrorMessage(error),
+				description: needsAuthHint
+					? `${message} — switch Authentication to Headers (or OAuth) and add a valid API key / token, then try again.`
+					: message,
 				variant: "destructive",
 			});
 		}
 	};
 
-	const iconUrl = server.icon_url || MCP_ICON_FALLBACK;
 	const isStdio = server.connection_type === "stdio";
 	const isOauth = authType === "oauth" || authType === "per_user_oauth";
 	const isPerUserHeaders = authType === "per_user_headers";
@@ -380,17 +428,7 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 						<div className="flex-1 space-y-6 px-8 pt-5 pb-6">
 							<section className="border-b pb-5">
 								<div className="bg-muted/10 flex items-start gap-3 rounded-sm border p-3">
-									<div className="bg-background flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-sm border">
-										<img
-											src={iconUrl}
-											alt=""
-											className="h-full w-full object-contain p-1"
-											onError={(event) => {
-												event.currentTarget.onerror = null;
-												event.currentTarget.src = MCP_ICON_FALLBACK;
-											}}
-										/>
-									</div>
+									<MCPLibraryIcon server={server} className="h-10 w-10 rounded-sm" imgClassName="p-1" />
 									<div className="min-w-0 flex-1 space-y-2">
 										<div className="min-w-0">
 											<p className="truncate text-sm font-medium">{server.name}</p>
@@ -403,7 +441,7 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 											</Badge>
 											<Badge variant="outline" className="bg-background">
 												<ShieldCheck className="size-3.5" />
-												{authLabel(server.auth_type)}
+												{authLabel(authType)}
 											</Badge>
 											{server.category && (
 												<Badge variant="secondary" className="max-w-full truncate">

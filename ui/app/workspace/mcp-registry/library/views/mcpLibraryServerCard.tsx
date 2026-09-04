@@ -10,9 +10,10 @@ import { BookIcon, Globe, Radio, Terminal, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { MCPLibraryDeleteDialog } from "./mcpLibraryDeleteDialog";
+import { MCPLibraryIcon } from "./mcpLibraryIcon";
 
 const MAX_VISIBLE_TAGS = 3;
-export const MCP_ICON_FALLBACK = "/images/mcp.svg";
+export { MCP_ICON_FALLBACK } from "@/lib/utils/mcpLibraryIcon";
 
 /** Map connection_type to a human-friendly transport label. */
 export function transportLabel(connectionType: string): string {
@@ -83,21 +84,7 @@ export function MCPLibraryServerCard({ server, isInstalled, canCreateMCPClient, 
 		>
 			<CardHeader className="bg-muted/20 border-b px-4 py-4">
 				<div className="flex min-w-0 items-start gap-3">
-					<div className="bg-background flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-md border shadow-xs">
-						{server.icon_url ? (
-							<img
-								src={server.icon_url}
-								alt=""
-								className="h-full w-full object-contain p-1.5"
-								onError={(event) => {
-									event.currentTarget.onerror = null;
-									event.currentTarget.src = MCP_ICON_FALLBACK;
-								}}
-							/>
-						) : (
-							<img src={"/images/mcp.svg"} alt="" className="h-full w-full object-contain p-1.5" />
-						)}
-					</div>
+					<MCPLibraryIcon server={server} className="h-12 w-12" />
 					<div className="min-w-0 flex-1 space-y-1">
 						<div className="flex min-w-0 items-start justify-between gap-2">
 							<CardTitle className="min-w-0 pt-0.5 text-sm leading-5">

@@ -49,6 +49,7 @@ const emptyForm: CreateMCPClientRequest = {
 	name: "",
 	is_code_mode_client: false,
 	is_ping_available: true,
+	allow_on_all_virtual_keys: true,
 	connection_type: "http",
 	connection_string: emptySecretVar,
 	stdio_config: emptyStdioConfig,
@@ -262,6 +263,8 @@ const ClientForm: React.FC<ClientFormProps> = ({ open, onClose, onSaved }) => {
 					: undefined,
 			per_user_header_keys: authType === "per_user_headers" ? perUserHeaderKeys : undefined,
 			tools_to_execute: ["*"],
+			// Match library install: usable on every VK until access is tightened in the client sheet.
+			allow_on_all_virtual_keys: data.allow_on_all_virtual_keys ?? true,
 		};
 
 		// Per-user-headers: stash the payload and open the headers test
@@ -438,6 +441,38 @@ const ClientForm: React.FC<ClientFormProps> = ({ open, onClose, onSaved }) => {
 											id="ping-available"
 											data-testid="mcp-is-ping-available"
 											checked={field.value === true}
+											onCheckedChange={field.onChange}
+										/>
+									</div>
+								)}
+							/>
+
+							{/* Allow on all virtual keys — otherwise chat/prompts won't see tools until VK is linked */}
+							<FormField
+								control={control}
+								name="allow_on_all_virtual_keys"
+								render={({ field }) => (
+									<div className="flex items-center justify-between space-x-2 rounded-lg border p-4">
+										<div className="flex items-center gap-2">
+											<Label htmlFor="allow-all-vks">Available to all virtual keys</Label>
+											<TooltipProvider>
+												<Tooltip>
+													<TooltipTrigger asChild>
+														<Info className="text-muted-foreground h-4 w-4 cursor-help" />
+													</TooltipTrigger>
+													<TooltipContent className="max-w-xs">
+														<p>
+															When on, every virtual key can use this server&apos;s tools. Turn off and attach specific keys in the
+															server settings if you need tighter access.
+														</p>
+													</TooltipContent>
+												</Tooltip>
+											</TooltipProvider>
+										</div>
+										<Switch
+											id="allow-all-vks"
+											data-testid="mcp-allow-on-all-virtual-keys"
+											checked={field.value !== false}
 											onCheckedChange={field.onChange}
 										/>
 									</div>
