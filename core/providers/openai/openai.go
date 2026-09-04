@@ -177,12 +177,9 @@ func ListModelsByKey(
 	// Copy response body before releasing
 	responseBody := append([]byte(nil), resp.Body()...)
 
-	openaiResponse := &OpenAIListModelsResponse{}
-
-	// Use enhanced response handler with pre-allocated response
-	rawRequest, rawResponse, unifaiErr := providerUtils.HandleProviderResponse(responseBody, openaiResponse, nil, sendBackRawRequest, sendBackRawResponse)
-	if unifaiErr != nil {
-		return nil, providerUtils.SetErrorLatency(unifaiErr, latency)
+	openaiResponse, parseErr := parseOpenAIListModelsBody(responseBody)
+	if parseErr != nil {
+		return nil, providerUtils.SetErrorLatency(providerUtils.NewUnifAIOperationError(schemas.ErrProviderResponseUnmarshal, parseErr), latency)
 	}
 
 	response := openaiResponse.ToUnifAIListModelsResponse(providerName, key.Models, key.BlacklistedModels, key.Aliases, unfiltered)
@@ -190,17 +187,33 @@ func ListModelsByKey(
 	response.ExtraFields.Latency = latency.Milliseconds()
 	response.ExtraFields.ProviderResponseHeaders = providerResponseHeaders
 
-	// Set raw request if enabled
-	if providerUtils.ShouldSendBackRawRequest(ctx, sendBackRawRequest) {
-		response.ExtraFields.RawRequest = rawRequest
-	}
-
-	// Set raw response if enabled
+	// Set raw response if enabled (GET has no request body).
 	if sendBackRawResponse {
-		response.ExtraFields.RawResponse = rawResponse
+		response.ExtraFields.RawResponse = responseBody
 	}
 
 	return response, nil
+}
+
+// parseOpenAIListModelsBody accepts both OpenAI's {object,data} envelope and a bare
+// model array (Together AI and several other OpenAI-compat vendors).
+func parseOpenAIListModelsBody(responseBody []byte) (*OpenAIListModelsResponse, error) {
+	trimmed := bytes.TrimSpace(responseBody)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("empty list models response")
+	}
+	if trimmed[0] == '[' {
+		var models []OpenAIModel
+		if err := sonic.Unmarshal(trimmed, &models); err != nil {
+			return nil, err
+		}
+		return &OpenAIListModelsResponse{Object: "list", Data: models}, nil
+	}
+	out := &OpenAIListModelsResponse{}
+	if err := sonic.Unmarshal(trimmed, out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // BearerAuthHeader builds the auth header map for OpenAI-compatible providers that authenticate

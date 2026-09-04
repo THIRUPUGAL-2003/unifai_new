@@ -33,11 +33,19 @@ func (response *OpenAIListModelsResponse) ToUnifAIListModelsResponse(providerKey
 
 	for _, model := range response.Data {
 		for _, result := range pipeline.FilterModel(model.ID) {
+			ownedBy := model.OwnedBy
+			if ownedBy == "" {
+				ownedBy = model.Organization
+			}
+			contextLength := model.ContextWindow
+			if contextLength == nil {
+				contextLength = model.ContextLength
+			}
 			entry := schemas.Model{
 				ID:            string(providerKey) + "/" + result.ResolvedID,
 				Created:       model.Created,
-				OwnedBy:       schemas.Ptr(model.OwnedBy),
-				ContextLength: model.ContextWindow,
+				OwnedBy:       schemas.Ptr(ownedBy),
+				ContextLength: contextLength,
 			}
 			if result.AliasValue != "" {
 				entry.Alias = schemas.Ptr(result.AliasValue)

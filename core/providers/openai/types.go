@@ -912,6 +912,10 @@ type OpenAIModel struct {
 	// GROQ specific fields
 	Active        *bool `json:"active,omitempty"`
 	ContextWindow *int  `json:"context_window,omitempty"`
+
+	// Together / other OpenAI-compat vendors often use these names instead.
+	Organization  string `json:"organization,omitempty"`
+	ContextLength *int   `json:"context_length,omitempty"`
 }
 
 // OpenAIListModelsResponse represents an OpenAI list models response
