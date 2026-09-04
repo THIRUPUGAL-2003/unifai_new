@@ -26,6 +26,7 @@ import (
 	"github.com/unifai/unifai/core/providers/bedrock"
 	"github.com/unifai/unifai/core/providers/bedrockmantle"
 	"github.com/unifai/unifai/core/providers/cerebras"
+	"github.com/unifai/unifai/core/providers/openaicompat"
 	"github.com/unifai/unifai/core/providers/cohere"
 	"github.com/unifai/unifai/core/providers/deepseek"
 	"github.com/unifai/unifai/core/providers/elevenlabs"
@@ -4292,6 +4293,9 @@ func (unifai *UnifAI) createBaseProvider(providerKey schemas.ModelProvider, conf
 	case schemas.Fireworks:
 		return fireworks.NewFireworksProvider(config, unifai.logger)
 	default:
+		if _, ok := openaicompat.Registry[targetProviderKey]; ok {
+			return openaicompat.New(targetProviderKey, config, unifai.logger)
+		}
 		return nil, fmt.Errorf("unsupported provider: %s", targetProviderKey)
 	}
 }

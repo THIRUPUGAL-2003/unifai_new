@@ -765,6 +765,656 @@ export const ProviderIcons = {
 			</svg>
 		);
 	},
+	together: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Together AI</title>
+				<rect width="28" height="28" rx="6" fill="#0f6fff" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">TA</text>
+			</svg>
+		);
+	},
+	siliconflow: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>SiliconFlow</title>
+				<rect width="28" height="28" rx="6" fill="#7c3aed" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">S</text>
+			</svg>
+		);
+	},
+	moonshot: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Moonshot AI</title>
+				<rect width="28" height="28" rx="6" fill="#111827" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">MA</text>
+			</svg>
+		);
+	},
+	minimax: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>MiniMax</title>
+				<rect width="28" height="28" rx="6" fill="#e11d48" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">M</text>
+			</svg>
+		);
+	},
+	sambanova: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>SambaNova</title>
+				<rect width="28" height="28" rx="6" fill="#ee3424" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">S</text>
+			</svg>
+		);
+	},
+	deepinfra: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>DeepInfra</title>
+				<rect width="28" height="28" rx="6" fill="#4f46e5" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">D</text>
+			</svg>
+		);
+	},
+	novita: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Novita AI</title>
+				<rect width="28" height="28" rx="6" fill="#6366f1" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">NA</text>
+			</svg>
+		);
+	},
+	nvidia: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>NVIDIA NIM</title>
+				<rect width="28" height="28" rx="6" fill="#76b900" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">NN</text>
+			</svg>
+		);
+	},
+	hyperbolic: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Hyperbolic</title>
+				<rect width="28" height="28" rx="6" fill="#ec4899" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">H</text>
+			</svg>
+		);
+	},
+	portkey: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Portkey</title>
+				<rect width="28" height="28" rx="6" fill="#0ea5e9" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">P</text>
+			</svg>
+		);
+	},
+	dashscope: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Alibaba DashScope</title>
+				<rect width="28" height="28" rx="6" fill="#ff6a00" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">AD</text>
+			</svg>
+		);
+	},
+	zhipu: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Zhipu AI</title>
+				<rect width="28" height="28" rx="6" fill="#3b82f6" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">ZA</text>
+			</svg>
+		);
+	},
+	baichuan: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Baichuan</title>
+				<rect width="28" height="28" rx="6" fill="#22c55e" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">B</text>
+			</svg>
+		);
+	},
+	stepfun: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>StepFun</title>
+				<rect width="28" height="28" rx="6" fill="#8b5cf6" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">S</text>
+			</svg>
+		);
+	},
+	upstage: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Upstage</title>
+				<rect width="28" height="28" rx="6" fill="#a855f7" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">U</text>
+			</svg>
+		);
+	},
+	ai21: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>AI21 Labs</title>
+				<rect width="28" height="28" rx="6" fill="#f59e0b" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">AL</text>
+			</svg>
+		);
+	},
+	sakana: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Sakana AI</title>
+				<rect width="28" height="28" rx="6" fill="#14b8a6" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">SA</text>
+			</svg>
+		);
+	},
+	baseten: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Baseten</title>
+				<rect width="28" height="28" rx="6" fill="#111827" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">B</text>
+			</svg>
+		);
+	},
+	anyscale: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Anyscale</title>
+				<rect width="28" height="28" rx="6" fill="#000000" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">A</text>
+			</svg>
+		);
+	},
+	lepton: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Lepton AI</title>
+				<rect width="28" height="28" rx="6" fill="#f97316" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">LA</text>
+			</svg>
+		);
+	},
+	friendli: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>FriendliAI</title>
+				<rect width="28" height="28" rx="6" fill="#06b6d4" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">F</text>
+			</svg>
+		);
+	},
+	modelscope: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>ModelScope</title>
+				<rect width="28" height="28" rx="6" fill="#2563eb" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">M</text>
+			</svg>
+		);
+	},
+	hunyuan: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Tencent Hunyuan</title>
+				<rect width="28" height="28" rx="6" fill="#0052d9" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">TH</text>
+			</svg>
+		);
+	},
+	qianfan: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Baidu Qianfan</title>
+				<rect width="28" height="28" rx="6" fill="#2932e1" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">BQ</text>
+			</svg>
+		);
+	},
+	ark: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Volcengine Ark</title>
+				<rect width="28" height="28" rx="6" fill="#1664ff" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">VA</text>
+			</svg>
+		);
+	},
+	sarvam: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Sarvam AI</title>
+				<rect width="28" height="28" rx="6" fill="#ea580c" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">SA</text>
+			</svg>
+		);
+	},
+	krutrim: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Krutrim</title>
+				<rect width="28" height="28" rx="6" fill="#16a34a" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">K</text>
+			</svg>
+		);
+	},
+	sensenova: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>SenseNova</title>
+				<rect width="28" height="28" rx="6" fill="#dc2626" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">S</text>
+			</svg>
+		);
+	},
+	spark: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>iFlytek Spark</title>
+				<rect width="28" height="28" rx="6" fill="#0284c7" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">IS</text>
+			</svg>
+		);
+	},
+	reka: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Reka AI</title>
+				<rect width="28" height="28" rx="6" fill="#7c3aed" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">RA</text>
+			</svg>
+		);
+	},
+	featherless: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Featherless AI</title>
+				<rect width="28" height="28" rx="6" fill="#64748b" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">FA</text>
+			</svg>
+		);
+	},
+	scaleway: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Scaleway</title>
+				<rect width="28" height="28" rx="6" fill="#4f0599" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">S</text>
+			</svg>
+		);
+	},
+	voyage: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Voyage AI</title>
+				<rect width="28" height="28" rx="6" fill="#0f172a" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">VA</text>
+			</svg>
+		);
+	},
+	jina: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Jina AI</title>
+				<rect width="28" height="28" rx="6" fill="#ea580c" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">JA</text>
+			</svg>
+		);
+	},
+	nscale: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Nscale</title>
+				<rect width="28" height="28" rx="6" fill="#0891b2" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">N</text>
+			</svg>
+		);
+	},
+	publicai: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>PublicAI</title>
+				<rect width="28" height="28" rx="6" fill="#334155" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">P</text>
+			</svg>
+		);
+	},
+	inferencenet: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Inference.net</title>
+				<rect width="28" height="28" rx="6" fill="#475569" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">I</text>
+			</svg>
+		);
+	},
+	kluster: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Kluster AI</title>
+				<rect width="28" height="28" rx="6" fill="#6366f1" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">KA</text>
+			</svg>
+		);
+	},
+	lingyiwanwu: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Lingyi Wanwu</title>
+				<rect width="28" height="28" rx="6" fill="#6366f1" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">LW</text>
+			</svg>
+		);
+	},
+	inceptionlabs: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Inception Labs</title>
+				<rect width="28" height="28" rx="6" fill="#0ea5e9" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">IL</text>
+			</svg>
+		);
+	},
+	arcee: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Arcee AI</title>
+				<rect width="28" height="28" rx="6" fill="#7c3aed" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">AA</text>
+			</svg>
+		);
+	},
+	nousresearch: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Nous Research</title>
+				<rect width="28" height="28" rx="6" fill="#111827" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">NR</text>
+			</svg>
+		);
+	},
+	morphllm: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>MorphLLM</title>
+				<rect width="28" height="28" rx="6" fill="#8b5cf6" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">M</text>
+			</svg>
+		);
+	},
+	nlpcloud: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>NLP Cloud</title>
+				<rect width="28" height="28" rx="6" fill="#2563eb" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">NC</text>
+			</svg>
+		);
+	},
+	monsterapi: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>MonsterAPI</title>
+				<rect width="28" height="28" rx="6" fill="#dc2626" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">M</text>
+			</svg>
+		);
+	},
+	aionlabs: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>AionLabs</title>
+				<rect width="28" height="28" rx="6" fill="#059669" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">A</text>
+			</svg>
+		);
+	},
+	totalgpt: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>TotalGPT</title>
+				<rect width="28" height="28" rx="6" fill="#4f46e5" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">T</text>
+			</svg>
+		);
+	},
+	mancer: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Mancer</title>
+				<rect width="28" height="28" rx="6" fill="#64748b" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">M</text>
+			</svg>
+		);
+	},
+	dit: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Dit.ai</title>
+				<rect width="28" height="28" rx="6" fill="#0891b2" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">DA</text>
+			</svg>
+		);
+	},
+	opper: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Opper</title>
+				<rect width="28" height="28" rx="6" fill="#f59e0b" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">O</text>
+			</svg>
+		);
+	},
+	relace: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Relace</title>
+				<rect width="28" height="28" rx="6" fill="#ec4899" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">R</text>
+			</svg>
+		);
+	},
+	openadapter: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>OpenAdapter</title>
+				<rect width="28" height="28" rx="6" fill="#14b8a6" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">O</text>
+			</svg>
+		);
+	},
+	nanogpt: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Nano-GPT</title>
+				<rect width="28" height="28" rx="6" fill="#22c55e" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">N</text>
+			</svg>
+		);
+	},
+	nararouter: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>NaraRouter</title>
+				<rect width="28" height="28" rx="6" fill="#ea580c" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">N</text>
+			</svg>
+		);
+	},
+	navy: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Navy AI</title>
+				<rect width="28" height="28" rx="6" fill="#1e3a8a" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">NA</text>
+			</svg>
+		);
+	},
+	freemodel: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>FreeModel</title>
+				<rect width="28" height="28" rx="6" fill="#84cc16" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">F</text>
+			</svg>
+		);
+	},
+	freeai: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Free.ai</title>
+				<rect width="28" height="28" rx="6" fill="#65a30d" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">FA</text>
+			</svg>
+		);
+	},
+	freeinference: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>FreeInference</title>
+				<rect width="28" height="28" rx="6" fill="#4d7c0f" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">F</text>
+			</svg>
+		);
+	},
+	fenay: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Fenay AI</title>
+				<rect width="28" height="28" rx="6" fill="#a855f7" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">FA</text>
+			</svg>
+		);
+	},
+	empower: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Empower AI</title>
+				<rect width="28" height="28" rx="6" fill="#c026d3" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">EA</text>
+			</svg>
+		);
+	},
+	fastinfra: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>FastInfra</title>
+				<rect width="28" height="28" rx="6" fill="#e11d48" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">F</text>
+			</svg>
+		);
+	},
+	wafer: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Wafer</title>
+				<rect width="28" height="28" rx="6" fill="#0f172a" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">W</text>
+			</svg>
+		);
+	},
+	gmiserving: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>GMI Serving</title>
+				<rect width="28" height="28" rx="6" fill="#0284c7" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">GS</text>
+			</svg>
+		);
+	},
+	cerebrium: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>Cerebrium</title>
+				<rect width="28" height="28" rx="6" fill="#7c2d12" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">C</text>
+			</svg>
+		);
+	},
+	dashscopecn: ({ size = "md", className = "" }: IconProps) => {
+		const resolvedSize = resolveSize(size);
+		return (
+			<svg width={resolvedSize} height={resolvedSize} viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+				<title>DashScope China</title>
+				<rect width="28" height="28" rx="6" fill="#ff6a00" />
+				<text x="14" y="18" textAnchor="middle" fill="white" fontSize="11" fontWeight="700" fontFamily="system-ui,sans-serif">DC</text>
+			</svg>
+		);
+	},
 } as const;
 
 // Routing Engine Icons

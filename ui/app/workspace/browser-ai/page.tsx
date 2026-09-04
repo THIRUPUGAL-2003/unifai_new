@@ -3391,7 +3391,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									{agents.length === 0 && (
 										<TableRow>
 											<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
-												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe on employee laptops.
+												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe (Windows) or UnifAI Guard.app (Mac) on employee laptops.
 											</TableCell>
 										</TableRow>
 									)}
@@ -3617,7 +3617,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									<CheckCircle2 className="h-6 w-6 text-emerald-400" />
 									<div>
 										<CardTitle className="text-lg">Employee Setup Package</CardTitle>
-										<CardDescription>Download a ZIP with the Guard Windows installer only.</CardDescription>
+										<CardDescription>
+											One ZIP for Windows and macOS Guard (same product, OS-specific installer).
+										</CardDescription>
 									</div>
 								</div>
 								<Button onClick={handleDownloadSetupPackage} disabled={setupPackageDownloading} className="gap-2">
@@ -3628,7 +3630,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 						</CardHeader>
 						<CardContent className="pt-0">
 							<p className="text-sm text-muted-foreground">
-								ZIP contains <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> only. Backend config is already inside the installer.
+								ZIP may include <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> (Windows)
+								and/or <code className="bg-black/40 px-1 rounded">UnifAI_Guard_macOS.zip</code> (Mac app).
+								Backend URL is already baked into each package.
 							</p>
 							{setupPackageError ? <p className="mt-3 text-sm text-red-400">{setupPackageError}</p> : null}
 						</CardContent>
@@ -3637,7 +3641,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 					<Card className="bg-card border-border">
 						<CardHeader>
 							<CardTitle className="text-lg">Install Steps</CardTitle>
-							<CardDescription>Download the ZIP, extract the installer, and run it on the employee laptop.</CardDescription>
+							<CardDescription>Download the ZIP, pick the installer for the employee OS, and run it.</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<div className="space-y-4">
@@ -3646,34 +3650,49 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									<span>Download the ZIP package</span>
 								</div>
 								<p className="text-xs text-muted-foreground pl-8">
-									Click <strong>Download Setup ZIP</strong> above. The ZIP includes only <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code>.
+									Click <strong>Download Setup ZIP</strong> above.
 								</p>
 							</div>
 
 							<div className="space-y-4">
 								<div className="flex items-center gap-2 font-semibold">
 									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">2</span>
-									<span>Extract and run the installer</span>
+									<span>Windows laptop</span>
 								</div>
 								<p className="text-xs text-muted-foreground pl-8">
-									Extract the ZIP, then run <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code>. Keep the autostart option enabled so Guard runs automatically at Windows login.
+									Run <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code>. Keep autostart enabled so Guard starts at Windows login.
 								</p>
 							</div>
 
 							<div className="space-y-4">
 								<div className="flex items-center gap-2 font-semibold">
 									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">3</span>
+									<span>Mac laptop</span>
+								</div>
+								<p className="text-xs text-muted-foreground pl-8">
+									Extract <code className="bg-black/40 px-1 rounded">UnifAI_Guard_macOS.zip</code>, open Terminal in that folder, run{" "}
+									<code className="bg-black/40 px-1 rounded">./install_macos.sh</code>. See{" "}
+									<code className="bg-black/40 px-1 rounded">START_HERE_MAC.txt</code>. Quit &amp; reopen browsers, then test a monitored site.
+								</p>
+							</div>
+
+							<div className="space-y-4">
+								<div className="flex items-center gap-2 font-semibold">
+									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">4</span>
 									<span>Open monitored AI websites and verify logs</span>
 								</div>
 								<p className="text-xs text-muted-foreground pl-8">
-									Have the employee open ChatGPT, Gemini, Claude, Copilot, or DeepSeek and send a test prompt. Use Prompt Logs above to confirm interception.
+									Fully quit browsers, reopen, visit ChatGPT / Gemini / Claude / Copilot / DeepSeek, send a test prompt.
+									Confirm in Prompt Logs and Agents.
 								</p>
 							</div>
 
 							<div className="rounded-md border border-border bg-background p-4 text-xs space-y-2">
-								<p className="font-semibold text-foreground">ZIP contents</p>
+								<p className="font-semibold text-foreground">ZIP contents (when built &amp; deployed)</p>
 								<ul className="list-disc pl-5 text-muted-foreground space-y-1">
-									<li><code>UnifAI_Guard_Setup.exe</code> — employee installer (only file)</li>
+									<li><code>UnifAI_Guard_Setup.exe</code> — Windows employee installer</li>
+									<li><code>UnifAI_Guard_macOS.zip</code> — Mac setup (<code>./install_macos.sh</code> on the Mac)</li>
+									<li><code>MAC_INSTALL.txt</code> / <code>START_HERE_MAC.txt</code> — Mac install notes</li>
 								</ul>
 							</div>
 						</CardContent>

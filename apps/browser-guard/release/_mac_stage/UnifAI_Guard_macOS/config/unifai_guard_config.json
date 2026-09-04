@@ -1,0 +1,6 @@
+{
+  "backend_url": "https://unifaiv2.dev-yp.com",
+  "proxy_addr": "127.0.0.1:8085",
+  "pac_sync_seconds": 1,
+  "_comment": "Guard 1.4.3 — change backend_url before building for non-prod. EXE also reads UNIFAI_BACKEND_URL. Local Docker: http://127.0.0.1:8081"
+}

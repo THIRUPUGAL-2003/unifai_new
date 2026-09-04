@@ -1,0 +1,34 @@
+UnifAI Guard — macOS employee / test install
+============================================
+
+FASTEST TEST (recommended)
+--------------------------
+1) Copy UnifAI_Guard_macOS.zip to your Mac
+2) Unzip → open Terminal in that folder
+3) Run:
+
+     chmod +x install_macos.sh uninstall_macos.sh
+     ./install_macos.sh
+
+4) Quit all browsers (Cmd+Q), reopen
+5) Visit a monitored AI site → send a test prompt
+6) Admin checks Prompt Logs + Agents
+
+Logs: ~/Library/Application Support/UnifAI/Guard/
+
+Uninstall
+---------
+  ./uninstall_macos.sh
+  # or:  UnifAI_Guard --uninstall-prompt
+
+Optional: build UnifAI Guard.app (product packaging)
+----------------------------------------------------
+  ./build_macos.sh
+  → release/UnifAI_Guard_macOS.zip containing UnifAI Guard.app
+
+Notes
+-----
+• Same product as Windows Guard (PAC + local proxy + CA + heartbeat).
+• System Auto Proxy URL is used for Target Websites only.
+• If HTTPS cert warning: Keychain → mitmproxy → Always Trust.
+• Gatekeeper only applies to .app builds; install_macos.sh uses Python.

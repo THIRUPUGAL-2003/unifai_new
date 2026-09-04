@@ -1,0 +1,36 @@
+UnifAI Guard — Mac setup (READY TO TEST)
+========================================
+
+Windows PC cannot build a Mac .app. This ZIP is the Mac employee/test setup.
+Copy this ZIP to your Mac and install in 1 minute.
+
+ON THE MAC
+----------
+1) Copy UnifAI_Guard_macOS.zip to the Mac (AirDrop / USB / scp)
+2) Double-click to unzip  OR:  unzip UnifAI_Guard_macOS.zip
+3) Open Terminal in the unzipped folder:
+
+     cd ~/Downloads/UnifAI_Guard_macOS    # path may differ
+     chmod +x install_macos.sh uninstall_macos.sh
+     ./install_macos.sh
+
+   Optional custom backend:
+
+     UNIFAI_BACKEND_URL=https://unifaiv2.dev-yp.com ./install_macos.sh
+
+4) Fully quit all browsers (Cmd+Q), reopen
+5) Open a monitored Target Website → send a test prompt
+6) Check Browser AI → Prompt Logs + Agents
+
+If certificate warning: Keychain Access → search "mitmproxy" → Trust → Always Trust SSL
+
+UNINSTALL
+---------
+  ./uninstall_macos.sh
+  # or with company key:
+  ./uninstall_macos.sh --key "YOUR_KEY"
+
+LATER (optional product .app)
+-----------------------------
+  ./build_macos.sh
+  → creates release/UnifAI_Guard_macOS.zip with UnifAI Guard.app

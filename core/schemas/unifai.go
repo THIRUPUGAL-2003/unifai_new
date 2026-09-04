@@ -69,6 +69,71 @@ const (
 	Runway        ModelProvider = "runway"
 	Runware       ModelProvider = "runware"
 	Fireworks     ModelProvider = "fireworks"
+	Together       ModelProvider = "together"
+	Siliconflow    ModelProvider = "siliconflow"
+	Moonshot       ModelProvider = "moonshot"
+	Minimax        ModelProvider = "minimax"
+	Sambanova      ModelProvider = "sambanova"
+	Deepinfra      ModelProvider = "deepinfra"
+	Novita         ModelProvider = "novita"
+	Nvidia         ModelProvider = "nvidia"
+	Hyperbolic     ModelProvider = "hyperbolic"
+	Portkey        ModelProvider = "portkey"
+	Dashscope      ModelProvider = "dashscope"
+	Zhipu          ModelProvider = "zhipu"
+	Baichuan       ModelProvider = "baichuan"
+	Stepfun        ModelProvider = "stepfun"
+	Upstage        ModelProvider = "upstage"
+	Ai21           ModelProvider = "ai21"
+	Sakana         ModelProvider = "sakana"
+	Baseten        ModelProvider = "baseten"
+	Anyscale       ModelProvider = "anyscale"
+	Lepton         ModelProvider = "lepton"
+	Friendli       ModelProvider = "friendli"
+	Modelscope     ModelProvider = "modelscope"
+	Hunyuan        ModelProvider = "hunyuan"
+	Qianfan        ModelProvider = "qianfan"
+	Ark            ModelProvider = "ark"
+	Sarvam         ModelProvider = "sarvam"
+	Krutrim        ModelProvider = "krutrim"
+	Sensenova      ModelProvider = "sensenova"
+	Spark          ModelProvider = "spark"
+	Reka           ModelProvider = "reka"
+	Featherless    ModelProvider = "featherless"
+	Scaleway       ModelProvider = "scaleway"
+	Voyage         ModelProvider = "voyage"
+	Jina           ModelProvider = "jina"
+	Nscale         ModelProvider = "nscale"
+	Publicai       ModelProvider = "publicai"
+	Inferencenet   ModelProvider = "inferencenet"
+	Kluster        ModelProvider = "kluster"
+	Lingyiwanwu    ModelProvider = "lingyiwanwu"
+	Inceptionlabs  ModelProvider = "inceptionlabs"
+	Arcee          ModelProvider = "arcee"
+	Nousresearch   ModelProvider = "nousresearch"
+	Morphllm       ModelProvider = "morphllm"
+	Nlpcloud       ModelProvider = "nlpcloud"
+	Monsterapi     ModelProvider = "monsterapi"
+	Aionlabs       ModelProvider = "aionlabs"
+	Totalgpt       ModelProvider = "totalgpt"
+	Mancer         ModelProvider = "mancer"
+	Dit            ModelProvider = "dit"
+	Opper          ModelProvider = "opper"
+	Relace         ModelProvider = "relace"
+	Openadapter    ModelProvider = "openadapter"
+	Nanogpt        ModelProvider = "nanogpt"
+	Nararouter     ModelProvider = "nararouter"
+	Navy           ModelProvider = "navy"
+	Freemodel      ModelProvider = "freemodel"
+	Freeai         ModelProvider = "freeai"
+	Freeinference  ModelProvider = "freeinference"
+	Fenay          ModelProvider = "fenay"
+	Empower        ModelProvider = "empower"
+	Fastinfra      ModelProvider = "fastinfra"
+	Wafer          ModelProvider = "wafer"
+	Gmiserving     ModelProvider = "gmiserving"
+	Cerebrium      ModelProvider = "cerebrium"
+	Dashscopecn    ModelProvider = "dashscopecn"
 )
 
 // SupportedBaseProviders is the list of base providers allowed for custom providers.
@@ -112,6 +177,71 @@ var StandardProviders = []ModelProvider{
 	Runway,
 	Runware,
 	Fireworks,
+	Together,
+	Siliconflow,
+	Moonshot,
+	Minimax,
+	Sambanova,
+	Deepinfra,
+	Novita,
+	Nvidia,
+	Hyperbolic,
+	Portkey,
+	Dashscope,
+	Zhipu,
+	Baichuan,
+	Stepfun,
+	Upstage,
+	Ai21,
+	Sakana,
+	Baseten,
+	Anyscale,
+	Lepton,
+	Friendli,
+	Modelscope,
+	Hunyuan,
+	Qianfan,
+	Ark,
+	Sarvam,
+	Krutrim,
+	Sensenova,
+	Spark,
+	Reka,
+	Featherless,
+	Scaleway,
+	Voyage,
+	Jina,
+	Nscale,
+	Publicai,
+	Inferencenet,
+	Kluster,
+	Lingyiwanwu,
+	Inceptionlabs,
+	Arcee,
+	Nousresearch,
+	Morphllm,
+	Nlpcloud,
+	Monsterapi,
+	Aionlabs,
+	Totalgpt,
+	Mancer,
+	Dit,
+	Opper,
+	Relace,
+	Openadapter,
+	Nanogpt,
+	Nararouter,
+	Navy,
+	Freemodel,
+	Freeai,
+	Freeinference,
+	Fenay,
+	Empower,
+	Fastinfra,
+	Wafer,
+	Gmiserving,
+	Cerebrium,
+	Dashscopecn,
 }
 
 // RequestType represents the type of request being made to a provider.

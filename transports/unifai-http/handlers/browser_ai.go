@@ -340,6 +340,15 @@ func browserAISetupCandidates() map[string][]string {
 			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_Setup.exe"),
 			filepath.Join("release", "UnifAI_Guard_Setup.exe"),
 		},
+		"UnifAI_Guard_macOS.zip": {
+			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_macOS.zip"),
+			filepath.Join("release", "UnifAI_Guard_macOS.zip"),
+		},
+		"MAC_INSTALL.txt": {
+			filepath.Join("apps", "browser-guard", "release", "MAC_INSTALL.txt"),
+			filepath.Join("apps", "browser-guard", "MAC_INSTALL.txt"),
+			filepath.Join("release", "MAC_INSTALL.txt"),
+		},
 	}
 }
 
@@ -365,15 +374,18 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 		}
 	}
 
-	hasSetupEXE := false
+	hasWindows := false
+	hasMac := false
 	for _, a := range assets {
 		if a.name == "UnifAI_Guard_Setup.exe" {
-			hasSetupEXE = true
-			break
+			hasWindows = true
+		}
+		if a.name == "UnifAI_Guard_macOS.zip" {
+			hasMac = true
 		}
 	}
-	if !hasSetupEXE {
-		SendError(ctx, fasthttp.StatusNotFound, "UnifAI_Guard_Setup.exe missing on server — rebuild installer and redeploy image")
+	if !hasWindows && !hasMac {
+		SendError(ctx, fasthttp.StatusNotFound, "No Guard installer on server — add UnifAI_Guard_Setup.exe (Windows) and/or UnifAI_Guard_macOS.zip (Mac) under apps/browser-guard/release/")
 		return
 	}
 	if len(assets) == 0 {
