@@ -103,29 +103,32 @@ export default function RBACView() {
 						</TableRow>
 					</TableHeader>
 					<TableBody>
-						{roles.map((role) => (
-							<TableRow key={role.id} className={selected?.id === role.id ? "bg-muted/40" : ""} onClick={() => setSelected(role)}>
-								<TableCell>
-									<div className="font-medium">{role.name}</div>
-									<div className="text-muted-foreground text-xs">{role.dac}</div>
-									{role.is_system_role && <Badge variant="secondary">system</Badge>}
-								</TableCell>
-								<TableCell className="text-right">
-									{!role.is_system_role && (
-										<Button
-											size="icon"
-											variant="ghost"
-											onClick={(e) => {
-												e.stopPropagation();
-												void remove(role);
-											}}
-										>
-											<Trash2 className="h-4 w-4" />
-										</Button>
-									)}
-								</TableCell>
-							</TableRow>
-						))}
+						{roles.map((role) => {
+							const isSysRole = Boolean(role.is_system_role || role.name?.toLowerCase() === "admin" || role.name?.toLowerCase() === "user");
+							return (
+								<TableRow key={role.id} className={selected?.id === role.id ? "bg-muted/40" : ""} onClick={() => setSelected(role)}>
+									<TableCell>
+										<div className="font-medium">{role.name}</div>
+										<div className="text-muted-foreground text-xs">{role.dac}</div>
+										{isSysRole && <Badge variant="secondary">system</Badge>}
+									</TableCell>
+									<TableCell className="text-right">
+										{!isSysRole && (
+											<Button
+												size="icon"
+												variant="ghost"
+												onClick={(e) => {
+													e.stopPropagation();
+													void remove(role);
+												}}
+											>
+												<Trash2 className="h-4 w-4" />
+											</Button>
+										)}
+									</TableCell>
+								</TableRow>
+							);
+						})}
 					</TableBody>
 				</Table>
 			</div>

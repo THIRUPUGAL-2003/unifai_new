@@ -50,7 +50,22 @@ func (h *WorkspaceHandler) exportAuditLogs(ctx *fasthttp.RequestCtx) {
 	if store == nil {
 		return
 	}
-	rows, _, err := store.ListAuditLogs(ctx, configstore.AuditLogQuery{Limit: 500, Offset: 0})
+	limit := 10000
+	if l := ctx.QueryArgs().GetUintOrZero("limit"); l > 0 {
+		limit = l
+	}
+	query := configstore.AuditLogQuery{Limit: limit, Offset: 0}
+	if start := string(ctx.QueryArgs().Peek("start")); start != "" {
+		if parsed, err := time.Parse(time.RFC3339, start); err == nil {
+			query.Start = &parsed
+		}
+	}
+	if end := string(ctx.QueryArgs().Peek("end")); end != "" {
+		if parsed, err := time.Parse(time.RFC3339, end); err == nil {
+			query.End = &parsed
+		}
+	}
+	rows, _, err := store.ListAuditLogs(ctx, query)
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to export audit logs")
 		return

@@ -15,6 +15,7 @@ export interface SessionUser {
 
 export interface SessionUserPayload {
 	username: string;
+	email?: string;
 	password?: string;
 	role: string;
 	budget?: number;

@@ -80,22 +80,98 @@ func toolNames(spec map[string]any) []string {
 	}
 	items, ok := raw.([]any)
 	if !ok {
-		return nil
+		// Some stores round-trip as []map[string]any via JSON.
+		if typed, ok := raw.([]map[string]any); ok {
+			items = make([]any, len(typed))
+			for i, m := range typed {
+				items[i] = m
+			}
+		} else {
+			return nil
+		}
 	}
 	out := make([]string, 0, len(items))
 	for _, item := range items {
+		if s, ok := item.(string); ok {
+			s = strings.TrimSpace(s)
+			if s != "" {
+				out = append(out, s)
+			}
+			continue
+		}
 		m, ok := item.(map[string]any)
 		if !ok {
 			continue
 		}
+		// Flat runtime form: { "name": "clientName-toolName" } (also tool_name / id).
+		foundFlat := false
 		for _, key := range []string{"name", "tool_name", "id"} {
-			if v, ok := m[key].(string); ok && v != "" {
-				out = append(out, v)
+			if v, ok := m[key].(string); ok && strings.TrimSpace(v) != "" {
+				// Skip bare tool_name when this is the UI bundle shape (has mcp_client_*).
+				if key == "tool_name" && (m["mcp_client_id"] != nil || m["mcp_client_name"] != nil || m["tool_names"] != nil) {
+					continue
+				}
+				out = append(out, strings.TrimSpace(v))
+				foundFlat = true
 				break
 			}
 		}
+		if foundFlat {
+			continue
+		}
+		// UI / Catalog form: { mcp_client_name|mcp_client_id, tool_names: [] }.
+		// Runtime tool ids are "clientName-toolName" (see governance MCP checks).
+		prefix := strings.TrimSpace(anyString(m["mcp_client_name"]))
+		if prefix == "" {
+			prefix = strings.TrimSpace(anyString(m["mcp_client_id"]))
+		}
+		if prefix == "" {
+			continue
+		}
+		names := stringSliceFromValue(m["tool_names"])
+		if len(names) == 0 {
+			if single := strings.TrimSpace(anyString(m["tool_name"])); single != "" {
+				names = []string{single}
+			}
+		}
+		if len(names) == 0 {
+			out = append(out, prefix+"-*")
+			continue
+		}
+		for _, n := range names {
+			n = strings.TrimSpace(n)
+			if n == "" || n == "*" {
+				out = append(out, prefix+"-*")
+				continue
+			}
+			out = append(out, prefix+"-"+n)
+		}
 	}
 	return out
+}
+
+func anyString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return ""
+}
+
+func stringSliceFromValue(raw any) []string {
+	switch typed := raw.(type) {
+	case []string:
+		return typed
+	case []any:
+		out := make([]string, 0, len(typed))
+		for _, item := range typed {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+		return out
+	default:
+		return nil
+	}
 }
 
 func stringSlice(spec map[string]any, key string) []string {

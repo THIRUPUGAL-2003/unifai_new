@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -365,18 +366,31 @@ func (h *WorkspaceHandler) cloneAccessProfile(ctx *fasthttp.RequestCtx) {
 	_ = json.Unmarshal(ctx.PostBody(), &body)
 	clone := *existing
 	clone.ID = 0
+	now := time.Now().UTC()
 	if body.Name != "" {
 		clone.Name = body.Name
 	} else {
-		clone.Name = existing.Name + " copy"
+		targetName := existing.Name + " copy"
+		profiles, _ := store.ListAccessProfiles(ctx)
+		nameExists := false
+		for _, p := range profiles {
+			if strings.EqualFold(p.Name, targetName) {
+				nameExists = true
+				break
+			}
+		}
+		if nameExists {
+			clone.Name = fmt.Sprintf("%s (%s)", targetName, now.Format("15:04:05"))
+		} else {
+			clone.Name = targetName
+		}
 	}
 	clone.IsActive = false
 	clone.Version = 1
-	now := time.Now().UTC()
 	clone.CreatedAt = now
 	clone.UpdatedAt = now
 	if err := store.CreateAccessProfile(ctx, &clone); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "failed to clone access profile")
+		SendError(ctx, fasthttp.StatusInternalServerError, "failed to clone access profile: "+err.Error())
 		return
 	}
 	SendJSONWithStatus(ctx, map[string]any{"access_profile": accessProfileFromRow(clone)}, fasthttp.StatusCreated)

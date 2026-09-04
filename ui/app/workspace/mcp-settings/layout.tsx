@@ -4,9 +4,9 @@ import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import MCPSettingsPage from "./page";
 
 function RouteComponent() {
+	// MCP Settings is under MCP Gateway — require MCPGateway update only (not Settings AND).
 	const hasMCPGatewayAccess = useRbac(RbacResource.MCPGateway, RbacOperation.Update);
-	const hasSettingsAccess = useRbac(RbacResource.Settings, RbacOperation.Update);
-	if (!hasMCPGatewayAccess || !hasSettingsAccess) {
+	if (!hasMCPGatewayAccess) {
 		return <NoPermissionView entity="MCP gateway settings" />;
 	}
 	return <MCPSettingsPage />;

@@ -169,7 +169,7 @@ func (h *WorkspaceHandler) deleteRole(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to load role")
 		return
 	}
-	if role.IsSystemRole {
+	if role.IsSystemRole || strings.EqualFold(role.Name, "admin") || strings.EqualFold(role.Name, "user") {
 		SendError(ctx, fasthttp.StatusForbidden, "cannot delete system role")
 		return
 	}

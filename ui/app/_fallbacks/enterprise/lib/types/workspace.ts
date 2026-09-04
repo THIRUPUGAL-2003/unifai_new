@@ -147,7 +147,7 @@ export interface MCPToolGroup {
 	name: string;
 	description?: string;
 	enabled: boolean;
-	tools: { mcp_client_id: string; tool_name?: string; tool_names?: string[] }[];
+	tools: { mcp_client_id?: string; mcp_client_name?: string; tool_name?: string; tool_names?: string[]; name?: string; id?: string }[];
 	virtual_key_ids?: string[];
 }
 

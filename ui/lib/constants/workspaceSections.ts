@@ -2,7 +2,7 @@
 export const WORKSPACE_SECTIONS = [
 	{ key: "observability", label: "Observability", defaultPath: "/workspace/logs" },
 	{ key: "models", label: "Models", defaultPath: "/workspace/providers" },
-	{ key: "mcp-gateway", label: "MCP Gateway", defaultPath: "/workspace/mcp-gateway" },
+	{ key: "mcp-gateway", label: "MCP Gateway", defaultPath: "/workspace/mcp-registry" },
 	{ key: "plugins", label: "Plugins", defaultPath: "/workspace/plugins" },
 	{ key: "governance", label: "Governance", defaultPath: "/workspace/governance" },
 	{ key: "guardrails", label: "Guardrails", defaultPath: "/workspace/guardrails" },
@@ -46,6 +46,7 @@ const SECTION_PATH_PREFIXES: Record<WorkspaceSectionKey, string[]> = {
 		"/workspace/mcp-sessions",
 		"/workspace/oauth-grants",
 		"/workspace/mcp-settings",
+		"/workspace/mcp-auth-config",
 	],
 	plugins: ["/workspace/plugins"],
 	governance: ["/workspace/governance", "/workspace/scim", "/workspace/audit-logs"],

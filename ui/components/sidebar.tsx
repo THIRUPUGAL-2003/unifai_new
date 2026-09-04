@@ -725,7 +725,7 @@ export default function AppSidebar() {
 				title: "MCP Gateway",
 				icon: MCPIcon,
 				description: "MCP configuration",
-				url: "/workspace/mcp-gateway",
+				url: "/workspace/mcp-registry",
 				hasAccess: hasMCPGatewayAccess || hasMCPToolGroupsAccess,
 				subItems: [
 					{

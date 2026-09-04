@@ -84,6 +84,7 @@ function ProviderKeyActionsMenu({
 
 export default function ModelProviderKeysTableView({ provider, className, headerActions, isKeyless }: Props) {
 	const providerName = provider.name?.toLowerCase() ?? "";
+	const isKeylessProvider = Boolean(isKeyless || provider.custom_provider_config?.is_key_less);
 	const isVLLM = providerName === "vllm";
 	const isOllamaOrSGL = providerName === "ollama" || providerName === "sgl";
 	const entityLabel = isVLLM ? "model" : isOllamaOrSGL ? "server" : "key";
@@ -157,7 +158,7 @@ export default function ModelProviderKeysTableView({ provider, className, header
 					<div className="flex items-center gap-2">Configured {entityLabelPlural}</div>
 					<div className="flex items-center gap-2">
 						{headerActions}
-						{!isKeyless && hasUpdateProviderAccess ? (
+						{!isKeylessProvider && hasUpdateProviderAccess ? (
 							<Button
 								disabled={!hasUpdateProviderAccess}
 								data-testid="add-key-btn"
@@ -172,7 +173,7 @@ export default function ModelProviderKeysTableView({ provider, className, header
 					</div>
 				</CardTitle>
 			</CardHeader>
-			{isKeyless ? (
+			{isKeylessProvider ? (
 				<div className="text-muted-foreground flex flex-col items-center justify-center gap-2 rounded-sm border py-10 text-center text-sm">
 					<p>This is a keyless provider - no API keys are required.</p>
 					<p>You can edit the provider configuration using the button above.</p>

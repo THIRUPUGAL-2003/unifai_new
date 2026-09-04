@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getErrorMessage, useGetMCPClientsQuery } from "@/lib/store";
+import { getErrorMessage, useGetMCPClientsQuery, useGetVirtualKeysQuery } from "@/lib/store";
 import {
 	useCreateMCPToolGroupMutation,
 	useDeleteMCPToolGroupMutation,
@@ -14,12 +14,39 @@ import {
 } from "@enterprise/lib/store/apis/mcpToolGroupsApi";
 import { MCPToolGroup } from "@enterprise/lib/types/workspace";
 import { Boxes, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
+
+/** Build runtime tool patterns: clientName-toolName (governance format). */
+function buildToolEntries(clientId: string, clientName: string, toolNamesRaw: string): { mcp_client_id: string; mcp_client_name: string; tool_names?: string[]; name: string }[] {
+	const names = toolNamesRaw
+		.split(",")
+		.map((tool) => tool.trim())
+		.filter(Boolean);
+	if (!clientId) return [];
+	const prefix = (clientName || clientId).trim();
+	if (names.length === 0) {
+		return [
+			{
+				mcp_client_id: clientId,
+				mcp_client_name: prefix,
+				name: `${prefix}-*`,
+			},
+		];
+	}
+	return names.map((tool) => ({
+		mcp_client_id: clientId,
+		mcp_client_name: prefix,
+		tool_names: [tool],
+		name: `${prefix}-${tool}`,
+	}));
+}
 
 export default function MCPToolGroups() {
 	const { data } = useGetMCPClientsQuery({ limit: 200, offset: 0 });
 	const clients = data?.clients || [];
+	const { data: vkData } = useGetVirtualKeysQuery({ limit: 200, offset: 0 });
+	const virtualKeys = vkData?.virtual_keys || [];
 	const { data: groupData } = useGetMCPToolGroupsQuery();
 	const [createGroup] = useCreateMCPToolGroupMutation();
 	const [updateGroup] = useUpdateMCPToolGroupMutation();
@@ -30,31 +57,38 @@ export default function MCPToolGroups() {
 	const [description, setDescription] = useState("");
 	const [clientId, setClientId] = useState("");
 	const [toolNames, setToolNames] = useState("");
+	const [selectedVkIds, setSelectedVkIds] = useState<string[]>([]);
 	const enabled = true;
 
+	const selectedClientName = useMemo(() => {
+		const c = clients.find((client) => client.config.client_id === clientId);
+		return c?.config.name || "";
+	}, [clients, clientId]);
+
 	const create = async () => {
+		if (!name.trim()) {
+			toast.error("Name is required");
+			return;
+		}
+		if (!clientId) {
+			toast.error("Select an MCP client");
+			return;
+		}
 		try {
 			await createGroup({
-				name,
+				name: name.trim(),
 				description,
 				enabled,
-				tools: clientId
-					? [
-							{
-								mcp_client_id: clientId,
-								tool_names: toolNames
-									.split(",")
-									.map((tool) => tool.trim())
-									.filter(Boolean),
-							},
-						]
-					: [],
+				tools: buildToolEntries(clientId, selectedClientName, toolNames),
+				virtual_key_ids: selectedVkIds,
 			}).unwrap();
 			toast.success("Tool group created");
 			setOpen(false);
 			setName("");
 			setDescription("");
 			setToolNames("");
+			setClientId("");
+			setSelectedVkIds([]);
 		} catch (err) {
 			toast.error(getErrorMessage(err));
 		}
@@ -77,6 +111,10 @@ export default function MCPToolGroups() {
 		}
 	};
 
+	const toggleVk = (id: string) => {
+		setSelectedVkIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+	};
+
 	return (
 		<div className="flex w-full flex-col gap-6 p-1">
 			<div className="flex items-center justify-between">
@@ -85,7 +123,9 @@ export default function MCPToolGroups() {
 						<Boxes className="h-6 w-6" />
 						MCP Tool Groups
 					</h1>
-					<p className="text-muted-foreground mt-1 text-sm">Bundle tools from one or more MCP clients and attach them to keys or teams.</p>
+					<p className="text-muted-foreground mt-1 text-sm">
+						Bundle tools from an MCP client. Optionally scope the group to virtual keys — empty key list applies to all keys.
+					</p>
 				</div>
 				<Button onClick={() => setOpen(true)}>
 					<Plus className="h-4 w-4" />
@@ -104,6 +144,7 @@ export default function MCPToolGroups() {
 						<TableRow>
 							<TableHead>Name</TableHead>
 							<TableHead>Tools</TableHead>
+							<TableHead>Virtual keys</TableHead>
 							<TableHead>Enabled</TableHead>
 							<TableHead />
 						</TableRow>
@@ -116,7 +157,10 @@ export default function MCPToolGroups() {
 									<div className="text-muted-foreground text-xs">{group.description}</div>
 								</TableCell>
 								<TableCell>
-									<Badge variant="secondary">{group.tools?.length || 0} client(s)</Badge>
+									<Badge variant="secondary">{group.tools?.length || 0} tool pattern(s)</Badge>
+								</TableCell>
+								<TableCell>
+									<Badge variant="outline">{group.virtual_key_ids?.length ? `${group.virtual_key_ids.length} key(s)` : "All keys"}</Badge>
 								</TableCell>
 								<TableCell>
 									<Switch checked={group.enabled} onCheckedChange={() => void toggle(group)} />
@@ -133,7 +177,7 @@ export default function MCPToolGroups() {
 			)}
 
 			<Dialog open={open} onOpenChange={setOpen}>
-				<DialogContent>
+				<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
 					<DialogHeader>
 						<DialogTitle>Create tool group</DialogTitle>
 					</DialogHeader>
@@ -158,8 +202,23 @@ export default function MCPToolGroups() {
 							</select>
 						</div>
 						<div className="space-y-1">
-							<Label>Tool names (blank = all)</Label>
+							<Label>Tool names (blank = all tools on this client)</Label>
 							<Input value={toolNames} onChange={(e) => setToolNames(e.target.value)} placeholder="search, fetch" />
+						</div>
+						<div className="space-y-1">
+							<Label>Virtual keys (optional — blank = all keys)</Label>
+							<div className="border-input max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
+								{virtualKeys.length === 0 ? (
+									<p className="text-muted-foreground text-xs">No virtual keys found.</p>
+								) : (
+									virtualKeys.map((vk) => (
+										<label key={vk.id} className="flex cursor-pointer items-center gap-2 text-sm">
+											<input type="checkbox" checked={selectedVkIds.includes(vk.id)} onChange={() => toggleVk(vk.id)} />
+											<span className="truncate">{vk.name}</span>
+										</label>
+									))
+								)}
+							</div>
 						</div>
 					</div>
 					<DialogFooter>

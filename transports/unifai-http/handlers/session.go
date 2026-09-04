@@ -388,6 +388,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 	}
 	var payload struct {
 		Username           string  `json:"username"`
+		Email              string  `json:"email"`
 		Password           string  `json:"password"`
 		Role               string  `json:"role"`
 		Budget             float64 `json:"budget"`
@@ -400,6 +401,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	payload.Username = strings.TrimSpace(payload.Username)
+	payload.Email = strings.TrimSpace(payload.Email)
 	if payload.Username == "" || payload.Password == "" {
 		SendError(ctx, fasthttp.StatusBadRequest, "Username and password are required")
 		return
@@ -421,6 +423,9 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 			return
 		}
 		// Admin create bypasses pending/denied — activate immediately.
+		if payload.Email != "" {
+			existing.Email = payload.Email
+		}
 		existing.Password = hashedPassword
 		existing.Role = payload.Role
 		existing.Status = tables.UserStatusApproved
@@ -442,6 +447,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 	user := &tables.TableUser{
 		ID:                 uuid.New().String(),
 		Username:           payload.Username,
+		Email:              payload.Email,
 		Password:           hashedPassword,
 		Role:               payload.Role,
 		Status:             tables.UserStatusApproved,
@@ -493,6 +499,8 @@ func (h *SessionHandler) updateUser(ctx *fasthttp.RequestCtx) {
 		Username           string  `json:"username"`
 		Password           string  `json:"password"`
 		Role               string  `json:"role"`
+		Email              *string `json:"email"`
+		Status             *string `json:"status"`
 		Budget             float64 `json:"budget"`
 		RateLimit          int     `json:"rate_limit"`
 		AllowedPromptRepos *string `json:"allowed_prompt_repos"`
@@ -505,6 +513,12 @@ func (h *SessionHandler) updateUser(ctx *fasthttp.RequestCtx) {
 
 	if payload.Username != "" {
 		existingUser.Username = payload.Username
+	}
+	if payload.Email != nil {
+		existingUser.Email = strings.TrimSpace(*payload.Email)
+	}
+	if payload.Status != nil && (*payload.Status == tables.UserStatusApproved || *payload.Status == tables.UserStatusPending || *payload.Status == tables.UserStatusRejected) {
+		existingUser.Status = *payload.Status
 	}
 	if payload.Password != "" {
 		hashedPassword, err := encrypt.Hash(payload.Password)

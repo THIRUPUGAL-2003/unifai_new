@@ -44,6 +44,7 @@ export default function UsersView() {
 
 	// Form states
 	const [username, setUsername] = useState("");
+	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [role, setRole] = useState("user");
 	const [budget, setBudget] = useState(0);
@@ -127,6 +128,7 @@ export default function UsersView() {
 
 	const userPayload = () => ({
 		username,
+		email: email.trim() || undefined,
 		password: password || undefined,
 		role,
 		budget,
@@ -202,6 +204,7 @@ export default function UsersView() {
 
 	const resetForm = () => {
 		setUsername("");
+		setEmail("");
 		setPassword("");
 		setRole("user");
 		setBudget(0);
@@ -214,6 +217,7 @@ export default function UsersView() {
 	const openEditModal = (user: SessionUser) => {
 		setSelectedUser(user);
 		setUsername(user.username);
+		setEmail(user.email || "");
 		setPassword("");
 		setRole(user.role);
 		setBudget(user.budget);
@@ -475,6 +479,16 @@ export default function UsersView() {
 							/>
 						</div>
 						<div className="space-y-2">
+							<label className="text-muted-foreground text-sm font-medium">Email (Optional)</label>
+							<Input
+								type="email"
+								value={email}
+								onChange={(e) => setEmail(e.target.value)}
+								placeholder="e.g. janesmith@company.com"
+								className="bg-muted/20 border-border/50 focus:border-teal-500/50"
+							/>
+						</div>
+						<div className="space-y-2">
 							<label className="text-muted-foreground text-sm font-medium">Password</label>
 							<Input
 								type="password"
@@ -566,6 +580,16 @@ export default function UsersView() {
 								value={username}
 								onChange={(e) => setUsername(e.target.value)}
 								placeholder="e.g. janesmith"
+								className="bg-muted/20 border-border/50 focus:border-teal-500/50"
+							/>
+						</div>
+						<div className="space-y-2">
+							<label className="text-muted-foreground text-sm font-medium">Email</label>
+							<Input
+								type="email"
+								value={email}
+								onChange={(e) => setEmail(e.target.value)}
+								placeholder="e.g. janesmith@company.com"
 								className="bg-muted/20 border-border/50 focus:border-teal-500/50"
 							/>
 						</div>

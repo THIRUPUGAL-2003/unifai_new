@@ -314,6 +314,8 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 					: undefined,
 			per_user_header_keys: authType === "per_user_headers" ? perUserHeaderKeys : undefined,
 			tools_to_execute: ["*"],
+			// Library install should be usable immediately; Catalog can tighten VK access later.
+			allow_on_all_virtual_keys: true,
 		};
 
 		// Per-user-headers: stash the payload and open the headers test dialog.

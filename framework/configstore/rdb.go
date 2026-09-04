@@ -2701,6 +2701,19 @@ func (s *RDBConfigStore) UpsertModelPricingAttributes(ctx context.Context, model
 	if res.Error != nil {
 		return 0, s.parseGormError(res.Error)
 	}
+	if res.RowsAffected == 0 {
+		newRow := tables.TableModelPricing{
+			Model:                    model,
+			Provider:                 provider,
+			Mode:                     "chat",
+			AdditionalAttributes:     attrs,
+			AdditionalAttributesJSON: value,
+		}
+		if err := db.Create(&newRow).Error; err != nil {
+			return 0, s.parseGormError(err)
+		}
+		return 1, nil
+	}
 	return res.RowsAffected, nil
 }
 
