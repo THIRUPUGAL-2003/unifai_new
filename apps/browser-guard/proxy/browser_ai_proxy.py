@@ -452,8 +452,10 @@ def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url
     """Regex (local) + AI Guard Bot (backend) — both run when bot rules exist; strictest action wins."""
     local = decide_prompt_locally(prompt)
     if has_ai_bot_rules():
-        backend = send_to_backend(platform, domain, prompt, client_ip, url, method)
-        return _merge_guard_decisions(local, backend)
+        allowed, rt, action, forward, reply, eval_err = send_to_backend(platform, domain, prompt, client_ip, url, method)
+        if eval_err:
+            print(f"[UnifAI Proxy] AI Guard Bot prompt eval failed | {eval_err}")
+        return _merge_guard_decisions(local, (allowed, rt, action, forward, reply))
 
     allowed, rule_triggered, action, redacted_prompt, reply_text = local
     if action == "Blocked" or not allowed:
@@ -604,11 +606,19 @@ def _file_scan_guard_metadata(
     rule_action: str,
     *,
     scan_evaluated: bool = False,
+    scan_eval_error: str = "",
 ) -> dict:
     """Proxy scan decision for backend log — avoids duplicate guard evaluation."""
     has_content = bool((scanned or "").strip() or upload_images)
     if not has_content:
         return {}
+    # Bot/backend failed — do NOT stamp security OK; backend will re-run AI Guard Bot.
+    if (scan_eval_error or "").strip():
+        return {
+            "scan_guard_decided": True,
+            "scan_guard_action": "Allowed",
+            "scan_guard_eval_error": (scan_eval_error or "").strip()[:300],
+        }
     if not scan_evaluated and not rule_hit:
         return {}
     meta: dict = {"scan_guard_decided": True}
@@ -3129,8 +3139,9 @@ def _scan_upload_for_rules(
     client_ip: str = "",
     url: str = "",
     method: str = "",
-) -> tuple[str, bool, str, str, str, list[str], bool]:
-    """Scan file bytes on Send only — extract by type, then apply Guard Rules (+ AI bot if configured)."""
+) -> tuple[str, bool, str, str, str, list[str], bool, str]:
+    """Scan file bytes on Send only — extract by type, then apply Guard Rules (+ AI bot if configured).
+    Returns (..., scan_evaluated, scan_eval_error)."""
     scanned = ""
     rule_hit = False
     rule_name = ""
@@ -3138,6 +3149,7 @@ def _scan_upload_for_rules(
     excerpt = ""
     upload_images: list[str] = []
     scan_evaluated = False
+    scan_eval_error = ""
     try:
         if raw_bytes:
             try:
@@ -3166,17 +3178,24 @@ def _scan_upload_for_rules(
             platform and domain and (scanned or upload_images) and (has_ai_bot_rules() or has_regex)
         )
         if run_backend:
-            scan_evaluated = True
             try:
-                allowed, rt, action, _, _ = send_to_backend(
+                allowed, rt, action, _, _, eval_err = send_to_backend(
                     platform, domain, (scanned or "")[:50_000], client_ip, url, method or "POST",
                     upload_images=upload_images,
                     evaluation_only=True,
                 )
-                rule_hit, rule_name, rule_action = _merge_file_scan_backend(
-                    rule_hit, rule_name, rule_action, allowed, rt, action or "",
-                )
+                if eval_err:
+                    scan_eval_error = str(eval_err).strip()
+                    scan_evaluated = False
+                    print(f"[UnifAI Proxy] AI bot file scan eval_error (will re-check on log): {scan_eval_error}")
+                else:
+                    scan_evaluated = True
+                    rule_hit, rule_name, rule_action = _merge_file_scan_backend(
+                        rule_hit, rule_name, rule_action, allowed, rt, action or "",
+                    )
             except Exception as e:
+                scan_evaluated = False
+                scan_eval_error = str(e).strip()[:300] or "backend file scan failed"
                 print(f"[UnifAI Proxy] AI bot file scan failed (allowed): {e}")
     except Exception as e:
         print(f"[UnifAI Proxy] file rule scan failed (allowed): {e}")
@@ -3188,7 +3207,8 @@ def _scan_upload_for_rules(
             excerpt = ""
             upload_images = []
             scan_evaluated = False
-    return scanned, rule_hit, rule_name, rule_action, excerpt, upload_images, scan_evaluated
+            scan_eval_error = ""
+    return scanned, rule_hit, rule_name, rule_action, excerpt, upload_images, scan_evaluated, scan_eval_error
 
 
 def _process_one_cached_file_on_send(
@@ -3282,7 +3302,7 @@ def _process_one_cached_file_on_send_impl(
             cached_ct = inline_ct or content_type
             if inline_name and inline_name.lower() not in _FAKE_UPLOAD_NAMES:
                 file_label = inline_name
-    scanned, rule_hit, rule_name, rule_action, excerpt, upload_images, scan_evaluated = _scan_upload_for_rules(
+    scanned, rule_hit, rule_name, rule_action, excerpt, upload_images, scan_evaluated, scan_eval_error = _scan_upload_for_rules(
         cached_bytes, cached_ct, raw_text or "", file_label, cached,
         platform=platform, domain=domain, client_ip=client_ip, url=url, method=method,
     )
@@ -3290,7 +3310,9 @@ def _process_one_cached_file_on_send_impl(
     block_all = controls_active("block_upload")
     has_scan_content = bool((scanned or "").strip() or upload_images)
     scan_guard = _file_scan_guard_metadata(
-        scanned, upload_images, rule_hit, rule_name, rule_action, scan_evaluated=scan_evaluated,
+        scanned, upload_images, rule_hit, rule_name, rule_action,
+        scan_evaluated=scan_evaluated,
+        scan_eval_error=scan_eval_error,
     )
     block_for_rule = bool(rule_hit and rule_action == "BLOCK" and has_scan_content)
     redact_for_rule = bool(
@@ -5601,13 +5623,23 @@ def get_client_ip(flow: http.HTTPFlow) -> str:
         return "127.0.0.1"
 
 
-def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str, upload_images: list[str] | None = None, evaluation_only: bool = False) -> tuple[bool, str, str, str, str]:
+def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str, upload_images: list[str] | None = None, evaluation_only: bool = False) -> tuple[bool, str, str, str, str, str]:
     """
     Send intercepted prompt to UnifAI backend /api/browser-ai/intercept.
     Backend handles guard rule matching and returns allowed/blocked decision.
-    Returns (allowed, rule_triggered, action, redacted_prompt, reply_text)
+    Returns (allowed, rule_triggered, action, redacted_prompt, reply_text, eval_error)
     """
     try:
+        metadata = {
+            "domain": domain,
+            "url": url,
+            "method": method,
+            "agent_id": UNIFAI_AGENT_ID,
+            "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+            "evaluation_only": bool(evaluation_only),
+        }
+        # Do NOT set upload_scan for evaluation_only — that flag is for file audit logs only
+        # and would skip AI Guard Bot if the eval_only early-return ever changed.
         payload = json.dumps({
             "platform": platform,
             "prompt": prompt,
@@ -5615,15 +5647,7 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             "agent_id": UNIFAI_AGENT_ID,
             "agent_hostname": UNIFAI_AGENT_HOSTNAME,
             "upload_images": upload_images or [],
-            "metadata": {
-                "domain": domain,
-                "url": url,
-                "method": method,
-                "agent_id": UNIFAI_AGENT_ID,
-                "agent_hostname": UNIFAI_AGENT_HOSTNAME,
-                "evaluation_only": bool(evaluation_only),
-                "upload_scan": bool(evaluation_only),
-            },
+            "metadata": metadata,
         }).encode("utf-8")
 
         req = urllib.request.Request(
@@ -5646,11 +5670,14 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
                     redacted_prompt = _redacted_forward(prompt, res_data.get("warning_message", ""))
                 reply_text = (res_data.get("reply_text") or "").strip()
                 eval_error = (res_data.get("eval_error") or "").strip()
+                verdict = (res_data.get("security_verdict") or "").strip().lower()
+                if not eval_error and verdict == "eval_failed":
+                    eval_error = (res_data.get("security_message") or "AI Guard Bot evaluation failed").strip()
                 if eval_error:
                     print(f"[UnifAI Proxy] AI Guard Bot eval failed | {eval_error}")
-                return allowed, rule_triggered, action, redacted_prompt, reply_text
-    except Exception:
-        pass
+                return allowed, rule_triggered, action, redacted_prompt, reply_text, eval_error
+    except Exception as e:
+        print(f"[UnifAI Proxy] send_to_backend failed: {e}")
 
     # Fallback: apply guard rules locally if backend is down
     rules = sorted(
@@ -5664,20 +5691,24 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
         if rule_action == "WARN":
             rule_action = "REDACT"
         if rule_action == "BLOCK":
-            return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
+            return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", "")), ""
         if rule_action == "REDACT":
-            return True, r["name"], "Redacted", _redacted_forward(prompt, r.get("warning_message", "")), ""
+            return True, r["name"], "Redacted", _redacted_forward(prompt, r.get("warning_message", "")), "", ""
 
     # Backend / evaluator miss — allow traffic; regex rules already ran locally.
+    backend_miss = "backend unreachable or AI Guard Bot could not evaluate"
     if _fail_open() or has_ai_bot_rules():
-        log_prompt_async(platform, domain, prompt, client_ip, url, method)
-        return True, "", "Allowed", prompt, ""
+        if not evaluation_only:
+            log_prompt_async(platform, domain, prompt, client_ip, url, method)
+        # Surface miss so file-scan path does not stamp false security OK.
+        return True, "", "Allowed", prompt, "", backend_miss if has_ai_bot_rules() else ""
     return (
         False,
         "Backend Unreachable",
         "Blocked",
         prompt,
         "UnifAI Guard cannot reach the security backend. Prompt blocked for safety.",
+        backend_miss,
     )
 
 

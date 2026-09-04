@@ -695,21 +695,25 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		payload.Metadata["agent_hostname"] = strings.TrimSpace(payload.AgentHostname)
 	}
 
-	evalOnly, _ := payload.Metadata["evaluation_only"].(bool)
+	evalOnly := metadataBool(payload.Metadata, "evaluation_only")
 	if evalOnly {
-		allowed, action, ruleTriggered, ruleWarning := h.evaluateGuardOnly(ctx, payload.Prompt, payload.UploadImages)
+		allowed, action, ruleTriggered, ruleWarning, evalError, securityVerdict := h.evaluateGuardOnly(ctx, payload.Prompt, payload.UploadImages)
 		forwardPrompt := payload.Prompt
 		if action == "Redacted" || action == "Warned" {
 			forwardPrompt = logstore.FormatWarnedForwardPrompt(payload.Prompt, ruleWarning)
 		}
 		SendJSON(ctx, map[string]any{
-			"status":          "success",
-			"allowed":         allowed,
-			"action":          action,
-			"rule_triggered":  ruleTriggered,
-			"warning_message": ruleWarning,
-			"forward_prompt":  forwardPrompt,
-			"redacted_prompt": forwardPrompt,
+			"status":             "success",
+			"allowed":            allowed,
+			"action":             action,
+			"rule_triggered":     ruleTriggered,
+			"warning_message":    ruleWarning,
+			"forward_prompt":     forwardPrompt,
+			"redacted_prompt":    forwardPrompt,
+			"eval_error":         evalError,
+			"security_verdict":   securityVerdict,
+			"security_message":   securityVerdictMessage(securityVerdict, ruleTriggered),
+			"predicted_category": securityVerdictCategory(securityVerdict),
 		})
 		return
 	}
@@ -725,11 +729,9 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 
 	// File-upload audit logs: proxy already decided allow/block. Do not re-run AI Guard Bot
 	// or Reply Bot on "[FILE UPLOAD] …" — that corrupts Allowed upload rows in Prompt Logs.
-	uploadScan := false
-	if v, ok := payload.Metadata["upload_scan"].(bool); ok && v {
-		uploadScan = true
-	}
-	if strings.HasPrefix(strings.TrimSpace(payload.Prompt), "[FILE UPLOAD]") {
+	uploadScan := metadataBool(payload.Metadata, "upload_scan")
+	if strings.HasPrefix(strings.TrimSpace(payload.Prompt), "[FILE UPLOAD]") ||
+		strings.HasPrefix(strings.TrimSpace(payload.Prompt), "[VOICE UPLOAD]") {
 		uploadScan = true
 	}
 	if uploadScan {
@@ -865,8 +867,9 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			} else {
 				// Model said no violation — security policy met for this bot rule.
 				aiBotCheckedOK = true
-				if securityVerdict == "not_evaluated" || securityVerdict == "clear" {
+				if securityVerdict == "not_evaluated" || securityVerdict == "clear" || securityVerdict == "eval_failed" {
 					securityVerdict = "clear"
+					evalError = ""
 				}
 			}
 		}
@@ -874,6 +877,14 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			logEntry.Status = "Allowed (AI Guard Bot: security OK)"
 			logEntry.PredictedCategory = "AI_GUARD_BOT_CLEAR"
 			logEntry.RuleTriggered = ""
+			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+		} else if allowed && securityVerdict == "eval_failed" && logEntry.PredictedCategory != "AI_GUARD_BOT_EVAL_ERROR" {
+			// Ensure Prompt Logs never look like "bot never ran" when evaluation failed.
+			logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", logEntry.RuleTriggered)
+			if strings.TrimSpace(logEntry.RuleTriggered) == "" {
+				logEntry.Status = "Allowed (AI Guard Bot eval failed)"
+			}
+			logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
 			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 		}
 	}
@@ -1011,9 +1022,11 @@ func rulePatternMatches(rule logstore.BrowserGuardRule, text string) bool {
 }
 
 // evaluateGuardOnly runs regex + AI Guard Bot rules without persisting a log row (file-scan pre-check).
-func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt string, uploadImages []string) (allowed bool, action, ruleTriggered, ruleWarning string) {
+// Returns evalError/securityVerdict so the proxy never stamps a false "security OK".
+func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt string, uploadImages []string) (allowed bool, action, ruleTriggered, ruleWarning, evalError, securityVerdict string) {
 	allowed = true
 	action = "Allowed"
+	securityVerdict = "not_evaluated"
 	prompt = strings.TrimSpace(prompt)
 	rules, _ := h.manager.GetRules(ctx)
 	for _, rule := range rules {
@@ -1028,13 +1041,15 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 		ruleWarning = strings.TrimSpace(rule.WarningMessage)
 		ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
 		if ruleAction == "BLOCK" {
-			return false, "Blocked", ruleTriggered, ruleWarning
+			return false, "Blocked", ruleTriggered, ruleWarning, "", "violation"
 		}
 		if ruleAction == "REDACT" {
 			allowed = true
 			action = "Redacted"
+			securityVerdict = "warning"
 		}
 	}
+	botCheckedOK := false
 	for _, rule := range rules {
 		if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
 			continue
@@ -1052,23 +1067,80 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 			violated, evalErr = h.evaluateAIBotRule(rule, prompt, uploadImages)
 		}
 		if evalErr != "" {
+			evalError = evalErr
+			securityVerdict = "eval_failed"
+			if ruleTriggered == "" {
+				ruleTriggered = rule.Name
+			}
 			continue
 		}
 		if !violated {
+			botCheckedOK = true
+			if securityVerdict == "not_evaluated" || securityVerdict == "clear" || securityVerdict == "eval_failed" {
+				securityVerdict = "clear"
+				evalError = ""
+			}
 			continue
 		}
 		ruleTriggered = rule.Name
 		ruleWarning = strings.TrimSpace(rule.WarningMessage)
 		ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
+		evalError = ""
 		if ruleAction == "BLOCK" {
-			return false, "Blocked", ruleTriggered, ruleWarning
+			return false, "Blocked", ruleTriggered, ruleWarning, "", "violation"
 		}
 		if ruleAction == "REDACT" {
 			allowed = true
 			action = "Redacted"
+			securityVerdict = "warning"
+			botCheckedOK = true
 		}
 	}
-	return allowed, action, ruleTriggered, ruleWarning
+	if botCheckedOK && securityVerdict == "eval_failed" {
+		securityVerdict = "clear"
+		evalError = ""
+	}
+	return allowed, action, ruleTriggered, ruleWarning, evalError, securityVerdict
+}
+
+func metadataBool(metadata map[string]any, key string) bool {
+	if metadata == nil {
+		return false
+	}
+	v, ok := metadata[key]
+	if !ok || v == nil {
+		return false
+	}
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		s := strings.ToLower(strings.TrimSpace(t))
+		return s == "1" || s == "true" || s == "yes"
+	case float64:
+		return t != 0
+	case int:
+		return t != 0
+	default:
+		return false
+	}
+}
+
+func securityVerdictCategory(verdict string) string {
+	switch verdict {
+	case "clear":
+		return "AI_GUARD_BOT_CLEAR"
+	case "violation":
+		return "AI_GUARD_BOT_VIOLATION"
+	case "warning":
+		return "AI_GUARD_BOT_REDACT"
+	case "eval_failed":
+		return "AI_GUARD_BOT_EVAL_ERROR"
+	case "misconfigured":
+		return "AI_GUARD_BOT_MISCONFIGURED"
+	default:
+		return ""
+	}
 }
 
 func guardActionRank(action string) int {
@@ -1087,8 +1159,12 @@ func (h *BrowserAIHandler) applyScanGuardFromMetadata(ctx *fasthttp.RequestCtx, 
 	if logEntry == nil || metadata == nil {
 		return false
 	}
-	decided, _ := metadata["scan_guard_decided"].(bool)
+	decided := metadataBool(metadata, "scan_guard_decided")
 	if !decided {
+		return false
+	}
+	// Proxy marked "evaluated" but bot actually failed — do not stamp security OK; re-run below.
+	if evalErr := getMetadataString(metadata, "scan_guard_eval_error"); evalErr != "" {
 		return false
 	}
 	action := strings.TrimSpace(getMetadataString(metadata, "scan_guard_action"))
