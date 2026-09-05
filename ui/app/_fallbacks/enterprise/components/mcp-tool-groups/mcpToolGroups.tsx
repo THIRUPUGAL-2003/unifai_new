@@ -13,7 +13,7 @@ import {
 	useUpdateMCPToolGroupMutation,
 } from "@enterprise/lib/store/apis/mcpToolGroupsApi";
 import { MCPToolGroup } from "@enterprise/lib/types/workspace";
-import { Boxes, Plus, Trash2 } from "lucide-react";
+import { Boxes, Pencil, Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -42,6 +42,31 @@ function buildToolEntries(clientId: string, clientName: string, toolNamesRaw: st
 	}));
 }
 
+function parseToolsFromGroup(group: MCPToolGroup): { clientId: string; toolNames: string } {
+	const tools = group.tools || [];
+	if (tools.length === 0) return { clientId: "", toolNames: "" };
+	const first = tools[0] as Record<string, unknown>;
+	const clientId = String(first.mcp_client_id || "");
+	const names: string[] = [];
+	for (const raw of tools) {
+		const t = raw as Record<string, unknown>;
+		const toolNames = t.tool_names;
+		if (Array.isArray(toolNames) && toolNames.length > 0) {
+			names.push(...toolNames.map(String));
+			continue;
+		}
+		const name = String(t.name || "");
+		const prefix = String(t.mcp_client_name || clientId);
+		if (name.endsWith("-*") || name === `${prefix}-*`) {
+			continue;
+		}
+		if (prefix && name.startsWith(`${prefix}-`)) {
+			names.push(name.slice(prefix.length + 1));
+		}
+	}
+	return { clientId, toolNames: names.join(", ") };
+}
+
 export default function MCPToolGroups() {
 	const { data } = useGetMCPClientsQuery({ limit: 200, offset: 0 });
 	const clients = data?.clients || [];
@@ -53,6 +78,7 @@ export default function MCPToolGroups() {
 	const [deleteGroup] = useDeleteMCPToolGroupMutation();
 	const groups = groupData?.tool_groups || [];
 	const [open, setOpen] = useState(false);
+	const [editing, setEditing] = useState<MCPToolGroup | null>(null);
 	const [name, setName] = useState("");
 	const [description, setDescription] = useState("");
 	const [clientId, setClientId] = useState("");
@@ -65,7 +91,32 @@ export default function MCPToolGroups() {
 		return c?.config.name || "";
 	}, [clients, clientId]);
 
-	const create = async () => {
+	const resetForm = () => {
+		setEditing(null);
+		setName("");
+		setDescription("");
+		setToolNames("");
+		setClientId("");
+		setSelectedVkIds([]);
+	};
+
+	const openCreate = () => {
+		resetForm();
+		setOpen(true);
+	};
+
+	const openEdit = (group: MCPToolGroup) => {
+		const parsed = parseToolsFromGroup(group);
+		setEditing(group);
+		setName(group.name);
+		setDescription(group.description || "");
+		setClientId(parsed.clientId);
+		setToolNames(parsed.toolNames);
+		setSelectedVkIds(group.virtual_key_ids || []);
+		setOpen(true);
+	};
+
+	const save = async () => {
 		if (!name.trim()) {
 			toast.error("Name is required");
 			return;
@@ -78,21 +129,23 @@ export default function MCPToolGroups() {
 			toast.error("Select at least one virtual key — empty key list restricts ALL keys to only these tools");
 			return;
 		}
+		const payload = {
+			name: name.trim(),
+			description,
+			enabled: editing ? editing.enabled : enabled,
+			tools: buildToolEntries(clientId, selectedClientName, toolNames),
+			virtual_key_ids: selectedVkIds,
+		};
 		try {
-			await createGroup({
-				name: name.trim(),
-				description,
-				enabled,
-				tools: buildToolEntries(clientId, selectedClientName, toolNames),
-				virtual_key_ids: selectedVkIds,
-			}).unwrap();
-			toast.success("Tool group created");
+			if (editing) {
+				await updateGroup({ ...editing, ...payload }).unwrap();
+				toast.success("Tool group updated");
+			} else {
+				await createGroup(payload).unwrap();
+				toast.success("Tool group created");
+			}
 			setOpen(false);
-			setName("");
-			setDescription("");
-			setToolNames("");
-			setClientId("");
-			setSelectedVkIds([]);
+			resetForm();
 		} catch (err) {
 			toast.error(getErrorMessage(err));
 		}
@@ -132,7 +185,7 @@ export default function MCPToolGroups() {
 						group — pick keys carefully so other MCP tools are not blocked.
 					</p>
 				</div>
-				<Button onClick={() => setOpen(true)}>
+				<Button onClick={openCreate}>
 					<Plus className="h-4 w-4" />
 					New group
 				</Button>
@@ -171,6 +224,9 @@ export default function MCPToolGroups() {
 									<Switch checked={group.enabled} onCheckedChange={() => void toggle(group)} />
 								</TableCell>
 								<TableCell className="text-right">
+									<Button size="icon" variant="ghost" onClick={() => openEdit(group)} title="Edit">
+										<Pencil className="h-4 w-4" />
+									</Button>
 									<Button size="icon" variant="ghost" onClick={() => void remove(group.id)}>
 										<Trash2 className="h-4 w-4" />
 									</Button>
@@ -181,10 +237,16 @@ export default function MCPToolGroups() {
 				</Table>
 			)}
 
-			<Dialog open={open} onOpenChange={setOpen}>
+			<Dialog
+				open={open}
+				onOpenChange={(v) => {
+					setOpen(v);
+					if (!v) resetForm();
+				}}
+			>
 				<DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
 					<DialogHeader>
-						<DialogTitle>Create tool group</DialogTitle>
+						<DialogTitle>{editing ? "Edit tool group" : "Create tool group"}</DialogTitle>
 					</DialogHeader>
 					<div className="space-y-3 py-2">
 						<div className="space-y-1">
@@ -231,7 +293,7 @@ export default function MCPToolGroups() {
 						<Button variant="outline" onClick={() => setOpen(false)}>
 							Cancel
 						</Button>
-						<Button onClick={() => void create()}>Create</Button>
+						<Button onClick={() => void save()}>{editing ? "Save changes" : "Create"}</Button>
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>

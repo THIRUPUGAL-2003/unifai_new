@@ -209,6 +209,39 @@ func applyAccessProfileBudgets(ctx context.Context, store configstore.ConfigStor
 	return nil
 }
 
+// rollbackAccessProfileMCP removes MCP grants that this profile previously applied.
+func rollbackAccessProfileMCP(ctx context.Context, store configstore.ConfigStore, profile tables.TableAccessProfile) error {
+	spec := profile.Spec()
+	vkIDs := specStringSlice(spec, "virtual_key_ids")
+	servers := specMapSlice(spec, "mcp_servers")
+	if len(vkIDs) == 0 || len(servers) == 0 {
+		return nil
+	}
+	clientIDs := map[uint]bool{}
+	for _, item := range servers {
+		id, err := resolveMCPClientID(ctx, store, item)
+		if err != nil || id == 0 {
+			continue
+		}
+		clientIDs[id] = true
+	}
+	if len(clientIDs) == 0 {
+		return nil
+	}
+	for _, vkID := range vkIDs {
+		existing, err := store.GetVirtualKeyMCPConfigs(ctx, vkID)
+		if err != nil {
+			continue
+		}
+		for _, mc := range existing {
+			if clientIDs[mc.MCPClientID] {
+				_ = store.DeleteVirtualKeyMCPConfig(ctx, mc.ID)
+			}
+		}
+	}
+	return nil
+}
+
 func providerConfigsFromSpec(items []map[string]any, vkID string) []tables.TableVirtualKeyProviderConfig {
 	out := make([]tables.TableVirtualKeyProviderConfig, 0, len(items))
 	for _, item := range items {

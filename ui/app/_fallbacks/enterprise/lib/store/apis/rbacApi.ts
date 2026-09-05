@@ -38,6 +38,14 @@ export const rbacApi = baseApi.injectEndpoints({
 			query: () => ({ url: "/rbac/me/permissions" }),
 			providesTags: ["Permissions"],
 		}),
+		assignUserRole: builder.mutation<void, { id: string; role_id?: number; role_name?: string }>({
+			query: ({ id, role_id, role_name }) => ({
+				url: `/users/${id}/role`,
+				method: "PUT",
+				body: { role_id, role_name },
+			}),
+			invalidatesTags: ["Users", "Roles", "Permissions"],
+		}),
 	}),
 });
 
@@ -49,4 +57,5 @@ export const {
 	useUpdateRolePermissionsMutation,
 	useDeleteRoleMutation,
 	useGetMyRBACPermissionsQuery,
+	useAssignUserRoleMutation,
 } = rbacApi;

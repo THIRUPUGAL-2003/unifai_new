@@ -533,7 +533,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			await executePrompt(
 				messages,
 				pendingMessage,
-				{ provider: execProvider, model: execModel, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt },
+				{ provider: execProvider, model: execModel, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId },
 				{
 					onStreamingStart: (allMessages, placeholder) => {
 						if (!isActive()) return;
@@ -645,7 +645,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId],
 	);
 
 	const handleSubmitToolResult = useCallback(
@@ -675,7 +675,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			await executePrompt(
 				newMessages,
 				undefined,
-				{ provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt },
+				{ provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId },
 				{
 					onStreamingStart: (allMessages, placeholder) => {
 						if (!isActive()) return;
@@ -727,7 +727,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId],
 	);
 
 	const handleExecuteToolCall = useCallback(
@@ -778,7 +778,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			await executePrompt(
 				newMessages,
 				undefined,
-				{ provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt },
+				{ provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId },
 				{
 					onStreamingStart: (allMessages, placeholder) => {
 						if (!isActive()) return;
@@ -830,7 +830,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, handleSubmitToolResult, skillSystemPrompt],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, handleSubmitToolResult, skillSystemPrompt, skillId],
 	);
 
 	const handleExecuteAllToolCalls = useCallback(

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"math/rand"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/unifai/unifai/framework/configstore"
 )
@@ -28,9 +30,10 @@ type ProviderKey struct {
 
 // Runtime holds the live load balancer config.
 type Runtime struct {
-	mu   sync.RWMutex
-	cfg  Config
-	keys []ProviderKey
+	mu              sync.RWMutex
+	cfg             Config
+	keys            []ProviderKey
+	failedProviders map[string]time.Time
 }
 
 // Default is the process-wide adaptive routing runtime.
@@ -80,6 +83,7 @@ func (r *Runtime) SelectProviderKey(provider string) (string, bool) {
 	r.mu.RLock()
 	cfg := r.cfg
 	keys := append([]ProviderKey(nil), r.keys...)
+	failed := copyFailedMap(r.failedProviders)
 	r.mu.RUnlock()
 	if !cfg.Enabled || !cfg.RouteSelectionEnabled {
 		return "", false
@@ -89,7 +93,19 @@ func (r *Runtime) SelectProviderKey(provider string) (string, bool) {
 		if key.Provider != provider || !key.Enabled || key.Weight <= 0 {
 			continue
 		}
+		if cfg.PruneFailedFallbacks && failed[key.Provider] {
+			continue
+		}
 		candidates = append(candidates, key)
+	}
+	if len(candidates) == 0 && cfg.RerouteFailedDirections {
+		// Retry without prune so a previously-failed direction can be reused.
+		for _, key := range keys {
+			if key.Provider != provider || !key.Enabled || key.Weight <= 0 {
+				continue
+			}
+			candidates = append(candidates, key)
+		}
 	}
 	if len(candidates) == 0 {
 		return "", false
@@ -110,4 +126,56 @@ func (r *Runtime) SelectProviderKey(provider string) (string, bool) {
 		}
 	}
 	return candidates[0].ID, true
+}
+
+// MarkProviderFailed records a provider failure for prune/reroute decisions.
+func (r *Runtime) MarkProviderFailed(provider string) {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return
+	}
+	r.mu.Lock()
+	if r.failedProviders == nil {
+		r.failedProviders = map[string]time.Time{}
+	}
+	r.failedProviders[provider] = time.Now()
+	r.mu.Unlock()
+}
+
+// ClearProviderFailure clears a failure mark after a successful call.
+func (r *Runtime) ClearProviderFailure(provider string) {
+	provider = strings.TrimSpace(provider)
+	if provider == "" {
+		return
+	}
+	r.mu.Lock()
+	delete(r.failedProviders, provider)
+	r.mu.Unlock()
+}
+
+// ShouldPruneProvider reports whether provider should be excluded from fallbacks.
+func (r *Runtime) ShouldPruneProvider(provider string) bool {
+	r.mu.RLock()
+	cfg := r.cfg
+	failed := r.failedProviders[provider]
+	r.mu.RUnlock()
+	if !cfg.Enabled || !cfg.PruneFailedFallbacks {
+		return false
+	}
+	if failed.IsZero() {
+		return false
+	}
+	// Failures older than 5 minutes no longer prune.
+	return time.Since(failed) < 5*time.Minute
+}
+
+func copyFailedMap(in map[string]time.Time) map[string]bool {
+	out := make(map[string]bool, len(in))
+	cutoff := time.Now().Add(-5 * time.Minute)
+	for provider, at := range in {
+		if at.After(cutoff) {
+			out[provider] = true
+		}
+	}
+	return out
 }

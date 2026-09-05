@@ -315,12 +315,32 @@ func (h *WorkspaceHandler) deleteAccessProfile(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "invalid profile id")
 		return
 	}
+	row, err := store.GetAccessProfile(ctx, id)
+	if isStoreNotFound(err) {
+		SendError(ctx, fasthttp.StatusNotFound, "profile not found")
+		return
+	}
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "failed to load access profile")
+		return
+	}
 	if err := store.DeleteAccessProfile(ctx, id); isStoreNotFound(err) {
 		SendError(ctx, fasthttp.StatusNotFound, "profile not found")
 		return
 	} else if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to delete access profile")
 		return
+	}
+	if h.store != nil && h.store.ConfigStore != nil {
+		if err := rollbackAccessProfileMCP(ctx, h.store.ConfigStore, *row); err != nil {
+			SendError(ctx, fasthttp.StatusBadGateway, "profile deleted but failed to roll back MCP grants: "+err.Error())
+			return
+		}
+		if h.governanceManager != nil {
+			for _, vkID := range specStringSlice(row.Spec(), "virtual_key_ids") {
+				_, _ = h.governanceManager.ReloadVirtualKey(ctx, vkID)
+			}
+		}
 	}
 	SendJSON(ctx, map[string]string{"message": "deleted"})
 }

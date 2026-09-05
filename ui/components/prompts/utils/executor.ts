@@ -11,6 +11,8 @@ export interface ExecutionConfig {
 	customHeaders?: Record<string, string>;
 	/** Optional Skills Repository body injected as a system message for this run. */
 	skillSystemPrompt?: string;
+	/** Prefer server-side inject via x-uf-skill-id when set. */
+	skillId?: string;
 }
 
 function getBaseUrl() {
@@ -21,7 +23,7 @@ function getBaseUrl() {
 	}
 }
 
-function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders">): Record<string, string> {
+function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders" | "skillId">): Record<string, string> {
 	const headers: Record<string, string> = { "Content-Type": "application/json" };
 	if (config.apiKeyId && config.apiKeyId !== "__auto__") {
 		if (config.apiKeyId.startsWith("sk-uf-")) {
@@ -34,8 +36,18 @@ function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders"
 	// MCP Settings has "disable auto tool inject" enabled. Virtual-key grants
 	// (and allow_on_all clients) still gate which tools are actually usable.
 	headers["x-uf-mcp-include-clients"] = "*";
+	if (config.skillId?.trim()) {
+		headers["x-uf-skill-id"] = config.skillId.trim();
+	}
 	if (config.customHeaders) {
-		const reserved = new Set(["content-type", "authorization", "x-uf-api-key-id", "x-uf-mcp-include-clients", "x-uf-mcp-include-tools"]);
+		const reserved = new Set([
+			"content-type",
+			"authorization",
+			"x-uf-api-key-id",
+			"x-uf-mcp-include-clients",
+			"x-uf-mcp-include-tools",
+			"x-uf-skill-id",
+		]);
 		for (const [name, value] of Object.entries(config.customHeaders)) {
 			const trimmedName = name.trim();
 			const trimmedValue = value.trim();
@@ -79,7 +91,8 @@ export async function executePrompt(
 
 	// Replace Jinja2 variables before sending to the API
 	let resolvedMessages = config.variables ? replaceVariablesInMessages(allMessages, config.variables) : allMessages;
-	const skillPrompt = config.skillSystemPrompt?.trim();
+	// Prefer server-side x-uf-skill-id inject; fall back to local system message.
+	const skillPrompt = !config.skillId?.trim() ? config.skillSystemPrompt?.trim() : "";
 	if (skillPrompt) {
 		resolvedMessages = [Message.system(skillPrompt), ...resolvedMessages];
 	}

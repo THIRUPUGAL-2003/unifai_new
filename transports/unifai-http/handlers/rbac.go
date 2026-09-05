@@ -312,5 +312,9 @@ func (h *WorkspaceHandler) assignUserRole(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to assign role")
 		return
 	}
+	if err := h.store.ConfigStore.UpdateSessionsRoleByUsername(ctx, user.Username, roleName); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "role assigned but failed to refresh live sessions")
+		return
+	}
 	SendJSON(ctx, map[string]string{"message": "role assigned"})
 }

@@ -22,6 +22,7 @@ import {
 	useUpdateSessionUserMutation,
 	type SessionUser,
 } from "@/lib/store";
+import { useAssignUserRoleMutation, useGetRolesQuery } from "@enterprise/lib/store/apis/rbacApi";
 
 export default function UsersView() {
 	const [searchQuery, setSearchQuery] = useState("");
@@ -29,10 +30,13 @@ export default function UsersView() {
 
 	const { data: users = [], isLoading: loading } = useGetSessionUsersQuery();
 	const { data: promptsData } = useGetPromptsQuery();
+	const { data: rolesData } = useGetRolesQuery();
+	const rbacRoles = rolesData?.roles || [];
 	const [createUser] = useCreateSessionUserMutation();
 	const [updateUser] = useUpdateSessionUserMutation();
 	const [deleteUser] = useDeleteSessionUserMutation();
 	const [approveUser] = useApproveSessionUserMutation();
+	const [assignUserRole] = useAssignUserRoleMutation();
 	const [rejectUser] = useRejectSessionUserMutation();
 	const allPrompts = promptsData?.prompts || [];
 
@@ -144,7 +148,10 @@ export default function UsersView() {
 			return;
 		}
 		try {
-			await createUser({ ...userPayload(), password }).unwrap();
+			const created = await createUser({ ...userPayload(), password }).unwrap();
+			if (created?.id && role) {
+				await assignUserRole({ id: created.id, role_name: role }).unwrap();
+			}
 			toast.success("User created successfully");
 			setIsCreateOpen(false);
 			resetForm();
@@ -158,6 +165,7 @@ export default function UsersView() {
 		if (!selectedUser) return;
 		try {
 			await updateUser({ id: selectedUser.id, updates: userPayload() }).unwrap();
+			await assignUserRole({ id: selectedUser.id, role_name: role }).unwrap();
 			toast.success("User updated successfully");
 			setIsEditOpen(false);
 			resetForm();
@@ -516,6 +524,14 @@ export default function UsersView() {
 							>
 								<option value="user">User (Prompt Repository only)</option>
 								<option value="admin">Admin (choose workspace sections)</option>
+								{rbacRoles
+									.filter((r) => r.name !== "admin" && r.name !== "user")
+									.map((r) => (
+										<option key={r.id} value={r.name}>
+											{r.name}
+											{r.description ? ` — ${r.description}` : ""}
+										</option>
+									))}
 							</select>
 						</div>
 						{workspaceAccessPicker}
@@ -620,6 +636,14 @@ export default function UsersView() {
 							>
 								<option value="user">User (Prompt Repository only)</option>
 								<option value="admin">Admin (choose workspace sections)</option>
+								{rbacRoles
+									.filter((r) => r.name !== "admin" && r.name !== "user")
+									.map((r) => (
+										<option key={r.id} value={r.name}>
+											{r.name}
+											{r.description ? ` — ${r.description}` : ""}
+										</option>
+									))}
 							</select>
 						</div>
 						{workspaceAccessPicker}

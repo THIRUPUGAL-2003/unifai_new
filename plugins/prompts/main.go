@@ -29,11 +29,14 @@ const (
 	// PromptEnvironmentHeader selects a Prompt Repository deployment by environment name
 	// (e.g. production / staging). Used when x-uf-prompt-id is not set.
 	PromptEnvironmentHeader = "x-uf-prompt-environment"
+	// SkillIDHeader injects a Skills Repository skill_md_body as a system message.
+	SkillIDHeader = "x-uf-skill-id"
 
 	// PromptIDKey and PromptVersionKey are context keys for the resolved header values.
 	PromptIDKey          schemas.UnifAIContextKey = PromptIDHeader
 	PromptVersionKey     schemas.UnifAIContextKey = PromptVersionHeader
 	PromptEnvironmentKey schemas.UnifAIContextKey = PromptEnvironmentHeader
+	SkillIDKey           schemas.UnifAIContextKey = SkillIDHeader
 )
 
 // InMemoryStore is the data source for prompts and all versions. Implementations typically
@@ -47,6 +50,12 @@ type InMemoryStore interface {
 // can map x-uf-prompt-environment → prompt id + version when no explicit prompt id is set.
 type PromptDeploymentStore interface {
 	ListPromptDeployments(ctx context.Context, promptID string) ([]configstoreTables.TablePromptDeployment, error)
+}
+
+// SkillBodyStore optionally loads Skills Repository bodies for x-uf-skill-id injection.
+type SkillBodyStore interface {
+	GetSkillLean(ctx context.Context, id string) (*configstoreTables.TableSkill, error)
+	GetSkillByName(ctx context.Context, name string) (*configstoreTables.TableSkill, error)
 }
 
 // PromptResolver decides which prompt and version to inject for a given request.
@@ -258,6 +267,9 @@ func (p *Plugin) HTTPTransportPreHook(ctx *schemas.UnifAIContext, req *schemas.H
 	if env := strings.TrimSpace(req.CaseInsensitiveHeaderLookup(PromptEnvironmentHeader)); env != "" {
 		ctx.SetValue(PromptEnvironmentKey, env)
 	}
+	if skillID := strings.TrimSpace(req.CaseInsensitiveHeaderLookup(SkillIDHeader)); skillID != "" {
+		ctx.SetValue(SkillIDKey, skillID)
+	}
 	return nil, nil
 }
 
@@ -296,6 +308,9 @@ func (p *Plugin) PreLLMHook(ctx *schemas.UnifAIContext, req *schemas.UnifAIReque
 	if req == nil {
 		return req, nil, nil
 	}
+
+	// Skills injection works with or without a prompt id (API + playground).
+	p.injectSkillSystemMessage(ctx, req)
 
 	promptID, versionNumber, err := p.resolver.Resolve(ctx, req)
 	if err != nil {
@@ -349,6 +364,41 @@ func (p *Plugin) PreLLMHook(ctx *schemas.UnifAIContext, req *schemas.UnifAIReque
 	}
 
 	return req, nil, nil
+}
+
+// injectSkillSystemMessage prepends Skills Repository skill_md_body when
+// x-uf-skill-id (or skill name) is present on the request context.
+func (p *Plugin) injectSkillSystemMessage(ctx *schemas.UnifAIContext, req *schemas.UnifAIRequest) {
+	skillRef := strings.TrimSpace(unifai.GetStringFromContext(ctx, SkillIDKey))
+	if skillRef == "" {
+		return
+	}
+	store, ok := p.store.(SkillBodyStore)
+	if !ok || store == nil {
+		return
+	}
+	skill, err := store.GetSkillLean(ctx, skillRef)
+	if err != nil || skill == nil {
+		skill, err = store.GetSkillByName(ctx, skillRef)
+	}
+	if err != nil || skill == nil {
+		p.logger.Warn("prompts plugin: skill not found for x-uf-skill-id=%s: %v", skillRef, err)
+		return
+	}
+	body := strings.TrimSpace(skill.SkillMDBody)
+	if body == "" {
+		return
+	}
+	systemMsg := schemas.ChatMessage{
+		Role:    schemas.ChatMessageRoleSystem,
+		Content: &schemas.ChatMessageContent{ContentStr: &body},
+	}
+	switch {
+	case req.ChatRequest != nil:
+		mergeChatMessages(&req.ChatRequest.Input, []schemas.ChatMessage{systemMsg})
+	case req.ResponsesRequest != nil:
+		mergeResponsesMessages(&req.ResponsesRequest.Input, []schemas.ChatMessage{systemMsg})
+	}
 }
 
 // PostLLMHook is a no-op; the plugin does not modify responses.

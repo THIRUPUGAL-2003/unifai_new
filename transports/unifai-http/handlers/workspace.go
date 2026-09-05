@@ -103,6 +103,11 @@ func (h *WorkspaceHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.GET("/api/scim/config", wrap(h.getSCIMConfig))
 	r.PUT("/api/scim/config", wrap(h.updateSCIMConfig))
 	r.GET("/api/scim/providers", wrap(h.listSCIMProviders))
+	// OAuth discovery/logout are auth-middleware whitelisted (browser popup + logout).
+	r.GET("/api/scim/oauth/config", lib.ChainMiddlewares(h.getSCIMOAuthConfig, middlewares...))
+	r.POST("/api/scim/oauth/callback", lib.ChainMiddlewares(h.scimOAuthCallback, middlewares...))
+	r.POST("/api/scim/oauth/refresh", lib.ChainMiddlewares(h.scimOAuthRefresh, middlewares...))
+	r.POST("/api/scim/oauth/logout", lib.ChainMiddlewares(h.scimOAuthLogout, middlewares...))
 
 	r.GET("/api/alert-channels", wrap(h.listAlertChannels))
 	r.POST("/api/alert-channels", wrap(h.createAlertChannel))

@@ -445,6 +445,7 @@ func (p *GovernancePlugin) runPreRequestRouting(ctx *schemas.UnifAIContext, virt
 		includeClientsPresent := ctx.Value(schemas.MCPContextKeyIncludeClients) != nil
 		if !includeToolsProvided && (!autoInjectDisabled || includeClientsPresent) {
 			if tools := p.computeMCPIncludeTools(virtualKey); tools != nil {
+				tools = p.filterMCPIncludeToolsByGroups(ctx, virtualKey, tools)
 				ctx.SetValue(schemas.MCPContextKeyIncludeTools, tools)
 			}
 		}
@@ -479,6 +480,15 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.UnifAIContext, req *
 
 	if provider != "" {
 		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("Skipping load balancing for model %s: provider %s already set", modelStr, provider))
+		return nil
+	}
+
+	lbCfg := loadbalancer.Default.ConfigSnapshot()
+	// Direction selection = provider-level weighted pick. When adaptive LB is on
+	// but direction selection is off, skip provider LB (key pin still may run later
+	// only after a provider is already known).
+	if lbCfg.Enabled && !lbCfg.DirectionSelectionEnabled {
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("Adaptive direction selection disabled — skipping provider load balancing for model %s", modelStr))
 		return nil
 	}
 
@@ -635,6 +645,10 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.UnifAIContext, req *
 			if config.Provider == string(selectedProvider) {
 				continue
 			}
+			if loadbalancer.Default.ShouldPruneProvider(config.Provider) {
+				ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("Fallback provider %s pruned (recent failure)", config.Provider))
+				continue
+			}
 			fbProvider := schemas.ModelProvider(config.Provider)
 			fbModel := modelStr
 			if p.modelCatalog != nil {
@@ -647,6 +661,22 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.UnifAIContext, req *
 				fbModel = refined
 			}
 			fallbacks = append(fallbacks, schemas.Fallback{Provider: fbProvider, Model: fbModel})
+		}
+		// If prune removed everything and reroute is on, rebuild without prune.
+		if len(fallbacks) == 0 && loadbalancer.Default.ConfigSnapshot().RerouteFailedDirections {
+			for _, config := range fallbackConfigs {
+				if config.Provider == string(selectedProvider) {
+					continue
+				}
+				fbProvider := schemas.ModelProvider(config.Provider)
+				fbModel := modelStr
+				if p.modelCatalog != nil {
+					if refined, err := p.modelCatalog.RefineModelForProvider(fbProvider, modelStr); err == nil {
+						fbModel = refined
+					}
+				}
+				fallbacks = append(fallbacks, schemas.Fallback{Provider: fbProvider, Model: fbModel})
+			}
 		}
 		req.SetFallbacks(fallbacks)
 		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("Added %d fallback providers", len(fallbacks)))
@@ -915,8 +945,24 @@ func (p *GovernancePlugin) pruneMCPIncludeToolsFromContext(ctx *schemas.UnifAICo
 		}
 	}
 
+	pruned = p.filterMCPIncludeToolsByGroups(ctx, virtualKey, pruned)
 	ctx.SetValue(schemas.MCPContextKeyIncludeTools, pruned)
 	return true
+}
+
+// filterMCPIncludeToolsByGroups applies MCP tool-group allowlists at stamp time
+// so chat injection matches execute-time IsToolAllowed checks.
+func (p *GovernancePlugin) filterMCPIncludeToolsByGroups(ctx *schemas.UnifAIContext, virtualKey *configstoreTables.TableVirtualKey, tools []string) []string {
+	if virtualKey == nil || len(tools) == 0 {
+		return tools
+	}
+	userID := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyUserID)
+	return mcptoolgroups.Default.FilterTools(tools, mcptoolgroups.RequestContext{
+		VirtualKeyID: virtualKey.ID,
+		UserID:       userID,
+		TeamID:       unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceTeamID),
+		CustomerID:   unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceScopedCustomerID),
+	})
 }
 
 // EvaluateGovernanceRequest is a common function that handles virtual key validation
@@ -1270,6 +1316,7 @@ func (p *GovernancePlugin) PreRequestHook(ctx *schemas.UnifAIContext, req *schem
 		includeClientsPresent := ctx.Value(schemas.MCPContextKeyIncludeClients) != nil
 		if !includeToolsProvided && (!autoInjectDisabled || includeClientsPresent) {
 			if tools := p.computeMCPIncludeTools(virtualKey); tools != nil {
+				tools = p.filterMCPIncludeToolsByGroups(ctx, virtualKey, tools)
 				ctx.SetValue(schemas.MCPContextKeyIncludeTools, tools)
 			}
 		}
@@ -1336,6 +1383,15 @@ func (p *GovernancePlugin) PostLLMHook(ctx *schemas.UnifAIContext, result *schem
 
 	// Extract request type, provider, and model
 	requestType, provider, requestedModel, _ := unifai.GetResponseFields(result, err)
+
+	// Adaptive routing failure memory for prune / reroute toggles.
+	if provider != "" {
+		if err != nil {
+			loadbalancer.Default.MarkProviderFailed(string(provider))
+		} else {
+			loadbalancer.Default.ClearProviderFailure(string(provider))
+		}
+	}
 
 	// Extract governance information
 	virtualKey := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyVirtualKey)

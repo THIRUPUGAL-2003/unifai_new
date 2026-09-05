@@ -243,6 +243,69 @@ func (r *Runtime) IsToolAllowed(toolName string, req RequestContext) bool {
 	return false
 }
 
+// FilterTools narrows an include-tools stamp using matching tool groups so
+// chat injection matches PreMCP execute enforcement. When no matching group
+// applies (or a matching group has an empty tool list = allow-all), tools
+// are returned unchanged.
+func (r *Runtime) FilterTools(tools []string, req RequestContext) []string {
+	if len(tools) == 0 {
+		return tools
+	}
+	r.mu.RLock()
+	groups := append([]Group(nil), r.groups...)
+	r.mu.RUnlock()
+	if len(groups) == 0 {
+		return tools
+	}
+
+	matched := make([]Group, 0)
+	allowsAll := false
+	for _, group := range groups {
+		if !group.matches(req) {
+			continue
+		}
+		matched = append(matched, group)
+		if len(group.Tools) == 0 {
+			allowsAll = true
+		}
+	}
+	if len(matched) == 0 || allowsAll {
+		return tools
+	}
+
+	out := make([]string, 0, len(tools))
+	seen := make(map[string]struct{}, len(tools))
+	add := func(tool string) {
+		tool = strings.TrimSpace(tool)
+		if tool == "" {
+			return
+		}
+		if _, ok := seen[tool]; ok {
+			return
+		}
+		seen[tool] = struct{}{}
+		out = append(out, tool)
+	}
+
+	for _, tool := range tools {
+		clientPrefix, isWildcard := strings.CutSuffix(tool, "-*")
+		if isWildcard {
+			for _, group := range matched {
+				for _, pattern := range group.Tools {
+					if pattern == clientPrefix+"-*" || strings.HasPrefix(pattern, clientPrefix+"-") {
+						add(pattern)
+					}
+				}
+			}
+			continue
+		}
+		if r.IsToolAllowed(tool, req) {
+			add(tool)
+		}
+	}
+	return out
+}
+
 func (g Group) matches(req RequestContext) bool {
 	if len(g.VirtualKeyIDs) > 0 && !contains(g.VirtualKeyIDs, req.VirtualKeyID) {
 		return false

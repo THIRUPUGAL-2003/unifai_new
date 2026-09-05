@@ -401,6 +401,9 @@ type ConfigStore interface {
 	CreateSession(ctx context.Context, session *tables.SessionsTable) error
 	DeleteSession(ctx context.Context, token string) error
 	FlushSessions(ctx context.Context) error
+	// UpdateSessionsRoleByUsername updates Role on all live sessions for a username
+	// so RBAC changes apply without forcing a full re-login.
+	UpdateSessionsRoleByUsername(ctx context.Context, username, role string) error
 
 	// Temp token CRUD
 	CreateTempToken(ctx context.Context, token *tables.TempToken, tx ...*gorm.DB) error

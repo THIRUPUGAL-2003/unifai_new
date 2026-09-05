@@ -5586,6 +5586,18 @@ func (s *RDBConfigStore) FlushSessions(ctx context.Context) error {
 	return s.DB().WithContext(ctx).Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&tables.SessionsTable{}).Error
 }
 
+// UpdateSessionsRoleByUsername syncs Role on every session row for username.
+func (s *RDBConfigStore) UpdateSessionsRoleByUsername(ctx context.Context, username, role string) error {
+	username = strings.TrimSpace(username)
+	role = strings.TrimSpace(role)
+	if username == "" || role == "" {
+		return nil
+	}
+	return s.DB().WithContext(ctx).Model(&tables.SessionsTable{}).
+		Where("username = ?", username).
+		Updates(map[string]any{"role": role, "updated_at": time.Now().UTC()}).Error
+}
+
 // CreateTempToken inserts a new temp_tokens row. The plaintext token must be
 // set on the struct; the BeforeSave hook populates token_hash and (when
 // encryption is enabled) encrypts the plaintext in place. The optional tx
