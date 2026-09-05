@@ -1,6 +1,11 @@
 import os
+import sys
 import json
 import re
+
+if hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak, KeepTogether, HRFlowable
@@ -379,7 +384,40 @@ doc.add_paragraph(
     "- Finance, CRM & Observability: Stripe, PayPal, HubSpot, Sentry, PostHog, Twilio."
 )
 
-# 5. Adding MCP Server
+# Table of Key MCP Servers in DOCX
+p_mcp_table = doc.add_table(rows=1, cols=4)
+p_mcp_table.alignment = WD_TABLE_ALIGNMENT.CENTER
+hdr_mcp_cells = p_mcp_table.rows[0].cells
+mcp_headers = ["Server Name", "Category", "Transport", "Description"]
+for j, h_text in enumerate(mcp_headers):
+    hdr_mcp_cells[j].text = h_text
+    set_cell_shading(hdr_mcp_cells[j], "1E293B")
+    for r in hdr_mcp_cells[j].paragraphs[0].runs:
+        r.font.bold = True
+        r.font.color.rgb = RGBColor(255, 255, 255)
+        r.font.size = Pt(9)
+
+# Select top 35 prominent servers across categories
+prominent_mcp = []
+for cat in ['Developer Tools', 'Productivity', 'Search', 'Automation', 'Finance', 'Observability', 'AI']:
+    for s in mcp_by_category.get(cat, [])[:5]:
+        prominent_mcp.append(s)
+
+for idx, s in enumerate(prominent_mcp, 1):
+    row_cells = p_mcp_table.add_row().cells
+    row_cells[0].text = s.get('name', '')
+    row_cells[1].text = s.get('category', '')
+    row_cells[2].text = s.get('connection_type', '').upper()
+    desc = s.get('description', '')
+    row_cells[3].text = desc[:80] + '...' if len(desc) > 80 else desc
+    bg = "F8FAFC" if idx % 2 == 0 else "FFFFFF"
+    for j in range(4):
+        set_cell_shading(row_cells[j], bg)
+        for r in row_cells[j].paragraphs[0].runs:
+            r.font.size = Pt(8.5)
+
+doc.add_paragraph().paragraph_format.space_after = Pt(8)
+
 h5 = doc.add_heading("5. Step-by-Step MCP Server Installation & Custom Publishing", level=1)
 h5.paragraph_format.space_before = Pt(14)
 h5.paragraph_format.space_after = Pt(6)
@@ -603,8 +641,44 @@ story.append(Paragraph(
     body_style
 ))
 
+# MCP Servers PDF Table
+pdf_mcp_data = [[
+    Paragraph("<b>Server Name</b>", table_hdr_style),
+    Paragraph("<b>Category</b>", table_hdr_style),
+    Paragraph("<b>Transport</b>", table_hdr_style),
+    Paragraph("<b>Description / Publisher</b>", table_hdr_style)
+]]
+
+for s in prominent_mcp:
+    pdf_mcp_data.append([
+        Paragraph(f"<b>{s.get('name', '')}</b>", table_cell_style),
+        Paragraph(s.get('category', ''), table_cell_style),
+        Paragraph(f"<code>{s.get('connection_type', '').upper()}</code>", table_cell_style),
+        Paragraph(s.get('description', '')[:70] + ('...' if len(s.get('description', '')) > 70 else ''), table_cell_style)
+    ])
+
+mcp_col_widths = [110, 85, 60, 249]
+t_mcp = Table(pdf_mcp_data, colWidths=mcp_col_widths, repeatRows=1)
+t_mcp_style = [
+    ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1E293B')),
+    ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+    ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
+    ('TOPPADDING', (0, 0), (-1, -1), 2),
+    ('LEFTPADDING', (0, 0), (-1, -1), 3),
+    ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+    ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor('#CBD5E1'))
+]
+for r_idx in range(1, len(pdf_mcp_data)):
+    bg = colors.HexColor('#F8FAFC') if r_idx % 2 == 0 else colors.white
+    t_mcp_style.append(('BACKGROUND', (0, r_idx), (-1, r_idx), bg))
+
+t_mcp.setStyle(TableStyle(t_mcp_style))
+story.append(t_mcp)
+story.append(Spacer(1, 10))
+
 # 5. Adding MCP Server
 story.append(Paragraph("5. Step-by-Step MCP Server Installation & Publishing Guide", h1_style))
+
 story.append(Paragraph(
     "<b>Method A: 1-Click Install from MCP Library</b><br/>"
     "1. Go to <code>/workspace/mcp-registry/library</code> and find your server (e.g. GitHub, Notion, Brave).<br/>"
