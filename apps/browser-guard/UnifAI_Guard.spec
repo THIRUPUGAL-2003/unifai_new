@@ -1,37 +1,24 @@
 # -*- mode: python ; coding: utf-8 -*-
-# Build on Windows: pyinstaller UnifAI_Guard.spec
 from PyInstaller.utils.hooks import collect_all
-import os
 
-ROOT = os.path.abspath(SPECPATH)
-PROXY = os.path.join(ROOT, "proxy", "browser_ai_proxy.py")
-AGENT = os.path.join(ROOT, "agent", "unifai_agent.py")
-
-datas = [(PROXY, ".")]
+datas = [('C:/Users/sakth/OneDrive/ドキュメント/Desktop/unify - Copy/apps/browser-guard/proxy/browser_ai_proxy.py', '.')]
 binaries = []
-hiddenimports = [
-    "pypdf",
-    "PIL",
-    "PIL.Image",
-    "guard_platform",
-    "winrt",
-    "winrt.windows.media.ocr",
-    "winrt.windows.globalization",
-    "winrt.windows.graphics.imaging",
-    "winrt.windows.storage.streams",
-]
-for pkg in ("pypdf", "PIL", "winrt", "mitmproxy", "mitmproxy_windows"):
-    try:
-        tmp_ret = collect_all(pkg)
-        datas += tmp_ret[0]
-        binaries += tmp_ret[1]
-        hiddenimports += tmp_ret[2]
-    except Exception:
-        pass
+hiddenimports = ['pypdf', 'PIL', 'PIL.Image', 'winrt', 'winrt.windows.media.ocr', 'winrt.windows.globalization', 'winrt.windows.graphics.imaging', 'winrt.windows.storage.streams']
+tmp_ret = collect_all('pypdf')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('PIL')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('winrt')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('mitmproxy')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+tmp_ret = collect_all('mitmproxy_windows')
+datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+
 
 a = Analysis(
-    [AGENT],
-    pathex=[os.path.join(ROOT, "agent")],
+    ['C:/Users/sakth/OneDrive/ドキュメント/Desktop/unify - Copy/apps/browser-guard/agent/unifai_agent.py'],
+    pathex=[],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -50,7 +37,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="UnifAI_Guard",
+    name='UnifAI_Guard',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
