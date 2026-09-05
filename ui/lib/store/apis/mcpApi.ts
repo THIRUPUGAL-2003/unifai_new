@@ -174,6 +174,8 @@ export const mcpApi = baseApi.injectEndpoints({
 									if (data.is_ping_available !== undefined) draft.clients[index].config.is_ping_available = data.is_ping_available;
 									if (data.tool_pricing !== undefined) draft.clients[index].config.tool_pricing = data.tool_pricing;
 									if (data.tool_sync_interval !== undefined) draft.clients[index].config.tool_sync_interval = data.tool_sync_interval;
+									if (data.allow_on_all_virtual_keys !== undefined)
+										draft.clients[index].config.allow_on_all_virtual_keys = data.allow_on_all_virtual_keys;
 									if (data.disabled !== undefined) {
 										draft.clients[index].config.disabled = data.disabled;
 										if (data.disabled) {

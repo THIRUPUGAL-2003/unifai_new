@@ -203,7 +203,7 @@ function guardRuleNoticeCopy(action: "BLOCK" | "REDACT") {
 	}
 	return {
 		label: "Redaction notice (appended in chat)",
-		placeholder: "Notice appended when this rule redacts — e.g. Sensitive data detected. Do not share API keys.",
+		placeholder: "Notice appended when this rule redacts…",
 		hint: "Prompt is still sent; this notice is appended as [UNIFAI REDACTED]. Leave blank for the default notice.",
 		listLabel: "Redaction notice",
 	};
@@ -661,13 +661,13 @@ function GuardRuleAIEvaluatorFields({
 				<Label className="text-xs">Security Policy / Evaluation Instruction (Prompt)</Label>
 				<Textarea
 					className="font-mono text-xs"
-					placeholder="Write a clear policy, e.g. Block personal human names (my name is X). Block phone numbers. Block API keys / passwords. Block salary or bank account numbers..."
+					placeholder="Write the policy you want enforced (your words only — nothing is pre-filled)."
 					value={botPrompt}
 					onChange={(e) => onPromptChange(e.target.value)}
 					rows={4}
 				/>
 				<p className="text-[11px] text-muted-foreground">
-					This text is what the model enforces on every prompt / file / audio extract. Be specific — short vague lines like &quot;mobile names not allowed&quot; often miss. Say what to block and give 1 example.
+					Only this policy (and rules you save) is enforced. Be specific about what to block; vague one-liners often miss.
 				</p>
 			</div>
 
@@ -1211,9 +1211,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				return;
 			}
 			if (newRuleBotEvalMode === "ai" && newRuleBotPrompt.trim() && newRuleBotPrompt.trim().split(/\s+/).length < 4) {
-				setRuleError(
-					"Security policy is too short/vague. Write a clear rule (e.g. \"Block personal human names such as my name is X\").",
-				);
+				setRuleError("Security policy is too short. Describe clearly what should be blocked."),
 				return;
 			}
 			if (newRuleBotEvalMode === "regex" && !newRuleGeneratedPattern.trim()) {
@@ -1326,9 +1324,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				return;
 			}
 			if (editRuleBotEvalMode === "ai" && editRuleBotPrompt.trim() && editRuleBotPrompt.trim().split(/\s+/).length < 4) {
-				setRuleError(
-					"Security policy is too short/vague. Write a clear rule (e.g. \"Block personal human names such as my name is X\").",
-				);
+				setRuleError("Security policy is too short. Describe clearly what should be blocked."),
 				return;
 			}
 			if (editRuleBotEvalMode === "regex" && !editRuleGeneratedPattern.trim()) {
@@ -2242,7 +2238,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<div>
 									<CardTitle className="text-lg">DLP Guard Rules ({rules.length} Configured)</CardTitle>
 									<CardDescription>
-										Matched against prompts and text inside uploaded files (PDF/text). Use each rule&apos;s Active toggle to enable or disable without deleting.
+										No built-in DLP patterns. Only rules you create here apply on Target Websites you monitor. Toggle Active to enable/disable without deleting.
 									</CardDescription>
 								</div>
 								<Dialog open={ruleDialogOpen} onOpenChange={setRuleDialogOpen}>
@@ -2258,7 +2254,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 												Create Guard Rule
 											</DialogTitle>
 											<DialogDescription className="text-xs">
-												Configure a real-time regex DLP rule or an AI Guard Bot evaluation prompt.
+												Add your own regex or AI policy. UnifAI does not ship default guard patterns — only what you save here is enforced.
 											</DialogDescription>
 										</DialogHeader>
 
@@ -2305,7 +2301,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 											<div className="space-y-1.5">
 												<Label>Rule Name</Label>
 												<Input
-													placeholder={newRuleType === "ai_bot" ? "e.g. Detect Salary & Financial Queries" : "e.g. OpenAI API Key"}
+													placeholder="Rule name"
 													value={newRuleName}
 													onChange={(e) => setNewRuleName(e.target.value)}
 												/>
@@ -2346,13 +2342,12 @@ type RelatedHostEntry = { host: string; role: HostRole };
 												<div className="space-y-1.5">
 													<Label>Regex Pattern</Label>
 													<Input
-														placeholder="e.g. sk-[a-zA-Z0-9]{20,}"
+														placeholder="Enter the regex you want to match"
 														value={newRulePattern}
 														onChange={(e) => setNewRulePattern(e.target.value)}
 													/>
 													<p className="text-[11px] text-muted-foreground">
-														One RE2 regex per rule. Example:{" "}
-														<code className="text-[10px]">{"\\b\\d{10,12}\\b"}</code> for phone numbers.
+														One RE2 regex per rule. Empty form = no rule. Only patterns you save here are enforced (no built-in list).
 													</p>
 												</div>
 											) : (

@@ -854,18 +854,18 @@ func (p *GovernancePlugin) computeMCPIncludeToolsWith(virtualKey *configstoreTab
 		allowAllVKsClients = make(map[string]string)
 	}
 
-	// Process VK-specific MCP configs first — explicit config always overrides AllowOnAllVirtualKeys.
+	// Process VK-specific MCP configs first — explicit non-empty config overrides AllowOnAllVirtualKeys.
 	// Track which AllowOnAllVirtualKeys clients have an explicit VK config so we don't double-add them.
 	handledClients := make(map[string]bool)
 	for _, vkMcpConfig := range virtualKey.MCPConfigs {
 		clientID := vkMcpConfig.MCPClient.ClientID
-		if _, isAllowAll := allowAllVKsClients[clientID]; isAllowAll {
-			// Explicit VK config exists — it takes precedence; mark as handled regardless of tool list
-			handledClients[clientID] = true
-		}
 		if vkMcpConfig.ToolsToExecute.IsEmpty() {
-			// No tools specified in virtual key config - skip this client entirely
+			// Empty tools_to_execute is not a usable grant. Do not mark allow_on_all
+			// clients as handled — otherwise an empty override silently denies the server.
 			continue
+		}
+		if _, isAllowAll := allowAllVKsClients[clientID]; isAllowAll {
+			handledClients[clientID] = true
 		}
 		if vkMcpConfig.ToolsToExecute.IsUnrestricted() {
 			executeOnlyTools = append(executeOnlyTools, fmt.Sprintf("%s-*", vkMcpConfig.MCPClient.Name))
@@ -1209,15 +1209,19 @@ func (p *GovernancePlugin) isMCPToolAllowedByVK(vk *configstoreTables.TableVirtu
 // using a pre-fetched allowAllClients map (clientID → clientName) to avoid repeated lock
 // acquisitions in loops.
 func (p *GovernancePlugin) isMCPToolAllowedByVKWith(vk *configstoreTables.TableVirtualKey, toolPattern string, allowAllClients map[string]string) bool {
-	// Check VK-specific MCP configs first — explicit config always overrides AllowOnAllVirtualKeys.
+	// Check VK-specific MCP configs first — non-empty explicit config overrides AllowOnAllVirtualKeys.
 	for _, mcpConfig := range vk.MCPConfigs {
 		clientName := mcpConfig.MCPClient.Name
 		if toolPattern != clientName+"-*" && !strings.HasPrefix(toolPattern, clientName+"-") {
 			continue
 		}
-		// Found an explicit config for this client — use it; do not fall back to AllowOnAllVirtualKeys.
+		if mcpConfig.ToolsToExecute.IsEmpty() {
+			// Empty row is not a deny override — fall through to allow_on_all / other grants.
+			continue
+		}
+		// Found a usable explicit config for this client.
 		if toolPattern == clientName+"-*" {
-			return !mcpConfig.ToolsToExecute.IsEmpty()
+			return true
 		}
 		if mcpConfig.ToolsToExecute.IsUnrestricted() {
 			return true

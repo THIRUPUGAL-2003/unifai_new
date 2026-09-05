@@ -16,11 +16,9 @@ export interface ExecutionConfig {
 }
 
 function getBaseUrl() {
-	if (process.env.NODE_ENV === "development") {
-		return "http://localhost:8081";
-	} else {
-		return "";
-	}
+	// Same-origin (vite proxies /v1 + /api in dev) so session cookies and
+	// x-uf-mcp-* headers work without CORS breakage.
+	return "";
 }
 
 function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders" | "skillId">): Record<string, string> {
@@ -104,6 +102,7 @@ export async function executePrompt(
 		const response = await fetch(`${getBaseUrl()}/v1/chat/completions`, {
 			method: "POST",
 			headers,
+			credentials: "include",
 			signal,
 			body: JSON.stringify({
 				model: `${config.provider}/${config.model}`,
@@ -250,6 +249,7 @@ export async function executeToolCall(toolCall: ToolCall, config: Pick<Execution
 	const response = await fetch(`${getBaseUrl()}/v1/mcp/tool/execute`, {
 		method: "POST",
 		headers,
+		credentials: "include",
 		body: JSON.stringify({
 			id: toolCall.id,
 			type: toolCall.type,

@@ -168,7 +168,23 @@ func (c *CorsMiddleware) Middleware() schemas.UnifAIHTTPMiddleware {
 				isLocalhostOrigin(origin) ||
 				slices.Contains(cfg.allowedOrigins, origin)
 
-			allowedHeaders := []string{"Content-Type", "Authorization", "X-Requested-With", "X-Stainless-Timeout", "X-Api-Key", "X-OpenAI-Agents-SDK", "X-Operation-ID"}
+			allowedHeaders := []string{
+				"Content-Type",
+				"Authorization",
+				"X-Requested-With",
+				"X-Stainless-Timeout",
+				"X-Api-Key",
+				"X-OpenAI-Agents-SDK",
+				"X-Operation-ID",
+				// Prompt Repo / MCP playground headers (case-insensitive match in browsers)
+				"x-uf-mcp-include-clients",
+				"x-uf-mcp-include-tools",
+				"x-uf-api-key-id",
+				"x-uf-skill-id",
+				"x-uf-prompt-id",
+				"x-uf-prompt-version",
+				"x-uf-prompt-environment",
+			}
 			if slices.Contains(cfg.allowedHeaders, "*") {
 				if credentialed {
 					// Per the Fetch spec, Access-Control-Allow-Headers: * is NOT treated as a

@@ -97,14 +97,13 @@ export function SettingsPanel() {
 
 	const providerKeys = useMemo(() => (allKeys ?? []).filter((k) => k.provider === provider), [allKeys, provider]);
 
-	// Virtual keys filtered by selected provider
+	// Virtual keys filtered by selected provider (align with backend deny-by-default:
+	// empty provider_configs means no providers, not all providers).
 	const providerVirtualKeys = useMemo(() => {
 		const vks = virtualKeysData?.virtual_keys ?? [];
 		return vks.filter((vk) => {
 			if (!vk.is_active) return false;
-			// No provider configs means all providers are allowed (wildcard)
-			if (!vk.provider_configs || vk.provider_configs.length === 0) return true;
-			// Check if selected provider is in the configured providers
+			if (!vk.provider_configs || vk.provider_configs.length === 0) return false;
 			return vk.provider_configs.some((pc) => pc.provider === provider);
 		});
 	}, [virtualKeysData, provider]);
@@ -219,6 +218,13 @@ export function SettingsPanel() {
 										onValueChange={(v) => onApiKeyIdChange(v ?? "__auto__")}
 										disabled={!provider}
 									/>
+								)}
+								{!!provider && (
+									<p className="text-muted-foreground text-xs">
+										MCP tools use the Virtual Key you pick here (Bearer <code className="text-[10px]">sk-uf-…</code>
+										). Install servers with &quot;Available to all virtual keys&quot; on, or attach this key in MCP Catalog.
+										Server must show <strong>connected</strong> with discovered tools.
+									</p>
 								)}
 
 								{skillOptions.length > 1 && (
