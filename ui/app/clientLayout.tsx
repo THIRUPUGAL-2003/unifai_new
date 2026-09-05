@@ -149,7 +149,14 @@ function FullPage({ config, children }: { config: UnifAIConfig | undefined; chil
 	if (config && config.is_db_connected) {
 		return children;
 	}
-	if (config && config.is_logs_connected && pathname.startsWith("/workspace/logs")) {
+	// Logs-only deployments: allow all Observability log surfaces that hit the logs store.
+	if (
+		config &&
+		config.is_logs_connected &&
+		(pathname.startsWith("/workspace/logs") ||
+			pathname.startsWith("/workspace/mcp-logs") ||
+			pathname.startsWith("/workspace/dashboard"))
+	) {
 		return children;
 	}
 	// Avoid flashing the "config store missing" banner while config is still

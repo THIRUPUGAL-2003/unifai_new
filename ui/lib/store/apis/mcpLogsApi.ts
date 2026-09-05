@@ -84,8 +84,8 @@ export const mcpLogsApi = baseApi.injectEndpoints({
 					if (filters.start_time) params.start_time = filters.start_time;
 					if (filters.end_time) params.end_time = filters.end_time;
 				}
-				if (filters.min_latency) params.min_latency = filters.min_latency;
-				if (filters.max_latency) params.max_latency = filters.max_latency;
+				if (filters.min_latency !== undefined && filters.min_latency !== null) params.min_latency = filters.min_latency;
+				if (filters.max_latency !== undefined && filters.max_latency !== null) params.max_latency = filters.max_latency;
 				if (filters.content_search) params.content_search = filters.content_search;
 
 				return {
@@ -134,8 +134,8 @@ export const mcpLogsApi = baseApi.injectEndpoints({
 					if (filters.start_time) params.start_time = filters.start_time;
 					if (filters.end_time) params.end_time = filters.end_time;
 				}
-				if (filters.min_latency) params.min_latency = filters.min_latency;
-				if (filters.max_latency) params.max_latency = filters.max_latency;
+				if (filters.min_latency !== undefined && filters.min_latency !== null) params.min_latency = filters.min_latency;
+				if (filters.max_latency !== undefined && filters.max_latency !== null) params.max_latency = filters.max_latency;
 				if (filters.content_search) params.content_search = filters.content_search;
 
 				return {

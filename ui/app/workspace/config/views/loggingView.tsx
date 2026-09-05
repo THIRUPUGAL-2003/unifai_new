@@ -41,9 +41,9 @@ export default function LoggingView() {
 
 	const handleConfigChange = useCallback((field: keyof CoreConfig, value: boolean | number | string[]) => {
 		setLocalConfig((prev) => ({ ...prev, [field]: value }));
-		// Only enable_logging requires a restart (logging plugin is registered/skipped at startup).
-		// disable_content_logging is read live via pointer by the logging plugin and applies on the next request.
-		if (field === "enable_logging") {
+		// enable_logging: logging plugin is registered/skipped at startup.
+		// log_retention_days: cleaner RetentionDays is loaded once at process start.
+		if (field === "enable_logging" || field === "log_retention_days") {
 			setNeedsRestart(true);
 		}
 	}, []);
@@ -193,6 +193,7 @@ export default function LoggingView() {
 							</Label>
 							<p className="text-muted-foreground text-sm">
 								Number of days to retain logs in the database. Minimum is 1 day. Older logs will be automatically deleted.
+								Changing this requires a gateway restart to apply.
 							</p>
 						</div>
 						<Input

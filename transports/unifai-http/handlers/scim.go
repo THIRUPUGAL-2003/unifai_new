@@ -162,10 +162,8 @@ func (h *WorkspaceHandler) updateConnector(ctx *fasthttp.RequestCtx) {
 	connectors.Default.ApplySettings(settings)
 	test := connectors.Default.Test(ctx, name, settings)
 	payload["connection"] = test
-	if settings.Enabled && !test.OK {
-		SendJSONWithStatus(ctx, payload, fasthttp.StatusBadGateway)
-		return
-	}
+	// Always 200 after a successful save. A failed connectivity probe must not look like
+	// an HTTP failure to the UI — the form shows connection.ok / connection.error instead.
 	SendJSON(ctx, payload)
 }
 
