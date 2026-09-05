@@ -89,6 +89,10 @@ export default function PromptDeploymentView({ omitTitle }: { omitTitle?: boolea
 					Deployments
 				</h2>
 			)}
+			<p className="text-muted-foreground text-xs">
+				API calls can load this version with header <code className="text-[10px]">x-uf-prompt-environment</code> (or{" "}
+				<code className="text-[10px]">x-uf-dim-environment</code>) matching the environment name below.
+			</p>
 			<div className="space-y-2">
 				<Label className="text-xs">Environment</Label>
 				<select value={environment} onChange={(e) => setEnvironment(e.target.value)} className="border-input bg-background h-8 w-full rounded-md border px-2 text-xs">

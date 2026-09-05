@@ -26,10 +26,14 @@ const (
 	// in HTTPTransportPreHook so PreLLMHook and custom resolvers can read them.
 	PromptIDHeader      = "x-uf-prompt-id"
 	PromptVersionHeader = "x-uf-prompt-version"
+	// PromptEnvironmentHeader selects a Prompt Repository deployment by environment name
+	// (e.g. production / staging). Used when x-uf-prompt-id is not set.
+	PromptEnvironmentHeader = "x-uf-prompt-environment"
 
 	// PromptIDKey and PromptVersionKey are context keys for the resolved header values.
-	PromptIDKey      schemas.UnifAIContextKey = PromptIDHeader
-	PromptVersionKey schemas.UnifAIContextKey = PromptVersionHeader
+	PromptIDKey          schemas.UnifAIContextKey = PromptIDHeader
+	PromptVersionKey     schemas.UnifAIContextKey = PromptVersionHeader
+	PromptEnvironmentKey schemas.UnifAIContextKey = PromptEnvironmentHeader
 )
 
 // InMemoryStore is the data source for prompts and all versions. Implementations typically
@@ -37,6 +41,12 @@ const (
 type InMemoryStore interface {
 	GetPrompts(ctx context.Context, folderID *string) ([]configstoreTables.TablePrompt, error)
 	GetAllPromptVersions(ctx context.Context) ([]configstoreTables.TablePromptVersion, error)
+}
+
+// PromptDeploymentStore optionally lists environment deployments so the default resolver
+// can map x-uf-prompt-environment → prompt id + version when no explicit prompt id is set.
+type PromptDeploymentStore interface {
+	ListPromptDeployments(ctx context.Context, promptID string) ([]configstoreTables.TablePromptDeployment, error)
 }
 
 // PromptResolver decides which prompt and version to inject for a given request.
@@ -65,6 +75,54 @@ func (r *headerResolver) Resolve(ctx *schemas.UnifAIContext, req *schemas.UnifAI
 	return promptID, versionNumber, nil
 }
 
+// deploymentAwareResolver prefers explicit prompt headers, then falls back to an enabled
+// Prompt Repository deployment for x-uf-prompt-environment (or x-uf-dim-environment).
+type deploymentAwareResolver struct {
+	headers     *headerResolver
+	deployments PromptDeploymentStore
+	logger      schemas.Logger
+}
+
+func (r *deploymentAwareResolver) Resolve(ctx *schemas.UnifAIContext, req *schemas.UnifAIRequest) (string, int, error) {
+	promptID, versionNumber, err := r.headers.Resolve(ctx, req)
+	if err != nil {
+		return "", 0, err
+	}
+	if promptID != "" {
+		return promptID, versionNumber, nil
+	}
+
+	env := strings.TrimSpace(unifai.GetStringFromContext(ctx, PromptEnvironmentKey))
+	if env == "" {
+		if dims, ok := ctx.Value(schemas.UnifAIContextKeyDimensions).(map[string]string); ok {
+			env = strings.TrimSpace(dims["environment"])
+		}
+	}
+	if env == "" || r.deployments == nil {
+		return "", 0, nil
+	}
+
+	rows, err := r.deployments.ListPromptDeployments(ctx, "")
+	if err != nil {
+		return "", 0, fmt.Errorf("list prompt deployments: %w", err)
+	}
+	envLower := strings.ToLower(env)
+	for i := range rows {
+		row := &rows[i]
+		if !row.Enabled {
+			continue
+		}
+		if strings.ToLower(strings.TrimSpace(row.Environment)) != envLower {
+			continue
+		}
+		if row.PromptID == "" {
+			continue
+		}
+		return row.PromptID, row.VersionNumber, nil
+	}
+	return "", 0, nil
+}
+
 // Plugin implements schemas.LLMPlugin (and HTTP transport hooks) for server-side prompt injection.
 // It loads prompts and versions into memory, resolves which version to use per request, merges
 // the version’s model parameters with the client request (request wins), and prepends template
@@ -87,7 +145,9 @@ type Plugin struct {
 	versionsByPromptAndNumber map[string]map[int]*configstoreTables.TablePromptVersion
 }
 
-// Init constructs a Plugin using the default header-based resolver (x-uf-prompt-id / x-uf-prompt-version).
+// Init constructs a Plugin using the default header-based resolver (x-uf-prompt-id /
+// x-uf-prompt-version), with optional environment deployment resolution when the store
+// implements PromptDeploymentStore.
 //
 // Parameters:
 //   - ctx: used for the initial loadCache call
@@ -98,7 +158,12 @@ type Plugin struct {
 //   - schemas.LLMPlugin: the initialized plugin
 //   - error: if the store is missing or the initial cache load fails
 func Init(ctx context.Context, store InMemoryStore, logger schemas.Logger) (schemas.LLMPlugin, error) {
-	return InitWithResolver(ctx, store, &headerResolver{logger: logger}, logger)
+	headers := &headerResolver{logger: logger}
+	var resolver PromptResolver = headers
+	if ds, ok := store.(PromptDeploymentStore); ok {
+		resolver = &deploymentAwareResolver{headers: headers, deployments: ds, logger: logger}
+	}
+	return InitWithResolver(ctx, store, resolver, logger)
 }
 
 // InitWithResolver constructs a Plugin with an explicit PromptResolver (nil falls back to headerResolver).
@@ -177,8 +242,9 @@ func (p *Plugin) GetName() string {
 	return PluginName
 }
 
-// HTTPTransportPreHook copies x-uf-prompt-id and x-uf-prompt-version from the incoming HTTP request
-// into UnifAIContext so the default header resolver and PreLLMHook can read them.
+// HTTPTransportPreHook copies x-uf-prompt-id, x-uf-prompt-version, and
+// x-uf-prompt-environment from the incoming HTTP request into UnifAIContext so the
+// default resolvers and PreLLMHook can read them.
 func (p *Plugin) HTTPTransportPreHook(ctx *schemas.UnifAIContext, req *schemas.HTTPRequest) (*schemas.HTTPResponse, error) {
 	if req == nil {
 		return nil, nil
@@ -188,6 +254,9 @@ func (p *Plugin) HTTPTransportPreHook(ctx *schemas.UnifAIContext, req *schemas.H
 	}
 	if v := strings.TrimSpace(req.CaseInsensitiveHeaderLookup(PromptVersionHeader)); v != "" {
 		ctx.SetValue(PromptVersionKey, v)
+	}
+	if env := strings.TrimSpace(req.CaseInsensitiveHeaderLookup(PromptEnvironmentHeader)); env != "" {
+		ctx.SetValue(PromptEnvironmentKey, env)
 	}
 	return nil, nil
 }

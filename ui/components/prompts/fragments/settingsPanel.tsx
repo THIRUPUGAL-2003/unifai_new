@@ -102,7 +102,7 @@ export function SettingsPanel() {
 	const filterKeys = useMemo(() => {
 		const isProviderKey = providerKeys.some((k) => k.key_id === apiKeyId);
 		if (isProviderKey) return [apiKeyId];
-		const isVirtualKey = providerVirtualKeys.some((vk) => vk.id === apiKeyId);
+		const isVirtualKey = providerVirtualKeys.some((vk) => vk.value === apiKeyId);
 		if (isVirtualKey) return undefined;
 		// Auto: pass all provider key IDs
 		return providerKeys.map((k) => k.key_id);

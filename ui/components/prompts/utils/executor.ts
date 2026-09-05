@@ -28,8 +28,12 @@ function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders"
 			headers["x-uf-api-key-id"] = config.apiKeyId;
 		}
 	}
+	// Playground always opts into MCP tool injection so it still works when
+	// MCP Settings has "disable auto tool inject" enabled. Virtual-key grants
+	// (and allow_on_all clients) still gate which tools are actually usable.
+	headers["x-uf-mcp-include-clients"] = "*";
 	if (config.customHeaders) {
-		const reserved = new Set(["content-type", "authorization", "x-uf-api-key-id"]);
+		const reserved = new Set(["content-type", "authorization", "x-uf-api-key-id", "x-uf-mcp-include-clients", "x-uf-mcp-include-tools"]);
 		for (const [name, value] of Object.entries(config.customHeaders)) {
 			const trimmedName = name.trim();
 			const trimmedValue = value.trim();

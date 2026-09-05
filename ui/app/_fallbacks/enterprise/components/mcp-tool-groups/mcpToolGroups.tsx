@@ -74,6 +74,10 @@ export default function MCPToolGroups() {
 			toast.error("Select an MCP client");
 			return;
 		}
+		if (selectedVkIds.length === 0) {
+			toast.error("Select at least one virtual key — empty key list restricts ALL keys to only these tools");
+			return;
+		}
 		try {
 			await createGroup({
 				name: name.trim(),
@@ -124,7 +128,8 @@ export default function MCPToolGroups() {
 						MCP Tool Groups
 					</h1>
 					<p className="text-muted-foreground mt-1 text-sm">
-						Bundle tools from an MCP client. Optionally scope the group to virtual keys — empty key list applies to all keys.
+						Bundle tools from an MCP client and scope them to specific virtual keys. Matching keys may only execute tools in the
+						group — pick keys carefully so other MCP tools are not blocked.
 					</p>
 				</div>
 				<Button onClick={() => setOpen(true)}>
@@ -206,7 +211,8 @@ export default function MCPToolGroups() {
 							<Input value={toolNames} onChange={(e) => setToolNames(e.target.value)} placeholder="search, fetch" />
 						</div>
 						<div className="space-y-1">
-							<Label>Virtual keys (optional — blank = all keys)</Label>
+							<Label>Virtual keys (required)</Label>
+							<p className="text-muted-foreground text-xs">Only selected keys are restricted to this tool set.</p>
 							<div className="border-input max-h-40 space-y-1 overflow-y-auto rounded-md border p-2">
 								{virtualKeys.length === 0 ? (
 									<p className="text-muted-foreground text-xs">No virtual keys found.</p>
