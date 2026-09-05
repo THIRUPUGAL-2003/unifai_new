@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getErrorMessage, useGetVirtualKeysQuery } from "@/lib/store";
+import { getErrorMessage, useGetMCPClientsQuery, useGetVirtualKeysQuery } from "@/lib/store";
 import {
 	useActivateAccessProfileMutation,
 	useCloneAccessProfileMutation,
@@ -26,6 +26,7 @@ type ProfileFormState = {
 	providerName: string;
 	allowedModels: string;
 	selectedVkIds: string[];
+	selectedMcpNames: string[];
 	budgetMax: string;
 	budgetReset: string;
 	requestMax: string;
@@ -41,6 +42,7 @@ const emptyForm = (): ProfileFormState => ({
 	providerName: "",
 	allowedModels: "",
 	selectedVkIds: [],
+	selectedMcpNames: [],
 	budgetMax: "",
 	budgetReset: "1M",
 	requestMax: "",
@@ -97,6 +99,10 @@ function buildPayload(form: ProfileFormState) {
 				]
 			: [],
 		virtual_key_ids: form.selectedVkIds,
+		mcp_servers: form.selectedMcpNames.map((name) => ({
+			mcp_client_name: name,
+			tools_to_execute: ["*"],
+		})),
 		budgets,
 		rate_limit,
 	};
@@ -111,7 +117,9 @@ export default function AccessProfilesIndexView() {
 
 	const { data, isLoading } = useGetAccessProfilesQuery({ search: search || undefined });
 	const { data: vkData } = useGetVirtualKeysQuery({ limit: 200, offset: 0 });
+	const { data: mcpClientsData } = useGetMCPClientsQuery({ limit: 200, offset: 0 });
 	const virtualKeys = vkData?.virtual_keys || [];
+	const mcpClients = mcpClientsData?.clients || [];
 	const [createProfile] = useCreateAccessProfileMutation();
 	const [activateProfile] = useActivateAccessProfileMutation();
 	const [cloneProfile] = useCloneAccessProfileMutation();
@@ -130,6 +138,9 @@ export default function AccessProfilesIndexView() {
 		const cfg = profile.provider_configs?.[0];
 		const budget = profile.budgets?.[0];
 		const rl = profile.rate_limit;
+		const mcpNames = (profile.mcp_servers || [])
+			.map((server) => String(server.mcp_client_name || server.name || ""))
+			.filter(Boolean);
 		setForm({
 			name: profile.name,
 			description: profile.description || "",
@@ -137,6 +148,7 @@ export default function AccessProfilesIndexView() {
 			providerName: cfg?.provider_name || "",
 			allowedModels: cfg?.allowed_models?.join(", ") || "",
 			selectedVkIds: profile.virtual_key_ids || [],
+			selectedMcpNames: mcpNames,
 			budgetMax: budget?.max_limit != null ? String(budget.max_limit) : "",
 			budgetReset: budget?.reset_duration || "1M",
 			requestMax: rl?.request_max_limit != null ? String(rl.request_max_limit) : "",
@@ -151,6 +163,15 @@ export default function AccessProfilesIndexView() {
 		setForm((prev) => ({
 			...prev,
 			selectedVkIds: prev.selectedVkIds.includes(id) ? prev.selectedVkIds.filter((x) => x !== id) : [...prev.selectedVkIds, id],
+		}));
+	};
+
+	const toggleMcp = (name: string) => {
+		setForm((prev) => ({
+			...prev,
+			selectedMcpNames: prev.selectedMcpNames.includes(name)
+				? prev.selectedMcpNames.filter((x) => x !== name)
+				: [...prev.selectedMcpNames, name],
 		}));
 	};
 
@@ -265,8 +286,30 @@ export default function AccessProfilesIndexView() {
 				</div>
 			</div>
 			<div className="space-y-1">
+				<Label>MCP servers to grant</Label>
+				<p className="text-muted-foreground text-xs">Selected servers are added to the chosen virtual keys on save.</p>
+				<div className="border-input max-h-36 space-y-1 overflow-y-auto rounded-md border p-2">
+					{mcpClients.length === 0 ? (
+						<p className="text-muted-foreground text-xs">No MCP servers found.</p>
+					) : (
+						mcpClients.map((client) => {
+							const name = client.config?.name || "";
+							if (!name) return null;
+							return (
+								<label key={name} className="flex cursor-pointer items-center gap-2 text-sm">
+									<input type="checkbox" checked={form.selectedMcpNames.includes(name)} onChange={() => toggleMcp(name)} />
+									<span className="truncate">{name}</span>
+								</label>
+							);
+						})
+					)}
+				</div>
+			</div>
+			<div className="space-y-1">
 				<Label>Virtual keys to apply template</Label>
-				<p className="text-muted-foreground text-xs">Selected keys receive provider, budget, and rate-limit settings on save.</p>
+				<p className="text-muted-foreground text-xs">
+					Selected keys receive provider, MCP, budget, and rate-limit settings on save.
+				</p>
 				<div className="border-input max-h-36 space-y-1 overflow-y-auto rounded-md border p-2">
 					{virtualKeys.length === 0 ? (
 						<p className="text-muted-foreground text-xs">No virtual keys found.</p>
@@ -292,7 +335,7 @@ export default function AccessProfilesIndexView() {
 						Access Profiles
 					</h1>
 					<p className="text-muted-foreground text-sm">
-						Reusable provider, model, budget, and rate-limit templates applied to selected virtual keys.
+						Reusable provider, MCP, model, budget, and rate-limit templates applied to selected virtual keys.
 					</p>
 				</div>
 				<Button data-testid="access-profiles-create" onClick={() => setOpen(true)}>
@@ -402,6 +445,7 @@ function TableView({
 				<TableRow>
 					<TableHead>Name</TableHead>
 					<TableHead>Providers</TableHead>
+					<TableHead>MCP</TableHead>
 					<TableHead>Virtual keys</TableHead>
 					<TableHead>Active</TableHead>
 					<TableHead>Version</TableHead>
@@ -416,6 +460,14 @@ function TableView({
 							<div className="text-muted-foreground text-xs">{profile.description}</div>
 						</TableCell>
 						<TableCell className="text-xs">{profile.provider_configs?.map((cfg) => cfg.provider_name).join(", ") || "—"}</TableCell>
+						<TableCell className="text-xs">
+							{profile.mcp_servers?.length
+								? profile.mcp_servers
+										.map((s) => String(s.mcp_client_name || s.name || ""))
+										.filter(Boolean)
+										.join(", ") || `${profile.mcp_servers.length} server(s)`
+								: "—"}
+						</TableCell>
 						<TableCell className="text-xs">
 							{profile.virtual_key_ids?.length ? `${profile.virtual_key_ids.length} key(s)` : "—"}
 						</TableCell>

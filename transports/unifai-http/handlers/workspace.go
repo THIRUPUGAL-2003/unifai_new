@@ -19,21 +19,25 @@ import (
 // WorkspaceHandler serves workspace feature APIs. Persistence goes through
 // configstore.WorkspaceStore; this type only does HTTP.
 type WorkspaceHandler struct {
-	store     *lib.Config
-	workspace configstore.WorkspaceStore
+	store             *lib.Config
+	workspace         configstore.WorkspaceStore
+	governanceManager GovernanceManager
 }
 
-func NewWorkspaceHandler(store *lib.Config) *WorkspaceHandler {
+func NewWorkspaceHandler(store *lib.Config, governanceManager ...GovernanceManager) *WorkspaceHandler {
 	h := &WorkspaceHandler{store: store}
 	if store != nil {
 		h.workspace, _ = configstore.AsWorkspaceStore(store.ConfigStore)
+	}
+	if len(governanceManager) > 0 {
+		h.governanceManager = governanceManager[0]
 	}
 	return h
 }
 
 // NewEnterpriseFeaturesHandler is kept so existing call sites compile.
-func NewEnterpriseFeaturesHandler(store *lib.Config) *WorkspaceHandler {
-	return NewWorkspaceHandler(store)
+func NewEnterpriseFeaturesHandler(store *lib.Config, governanceManager ...GovernanceManager) *WorkspaceHandler {
+	return NewWorkspaceHandler(store, governanceManager...)
 }
 
 func (h *WorkspaceHandler) RegisterRoutes(r *router.Router, middlewares ...schemas.UnifAIHTTPMiddleware) {

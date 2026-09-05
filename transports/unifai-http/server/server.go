@@ -1418,7 +1418,7 @@ func (s *UnifAIHTTPServer) RegisterAPIRoutes(ctx context.Context, callbacks Serv
 	promptsHandler := handlers.NewPromptsHandler(s.Config.ConfigStore, promptsReloader)
 	featureFlagsHandler := handlers.NewFeatureFlagsHandler(s.Config.FeatureFlags, s.Config.ConfigStore)
 	browserAIHandler := handlers.NewBrowserAIHandler(s.Config.ConfigStore, s.Config, s.Client)
-	workspaceHandler := handlers.NewWorkspaceHandler(s.Config)
+	workspaceHandler := handlers.NewWorkspaceHandler(s.Config, callbacks)
 	if ws, ok := configstore.AsWorkspaceStore(s.Config.ConfigStore); ok && ws != nil {
 		handlers.ReloadCircuitBreakerPoliciesFromStore(ws)
 		handlers.ReloadEnterpriseRuntimeFromStore(ws, s.Config)

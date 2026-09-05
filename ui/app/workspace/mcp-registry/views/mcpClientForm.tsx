@@ -292,6 +292,12 @@ const ClientForm: React.FC<ClientFormProps> = ({ open, onClose, onSaved }) => {
 			} else {
 				setIsLoading(false);
 				toast({ title: "Success", description: "Server created" });
+				if (data.allow_on_all_virtual_keys === false) {
+					toast({
+						title: "Attach virtual keys",
+						description: "This server is not on all keys — open it in MCP Catalog and assign virtual keys.",
+					});
+				}
 				onSaved();
 				onClose();
 			}

@@ -36,10 +36,11 @@ export default function PromptDeploymentView({ omitTitle }: { omitTitle?: boolea
 
 	useEffect(() => {
 		if (!selectedPromptId) return;
-		fetch(`${getApiBaseUrl()}/prompt-repo/prompts/${selectedPromptId}`, { credentials: "include" })
+		// Versions are not embedded on GET /prompts/{id}; use the versions endpoint.
+		fetch(`${getApiBaseUrl()}/prompt-repo/prompts/${selectedPromptId}/versions`, { credentials: "include" })
 			.then((res) => (res.ok ? res.json() : null))
 			.then((data) => {
-				const list = data?.versions || data?.prompt?.versions || [];
+				const list = (data?.versions || []) as PromptVersion[];
 				setVersions(list);
 				if (list[0]?.version_number) setVersionNumber(list[0].version_number);
 			})
@@ -51,6 +52,11 @@ export default function PromptDeploymentView({ omitTitle }: { omitTitle?: boolea
 	}
 
 	const create = async () => {
+		if (!selectedPromptId) return;
+		if (versions.length === 0 && !versionNumber) {
+			toast.error("Create a prompt version before deploying");
+			return;
+		}
 		try {
 			await createDeployment({
 				prompt_id: selectedPromptId,

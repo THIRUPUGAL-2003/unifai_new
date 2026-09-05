@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -64,6 +65,23 @@ func (p accessProfilePayload) toRow() tables.TableAccessProfile {
 		},
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
+}
+
+// applyAccessProfile writes profile grants onto VKs in DB, then reloads those
+// VKs into governance memory so inference/MCP see the change immediately.
+func (h *WorkspaceHandler) applyAccessProfile(ctx context.Context, row tables.TableAccessProfile) error {
+	if err := propagateAccessProfile(ctx, h.store.ConfigStore, row); err != nil {
+		return err
+	}
+	if h.governanceManager == nil {
+		return nil
+	}
+	for _, vkID := range specStringSlice(row.Spec(), "virtual_key_ids") {
+		if _, err := h.governanceManager.ReloadVirtualKey(ctx, vkID); err != nil {
+			return fmt.Errorf("reload virtual key %s: %w", vkID, err)
+		}
+	}
+	return nil
 }
 
 func (h *WorkspaceHandler) listAccessProfiles(ctx *fasthttp.RequestCtx) {
@@ -161,7 +179,7 @@ func (h *WorkspaceHandler) createAccessProfile(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save access profile")
 		return
 	}
-	if err := propagateAccessProfile(ctx, h.store.ConfigStore, row); err != nil {
+	if err := h.applyAccessProfile(ctx, row); err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("profile saved but failed to apply to virtual keys: %v", err))
 		return
 	}
@@ -280,7 +298,7 @@ func (h *WorkspaceHandler) updateAccessProfile(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to update access profile")
 		return
 	}
-	if err := propagateAccessProfile(ctx, h.store.ConfigStore, row); err != nil {
+	if err := h.applyAccessProfile(ctx, row); err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("profile updated but failed to apply to virtual keys: %v", err))
 		return
 	}
@@ -333,7 +351,7 @@ func (h *WorkspaceHandler) setAccessProfileActive(ctx *fasthttp.RequestCtx, acti
 		return
 	}
 	if active && h.store != nil && h.store.ConfigStore != nil {
-		if err := propagateAccessProfile(ctx, h.store.ConfigStore, *row); err != nil {
+		if err := h.applyAccessProfile(ctx, *row); err != nil {
 			SendError(ctx, fasthttp.StatusBadGateway, "profile activated but failed to propagate to virtual keys: "+err.Error())
 			return
 		}

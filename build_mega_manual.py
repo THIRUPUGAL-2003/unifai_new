@@ -984,6 +984,142 @@ PILLARS_DATA = [
                 ],
                 "interconnections": "Controls code execution paths across all gateway modules.",
                 "use_case": "A platform team safely tests an experimental new reasoning router with internal engineers before enabling it organization-wide."
+            },
+            {
+                "name": "Enterprise Outbound Proxy",
+                "route": "/workspace/config/proxy",
+                "summary": "Corporate forward and reverse proxy configuration routing outbound AI traffic through enterprise egress gateways.",
+                "architecture": (
+                    "Located in 'ui/app/workspace/config/views/proxyView.tsx' and core transport. "
+                    "Enables UnifAI to route all outbound LLM API requests through corporate forward proxies (HTTP, HTTPS, SOCKS5, TCP). "
+                    "Supports basic proxy authentication, corporate bypass allowlists (CIDR / hostnames), and custom CA certificate bundles for SSL inspection."
+                ),
+                "components": [
+                    "Proxy Protocol: HTTP, HTTPS, SOCKS5, and TCP egress.",
+                    "Authentication: Basic authentication (Username / Password) for proxy gateways.",
+                    "No-Proxy Bypass List: Whitelist of hostnames and IP ranges (localhost, 127.0.0.1, internal VPCs) bypassing the proxy.",
+                    "Custom CA Bundle: Enterprise root CA certificate upload for corporate SSL inspection proxies."
+                ],
+                "interconnections": "Wraps all outbound HTTP and WebSocket connections to Model Providers and external MCP servers.",
+                "use_case": "Enterprises in banking and defense require all external internet traffic to traverse corporate BlueCoat or Zscaler egress proxies."
+            },
+            {
+                "name": "Large Payload Streaming Engine",
+                "route": "/workspace/config/large-payload",
+                "summary": "Zero-memory direct streaming engine designed for massive multimodal outputs, audio files, and 100k+ token responses.",
+                "architecture": (
+                    "Implemented in 'transports/unifai-http/integrations/utils.go' (tryStreamLargeResponse). "
+                    "Detects responses exceeding the memory buffer threshold and bypasses gateway memory allocations entirely, "
+                    "streaming chunked transfer encoding directly from the upstream provider to the client."
+                ),
+                "components": [
+                    "Payload Threshold Slider: Configures byte ceiling (e.g. 5MB) triggering large payload bypass.",
+                    "Direct Pipe Streaming: Eliminates memory buffering to avoid out-of-memory crashes on massive generations.",
+                    "Multimodal Asset Transfer: Optimized for high-resolution vision models, image generation, and audio synthesis."
+                ],
+                "interconnections": "Integrates directly with FastHTTP response writer pool and Upstream LLM Providers.",
+                "use_case": "Prevents gateway memory exhaustion when 1,000 concurrent clients download multi-megabyte audio or high-resolution image generation files."
+            },
+            {
+                "name": "Alert Channels (Enterprise Notifications)",
+                "route": "/workspace/alert-channels",
+                "summary": "Multi-channel automated alerting engine broadcasting budget thresholds, circuit breaker trips, and error spikes to enterprise ops tools.",
+                "architecture": (
+                    "Implemented in '@enterprise/components/alert-channels/alertChannelsView'. "
+                    "Listens to internal event buses for budget exhaustion events, provider circuit breaker trips, and p95 latency spikes. "
+                    "Formats incident payloads and delivers them to Slack Webhooks, PagerDuty, Microsoft Teams, Discord, and Email."
+                ),
+                "components": [
+                    "Channel Connectors: Slack Webhooks, PagerDuty Incident API, Microsoft Teams, Email (SMTP), and Custom Webhooks.",
+                    "Trigger Rules: Budget Warning (80% / 100% spend), Circuit Breaker Trip, Error Spike (>5% 5xx), Rate Limit Throttle.",
+                    "Notification Throttling: Configurable cooldown windows preventing alert storms during major outages."
+                ],
+                "interconnections": "Receives alert signals from Budgets & Limits, Circuit Breaker, and Observability.",
+                "use_case": "When OpenAI goes down and the Circuit Breaker trips to Claude, an immediate alert is dispatched to the DevOps Slack channel and PagerDuty."
+            },
+            {
+                "name": "MCP Authentication Config & Credential Vault",
+                "route": "/workspace/mcp-auth-config",
+                "summary": "Centralized credential vault managing per-user headers, API keys, and OAuth client credentials for external MCP servers.",
+                "architecture": (
+                    "Located in 'core/mcp/credstore'. Stores and resolves authentication credentials for MCP servers. "
+                    "Supports static API keys, per-user HTTP headers, and dynamic OAuth 2.0 client secrets with AES-256-GCM encryption."
+                ),
+                "components": [
+                    "Auth Mode Selector: Static API Key, Per-User Headers, or OAuth 2.0 PKCE.",
+                    "Header Mapping: Maps client request headers to tool execution headers.",
+                    "Encrypted Vault: Hardware-grade encryption for third-party service tokens."
+                ],
+                "interconnections": "Supplies authorized credentials to MCP Catalog, Tool Groups, and Auth Sessions.",
+                "use_case": "Enables an AI agent to authenticate with internal Jira and GitHub enterprise servers using dynamic corporate service accounts."
+            },
+            {
+                "name": "Starlark Sandboxed Code Mode",
+                "route": "core/mcp/codemode/starlark",
+                "summary": "Embedded Python-like sandboxed execution engine enabling AI agents to run multi-tool workflows and data transformations in-memory.",
+                "architecture": (
+                    "Implemented in 'core/mcp/codemode/starlark'. Leverages Google Starlark (the deterministic language behind Bazel). "
+                    "Agents generate Starlark code to orchestrate multiple tools, perform mathematical calculations, "
+                    "and transform data in a secure, memory-isolated sandbox without executing untrusted OS commands."
+                ),
+                "components": [
+                    "Deterministic Sandbox: Non-Turing complete runtime preventing infinite loops and filesystem access.",
+                    "Tool Binding Interface: Exposes registered MCP tools as native Starlark functions.",
+                    "In-Memory Execution: Zero network latency between multi-step tool calls."
+                ],
+                "interconnections": "Integrates directly into MCP Gateway and Tool Groups.",
+                "use_case": "An autonomous data science agent queries a SQL database, filters 10,000 rows, and calculates summary statistics in-memory in under 50ms."
+            },
+            {
+                "name": "Hardware Secrets Vault & Envelope Encryption",
+                "route": "core/schemas/vault.go",
+                "summary": "Cryptographic envelope encryption vault securing all stored provider API keys, virtual keys, and credentials at rest.",
+                "architecture": (
+                    "Located in 'core/schemas/vault.go'. Employs AES-256-GCM authenticated encryption. "
+                    "Every secret is encrypted with a unique Data Encryption Key (DEK), which is in turn encrypted with a Master Key (KEK) "
+                    "stored in AWS KMS, Google Cloud KMS, HashiCorp Vault, or Infisical."
+                ),
+                "components": [
+                    "AES-256-GCM Encryption: Authenticated cipher preventing tampering and eavesdropping.",
+                    "Envelope Encryption: Multi-tier key hierarchy (Master Key / Data Keys).",
+                    "KMS Integration: Seamless integration with AWS KMS, Google Cloud KMS, and Infisical."
+                ],
+                "interconnections": "Protects secrets across Model Providers, Virtual Keys, and MCP Gateway.",
+                "use_case": "Guarantees that even if the PostgreSQL database backup is stolen, all OpenAI and Anthropic provider keys remain mathematically unreadable."
+            },
+            {
+                "name": "Key Load Balancer & Key Pool Filtering",
+                "route": "framework/loadbalancer",
+                "summary": "Advanced multi-key load balancing engine distributing traffic across credential pools with session stickiness.",
+                "architecture": (
+                    "Implemented in 'framework/loadbalancer' and 'core/keyselectors'. "
+                    "Supports Round-Robin, Weighted Distribution, and Priority Failover across multiple provider keys. "
+                    "Integrates with Redis KVStore for session stickiness, pinning multi-turn conversations to the same key or GPU node."
+                ),
+                "components": [
+                    "Balancing Strategies: Round-Robin, Weighted Ratios, Priority Tiers, and Least-Connections.",
+                    "Session Stickiness: Binds conversational sessions (via x-uf-session-id) to the same upstream deployment.",
+                    "Key Pool Filters: Custom hooks (keyPoolFilter) to dynamically disqualify degraded or rate-limited keys."
+                ],
+                "interconnections": "Operates inside the Models and Model Providers dispatch pipeline.",
+                "use_case": "Distributes 100,000 RPM evenly across 10 Azure OpenAI deployments in different geographic regions with automatic failover."
+            },
+            {
+                "name": "Realtime Audio & Voice Gateway",
+                "route": "core/schemas/realtime.go",
+                "summary": "Bidirectional WebRTC and WebSocket streaming gateway supporting ultra-low latency conversational voice AI.",
+                "architecture": (
+                    "Located in 'core/schemas/realtime.go'. Bridges client WebRTC and WebSocket voice connections to upstream providers "
+                    "(e.g. OpenAI Realtime API). Manages full-duplex audio chunking (PCM16, G.711, Opus), "
+                    "Voice Activity Detection (VAD), and automated speech-to-speech protocol normalization."
+                ),
+                "components": [
+                    "Full-Duplex Audio Streaming: Sub-300ms voice conversational latency.",
+                    "Protocol Normalization: Bidirectional audio frame translation across voice providers.",
+                    "Voice Activity Detection (VAD): Server-side speech interruption and turn-taking detection."
+                ],
+                "interconnections": "Connects clients to Voice-enabled Model Providers and logs audio tokens in LLM Logs.",
+                "use_case": "Powers customer service interactive voice response (IVR) phone bots with natural human-like voice conversational speed."
             }
         ]
     }

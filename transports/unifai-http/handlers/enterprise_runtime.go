@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/google/uuid"
 	"github.com/unifai/unifai/core/schemas"
@@ -20,22 +21,189 @@ func propagateAccessProfile(ctx context.Context, configStore configstore.ConfigS
 		return nil
 	}
 	providerConfigs := specMapSlice(spec, "provider_configs")
+	mcpServers := specMapSlice(spec, "mcp_servers")
+	rateLimitSpec := specMap(spec, "rate_limit")
+	budgets := specMapSlice(spec, "budgets")
+
 	for _, vkID := range vkIDs {
 		vk, err := configStore.GetVirtualKey(ctx, vkID)
 		if err != nil || vk == nil {
 			continue
 		}
+
 		if len(providerConfigs) > 0 {
-			vk.ProviderConfigs = providerConfigsFromSpec(providerConfigs, vk.ID)
+			if err := applyAccessProfileProviders(ctx, configStore, vk.ID, providerConfigs); err != nil {
+				return fmt.Errorf("update virtual key %s providers: %w", vkID, err)
+			}
 		}
-		if rl := specMap(spec, "rate_limit"); rl != nil {
-			vk.RateLimit = rateLimitFromSpec(rl, vk.RateLimitID)
+		if len(mcpServers) > 0 {
+			if err := applyAccessProfileMCP(ctx, configStore, vk.ID, mcpServers); err != nil {
+				return fmt.Errorf("update virtual key %s mcp: %w", vkID, err)
+			}
+			_ = configStore.ReconcileOauthAfterVKChange(ctx, vk.ID)
+			_ = configStore.ReconcileMCPHeadersAfterVKChange(ctx, vk.ID)
 		}
-		if budgets := specMapSlice(spec, "budgets"); len(budgets) > 0 {
-			vk.Budgets = budgetsFromSpec(budgets, vk.ID)
+		if rateLimitSpec != nil {
+			if err := applyAccessProfileRateLimit(ctx, configStore, vk, rateLimitSpec); err != nil {
+				return fmt.Errorf("update virtual key %s rate limit: %w", vkID, err)
+			}
 		}
-		if err := configStore.UpdateVirtualKey(ctx, vk); err != nil {
-			return fmt.Errorf("update virtual key %s: %w", vkID, err)
+		if len(budgets) > 0 {
+			if err := applyAccessProfileBudgets(ctx, configStore, vk.ID, budgets); err != nil {
+				return fmt.Errorf("update virtual key %s budgets: %w", vkID, err)
+			}
+		}
+	}
+	return nil
+}
+
+func applyAccessProfileProviders(ctx context.Context, store configstore.ConfigStore, vkID string, items []map[string]any) error {
+	desired := providerConfigsFromSpec(items, vkID)
+	existing, err := store.GetVirtualKeyProviderConfigs(ctx, vkID)
+	if err != nil {
+		return err
+	}
+	byProvider := make(map[string]tables.TableVirtualKeyProviderConfig, len(existing))
+	for _, pc := range existing {
+		byProvider[pc.Provider] = pc
+	}
+	kept := make(map[string]bool, len(desired))
+	for _, pc := range desired {
+		kept[pc.Provider] = true
+		if cur, ok := byProvider[pc.Provider]; ok {
+			cur.AllowedModels = pc.AllowedModels
+			cur.Weight = pc.Weight
+			if err := store.UpdateVirtualKeyProviderConfig(ctx, &cur); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := store.CreateVirtualKeyProviderConfig(ctx, &pc); err != nil {
+			return err
+		}
+	}
+	for provider, cur := range byProvider {
+		if kept[provider] {
+			continue
+		}
+		// Access profiles only push desired providers; leave unrelated VK
+		// providers alone so ad-hoc VK grants are not wiped.
+		_ = provider
+		_ = cur
+	}
+	return nil
+}
+
+func applyAccessProfileMCP(ctx context.Context, store configstore.ConfigStore, vkID string, items []map[string]any) error {
+	desired, err := mcpConfigsFromSpec(ctx, store, items, vkID)
+	if err != nil {
+		return err
+	}
+	existing, err := store.GetVirtualKeyMCPConfigs(ctx, vkID)
+	if err != nil {
+		return err
+	}
+	byClient := make(map[uint]tables.TableVirtualKeyMCPConfig, len(existing))
+	for _, mc := range existing {
+		byClient[mc.MCPClientID] = mc
+	}
+	kept := make(map[uint]bool, len(desired))
+	for _, mc := range desired {
+		kept[mc.MCPClientID] = true
+		if cur, ok := byClient[mc.MCPClientID]; ok {
+			cur.ToolsToExecute = mc.ToolsToExecute
+			if err := store.UpdateVirtualKeyMCPConfig(ctx, &cur); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := store.CreateVirtualKeyMCPConfig(ctx, &mc); err != nil {
+			return err
+		}
+	}
+	for clientID, cur := range byClient {
+		if kept[clientID] {
+			continue
+		}
+		// Same merge semantics as providers: add/update profile MCP grants
+		// without deleting unrelated VK MCP rows.
+		_ = cur
+	}
+	return nil
+}
+
+func mcpConfigsFromSpec(ctx context.Context, store configstore.ConfigStore, items []map[string]any, vkID string) ([]tables.TableVirtualKeyMCPConfig, error) {
+	out := make([]tables.TableVirtualKeyMCPConfig, 0, len(items))
+	for _, item := range items {
+		clientID, err := resolveMCPClientID(ctx, store, item)
+		if err != nil || clientID == 0 {
+			continue
+		}
+		tools := schemas.WhiteList{"*"}
+		if names := stringSliceFromAny(item["tools_to_execute"]); len(names) > 0 {
+			tools = schemas.WhiteList(names)
+		}
+		out = append(out, tables.TableVirtualKeyMCPConfig{
+			VirtualKeyID:   vkID,
+			MCPClientID:    clientID,
+			ToolsToExecute: tools,
+		})
+	}
+	return out, nil
+}
+
+func resolveMCPClientID(ctx context.Context, store configstore.ConfigStore, item map[string]any) (uint, error) {
+	if id := uintFromAny(item["mcp_client_id"]); id > 0 {
+		return id, nil
+	}
+	name := firstString(item, "mcp_client_name", "name", "client_name")
+	if name == "" {
+		return 0, nil
+	}
+	client, err := store.GetMCPClientByName(ctx, name)
+	if err != nil || client == nil {
+		return 0, err
+	}
+	return client.ID, nil
+}
+
+func applyAccessProfileRateLimit(ctx context.Context, store configstore.ConfigStore, vk *tables.TableVirtualKey, spec map[string]any) error {
+	rl := rateLimitFromSpec(spec, vk.RateLimitID)
+	if vk.RateLimitID != nil && *vk.RateLimitID != "" {
+		existing := *rl
+		existing.ID = *vk.RateLimitID
+		if err := store.UpdateRateLimit(ctx, &existing); err != nil {
+			return err
+		}
+		return nil
+	}
+	if err := store.CreateRateLimit(ctx, rl); err != nil {
+		return err
+	}
+	vk.RateLimitID = &rl.ID
+	return store.UpdateVirtualKey(ctx, vk)
+}
+
+func applyAccessProfileBudgets(ctx context.Context, store configstore.ConfigStore, vkID string, items []map[string]any) error {
+	desired := budgetsFromSpec(items, vkID)
+	vk, err := store.GetVirtualKey(ctx, vkID)
+	if err != nil || vk == nil {
+		return err
+	}
+	existingByDuration := make(map[string]tables.TableBudget, len(vk.Budgets))
+	for _, b := range vk.Budgets {
+		existingByDuration[b.ResetDuration] = b
+	}
+	for _, b := range desired {
+		if cur, ok := existingByDuration[b.ResetDuration]; ok {
+			cur.MaxLimit = b.MaxLimit
+			if err := store.UpdateBudget(ctx, &cur); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := store.CreateBudget(ctx, &b); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -121,6 +289,30 @@ func stringSliceFromAny(raw any) []string {
 	default:
 		return nil
 	}
+}
+
+func uintFromAny(raw any) uint {
+	switch typed := raw.(type) {
+	case float64:
+		if typed > 0 {
+			return uint(typed)
+		}
+	case int:
+		if typed > 0 {
+			return uint(typed)
+		}
+	case int64:
+		if typed > 0 {
+			return uint(typed)
+		}
+	case uint:
+		return typed
+	case string:
+		if n, err := strconv.ParseUint(typed, 10, 64); err == nil {
+			return uint(n)
+		}
+	}
+	return 0
 }
 
 func firstString(item map[string]any, keys ...string) string {

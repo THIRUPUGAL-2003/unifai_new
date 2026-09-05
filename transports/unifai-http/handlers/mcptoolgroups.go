@@ -86,6 +86,12 @@ func (h *WorkspaceHandler) createMCPToolGroup(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "name is required")
 		return
 	}
+	if len(payload.VirtualKeyIDs) == 0 {
+		// Empty virtual_key_ids matches every VK at runtime — reject to avoid
+		// accidental global tool lockdown via API.
+		SendError(ctx, fasthttp.StatusBadRequest, "at least one virtual_key_id is required")
+		return
+	}
 	now := time.Now().UTC()
 	if payload.Tools == nil {
 		payload.Tools = []map[string]any{}
@@ -159,6 +165,10 @@ func (h *WorkspaceHandler) updateMCPToolGroup(ctx *fasthttp.RequestCtx) {
 	var updated mcpToolGroupPayload
 	if err := json.Unmarshal(updatedRaw, &updated); err != nil {
 		SendError(ctx, fasthttp.StatusBadRequest, "invalid request payload")
+		return
+	}
+	if len(updated.VirtualKeyIDs) == 0 {
+		SendError(ctx, fasthttp.StatusBadRequest, "at least one virtual_key_id is required")
 		return
 	}
 	row := updated.toRow()

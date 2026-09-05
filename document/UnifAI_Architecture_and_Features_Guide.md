@@ -69,6 +69,14 @@
      * API Keys (`/workspace/config/api-keys`)
      * Performance Tuning (`/workspace/config/performance-tuning`)
      * Feature Flags (`/workspace/config/feature-flags`)
+     * Enterprise Outbound Proxy (`/workspace/config/proxy`)
+     * Large Payload Streaming Engine (`/workspace/config/large-payload`)
+     * Alert Channels (Enterprise Notifications) (`/workspace/alert-channels`)
+     * MCP Authentication Config & Credential Vault (`/workspace/mcp-auth-config`)
+     * Starlark Sandboxed Code Mode (`core/mcp/codemode/starlark`)
+     * Hardware Secrets Vault & Envelope Encryption (`core/schemas/vault.go`)
+     * Key Load Balancer & Key Pool Filtering (`framework/loadbalancer`)
+     * Realtime Audio & Voice Gateway (`core/schemas/realtime.go`)
 5. [Cross-Feature Interconnection & Data Flow Matrix (இணைப்பு வரைபடம்)](#5-cross-feature-interconnection--data-flow-matrix)
 6. [Technology Stack & Programming Languages Deep Dive (தொழில்நுட்ப கட்டமைப்பு)](#6-technology-stack--programming-languages-deep-dive)
 7. [Enterprise Production Scenarios & Playbooks (நடைமுறை பயன்பாடுகள்)](#7-enterprise-production-scenarios--playbooks)
@@ -1143,6 +1151,167 @@ Controls code execution paths across all gateway modules.
 
 #### 💡 நடைமுறை பயன்பாடு (Enterprise Production Use Case)
 A platform team safely tests an experimental new reasoning router with internal engineers before enabling it organization-wide.
+
+---
+
+### Enterprise Outbound Proxy (`/workspace/config/proxy`)
+
+**சுருக்கம் / Overview:** Corporate forward and reverse proxy configuration routing outbound AI traffic through enterprise egress gateways.
+
+#### ⚙️ உட்புற கட்டமைப்பு & இயங்கும் முறை (Internal Architecture & Mechanics)
+Located in 'ui/app/workspace/config/views/proxyView.tsx' and core transport. Enables UnifAI to route all outbound LLM API requests through corporate forward proxies (HTTP, HTTPS, SOCKS5, TCP). Supports basic proxy authentication, corporate bypass allowlists (CIDR / hostnames), and custom CA certificate bundles for SSL inspection.
+
+#### 🧩 முக்கிய கூறுகள் & அமைப்புகள் (Key Components & Capabilities)
+- **Proxy Protocol:**  HTTP, HTTPS, SOCKS5, and TCP egress.
+- **Authentication:**  Basic authentication (Username / Password) for proxy gateways.
+- **No-Proxy Bypass List:**  Whitelist of hostnames and IP ranges (localhost, 127.0.0.1, internal VPCs) bypassing the proxy.
+- **Custom CA Bundle:**  Enterprise root CA certificate upload for corporate SSL inspection proxies.
+
+#### 🔗 மற்ற கூறுகளுடன் தொடர்பு (Module Interconnections)
+Wraps all outbound HTTP and WebSocket connections to Model Providers and external MCP servers.
+
+#### 💡 நடைமுறை பயன்பாடு (Enterprise Production Use Case)
+Enterprises in banking and defense require all external internet traffic to traverse corporate BlueCoat or Zscaler egress proxies.
+
+---
+
+### Large Payload Streaming Engine (`/workspace/config/large-payload`)
+
+**சுருக்கம் / Overview:** Zero-memory direct streaming engine designed for massive multimodal outputs, audio files, and 100k+ token responses.
+
+#### ⚙️ உட்புற கட்டமைப்பு & இயங்கும் முறை (Internal Architecture & Mechanics)
+Implemented in 'transports/unifai-http/integrations/utils.go' (tryStreamLargeResponse). Detects responses exceeding the memory buffer threshold and bypasses gateway memory allocations entirely, streaming chunked transfer encoding directly from the upstream provider to the client.
+
+#### 🧩 முக்கிய கூறுகள் & அமைப்புகள் (Key Components & Capabilities)
+- **Payload Threshold Slider:**  Configures byte ceiling (e.g. 5MB) triggering large payload bypass.
+- **Direct Pipe Streaming:**  Eliminates memory buffering to avoid out-of-memory crashes on massive generations.
+- **Multimodal Asset Transfer:**  Optimized for high-resolution vision models, image generation, and audio synthesis.
+
+#### 🔗 மற்ற கூறுகளுடன் தொடர்பு (Module Interconnections)
+Integrates directly with FastHTTP response writer pool and Upstream LLM Providers.
+
+#### 💡 நடைமுறை பயன்பாடு (Enterprise Production Use Case)
+Prevents gateway memory exhaustion when 1,000 concurrent clients download multi-megabyte audio or high-resolution image generation files.
+
+---
+
+### Alert Channels (Enterprise Notifications) (`/workspace/alert-channels`)
+
+**சுருக்கம் / Overview:** Multi-channel automated alerting engine broadcasting budget thresholds, circuit breaker trips, and error spikes to enterprise ops tools.
+
+#### ⚙️ உட்புற கட்டமைப்பு & இயங்கும் முறை (Internal Architecture & Mechanics)
+Implemented in '@enterprise/components/alert-channels/alertChannelsView'. Listens to internal event buses for budget exhaustion events, provider circuit breaker trips, and p95 latency spikes. Formats incident payloads and delivers them to Slack Webhooks, PagerDuty, Microsoft Teams, Discord, and Email.
+
+#### 🧩 முக்கிய கூறுகள் & அமைப்புகள் (Key Components & Capabilities)
+- **Channel Connectors:**  Slack Webhooks, PagerDuty Incident API, Microsoft Teams, Email (SMTP), and Custom Webhooks.
+- **Trigger Rules:**  Budget Warning (80% / 100% spend), Circuit Breaker Trip, Error Spike (>5% 5xx), Rate Limit Throttle.
+- **Notification Throttling:**  Configurable cooldown windows preventing alert storms during major outages.
+
+#### 🔗 மற்ற கூறுகளுடன் தொடர்பு (Module Interconnections)
+Receives alert signals from Budgets & Limits, Circuit Breaker, and Observability.
+
+#### 💡 நடைமுறை பயன்பாடு (Enterprise Production Use Case)
+When OpenAI goes down and the Circuit Breaker trips to Claude, an immediate alert is dispatched to the DevOps Slack channel and PagerDuty.
+
+---
+
+### MCP Authentication Config & Credential Vault (`/workspace/mcp-auth-config`)
+
+**சுருக்கம் / Overview:** Centralized credential vault managing per-user headers, API keys, and OAuth client credentials for external MCP servers.
+
+#### ⚙️ உட்புற கட்டமைப்பு & இயங்கும் முறை (Internal Architecture & Mechanics)
+Located in 'core/mcp/credstore'. Stores and resolves authentication credentials for MCP servers. Supports static API keys, per-user HTTP headers, and dynamic OAuth 2.0 client secrets with AES-256-GCM encryption.
+
+#### 🧩 முக்கிய கூறுகள் & அமைப்புகள் (Key Components & Capabilities)
+- **Auth Mode Selector:**  Static API Key, Per-User Headers, or OAuth 2.0 PKCE.
+- **Header Mapping:**  Maps client request headers to tool execution headers.
+- **Encrypted Vault:**  Hardware-grade encryption for third-party service tokens.
+
+#### 🔗 மற்ற கூறுகளுடன் தொடர்பு (Module Interconnections)
+Supplies authorized credentials to MCP Catalog, Tool Groups, and Auth Sessions.
+
+#### 💡 நடைமுறை பயன்பாடு (Enterprise Production Use Case)
+Enables an AI agent to authenticate with internal Jira and GitHub enterprise servers using dynamic corporate service accounts.
+
+---
+
+### Starlark Sandboxed Code Mode (`core/mcp/codemode/starlark`)
+
+**சுருக்கம் / Overview:** Embedded Python-like sandboxed execution engine enabling AI agents to run multi-tool workflows and data transformations in-memory.
+
+#### ⚙️ உட்புற கட்டமைப்பு & இயங்கும் முறை (Internal Architecture & Mechanics)
+Implemented in 'core/mcp/codemode/starlark'. Leverages Google Starlark (the deterministic language behind Bazel). Agents generate Starlark code to orchestrate multiple tools, perform mathematical calculations, and transform data in a secure, memory-isolated sandbox without executing untrusted OS commands.
+
+#### 🧩 முக்கிய கூறுகள் & அமைப்புகள் (Key Components & Capabilities)
+- **Deterministic Sandbox:**  Non-Turing complete runtime preventing infinite loops and filesystem access.
+- **Tool Binding Interface:**  Exposes registered MCP tools as native Starlark functions.
+- **In-Memory Execution:**  Zero network latency between multi-step tool calls.
+
+#### 🔗 மற்ற கூறுகளுடன் தொடர்பு (Module Interconnections)
+Integrates directly into MCP Gateway and Tool Groups.
+
+#### 💡 நடைமுறை பயன்பாடு (Enterprise Production Use Case)
+An autonomous data science agent queries a SQL database, filters 10,000 rows, and calculates summary statistics in-memory in under 50ms.
+
+---
+
+### Hardware Secrets Vault & Envelope Encryption (`core/schemas/vault.go`)
+
+**சுருக்கம் / Overview:** Cryptographic envelope encryption vault securing all stored provider API keys, virtual keys, and credentials at rest.
+
+#### ⚙️ உட்புற கட்டமைப்பு & இயங்கும் முறை (Internal Architecture & Mechanics)
+Located in 'core/schemas/vault.go'. Employs AES-256-GCM authenticated encryption. Every secret is encrypted with a unique Data Encryption Key (DEK), which is in turn encrypted with a Master Key (KEK) stored in AWS KMS, Google Cloud KMS, HashiCorp Vault, or Infisical.
+
+#### 🧩 முக்கிய கூறுகள் & அமைப்புகள் (Key Components & Capabilities)
+- **AES-256-GCM Encryption:**  Authenticated cipher preventing tampering and eavesdropping.
+- **Envelope Encryption:**  Multi-tier key hierarchy (Master Key / Data Keys).
+- **KMS Integration:**  Seamless integration with AWS KMS, Google Cloud KMS, and Infisical.
+
+#### 🔗 மற்ற கூறுகளுடன் தொடர்பு (Module Interconnections)
+Protects secrets across Model Providers, Virtual Keys, and MCP Gateway.
+
+#### 💡 நடைமுறை பயன்பாடு (Enterprise Production Use Case)
+Guarantees that even if the PostgreSQL database backup is stolen, all OpenAI and Anthropic provider keys remain mathematically unreadable.
+
+---
+
+### Key Load Balancer & Key Pool Filtering (`framework/loadbalancer`)
+
+**சுருக்கம் / Overview:** Advanced multi-key load balancing engine distributing traffic across credential pools with session stickiness.
+
+#### ⚙️ உட்புற கட்டமைப்பு & இயங்கும் முறை (Internal Architecture & Mechanics)
+Implemented in 'framework/loadbalancer' and 'core/keyselectors'. Supports Round-Robin, Weighted Distribution, and Priority Failover across multiple provider keys. Integrates with Redis KVStore for session stickiness, pinning multi-turn conversations to the same key or GPU node.
+
+#### 🧩 முக்கிய கூறுகள் & அமைப்புகள் (Key Components & Capabilities)
+- **Balancing Strategies:**  Round-Robin, Weighted Ratios, Priority Tiers, and Least-Connections.
+- **Session Stickiness:**  Binds conversational sessions (via x-uf-session-id) to the same upstream deployment.
+- **Key Pool Filters:**  Custom hooks (keyPoolFilter) to dynamically disqualify degraded or rate-limited keys.
+
+#### 🔗 மற்ற கூறுகளுடன் தொடர்பு (Module Interconnections)
+Operates inside the Models and Model Providers dispatch pipeline.
+
+#### 💡 நடைமுறை பயன்பாடு (Enterprise Production Use Case)
+Distributes 100,000 RPM evenly across 10 Azure OpenAI deployments in different geographic regions with automatic failover.
+
+---
+
+### Realtime Audio & Voice Gateway (`core/schemas/realtime.go`)
+
+**சுருக்கம் / Overview:** Bidirectional WebRTC and WebSocket streaming gateway supporting ultra-low latency conversational voice AI.
+
+#### ⚙️ உட்புற கட்டமைப்பு & இயங்கும் முறை (Internal Architecture & Mechanics)
+Located in 'core/schemas/realtime.go'. Bridges client WebRTC and WebSocket voice connections to upstream providers (e.g. OpenAI Realtime API). Manages full-duplex audio chunking (PCM16, G.711, Opus), Voice Activity Detection (VAD), and automated speech-to-speech protocol normalization.
+
+#### 🧩 முக்கிய கூறுகள் & அமைப்புகள் (Key Components & Capabilities)
+- **Full-Duplex Audio Streaming:**  Sub-300ms voice conversational latency.
+- **Protocol Normalization:**  Bidirectional audio frame translation across voice providers.
+- **Voice Activity Detection (VAD):**  Server-side speech interruption and turn-taking detection.
+
+#### 🔗 மற்ற கூறுகளுடன் தொடர்பு (Module Interconnections)
+Connects clients to Voice-enabled Model Providers and logs audio tokens in LLM Logs.
+
+#### 💡 நடைமுறை பயன்பாடு (Enterprise Production Use Case)
+Powers customer service interactive voice response (IVR) phone bots with natural human-like voice conversational speed.
 
 ---
 

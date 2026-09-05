@@ -35,7 +35,7 @@ function getInitialViewMode(): MCPLibraryViewMode {
 export default function MCPLibraryPage() {
 	const hasCreateMCPClientAccess = useRbac(RbacResource.MCPGateway, RbacOperation.Create);
 	const hasDeleteMCPLibraryAccess = useRbac(RbacResource.MCPGateway, RbacOperation.Delete);
-	const hasSettingsAccess = useRbac(RbacResource.Settings, RbacOperation.Update);
+	const hasSettingsAccess = useRbac(RbacResource.MCPGateway, RbacOperation.Update);
 	const [selectedServer, setSelectedServer] = useState<MCPLibraryEntry | null>(null);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const [addServerOpen, setAddServerOpen] = useState(false);

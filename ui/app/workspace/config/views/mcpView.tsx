@@ -19,7 +19,9 @@ const secretVarEquals = (a?: SecretVar, b?: SecretVar) =>
 	(a?.value ?? "") === (b?.value ?? "") && (a?.ref ?? "") === (b?.ref ?? "") && (a?.type ?? "plain_text") === (b?.type ?? "plain_text");
 
 export default function MCPView() {
-	const hasSettingsUpdateAccess = useRbac(RbacResource.Settings, RbacOperation.Update);
+	// MCP Settings lives under MCP Gateway — gate save on MCPGateway Update
+	// (layout already requires the same), not Settings.
+	const hasSettingsUpdateAccess = useRbac(RbacResource.MCPGateway, RbacOperation.Update);
 	const { data: unifaiConfig } = useGetCoreConfigQuery({ fromDB: true });
 	const config = unifaiConfig?.client_config;
 
