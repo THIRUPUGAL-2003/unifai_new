@@ -397,10 +397,30 @@ def time_iso() -> str:
 def health_loop(stop_event: threading.Event, proxy_port: int) -> None:
     # First check shortly after proxy starts
     stop_event.wait(4)
+    proxy_was_down = False
     while not stop_event.is_set():
         try:
-            run_health_check(proxy_port)
-            apply_pac_with_bust(silent=True)
+            report = run_health_check(proxy_port)
+            checks = report.get("checks") if isinstance(report, dict) else {}
+            proxy_up = bool(checks.get("proxy_port"))
+            # Local proxy died (sleep/wake, crash, restart): force all-DIRECT PAC so
+            # browsers do not stick on a dead PROXY and show network errors.
+            if not proxy_up:
+                write_local_pac(
+                    "// UnifAI Guard — local proxy down; fail open until proxy returns.\n"
+                    'function FindProxyForURL(url, host) { return "DIRECT"; }\n'
+                )
+                apply_pac_with_bust(silent=True)
+                proxy_was_down = True
+            elif proxy_was_down:
+                # Proxy recovered — pull fresh domain PAC again.
+                pac = fetch_proxy_pac()
+                if pac:
+                    write_local_pac(pac)
+                apply_pac_with_bust(silent=True)
+                proxy_was_down = False
+            else:
+                apply_pac_with_bust(silent=True)
             set_browser_quic(enable_quic=False)
         except Exception as e:
             print(f"[UnifAI Guard WARNING] Health loop: {e}")
@@ -1067,7 +1087,8 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         "    for (var i = 0; i < aiHosts.length; i++) {",
         "        var d = aiHosts[i];",
         '        if (host === d || dnsDomainIs(host, "." + d) || shExpMatch(host, "*." + d)) {',
-        f'            return "PROXY {proxy_addr}";',
+        "            // Fail open: if local Guard proxy is down/restarting, still reach the site.",
+        f'            return "PROXY {proxy_addr}; DIRECT";',
         "        }",
         "    }",
         '    return "DIRECT";',
@@ -1090,9 +1111,39 @@ def fetch_proxy_pac() -> str | None:
         seen.add(url)
         body = _http_get_text(url, "application/x-ns-proxy-autoconfig,*/*")
         if body and "FindProxyForURL" in body:
-            return body
+            return ensure_pac_fail_open(body)
     print("[UnifAI Guard] Server PAC unavailable — building PAC from /api/browser-ai/targets")
     return build_pac_from_targets(PROXY_ADDR)
+
+
+def ensure_pac_fail_open(pac: str) -> str:
+    """Browsers must fall back to DIRECT if the local Guard proxy is unreachable.
+
+    Older PAC files returned only ``PROXY host:port``, which causes hard network
+    errors (ERR_PROXY_CONNECTION_FAILED) whenever mitmproxy restarts or the
+    laptop briefly loses the local listener. PAC syntax supports a fallback list.
+    """
+    import re
+
+    if not pac or "FindProxyForURL" not in pac:
+        return pac
+
+    def _with_direct(match: re.Match[str]) -> str:
+        inner = match.group(1).strip()
+        # Already has a fallback chain.
+        if ";" in inner:
+            return match.group(0)
+        if not inner.upper().startswith("PROXY "):
+            return match.group(0)
+        return f'return "{inner}; DIRECT"'
+
+    # Matches: return "PROXY 127.0.0.1:8085";
+    return re.sub(
+        r'return\s*"([^"]+)"',
+        _with_direct,
+        pac,
+        flags=re.IGNORECASE,
+    )
 
 
 def write_local_pac(content: str) -> None:

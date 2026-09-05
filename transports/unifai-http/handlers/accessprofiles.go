@@ -161,6 +161,10 @@ func (h *WorkspaceHandler) createAccessProfile(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save access profile")
 		return
 	}
+	if err := propagateAccessProfile(ctx, h.store.ConfigStore, row); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("profile saved but failed to apply to virtual keys: %v", err))
+		return
+	}
 	SendJSONWithStatus(ctx, map[string]any{"access_profile": accessProfileFromRow(row)}, fasthttp.StatusCreated)
 }
 
@@ -274,6 +278,10 @@ func (h *WorkspaceHandler) updateAccessProfile(ctx *fasthttp.RequestCtx) {
 	row.Version = existing.Version + 1
 	if err := store.UpdateAccessProfile(ctx, &row); err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to update access profile")
+		return
+	}
+	if err := propagateAccessProfile(ctx, h.store.ConfigStore, row); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("profile updated but failed to apply to virtual keys: %v", err))
 		return
 	}
 	SendJSON(ctx, map[string]any{"access_profile": accessProfileFromRow(row)})

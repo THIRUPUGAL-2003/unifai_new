@@ -22,6 +22,7 @@ import {
 	useUpdateSessionMutation,
 } from "@/lib/store/apis/promptsApi";
 import { useGetModelParametersQuery, useGetModelsQuery } from "@/lib/store/apis/providersApi";
+import { useGetSkillQuery } from "@/lib/store/apis/skillsApi";
 import { Folder, ModelParams, Prompt, PromptSession, PromptVersion } from "@/lib/types/prompts";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
@@ -63,6 +64,9 @@ interface PromptContextValue {
 	setModelParams: React.Dispatch<React.SetStateAction<ModelParams>>;
 	apiKeyId: string;
 	setApiKeyId: React.Dispatch<React.SetStateAction<string>>;
+	/** Optional Skills Repository skill id for playground injection */
+	skillId: string;
+	setSkillId: React.Dispatch<React.SetStateAction<string>>;
 
 	// Jinja2 variables
 	variables: VariableMap;
@@ -182,6 +186,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 	const [model, setModel] = useState("");
 	const [modelParams, setModelParams] = useState<ModelParams>({ stream: true });
 	const [apiKeyId, setApiKeyId] = useState("__auto__");
+	const [skillId, setSkillId] = useState("");
 	const [isStreaming, setIsStreaming] = useState(false);
 	const activeRunRef = useRef<symbol | null>(null);
 	const abortRef = useRef<AbortController | null>(null);
@@ -190,6 +195,9 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 	const loadedPlaygroundKeyRef = useRef<string>("");
 	const [variables, setVariables] = useState<VariableMap>({});
 	const [customHeaders, setCustomHeaders] = useState<Record<string, string>>({});
+
+	const { data: skillData } = useGetSkillQuery(skillId, { skip: !skillId });
+	const skillSystemPrompt = skillData?.skill?.skill_md_body?.trim() || "";
 
 	// Sync customHeaders keys with the server-configured required_headers list.
 	// Adds new keys (empty), removes keys no longer required, preserves user-entered values.
@@ -525,7 +533,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			await executePrompt(
 				messages,
 				pendingMessage,
-				{ provider: execProvider, model: execModel, modelParams, apiKeyId, variables, customHeaders },
+				{ provider: execProvider, model: execModel, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt },
 				{
 					onStreamingStart: (allMessages, placeholder) => {
 						if (!isActive()) return;
@@ -637,7 +645,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt],
 	);
 
 	const handleSubmitToolResult = useCallback(
@@ -667,7 +675,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			await executePrompt(
 				newMessages,
 				undefined,
-				{ provider, model, modelParams, apiKeyId, variables, customHeaders },
+				{ provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt },
 				{
 					onStreamingStart: (allMessages, placeholder) => {
 						if (!isActive()) return;
@@ -719,7 +727,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt],
 	);
 
 	const handleExecuteToolCall = useCallback(
@@ -770,7 +778,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			await executePrompt(
 				newMessages,
 				undefined,
-				{ provider, model, modelParams, apiKeyId, variables, customHeaders },
+				{ provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt },
 				{
 					onStreamingStart: (allMessages, placeholder) => {
 						if (!isActive()) return;
@@ -822,7 +830,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, handleSubmitToolResult],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, handleSubmitToolResult, skillSystemPrompt],
 	);
 
 	const handleExecuteAllToolCalls = useCallback(
@@ -910,6 +918,8 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 		setModelParams,
 		apiKeyId,
 		setApiKeyId,
+		skillId,
+		setSkillId,
 		variables,
 		setVariables,
 		customHeaders,

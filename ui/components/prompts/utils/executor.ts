@@ -9,6 +9,8 @@ export interface ExecutionConfig {
 	apiKeyId: string;
 	variables?: VariableMap;
 	customHeaders?: Record<string, string>;
+	/** Optional Skills Repository body injected as a system message for this run. */
+	skillSystemPrompt?: string;
 }
 
 function getBaseUrl() {
@@ -76,7 +78,11 @@ export async function executePrompt(
 	callbacks.onStreamingStart(allMessages, placeholder);
 
 	// Replace Jinja2 variables before sending to the API
-	const resolvedMessages = config.variables ? replaceVariablesInMessages(allMessages, config.variables) : allMessages;
+	let resolvedMessages = config.variables ? replaceVariablesInMessages(allMessages, config.variables) : allMessages;
+	const skillPrompt = config.skillSystemPrompt?.trim();
+	if (skillPrompt) {
+		resolvedMessages = [Message.system(skillPrompt), ...resolvedMessages];
+	}
 
 	try {
 		const headers = buildHeaders(config);

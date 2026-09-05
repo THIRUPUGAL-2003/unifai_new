@@ -988,7 +988,7 @@ export default function AppSidebar() {
 						url: "/workspace/config/feature-flags",
 						icon: Flag,
 						description: "Toggle feature flags",
-						hasAccess: hasFeatureFlagsAccess,
+						hasAccess: hasFeatureFlagsAccess && IS_ENTERPRISE,
 					},
 				],
 			},

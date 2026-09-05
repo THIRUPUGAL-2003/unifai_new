@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getErrorMessage } from "@/lib/store";
+import { getErrorMessage, useGetVirtualKeysQuery } from "@/lib/store";
 import {
 	useActivateAccessProfileMutation,
 	useCloneAccessProfileMutation,
@@ -19,18 +19,99 @@ import { Copy, IdCard, Pencil, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+type ProfileFormState = {
+	name: string;
+	description: string;
+	tags: string;
+	providerName: string;
+	allowedModels: string;
+	selectedVkIds: string[];
+	budgetMax: string;
+	budgetReset: string;
+	requestMax: string;
+	requestReset: string;
+	tokenMax: string;
+	tokenReset: string;
+};
+
+const emptyForm = (): ProfileFormState => ({
+	name: "",
+	description: "",
+	tags: "",
+	providerName: "",
+	allowedModels: "",
+	selectedVkIds: [],
+	budgetMax: "",
+	budgetReset: "1M",
+	requestMax: "",
+	requestReset: "1m",
+	tokenMax: "",
+	tokenReset: "1m",
+});
+
+function buildPayload(form: ProfileFormState) {
+	const budgets =
+		form.budgetMax.trim() !== ""
+			? [
+					{
+						max_limit: Number(form.budgetMax),
+						reset_duration: form.budgetReset.trim() || "1M",
+					},
+				]
+			: [];
+	const rate_limit =
+		form.requestMax.trim() || form.tokenMax.trim()
+			? {
+					...(form.requestMax.trim()
+						? {
+								request_max_limit: Number(form.requestMax),
+								request_reset_duration: form.requestReset.trim() || "1m",
+							}
+						: {}),
+					...(form.tokenMax.trim()
+						? {
+								token_max_limit: Number(form.tokenMax),
+								token_reset_duration: form.tokenReset.trim() || "1m",
+							}
+						: {}),
+				}
+			: undefined;
+
+	return {
+		name: form.name,
+		description: form.description,
+		tags: form.tags
+			.split(",")
+			.map((tag) => tag.trim())
+			.filter(Boolean),
+		provider_configs: form.providerName
+			? [
+					{
+						provider_name: form.providerName.trim(),
+						all_models_allowed: !form.allowedModels.trim(),
+						allowed_models: form.allowedModels
+							.split(",")
+							.map((model) => model.trim())
+							.filter(Boolean),
+					},
+				]
+			: [],
+		virtual_key_ids: form.selectedVkIds,
+		budgets,
+		rate_limit,
+	};
+}
+
 export default function AccessProfilesIndexView() {
 	const [search, setSearch] = useState("");
 	const [open, setOpen] = useState(false);
 	const [editOpen, setEditOpen] = useState(false);
 	const [editing, setEditing] = useState<AccessProfile | null>(null);
-	const [name, setName] = useState("");
-	const [description, setDescription] = useState("");
-	const [tags, setTags] = useState("");
-	const [providerName, setProviderName] = useState("");
-	const [allowedModels, setAllowedModels] = useState("");
+	const [form, setForm] = useState<ProfileFormState>(emptyForm);
 
 	const { data, isLoading } = useGetAccessProfilesQuery({ search: search || undefined });
+	const { data: vkData } = useGetVirtualKeysQuery({ limit: 200, offset: 0 });
+	const virtualKeys = vkData?.virtual_keys || [];
 	const [createProfile] = useCreateAccessProfileMutation();
 	const [activateProfile] = useActivateAccessProfileMutation();
 	const [cloneProfile] = useCloneAccessProfileMutation();
@@ -39,51 +120,48 @@ export default function AccessProfilesIndexView() {
 
 	const profiles = data?.access_profiles || [];
 
-	const profilePayload = () => ({
-		name,
-		description,
-		tags: tags
-			.split(",")
-			.map((tag) => tag.trim())
-			.filter(Boolean),
-		provider_configs: providerName
-			? [
-					{
-						provider_name: providerName,
-						all_models_allowed: !allowedModels,
-						allowed_models: allowedModels
-							.split(",")
-							.map((model) => model.trim())
-							.filter(Boolean),
-					},
-				]
-			: [],
-	});
-
 	const resetForm = () => {
-		setName("");
-		setDescription("");
-		setTags("");
-		setProviderName("");
-		setAllowedModels("");
+		setForm(emptyForm());
 		setEditing(null);
 	};
 
 	const openEdit = (profile: AccessProfile) => {
 		setEditing(profile);
-		setName(profile.name);
-		setDescription(profile.description || "");
-		setTags((profile.tags || []).join(", "));
 		const cfg = profile.provider_configs?.[0];
-		setProviderName(cfg?.provider_name || "");
-		setAllowedModels(cfg?.allowed_models?.join(", ") || "");
+		const budget = profile.budgets?.[0];
+		const rl = profile.rate_limit;
+		setForm({
+			name: profile.name,
+			description: profile.description || "",
+			tags: (profile.tags || []).join(", "),
+			providerName: cfg?.provider_name || "",
+			allowedModels: cfg?.allowed_models?.join(", ") || "",
+			selectedVkIds: profile.virtual_key_ids || [],
+			budgetMax: budget?.max_limit != null ? String(budget.max_limit) : "",
+			budgetReset: budget?.reset_duration || "1M",
+			requestMax: rl?.request_max_limit != null ? String(rl.request_max_limit) : "",
+			requestReset: rl?.request_reset_duration || "1m",
+			tokenMax: rl?.token_max_limit != null ? String(rl.token_max_limit) : "",
+			tokenReset: rl?.token_reset_duration || "1m",
+		});
 		setEditOpen(true);
 	};
 
+	const toggleVk = (id: string) => {
+		setForm((prev) => ({
+			...prev,
+			selectedVkIds: prev.selectedVkIds.includes(id) ? prev.selectedVkIds.filter((x) => x !== id) : [...prev.selectedVkIds, id],
+		}));
+	};
+
 	const create = async () => {
+		if (!form.name.trim()) {
+			toast.error("Name is required");
+			return;
+		}
 		try {
-			await createProfile({ ...profilePayload(), is_active: true }).unwrap();
-			toast.success("Access profile created");
+			await createProfile({ ...buildPayload(form), is_active: true }).unwrap();
+			toast.success("Access profile created and applied to selected virtual keys");
 			setOpen(false);
 			resetForm();
 		} catch (err) {
@@ -93,15 +171,117 @@ export default function AccessProfilesIndexView() {
 
 	const saveEdit = async () => {
 		if (!editing) return;
+		if (!form.name.trim()) {
+			toast.error("Name is required");
+			return;
+		}
 		try {
-			await updateProfile({ id: editing.id, updates: profilePayload() }).unwrap();
-			toast.success("Access profile updated");
+			await updateProfile({ id: editing.id, updates: buildPayload(form) }).unwrap();
+			toast.success("Access profile updated and applied to selected virtual keys");
 			setEditOpen(false);
 			resetForm();
 		} catch (err) {
 			toast.error(getErrorMessage(err));
 		}
 	};
+
+	const formFields = (
+		<div className="max-h-[70vh] space-y-3 overflow-y-auto py-2">
+			<div className="space-y-1">
+				<Label>Name</Label>
+				<Input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} />
+			</div>
+			<div className="space-y-1">
+				<Label>Description</Label>
+				<Input value={form.description} onChange={(e) => setForm((p) => ({ ...p, description: e.target.value }))} />
+			</div>
+			<div className="space-y-1">
+				<Label>Tags (comma separated)</Label>
+				<Input value={form.tags} onChange={(e) => setForm((p) => ({ ...p, tags: e.target.value }))} />
+			</div>
+			<div className="space-y-1">
+				<Label>Provider</Label>
+				<Input
+					value={form.providerName}
+					onChange={(e) => setForm((p) => ({ ...p, providerName: e.target.value }))}
+					placeholder="openai"
+				/>
+			</div>
+			<div className="space-y-1">
+				<Label>Allowed models (blank = all)</Label>
+				<Input
+					value={form.allowedModels}
+					onChange={(e) => setForm((p) => ({ ...p, allowedModels: e.target.value }))}
+					placeholder="gpt-4o, gpt-4o-mini"
+				/>
+			</div>
+			<div className="grid grid-cols-2 gap-2">
+				<div className="space-y-1">
+					<Label>Budget max (optional)</Label>
+					<Input
+						type="number"
+						value={form.budgetMax}
+						onChange={(e) => setForm((p) => ({ ...p, budgetMax: e.target.value }))}
+						placeholder="100"
+					/>
+				</div>
+				<div className="space-y-1">
+					<Label>Budget reset</Label>
+					<Input value={form.budgetReset} onChange={(e) => setForm((p) => ({ ...p, budgetReset: e.target.value }))} placeholder="1M" />
+				</div>
+			</div>
+			<div className="grid grid-cols-2 gap-2">
+				<div className="space-y-1">
+					<Label>Request max / min (optional)</Label>
+					<Input
+						type="number"
+						value={form.requestMax}
+						onChange={(e) => setForm((p) => ({ ...p, requestMax: e.target.value }))}
+						placeholder="60"
+					/>
+				</div>
+				<div className="space-y-1">
+					<Label>Request reset</Label>
+					<Input
+						value={form.requestReset}
+						onChange={(e) => setForm((p) => ({ ...p, requestReset: e.target.value }))}
+						placeholder="1m"
+					/>
+				</div>
+			</div>
+			<div className="grid grid-cols-2 gap-2">
+				<div className="space-y-1">
+					<Label>Token max (optional)</Label>
+					<Input
+						type="number"
+						value={form.tokenMax}
+						onChange={(e) => setForm((p) => ({ ...p, tokenMax: e.target.value }))}
+						placeholder="100000"
+					/>
+				</div>
+				<div className="space-y-1">
+					<Label>Token reset</Label>
+					<Input value={form.tokenReset} onChange={(e) => setForm((p) => ({ ...p, tokenReset: e.target.value }))} placeholder="1m" />
+				</div>
+			</div>
+			<div className="space-y-1">
+				<Label>Virtual keys to apply template</Label>
+				<p className="text-muted-foreground text-xs">Selected keys receive provider, budget, and rate-limit settings on save.</p>
+				<div className="border-input max-h-36 space-y-1 overflow-y-auto rounded-md border p-2">
+					{virtualKeys.length === 0 ? (
+						<p className="text-muted-foreground text-xs">No virtual keys found.</p>
+					) : (
+						virtualKeys.map((vk) => (
+							<label key={vk.id} className="flex cursor-pointer items-center gap-2 text-sm">
+								<input type="checkbox" checked={form.selectedVkIds.includes(vk.id)} onChange={() => toggleVk(vk.id)} />
+								<span className="truncate">{vk.name}</span>
+							</label>
+						))
+					)}
+				</div>
+			</div>
+		</div>
+	);
 
 	return (
 		<div className="flex h-full w-full flex-col gap-4">
@@ -111,7 +291,9 @@ export default function AccessProfilesIndexView() {
 						<IdCard className="h-6 w-6" />
 						Access Profiles
 					</h1>
-					<p className="text-muted-foreground text-sm">Reusable provider, model, budget, and MCP policy templates.</p>
+					<p className="text-muted-foreground text-sm">
+						Reusable provider, model, budget, and rate-limit templates applied to selected virtual keys.
+					</p>
 				</div>
 				<Button data-testid="access-profiles-create" onClick={() => setOpen(true)}>
 					<Plus className="h-4 w-4" />
@@ -124,7 +306,7 @@ export default function AccessProfilesIndexView() {
 			) : profiles.length === 0 ? (
 				<div className="rounded-xl border border-dashed p-10 text-center">
 					<p className="font-medium">No access profiles</p>
-					<p className="text-muted-foreground mt-1 text-sm">Create a template to auto-issue virtual keys later.</p>
+					<p className="text-muted-foreground mt-1 text-sm">Create a template and select virtual keys to apply it.</p>
 				</div>
 			) : (
 				<TableView
@@ -157,32 +339,11 @@ export default function AccessProfilesIndexView() {
 			)}
 
 			<Dialog open={open} onOpenChange={setOpen}>
-				<DialogContent>
+				<DialogContent className="sm:max-w-lg">
 					<DialogHeader>
 						<DialogTitle>Create access profile</DialogTitle>
 					</DialogHeader>
-					<div className="space-y-3 py-2">
-						<div className="space-y-1">
-							<Label>Name</Label>
-							<Input value={name} onChange={(e) => setName(e.target.value)} />
-						</div>
-						<div className="space-y-1">
-							<Label>Description</Label>
-							<Input value={description} onChange={(e) => setDescription(e.target.value)} />
-						</div>
-						<div className="space-y-1">
-							<Label>Tags (comma separated)</Label>
-							<Input value={tags} onChange={(e) => setTags(e.target.value)} />
-						</div>
-						<div className="space-y-1">
-							<Label>Provider</Label>
-							<Input value={providerName} onChange={(e) => setProviderName(e.target.value)} placeholder="openai" />
-						</div>
-						<div className="space-y-1">
-							<Label>Allowed models (blank = all)</Label>
-							<Input value={allowedModels} onChange={(e) => setAllowedModels(e.target.value)} placeholder="gpt-4o, gpt-4o-mini" />
-						</div>
-					</div>
+					{formFields}
 					<DialogFooter>
 						<Button variant="outline" onClick={() => setOpen(false)}>
 							Cancel
@@ -192,35 +353,26 @@ export default function AccessProfilesIndexView() {
 				</DialogContent>
 			</Dialog>
 
-			<Dialog open={editOpen} onOpenChange={(v) => { setEditOpen(v); if (!v) resetForm(); }}>
-				<DialogContent>
+			<Dialog
+				open={editOpen}
+				onOpenChange={(v) => {
+					setEditOpen(v);
+					if (!v) resetForm();
+				}}
+			>
+				<DialogContent className="sm:max-w-lg">
 					<DialogHeader>
 						<DialogTitle>Edit access profile</DialogTitle>
 					</DialogHeader>
-					<div className="space-y-3 py-2">
-						<div className="space-y-1">
-							<Label>Name</Label>
-							<Input value={name} onChange={(e) => setName(e.target.value)} />
-						</div>
-						<div className="space-y-1">
-							<Label>Description</Label>
-							<Input value={description} onChange={(e) => setDescription(e.target.value)} />
-						</div>
-						<div className="space-y-1">
-							<Label>Tags (comma separated)</Label>
-							<Input value={tags} onChange={(e) => setTags(e.target.value)} />
-						</div>
-						<div className="space-y-1">
-							<Label>Provider</Label>
-							<Input value={providerName} onChange={(e) => setProviderName(e.target.value)} placeholder="openai" />
-						</div>
-						<div className="space-y-1">
-							<Label>Allowed models (blank = all)</Label>
-							<Input value={allowedModels} onChange={(e) => setAllowedModels(e.target.value)} placeholder="gpt-4o, gpt-4o-mini" />
-						</div>
-					</div>
+					{formFields}
 					<DialogFooter>
-						<Button variant="outline" onClick={() => { setEditOpen(false); resetForm(); }}>
+						<Button
+							variant="outline"
+							onClick={() => {
+								setEditOpen(false);
+								resetForm();
+							}}
+						>
 							Cancel
 						</Button>
 						<Button onClick={() => void saveEdit()}>Save changes</Button>
@@ -250,6 +402,7 @@ function TableView({
 				<TableRow>
 					<TableHead>Name</TableHead>
 					<TableHead>Providers</TableHead>
+					<TableHead>Virtual keys</TableHead>
 					<TableHead>Active</TableHead>
 					<TableHead>Version</TableHead>
 					<TableHead className="text-right">Actions</TableHead>
@@ -263,6 +416,9 @@ function TableView({
 							<div className="text-muted-foreground text-xs">{profile.description}</div>
 						</TableCell>
 						<TableCell className="text-xs">{profile.provider_configs?.map((cfg) => cfg.provider_name).join(", ") || "—"}</TableCell>
+						<TableCell className="text-xs">
+							{profile.virtual_key_ids?.length ? `${profile.virtual_key_ids.length} key(s)` : "—"}
+						</TableCell>
 						<TableCell>
 							<Switch checked={profile.is_active} onCheckedChange={() => onToggle(profile)} />
 						</TableCell>

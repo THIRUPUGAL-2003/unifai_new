@@ -5,10 +5,20 @@ export interface AccessProfile {
 	is_active: boolean;
 	version: number;
 	tags?: string[];
-	provider_configs?: { provider_name: string; all_models_allowed?: boolean; allowed_models?: string[] }[];
-	budgets?: Record<string, unknown>[];
-	rate_limit?: Record<string, unknown>;
+	provider_configs?: { provider_name: string; all_models_allowed?: boolean; allowed_models?: string[]; weight?: number }[];
+	budgets?: { max_limit?: number; reset_duration?: string }[];
+	rate_limit?: {
+		request_max_limit?: number;
+		request_reset_duration?: string;
+		token_max_limit?: number;
+		token_reset_duration?: string;
+	};
 	calendar_aligned?: boolean;
+	virtual_key_ids?: string[];
+	mcp_servers?: Record<string, unknown>[];
+	mcp_tool_groups?: Record<string, unknown>[];
+	mcp_tool_overrides?: Record<string, unknown>[];
+	role_ids?: number[];
 	created_at: string;
 	updated_at?: string;
 }

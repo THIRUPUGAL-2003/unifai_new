@@ -9,6 +9,7 @@ import { getProviderLabel } from "@/lib/constants/logs";
 import { Input } from "@/components/ui/input";
 import { useGetVirtualKeysQuery } from "@/lib/store";
 import { useGetAllKeysQuery, useGetProvidersQuery } from "@/lib/store/apis/providersApi";
+import { useListSkillsQuery } from "@/lib/store/apis/skillsApi";
 import { ModelProviderName } from "@/lib/types/config";
 import { ModelParams } from "@/lib/types/prompts";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,8 @@ export function SettingsPanel() {
 		setModelParams: onModelParamsChange,
 		apiKeyId,
 		setApiKeyId,
+		skillId,
+		setSkillId,
 		variables,
 		setVariables,
 		customHeaders,
@@ -57,6 +60,14 @@ export function SettingsPanel() {
 	const { data: virtualKeysData } = useGetVirtualKeysQuery();
 	// Keys for the API Key selector (from /api/keys endpoint, provider-filtered)
 	const { data: allKeys, isSuccess: hasLoadedAllKeys } = useGetAllKeysQuery();
+	const { data: skillsData } = useListSkillsQuery({ limit: 200, offset: 0 });
+	const skillOptions = useMemo(
+		() => [
+			{ label: "None", value: "" },
+			...(skillsData?.skills ?? []).map((s) => ({ label: s.name, value: s.id })),
+		],
+		[skillsData],
+	);
 
 	const isInitialLoading = isLoadingProviders;
 
@@ -208,6 +219,21 @@ export function SettingsPanel() {
 										onValueChange={(v) => onApiKeyIdChange(v ?? "__auto__")}
 										disabled={!provider}
 									/>
+								)}
+
+								{skillOptions.length > 1 && (
+									<div className="flex flex-col gap-2" data-testid="settings-skill">
+										<Label className="text-muted-foreground text-xs font-medium uppercase">Skill (optional)</Label>
+										<p className="text-muted-foreground text-xs">
+											Injects the skill markdown as a system message for this playground run.
+										</p>
+										<ComboboxSelect
+											options={skillOptions}
+											value={skillId}
+											onValueChange={(v) => setSkillId(v ?? "")}
+											placeholder="Select skill"
+										/>
+									</div>
 								)}
 
 								{Object.keys(variables).length > 0 && (
