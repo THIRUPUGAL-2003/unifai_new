@@ -1708,38 +1708,25 @@ Derive the pattern only from SECURITY_POLICY.`
 		if h.client == nil {
 			return "", fmt.Errorf("unifai client not available for outsource model")
 		}
-		maxTokens := 320
-		temp := 0.1
-		unifaiReq := &schemas.UnifAIChatRequest{
-			Provider: schemas.ModelProvider(provider),
-			Model:    model,
-			Input: []schemas.ChatMessage{
-				{
-					Role: schemas.ChatMessageRoleSystem,
-					Content: &schemas.ChatMessageContent{
-						ContentStr: schemas.Ptr(systemPrompt),
-					},
-				},
-				{
-					Role: schemas.ChatMessageRoleUser,
-					Content: &schemas.ChatMessageContent{
-						ContentStr: schemas.Ptr(user),
-					},
-				},
-			},
-			Params: &schemas.ChatParameters{
-				MaxCompletionTokens: &maxTokens,
-				Temperature:         &temp,
-			},
-		}
-		if preferJSON {
-			rf := any(map[string]any{"type": "json_object"})
-			unifaiReq.Params.ResponseFormat = &rf
+		prov := schemas.ModelProvider(provider)
+		unifaiReq := buildGuardOutsourceChatRequest(prov, model, systemPrompt, user, false, preferJSON)
+		if unifaiReq.Params != nil {
+			maxTokens := 320
+			temp := 0.1
+			unifaiReq.Params.Temperature = &temp
+			if unifaiReq.Params.ExtraParams == nil {
+				unifaiReq.Params.ExtraParams = map[string]interface{}{}
+			}
+			unifaiReq.Params.ExtraParams["max_tokens"] = maxTokens
+			if strings.EqualFold(string(prov), string(schemas.OpenAI)) || strings.EqualFold(string(prov), string(schemas.Azure)) {
+				unifaiReq.Params.MaxCompletionTokens = &maxTokens
+			}
 		}
 		deadline := time.Now().Add(75 * time.Second)
 		unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
+		unifaiCtx.SetValue(schemas.UnifAIContextKeyPassthroughExtraParams, true)
 		resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
 		if unifaiErr != nil {
 			return "", fmt.Errorf("%s", unifaiErrorMessage(unifaiErr))
@@ -1811,11 +1798,28 @@ Derive the pattern only from SECURITY_POLICY.`
 			genErr = err3
 		}
 	}
+	// Attempt 4: if outsource failed (e.g. OpenRouter free/code 422), fall back to Ollama.
+	if !ok && !isOllamaGuardProvider(provider) {
+		raw4, err4 := callOllamaChatAny(browserAIGuardBotDefaultModel, systemPromptRetry, userMsgRetry, false, 90*time.Second)
+		if err4 == nil {
+			if p, f, n, good := tryParse(raw4); good {
+				pat, focus, notes, ok = p, f, n, true
+				raw, genErr = raw4, nil
+				genSource = "ollama-fallback"
+				model = browserAIGuardBotDefaultModel
+				provider = browserAIGuardBotDefaultProvider
+			}
+		} else if genErr == nil {
+			genErr = err4
+		} else {
+			genErr = fmt.Errorf("%v; ollama fallback: %v", genErr, err4)
+		}
+	}
 
 	if !ok {
-		msg := "model did not return a usable regex pattern — use AI Prompt evaluate for semantic policies (names/topics), or edit Pattern manually"
+		msg := "model did not return a usable regex pattern — use AI Prompt evaluate (Download/llama3.2), or edit Pattern manually"
 		if genErr != nil {
-			msg = "generate-regex failed: " + truncateRunes(genErr.Error(), 180)
+			msg = "generate-regex failed: " + truncateRunes(genErr.Error(), 180) + " — switch to Download/llama3.2 or a chat model (not free code models)"
 		}
 		SendError(ctx, fasthttp.StatusBadGateway, msg)
 		return
@@ -2079,87 +2083,32 @@ func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, use
 	)
 
 	if isOllamaGuardProvider(string(providerName)) {
-		runOllama := func(system, user string, jsonMode bool) (bool, string) {
-			rawText, err := callOllamaChatAny(modelName, system, user, jsonMode, 90*time.Second)
-			if err != nil {
-				return false, truncateRunes(err.Error(), 180)
-			}
-			rawText = stripEvalMarkdown(rawText)
-			if rawText == "" {
-				return false, "empty evaluator response"
-			}
-			violated, recognized := parseAIBotDecision(rawText)
-			if !recognized {
-				return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80)
-			}
-			return violated, ""
-		}
-		// 1) JSON mode + full prompt
-		if violated, errMsg := runOllama(systemPrompt, userMsg, true); errMsg == "" {
-			return violated, ""
-		} else {
-			// 2) plain + full prompt
-			if violated, errMsg2 := runOllama(systemPrompt, userMsg, false); errMsg2 == "" {
-				return violated, ""
-			}
-			// 3) short prompt JSON — last chance for small models
-			if violated, errMsg3 := runOllama(systemPrompt, shortUserMsg, true); errMsg3 == "" {
-				return violated, ""
-			}
-			if violated, errMsg4 := runOllama(systemPrompt, shortUserMsg, false); errMsg4 == "" {
-				return violated, ""
-			}
-			return false, errMsg
-		}
+		return runOllamaTextGuardEval(modelName, systemPrompt, userMsg, shortUserMsg)
 	}
 
 	if h.client == nil {
 		return false, "unifai client not available"
 	}
 
-	maxTokens := 128
-	temp := 0.0
-	responseFormat := any(map[string]any{"type": "json_object"})
-	buildReq := func(user string, withJSON bool) *schemas.UnifAIChatRequest {
-		req := &schemas.UnifAIChatRequest{
-			Provider: providerName,
-			Model:    modelName,
-			Input: []schemas.ChatMessage{
-				{
-					Role: schemas.ChatMessageRoleSystem,
-					Content: &schemas.ChatMessageContent{
-						ContentStr: schemas.Ptr(systemPrompt),
-					},
-				},
-				{
-					Role: schemas.ChatMessageRoleUser,
-					Content: &schemas.ChatMessageContent{
-						ContentStr: schemas.Ptr(user),
-					},
-				},
-			},
-			Params: &schemas.ChatParameters{
-				MaxCompletionTokens: &maxTokens,
-				Temperature:         &temp,
-			},
+	// Preflight: selected Model Provider must have a usable API key.
+	{
+		keyCtx := schemas.NewUnifAIContext(context.Background(), time.Now().Add(10*time.Second))
+		if _, keyErr := h.client.SelectKeyForProviderRequestType(keyCtx, schemas.ChatCompletionRequest, providerName, modelName); keyErr != nil {
+			return false, fmt.Sprintf("no usable API key for provider %s — add/enable the key under Model Providers (model=%s): %v", providerName, modelName, keyErr)
 		}
-		if withJSON {
-			rf := any(map[string]any{"type": "json_object"})
-			req.Params.ResponseFormat = &rf
-			_ = responseFormat
-		}
-		return req
 	}
 
-	runOnce := func(user string, withJSON bool) (bool, string) {
-		unifaiReq := buildReq(user, withJSON)
+	runOutsource := func(user string, withSystem, withJSON bool) (bool, string) {
+		unifaiReq := buildGuardOutsourceChatRequest(providerName, modelName, systemPrompt, user, withSystem, withJSON)
 		deadline := time.Now().Add(60 * time.Second)
 		unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
+		// Let ExtraParams (max_tokens) merge for OpenAI-compatible gateways.
+		unifaiCtx.SetValue(schemas.UnifAIContextKeyPassthroughExtraParams, true)
 		resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
 		if unifaiErr != nil {
-			return false, truncateRunes(unifaiErrorMessage(unifaiErr), 180)
+			return false, truncateRunes(unifaiErrorMessage(unifaiErr), 220)
 		}
 		rawText := stripEvalMarkdown(evaluatorChoiceText(resp))
 		if rawText == "" {
@@ -2172,13 +2121,126 @@ func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, use
 		return violated, ""
 	}
 
-	if violated, errMsg := runOnce(userMsg, true); errMsg == "" {
-		return violated, ""
-	} else {
-		if violated, errMsg2 := runOnce(userMsg, false); errMsg2 == "" {
+	// Prefer the most compatible shape first (single user message, no response_format).
+	attempts := []struct {
+		user       string
+		withSystem bool
+		withJSON   bool
+	}{
+		{userMsg, false, false},
+		{shortUserMsg, false, false},
+		{userMsg, true, false},
+		{userMsg, true, true},
+		{shortUserMsg, false, true},
+	}
+	var firstErr string
+	for _, a := range attempts {
+		violated, errMsg := runOutsource(a.user, a.withSystem, a.withJSON)
+		if errMsg == "" {
 			return violated, ""
 		}
-		if violated, errMsg3 := runOnce(shortUserMsg, false); errMsg3 == "" {
+		if firstErr == "" {
+			firstErr = errMsg
+		}
+	}
+
+	// Last resort: local Ollama still evaluates the admin policy (no hardcoded DLP).
+	if violated, ollamaErr := runOllamaTextGuardEval(browserAIGuardBotDefaultModel, systemPrompt, userMsg, shortUserMsg); ollamaErr == "" {
+		return violated, ""
+	} else {
+		return false, firstErr + "; ollama fallback: " + ollamaErr
+	}
+}
+
+// buildGuardOutsourceChatRequest builds a chat request that works across OpenAI-native
+// and OpenAI-compatible providers (OpenRouter, Groq, DeepSeek, etc.) when the
+// configured API key matches the selected provider.
+func buildGuardOutsourceChatRequest(provider schemas.ModelProvider, model, systemPrompt, user string, withSystem, withJSON bool) *schemas.UnifAIChatRequest {
+	maxTokens := 128
+	temp := 0.0
+	params := &schemas.ChatParameters{
+		Temperature: &temp,
+		ExtraParams: map[string]interface{}{
+			// Most OpenAI-compatible gateways accept max_tokens; OpenAI also tolerates it.
+			"max_tokens": maxTokens,
+		},
+	}
+	// OpenAI / Azure prefer the newer field as well.
+	p := strings.ToLower(string(provider))
+	if p == string(schemas.OpenAI) || p == string(schemas.Azure) {
+		params.MaxCompletionTokens = &maxTokens
+	}
+	if withJSON {
+		rf := any(map[string]any{"type": "json_object"})
+		params.ResponseFormat = &rf
+	}
+
+	var input []schemas.ChatMessage
+	if withSystem && strings.TrimSpace(systemPrompt) != "" {
+		input = []schemas.ChatMessage{
+			{
+				Role: schemas.ChatMessageRoleSystem,
+				Content: &schemas.ChatMessageContent{
+					ContentStr: schemas.Ptr(systemPrompt),
+				},
+			},
+			{
+				Role: schemas.ChatMessageRoleUser,
+				Content: &schemas.ChatMessageContent{
+					ContentStr: schemas.Ptr(user),
+				},
+			},
+		}
+	} else {
+		combined := user
+		if strings.TrimSpace(systemPrompt) != "" {
+			combined = strings.TrimSpace(systemPrompt) + "\n\n" + user
+		}
+		input = []schemas.ChatMessage{
+			{
+				Role: schemas.ChatMessageRoleUser,
+				Content: &schemas.ChatMessageContent{
+					ContentStr: schemas.Ptr(combined),
+				},
+			},
+		}
+	}
+
+	return &schemas.UnifAIChatRequest{
+		Provider: provider,
+		Model:    model,
+		Input:    input,
+		Params:   params,
+	}
+}
+
+// runOllamaTextGuardEval runs the text Guard Bot classifier against Ollama (JSON then plain, full then short).
+func runOllamaTextGuardEval(modelName, systemPrompt, userMsg, shortUserMsg string) (bool, string) {
+	runOllama := func(system, user string, jsonMode bool) (bool, string) {
+		rawText, err := callOllamaChatAny(modelName, system, user, jsonMode, 90*time.Second)
+		if err != nil {
+			return false, truncateRunes(err.Error(), 180)
+		}
+		rawText = stripEvalMarkdown(rawText)
+		if rawText == "" {
+			return false, "empty evaluator response"
+		}
+		violated, recognized := parseAIBotDecision(rawText)
+		if !recognized {
+			return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80)
+		}
+		return violated, ""
+	}
+	if violated, errMsg := runOllama(systemPrompt, userMsg, true); errMsg == "" {
+		return violated, ""
+	} else {
+		if violated, errMsg2 := runOllama(systemPrompt, userMsg, false); errMsg2 == "" {
+			return violated, ""
+		}
+		if violated, errMsg3 := runOllama(systemPrompt, shortUserMsg, true); errMsg3 == "" {
+			return violated, ""
+		}
+		if violated, errMsg4 := runOllama(systemPrompt, shortUserMsg, false); errMsg4 == "" {
 			return violated, ""
 		}
 		return false, errMsg

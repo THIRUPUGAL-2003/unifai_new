@@ -154,13 +154,19 @@ function GuardBotOutsourceModelPicker({
 	);
 	const options = useMemo(() => {
 		const seen = new Set<string>();
-		const opts: { label: string; value: string }[] = [];
+		const preferred: { label: string; value: string }[] = [];
+		const rest: { label: string; value: string }[] = [];
 		for (const m of data?.models || []) {
 			const name = String(m?.name || "").trim();
 			if (!name || seen.has(name)) continue;
 			seen.add(name);
-			opts.push({ label: name, value: name });
+			const low = name.toLowerCase();
+			const weak = low.includes(":free") || low.includes("code") || low.includes("embed") || low.includes("whisper");
+			const opt = { label: weak ? `${name} (not recommended for Guard)` : name, value: name };
+			if (weak) rest.push(opt);
+			else preferred.push(opt);
 		}
+		const opts = [...preferred, ...rest];
 		const current = String(value || "").trim();
 		if (current && !seen.has(current)) {
 			opts.unshift({ label: current, value: current });
@@ -169,17 +175,24 @@ function GuardBotOutsourceModelPicker({
 	}, [data, value]);
 
 	return (
-		<ComboboxSelect
-			options={options}
-			value={value || null}
-			onValueChange={(v) => onChange(String(v || ""))}
-			placeholder={!provider ? "Select provider first" : isFetching ? "Loading catalog models..." : isError ? "Could not load models" : "Select model"}
-			hideClear
-			disabled={disabled || !provider}
-			emptyMessage={!provider ? "Pick a provider" : "No models — add API keys under Model Providers"}
-			searchPlaceholder="Search catalog models..."
-			data-testid="browser-ai-guard-bot-outsource-model"
-		/>
+		<>
+			<ComboboxSelect
+				options={options}
+				value={value || null}
+				onValueChange={(v) => onChange(String(v || ""))}
+				placeholder={!provider ? "Select provider first" : isFetching ? "Loading catalog models..." : isError ? "Could not load models" : "Select model"}
+				hideClear
+				disabled={disabled || !provider}
+				emptyMessage={!provider ? "Pick a provider" : "No models — add API keys under Model Providers"}
+				searchPlaceholder="Search catalog models..."
+				data-testid="browser-ai-guard-bot-outsource-model"
+			/>
+			{String(value || "").toLowerCase().includes(":free") || /code/i.test(String(value || "")) ? (
+				<p className="text-[11px] text-amber-400">
+					This model may reject Guard chat evaluate (e.g. 422). Pick a chat model that matches your API key, or use Download → llama3.2.
+				</p>
+			) : null}
+		</>
 	);
 }
 
@@ -571,7 +584,7 @@ function GuardRuleAIEvaluatorFields({
 				<p className="text-[11px] text-muted-foreground">
 					{modelSource === "download"
 						? "Uses Ollama models pulled on the Guard server (llama3.2, gemma4, llava, …)."
-						: "Uses Model Providers + API keys from this UnifAI workspace (OpenRouter, OpenAI, etc.)."}
+						: "Uses the Model Provider + API key you configured. Provider and model must match that key (OpenAI key → openai models, OpenRouter key → openrouter models, etc.)."}
 				</p>
 			</div>
 
