@@ -74,6 +74,7 @@ import {
 	useUpdateBrowserAiRuleMutation,
 	useDeleteBrowserAiRuleMutation,
 	useGenerateBrowserAiRegexFromPolicyMutation,
+	useTestBrowserAiGuardBotMutation,
 	useGetBrowserAiControlsQuery,
 	useUpdateBrowserAiControlsMutation,
 	useGetBrowserAiTargetsQuery,
@@ -485,6 +486,11 @@ function GuardRuleAIEvaluatorFields({
 	onGenerateRegex,
 	onReferenceImageChange,
 	onReferenceImageClear,
+	onTestEvaluate,
+	testSample,
+	onTestSampleChange,
+	testResult,
+	testing,
 	outsourceProviderOptions,
 }: {
 	botProvider: string;
@@ -503,6 +509,11 @@ function GuardRuleAIEvaluatorFields({
 	onGenerateRegex: () => void;
 	onReferenceImageChange: (file: File) => void;
 	onReferenceImageClear: () => void;
+	onTestEvaluate?: () => void;
+	testSample?: string;
+	onTestSampleChange?: (value: string) => void;
+	testResult?: string;
+	testing?: boolean;
 	outsourceProviderOptions: { label: string; value: string }[];
 }) {
 	const visionModel = isVisionGuardModel(botModel);
@@ -652,8 +663,8 @@ function GuardRuleAIEvaluatorFields({
 				</div>
 				<p className="text-[11px] text-muted-foreground">
 					{evalMode === "ai"
-						? "Selected model checks every prompt/file extract against your policy (slower, meaning-aware)."
-						: "Model writes a regex from your policy; that regex matches prompts + extracted file/audio text (fast, like Regex rules)."}
+						? "Model evaluates Browser AI chat prompts + extracted file/audio text against only the policy you write below. No built-in rules. Generate Regex is optional."
+						: "Model writes a regex from your policy for fast matching. For meaning-based policies prefer AI Prompt evaluate."}
 				</p>
 			</div>
 
@@ -667,13 +678,44 @@ function GuardRuleAIEvaluatorFields({
 					rows={4}
 				/>
 				<p className="text-[11px] text-muted-foreground">
-					Only this policy (and rules you save) is enforced. Be specific about what to block; vague one-liners often miss.
+					Only your policy text is sent to the model (no predefined rules). It is checked against live Browser AI prompts and extracted text.
 				</p>
 			</div>
 
+			{evalMode === "ai" && onTestEvaluate && onTestSampleChange ? (
+				<div className="space-y-1.5 rounded-md border border-border/60 bg-background/40 p-2.5">
+					<Label className="text-xs">Test model evaluate (sample Browser AI prompt)</Label>
+					<Textarea
+						className="font-mono text-xs"
+						placeholder="Paste a sample employee prompt to test against your policy"
+						value={testSample || ""}
+						onChange={(e) => onTestSampleChange(e.target.value)}
+						rows={2}
+					/>
+					<div className="flex flex-wrap items-center gap-2">
+						<Button
+							type="button"
+							variant="secondary"
+							size="sm"
+							className="h-8 gap-1.5 text-xs"
+							disabled={testing || !botPrompt.trim() || !(testSample || "").trim()}
+							onClick={onTestEvaluate}
+						>
+							{testing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Bot className="h-3.5 w-3.5" />}
+							{testing ? "Evaluating…" : "Run model evaluate"}
+						</Button>
+					</div>
+					{testResult ? (
+						<p className={`text-[11px] whitespace-pre-wrap break-words ${testResult.startsWith("OK") || testResult.startsWith("BLOCK") || testResult.startsWith("REDACT") ? "text-foreground" : "text-red-400"}`}>
+							{testResult}
+						</p>
+					) : null}
+				</div>
+			) : null}
+
 			<div className="space-y-1.5">
 				<div className="flex flex-wrap items-center justify-between gap-2">
-					<Label className="text-xs">Generated Regex</Label>
+					<Label className="text-xs">{evalMode === "ai" ? "Generated Regex (optional)" : "Generated Regex"}</Label>
 					<Button
 						type="button"
 						variant="outline"
@@ -694,8 +736,9 @@ function GuardRuleAIEvaluatorFields({
 				/>
 				{generateError ? <p className="text-[11px] text-red-400">{generateError}</p> : null}
 				<p className="text-[11px] text-muted-foreground">
-					Review/edit before save. Applies to typed prompts and extracted file/audio text.
-					{evalMode === "regex" ? " Saving in Generated Regex mode creates a fast Regex rule." : " Optional while using AI Prompt mode."}
+					{evalMode === "ai"
+						? "AI Prompt mode does not need a regex — Save works with your policy alone. Generate is only if you also want a fast pattern."
+						: "Review/edit before save. Saving in Generated Regex mode creates a fast Regex rule."}
 				</p>
 			</div>
 
@@ -1097,6 +1140,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	const [updateRule] = useUpdateBrowserAiRuleMutation();
 	const [deleteRule] = useDeleteBrowserAiRuleMutation();
 	const [generateRegexFromPolicy, { isLoading: generatingRegex }] = useGenerateBrowserAiRegexFromPolicyMutation();
+	const [testGuardBot, { isLoading: testingGuardBot }] = useTestBrowserAiGuardBotMutation();
+	const [newRuleTestSample, setNewRuleTestSample] = useState("");
+	const [newRuleTestResult, setNewRuleTestResult] = useState("");
+	const [editRuleTestSample, setEditRuleTestSample] = useState("");
+	const [editRuleTestResult, setEditRuleTestResult] = useState("");
 	const [updateControls] = useUpdateBrowserAiControlsMutation();
 	const [createTarget] = useCreateBrowserAiTargetMutation();
 	const [updateTarget] = useUpdateBrowserAiTargetMutation();
@@ -1210,8 +1258,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setRuleError("Security policy prompt or reference template image is required for AI Guard Bot.");
 				return;
 			}
-			if (newRuleBotEvalMode === "ai" && newRuleBotPrompt.trim() && newRuleBotPrompt.trim().split(/\s+/).length < 4) {
-				setRuleError("Security policy is too short. Describe clearly what should be blocked."),
+			if (newRuleBotEvalMode === "ai" && newRuleBotPrompt.trim() && newRuleBotPrompt.trim().split(/\s+/).length < 2) {
+				setRuleError("Security policy is too short. Describe clearly what should be blocked.");
 				return;
 			}
 			if (newRuleBotEvalMode === "regex" && !newRuleGeneratedPattern.trim()) {
@@ -1315,6 +1363,54 @@ type RelatedHostEntry = { host: string; role: HostRole };
 		}
 	};
 
+	const runTestEvaluate = async (which: "new" | "edit") => {
+		const policy = which === "new" ? newRuleBotPrompt.trim() : editRuleBotPrompt.trim();
+		const sample = which === "new" ? newRuleTestSample.trim() : editRuleTestSample.trim();
+		const provider = which === "new" ? newRuleBotProvider : editRuleBotProvider;
+		const model = which === "new" ? newRuleBotModel : editRuleBotModel;
+		const action = which === "new" ? newRuleAction : editRuleAction;
+		const setResult = which === "new" ? setNewRuleTestResult : setEditRuleTestResult;
+		setResult("");
+		if (!policy) {
+			setResult("Enter a security policy first.");
+			return;
+		}
+		if (!sample) {
+			setResult("Enter a sample Browser AI prompt to evaluate.");
+			return;
+		}
+		try {
+			const res = await testGuardBot({
+				bot_provider: provider || GUARD_BOT_OLLAMA_PROVIDER,
+				bot_model: model || GUARD_BOT_OLLAMA_MODEL,
+				bot_prompt: policy,
+				sample_prompt: sample,
+				action,
+				name: which === "new" ? newRuleName.trim() || "Test" : editRuleName.trim() || "Test",
+			}).unwrap();
+			if (res.eval_error) {
+				setResult(`EVAL FAILED: ${res.eval_error}`);
+				return;
+			}
+			if (res.would_block) {
+				setResult(`BLOCK — ${res.security_message || "policy violation"}`);
+				return;
+			}
+			if (res.would_warn) {
+				setResult(`REDACT — ${res.security_message || "policy match"}`);
+				return;
+			}
+			setResult(`OK — ${res.security_message || "no violation"}`);
+		} catch (e: any) {
+			setResult(
+				e?.data?.error?.message ||
+					e?.data?.message ||
+					e?.message ||
+					"Model evaluate request failed.",
+			);
+		}
+	};
+
 	const handleEditRuleSubmit = async () => {
 		if (!editRule || !editRuleName.trim()) return;
 		setRuleError("");
@@ -1323,8 +1419,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setRuleError("Security policy prompt or reference template image is required for AI Guard Bot.");
 				return;
 			}
-			if (editRuleBotEvalMode === "ai" && editRuleBotPrompt.trim() && editRuleBotPrompt.trim().split(/\s+/).length < 4) {
-				setRuleError("Security policy is too short. Describe clearly what should be blocked."),
+			if (editRuleBotEvalMode === "ai" && editRuleBotPrompt.trim() && editRuleBotPrompt.trim().split(/\s+/).length < 2) {
+				setRuleError("Security policy is too short. Describe clearly what should be blocked.");
 				return;
 			}
 			if (editRuleBotEvalMode === "regex" && !editRuleGeneratedPattern.trim()) {
@@ -2367,6 +2463,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 													onEvalModeChange={setNewRuleBotEvalMode}
 													onGeneratedPatternChange={setNewRuleGeneratedPattern}
 													onGenerateRegex={() => runGenerateRegex("new")}
+													onTestEvaluate={() => runTestEvaluate("new")}
+													testSample={newRuleTestSample}
+													onTestSampleChange={setNewRuleTestSample}
+													testResult={newRuleTestResult}
+													testing={testingGuardBot}
 													onReferenceImageClear={() => {
 														setNewRuleBotReferenceImage("");
 														setNewRuleBotReferenceImageType("");
@@ -3190,6 +3291,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									onEvalModeChange={setEditRuleBotEvalMode}
 									onGeneratedPatternChange={setEditRuleGeneratedPattern}
 									onGenerateRegex={() => runGenerateRegex("edit")}
+									onTestEvaluate={() => runTestEvaluate("edit")}
+									testSample={editRuleTestSample}
+									onTestSampleChange={setEditRuleTestSample}
+									testResult={editRuleTestResult}
+									testing={testingGuardBot}
 									onReferenceImageClear={() => {
 										setEditRuleBotReferenceImage("");
 										setEditRuleBotReferenceImageType("");

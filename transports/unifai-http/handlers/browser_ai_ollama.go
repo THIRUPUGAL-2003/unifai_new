@@ -41,7 +41,7 @@ type ollamaChatRequest struct {
 func ollamaGuardEvalOptions() map[string]any {
 	return map[string]any{
 		"temperature": 0,
-		"num_predict": 128,
+		"num_predict": 256,
 	}
 }
 
@@ -106,21 +106,68 @@ func rememberWorkingOllamaURL(baseURL string) {
 	ollamaURLCacheMu.Unlock()
 }
 
-// callOllamaChatAny tries each candidate Ollama base URL until one responds.
-func callOllamaChatAny(model, systemPrompt, userMsg string, jsonMode bool, timeout time.Duration) (string, error) {
-	var errs []string
-	for _, base := range ollamaBaseURLCandidates() {
-		text, err := callOllamaChat(base, model, systemPrompt, userMsg, jsonMode, timeout)
-		if err == nil {
-			rememberWorkingOllamaURL(base)
-			return text, nil
+// resolveWorkingOllamaBase finds a live Ollama with a short /api/tags probe.
+// Never spend the full chat timeout on dead candidate URLs (that made Guard eval
+// miss the proxy's ~95s deadline and look like "model never evaluates").
+func resolveWorkingOllamaBase(probeTimeout time.Duration) (string, error) {
+	if probeTimeout <= 0 {
+		probeTimeout = 3 * time.Second
+	}
+	ollamaURLCacheMu.RLock()
+	cached := cachedOllamaBaseURL
+	ollamaURLCacheMu.RUnlock()
+
+	candidates := ollamaBaseURLCandidates()
+	ordered := make([]string, 0, len(candidates)+1)
+	seen := map[string]bool{}
+	if cached != "" {
+		ordered = append(ordered, cached)
+		seen[cached] = true
+	}
+	for _, u := range candidates {
+		if seen[u] {
+			continue
 		}
-		errs = append(errs, truncateRunes(err.Error(), 120))
+		seen[u] = true
+		ordered = append(ordered, u)
+	}
+
+	var errs []string
+	for _, base := range ordered {
+		if _, err := fetchOllamaTags(base, probeTimeout); err == nil {
+			rememberWorkingOllamaURL(base)
+			return base, nil
+		} else {
+			errs = append(errs, truncateRunes(base+": "+err.Error(), 100))
+		}
 	}
 	if len(errs) == 0 {
 		return "", fmt.Errorf("ollama unreachable: no candidate URLs configured")
 	}
-	return "", fmt.Errorf("ollama unreachable (%d tries): %s", len(errs), strings.Join(errs, "; "))
+	return "", fmt.Errorf("ollama unreachable (%d probes): %s", len(errs), strings.Join(errs, "; "))
+}
+
+// callOllamaChatAny probes for a live Ollama once, then runs a single chat call.
+func callOllamaChatAny(model, systemPrompt, userMsg string, jsonMode bool, timeout time.Duration) (string, error) {
+	base, err := resolveWorkingOllamaBase(3 * time.Second)
+	if err != nil {
+		return "", err
+	}
+	text, chatErr := callOllamaChat(base, model, systemPrompt, userMsg, jsonMode, timeout)
+	if chatErr == nil {
+		return text, nil
+	}
+	// Working URL may have gone stale — clear cache, re-probe, one retry.
+	ollamaURLCacheMu.Lock()
+	if cachedOllamaBaseURL == base {
+		cachedOllamaBaseURL = ""
+	}
+	ollamaURLCacheMu.Unlock()
+	base2, err2 := resolveWorkingOllamaBase(3 * time.Second)
+	if err2 != nil {
+		return "", fmt.Errorf("%v; re-probe: %v", chatErr, err2)
+	}
+	return callOllamaChat(base2, model, systemPrompt, userMsg, jsonMode, timeout)
 }
 
 func isOllamaGuardProvider(provider string) bool {
@@ -217,20 +264,26 @@ func validateAIBotRuleFields(rule *logstore.BrowserGuardRule) error {
 	return nil
 }
 
+// callOllamaVisionAny probes for a live Ollama once, then runs a single vision call.
 func callOllamaVisionAny(model, systemPrompt, userMsg string, images []string, jsonMode bool, timeout time.Duration) (string, error) {
-	var errs []string
-	for _, base := range ollamaBaseURLCandidates() {
-		text, err := callOllamaVision(base, model, systemPrompt, userMsg, images, jsonMode, timeout)
-		if err == nil {
-			rememberWorkingOllamaURL(base)
-			return text, nil
-		}
-		errs = append(errs, truncateRunes(err.Error(), 120))
+	base, err := resolveWorkingOllamaBase(3 * time.Second)
+	if err != nil {
+		return "", err
 	}
-	if len(errs) == 0 {
-		return "", fmt.Errorf("ollama unreachable: no candidate URLs configured")
+	text, chatErr := callOllamaVision(base, model, systemPrompt, userMsg, images, jsonMode, timeout)
+	if chatErr == nil {
+		return text, nil
 	}
-	return "", fmt.Errorf("ollama unreachable (%d tries): %s", len(errs), strings.Join(errs, "; "))
+	ollamaURLCacheMu.Lock()
+	if cachedOllamaBaseURL == base {
+		cachedOllamaBaseURL = ""
+	}
+	ollamaURLCacheMu.Unlock()
+	base2, err2 := resolveWorkingOllamaBase(3 * time.Second)
+	if err2 != nil {
+		return "", fmt.Errorf("%v; re-probe: %v", chatErr, err2)
+	}
+	return callOllamaVision(base2, model, systemPrompt, userMsg, images, jsonMode, timeout)
 }
 
 func callOllamaVision(baseURL, model, systemPrompt, userMsg string, images []string, jsonMode bool, timeout time.Duration) (string, error) {
@@ -410,19 +463,20 @@ func listOllamaInstalledModels(timeout time.Duration) ([]string, string, error) 
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	var errs []string
-	for _, base := range ollamaBaseURLCandidates() {
-		names, err := fetchOllamaTags(base, timeout)
-		if err == nil {
-			rememberWorkingOllamaURL(base)
-			return names, base, nil
-		}
-		errs = append(errs, truncateRunes(err.Error(), 120))
+	// Cap per-URL probe so a dead candidate cannot burn the whole budget.
+	probe := timeout
+	if probe > 3*time.Second {
+		probe = 3 * time.Second
 	}
-	if len(errs) == 0 {
-		return nil, "", fmt.Errorf("ollama unreachable: no candidate URLs configured")
+	base, err := resolveWorkingOllamaBase(probe)
+	if err != nil {
+		return nil, "", err
 	}
-	return nil, "", fmt.Errorf("ollama unreachable (%d tries): %s", len(errs), strings.Join(errs, "; "))
+	names, err := fetchOllamaTags(base, timeout)
+	if err != nil {
+		return nil, "", err
+	}
+	return names, base, nil
 }
 
 func fetchOllamaTags(baseURL string, timeout time.Duration) ([]string, error) {

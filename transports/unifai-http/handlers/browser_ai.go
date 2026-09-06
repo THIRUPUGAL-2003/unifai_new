@@ -806,10 +806,11 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			}
 			var violated bool
 			var evalErr string
-			if rulePatternMatches(rule, payload.Prompt) {
+			evalContent := buildGuardEvalContent(payload.Prompt, getMetadataString(payload.Metadata, "extracted_text"))
+			if rulePatternMatches(rule, evalContent) {
 				violated = true
 			} else {
-				violated, evalErr = h.evaluateAIBotRule(rule, payload.Prompt, payload.UploadImages)
+				violated, evalErr = h.evaluateAIBotRule(rule, evalContent, payload.UploadImages)
 			}
 			if evalErr != "" {
 				evalError = evalErr
@@ -1395,8 +1396,9 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	extractedText := strings.TrimSpace(getMetadataString(metadata, "extracted_text"))
 	uploadImages := parseUploadImagesMetadata(metadata)
 	scanApplied := h.applyScanGuardFromMetadata(ctx, logEntry, metadata, &ruleWarning)
-	if !scanApplied && logEntry.Action != "Blocked" && (extractedText != "" || len(uploadImages) > 0) {
-		h.runAIBotOnLogEntry(ctx, logEntry, extractedText, uploadImages, &ruleWarning)
+	if !scanApplied && logEntry.Action != "Blocked" && (extractedText != "" || len(uploadImages) > 0 || strings.TrimSpace(prompt) != "") {
+		evalContent := buildGuardEvalContent(prompt, extractedText)
+		h.runAIBotOnLogEntry(ctx, logEntry, evalContent, uploadImages, &ruleWarning)
 	}
 
 	safeName := sanitizeAttachmentFileName(fileName)
@@ -1651,59 +1653,63 @@ func (h *BrowserAIHandler) generateRegexFromPolicy(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Fast path removed: never invent regex from hardcoded policy keywords.
-	// Only the selected model (or the admin editing Pattern) may define the rule.
+	// Never invent regex from hardcoded policy keywords. The selected model (or admin
+	// editing Pattern) defines the rule. We only ask for valid RE2 JSON.
+	systemPromptPrimary := `You convert a SECURITY_POLICY into ONE Go RE2 regular expression.
 
-	systemPrompt := `You are a regex generator for a DLP engine (Go RE2).
-
-Return ONLY one JSON object:
+Return ONLY this JSON (no markdown):
 {"pattern":"<regex>","focus":"<short>","notes":"<short>"}
 
-HARD RULES for "pattern":
-- Must be a REAL regular expression that can match text (digits, words, emails, keys, etc.).
+pattern RULES:
+- Must be a real RE2 regex that can match chat text.
 - NEVER invent fake patterns like []word[] or empty [].
-- NEVER output English sentences as the pattern.
-- Prefer \b, \d, [A-Za-z], |, (), {n,m}.
+- NEVER put English sentences in pattern.
+- Prefer \\b, \\d, [A-Za-z], |, (), {n,m}.
 - No lookbehind/lookahead, no backreferences (RE2).
-- Keep pattern under 200 characters.
-- Case folding is applied by the engine (?i), so do not rely on case.
-- Derive the pattern only from SECURITY_POLICY the user provides — do not assume country-specific ID formats unless the policy text asks for them.
+- Keep pattern under 180 characters.
+- Case is ignored by the engine (?i).
+- Derive ONLY from SECURITY_POLICY — do not invent formats the policy does not mention.
+- If unsure: keyword alternation with word boundaries from policy terms.`
 
-If unsure, return a tight keyword alternation with word boundaries based on terms in the policy.`
+	systemPromptRetry := `Output ONLY valid JSON: {"pattern":"<RE2 regex>","focus":"match","notes":"ok"}
+pattern must compile in Go regexp. No markdown. No English sentences as pattern.
+Derive the pattern only from SECURITY_POLICY.`
 
 	userMsg := fmt.Sprintf(
-		"SECURITY_POLICY:\n%s\n\nJSON only. pattern must be a valid RE2 regex string derived from this policy.",
+		"SECURITY_POLICY:\n%s\n\nJSON only. pattern = valid RE2 derived from this policy.",
 		truncateRunes(policy, 8000),
 	)
+	userMsgRetry := fmt.Sprintf(
+		"SECURITY_POLICY:\n%s\n\nReturn JSON with a usable RE2 pattern now.",
+		truncateRunes(policy, 4000),
+	)
 
-	var raw string
-	var genErr error
-	genSource := "ollama"
-
-	if isOllamaGuardProvider(provider) {
-		runOnce := func(jsonMode bool) (string, error) {
-			return callOllamaChatAny(model, systemPrompt, userMsg, jsonMode, 90*time.Second)
-		}
-		raw, genErr = runOnce(true)
-		if genErr != nil || strings.TrimSpace(raw) == "" {
-			raw2, err2 := runOnce(false)
-			if err2 == nil && strings.TrimSpace(raw2) != "" {
-				raw, genErr = raw2, nil
-			} else if genErr == nil {
-				genErr = err2
-			} else if err2 != nil {
-				genErr = fmt.Errorf("%v; retry: %v", genErr, err2)
+	callModel := func(systemPrompt, user string, preferJSON bool) (string, error) {
+		if isOllamaGuardProvider(provider) {
+			runOnce := func(jsonMode bool) (string, error) {
+				return callOllamaChatAny(model, systemPrompt, user, jsonMode, 90*time.Second)
 			}
+			raw, err := runOnce(preferJSON)
+			if err != nil || strings.TrimSpace(raw) == "" {
+				raw2, err2 := runOnce(false)
+				if err2 == nil && strings.TrimSpace(raw2) != "" {
+					return raw2, nil
+				}
+				if err != nil && err2 != nil {
+					return "", fmt.Errorf("%v; retry: %v", err, err2)
+				}
+				if err != nil {
+					return "", err
+				}
+				return "", err2
+			}
+			return raw, nil
 		}
-	} else {
-		genSource = "outsource"
 		if h.client == nil {
-			SendError(ctx, fasthttp.StatusBadGateway, "unifai client not available for outsource model")
-			return
+			return "", fmt.Errorf("unifai client not available for outsource model")
 		}
-		maxTokens := 256
-		temp := 0.0
-		responseFormat := any(map[string]any{"type": "json_object"})
+		maxTokens := 320
+		temp := 0.1
 		unifaiReq := &schemas.UnifAIChatRequest{
 			Provider: schemas.ModelProvider(provider),
 			Model:    model,
@@ -1717,64 +1723,110 @@ If unsure, return a tight keyword alternation with word boundaries based on term
 				{
 					Role: schemas.ChatMessageRoleUser,
 					Content: &schemas.ChatMessageContent{
-						ContentStr: schemas.Ptr(userMsg),
+						ContentStr: schemas.Ptr(user),
 					},
 				},
 			},
 			Params: &schemas.ChatParameters{
 				MaxCompletionTokens: &maxTokens,
 				Temperature:         &temp,
-				ResponseFormat:      &responseFormat,
 			},
 		}
-		runOutsource := func() (string, error) {
-			deadline := time.Now().Add(45 * time.Second)
-			unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
-			unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
-			unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
-			resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
-			if unifaiErr != nil {
-				return "", fmt.Errorf("%s", unifaiErrorMessage(unifaiErr))
-			}
-			return evaluatorChoiceText(resp), nil
+		if preferJSON {
+			rf := any(map[string]any{"type": "json_object"})
+			unifaiReq.Params.ResponseFormat = &rf
 		}
-		raw, genErr = runOutsource()
-		if genErr != nil || strings.TrimSpace(raw) == "" {
-			if unifaiReq.Params != nil {
-				unifaiReq.Params.ResponseFormat = nil
-			}
-			raw2, err2 := runOutsource()
-			if err2 == nil && strings.TrimSpace(raw2) != "" {
+		deadline := time.Now().Add(75 * time.Second)
+		unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
+		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
+		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
+		resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
+		if unifaiErr != nil {
+			return "", fmt.Errorf("%s", unifaiErrorMessage(unifaiErr))
+		}
+		return evaluatorChoiceText(resp), nil
+	}
+
+	genSource := "ollama"
+	if !isOllamaGuardProvider(provider) {
+		genSource = "outsource"
+	}
+
+	tryParse := func(raw string) (pattern, focus, notes string, ok bool) {
+		raw = stripEvalMarkdown(strings.TrimSpace(raw))
+		if raw == "" {
+			return "", "", "", false
+		}
+		pattern, focus, notes = parseGeneratedRegexPayload(raw)
+		pattern = sanitizeGeneratedRegex(pattern)
+		if !isUsableGeneratedRegex(pattern) {
+			return "", "", "", false
+		}
+		return pattern, focus, notes, true
+	}
+
+	var (
+		raw    string
+		genErr error
+		pat    string
+		focus  string
+		notes  string
+		ok     bool
+	)
+
+	// Attempt 1: primary prompt + JSON mode
+	raw, genErr = callModel(systemPromptPrimary, userMsg, true)
+	if genErr == nil {
+		pat, focus, notes, ok = tryParse(raw)
+	}
+	// Attempt 2: same prompt without JSON mode (many free/outsource models reject json_object)
+	if !ok {
+		raw2, err2 := callModel(systemPromptPrimary, userMsg, false)
+		if err2 == nil {
+			if p, f, n, good := tryParse(raw2); good {
+				pat, focus, notes, ok = p, f, n, true
 				raw, genErr = raw2, nil
 			} else if genErr == nil {
 				genErr = err2
-			} else if err2 != nil {
-				genErr = fmt.Errorf("%v; retry: %v", genErr, err2)
 			}
+		} else if genErr == nil {
+			genErr = err2
+		} else {
+			genErr = fmt.Errorf("%v; retry: %v", genErr, err2)
+		}
+	}
+	// Attempt 3: simplified retry prompt (helps small local models)
+	if !ok {
+		raw3, err3 := callModel(systemPromptRetry, userMsgRetry, false)
+		if err3 == nil {
+			if p, f, n, good := tryParse(raw3); good {
+				pat, focus, notes, ok = p, f, n, true
+				raw, genErr = raw3, nil
+			} else if genErr == nil && strings.TrimSpace(raw3) != "" {
+				genErr = fmt.Errorf("model returned unusable pattern")
+			} else if genErr == nil {
+				genErr = err3
+			}
+		} else if genErr == nil {
+			genErr = err3
 		}
 	}
 
-	if genErr != nil || strings.TrimSpace(raw) == "" {
-		msg := "generate-regex failed"
+	if !ok {
+		msg := "model did not return a usable regex pattern — use AI Prompt evaluate for semantic policies (names/topics), or edit Pattern manually"
 		if genErr != nil {
-			msg = genErr.Error()
+			msg = "generate-regex failed: " + truncateRunes(genErr.Error(), 180)
 		}
-		SendError(ctx, fasthttp.StatusBadGateway, "generate-regex failed: "+truncateRunes(msg, 180))
-		return
-	}
-	raw = stripEvalMarkdown(strings.TrimSpace(raw))
-	pattern, focus, notes := parseGeneratedRegexPayload(raw)
-	pattern = sanitizeGeneratedRegex(pattern)
-	if !isUsableGeneratedRegex(pattern) {
-		SendError(ctx, fasthttp.StatusBadGateway, "model did not return a usable regex pattern — edit Pattern manually or retry with a clearer policy")
+		SendError(ctx, fasthttp.StatusBadGateway, msg)
 		return
 	}
 	if focus == "" {
 		focus = "policy match"
 	}
+	_ = raw
 	SendJSON(ctx, map[string]any{
 		"status":   "success",
-		"pattern":  pattern,
+		"pattern":  pat,
 		"focus":    focus,
 		"notes":    notes,
 		"model":    model,
@@ -1797,7 +1849,35 @@ func sanitizeGeneratedRegex(pattern string) string {
 	pattern = strings.TrimPrefix(pattern, "(?i)")
 	pattern = strings.TrimPrefix(pattern, "(?m)")
 	pattern = strings.TrimSpace(pattern)
+	// Models often emit double-escaped sequences intended as single escapes.
+	if strings.Contains(pattern, `\\`) && !strings.Contains(pattern, `\\\\`) {
+		if trial := strings.ReplaceAll(pattern, `\\`, `\`); trial != pattern {
+			if _, err := regexp.Compile("(?i)" + trial); err == nil {
+				pattern = trial
+			}
+		}
+	}
+	// Strip unsupported RE2 lookarounds if the rest is usable.
+	pattern = stripUnsupportedRE2Lookarounds(pattern)
+	return strings.TrimSpace(pattern)
+}
+
+func stripUnsupportedRE2Lookarounds(pattern string) string {
+	// (?=...), (?!...), (?<=...), (?<!...) are not supported by RE2.
+	re := regexp.MustCompile(`\(\?[=!<][^)]*\)`)
+	cleaned := re.ReplaceAllString(pattern, "")
+	if cleaned == pattern {
+		return pattern
+	}
+	if _, err := regexp.Compile("(?i)" + cleaned); err == nil && isUsableGeneratedRegexLoose(cleaned) {
+		return cleaned
+	}
 	return pattern
+}
+
+func isUsableGeneratedRegexLoose(pattern string) bool {
+	pattern = strings.TrimSpace(pattern)
+	return pattern != "" && len(pattern) >= 2 && len(pattern) <= 400 && !strings.Contains(pattern, "[]")
 }
 
 func isUsableGeneratedRegex(pattern string) bool {
@@ -1813,10 +1893,14 @@ func isUsableGeneratedRegex(pattern string) bool {
 		return false // looks like a sentence, not a regex
 	}
 	lower := strings.ToLower(pattern)
-	for _, bad := range []string{"http://", "https://", "return ", "policy", "you should"} {
+	for _, bad := range []string{"http://", "https://", "return ", "you should", "the pattern"} {
 		if strings.Contains(lower, bad) {
 			return false
 		}
+	}
+	// "policy" alone as pattern is junk; containing the word inside a longer regex is rare — allow compile check to decide.
+	if lower == "policy" || strings.HasPrefix(lower, "policy ") {
+		return false
 	}
 	if _, err := regexp.Compile("(?i)" + pattern); err != nil {
 		return false
@@ -1850,12 +1934,18 @@ func parseGeneratedRegexPayload(raw string) (pattern, focus, notes string) {
 		}
 		return pattern, strings.TrimSpace(obj.Focus), strings.TrimSpace(obj.Notes)
 	}
-	// Fallback: extract "pattern":"..."
-	re := regexp.MustCompile(`(?i)"pattern"\s*:\s*"((?:\\.|[^"\\])*)"`)
+	// Fallback: extract "pattern":"..." or 'pattern': '...'
+	re := regexp.MustCompile(`(?i)["']pattern["']\s*:\s*["']((?:\\.|[^"'\\])*)["']`)
 	if m := re.FindStringSubmatch(raw); len(m) > 1 {
 		pattern = m[1]
 		pattern = strings.ReplaceAll(pattern, `\\`, `\`)
 		pattern = strings.ReplaceAll(pattern, `\"`, `"`)
+		return strings.TrimSpace(pattern), "", ""
+	}
+	re2 := regexp.MustCompile(`(?i)["']regex["']\s*:\s*["']((?:\\.|[^"'\\])*)["']`)
+	if m := re2.FindStringSubmatch(raw); len(m) > 1 {
+		pattern = m[1]
+		pattern = strings.ReplaceAll(pattern, `\\`, `\`)
 		return strings.TrimSpace(pattern), "", ""
 	}
 	// Last resort: first non-empty line that looks like a usable regex
@@ -1896,50 +1986,69 @@ func stringFromUpdate(updates map[string]any, key string) string {
 }
 
 // browserAIGuardBotSystemPrompt is used for every AI Guard Bot text rule (any admin policy).
+// No predefined DLP examples — the admin SECURITY_POLICY alone defines what to enforce.
 func browserAIGuardBotSystemPrompt() string {
-	return `You are a strict enterprise DLP classifier. Apply ONLY the admin SECURITY_POLICY to USER_PROMPT.
+	return `You are an enterprise DLP classifier.
 
-- SECURITY_POLICY is binding even when short, informal, or poorly worded.
-- If USER_PROMPT contains, is, or embeds anything the policy forbids, set violation true. Formats do not matter.
-- Prefer violation=true when USER_PROMPT reasonably relates to what the policy forbids.
-- Prefer violation=false only when USER_PROMPT is clearly unrelated to the policy.
-- Do not invent exceptions (do not ignore numbers, names, keys, emails, IDs, or short text if the policy forbids them).
-- Classify USER_PROMPT only. Never treat the policy text itself as user content.
+Apply ONLY the admin SECURITY_POLICY to CONTENT_TO_EVALUATE.
+Do not invent extra rules. Do not ignore the policy because it is short or informal.
+If CONTENT_TO_EVALUATE violates SECURITY_POLICY → {"violation":true}
+If it does not → {"violation":false}
 
-Reply with one JSON object and nothing else:
-{"violation":true} or {"violation":false}`
+Reply with one JSON object only, nothing else:
+{"violation":true}
+or
+{"violation":false}`
 }
 
 func browserAIGuardBotVisionSystemPrompt() string {
-	return `You are a strict enterprise DLP vision classifier. Apply ONLY the admin SECURITY_POLICY to uploaded document image(s).
+	return `You are an enterprise DLP vision classifier.
 
-- The first image (when present) is the admin REFERENCE_TEMPLATE to match against.
-- Remaining images are from the user upload (PDF page images, photos, scans).
-- SECURITY_POLICY is binding even when short or informal.
-- If the upload visually matches the reference template or violates SECURITY_POLICY, set violation true.
-- Prefer violation=true when content reasonably matches what the policy forbids.
-- Prefer violation=false only when there is clearly no match and no policy violation.
+Apply ONLY the admin SECURITY_POLICY to the uploaded image(s) and any EXTRACTED_TEXT.
+The first image (when present) is an admin REFERENCE_TEMPLATE.
+Do not invent extra rules.
 
-Reply with one JSON object and nothing else:
-{"violation":true} or {"violation":false}`
+Reply with one JSON object only:
+{"violation":true}
+or
+{"violation":false}`
 }
 
-func browserAIGuardBotUserMessage(policy, userPrompt string) string {
+// buildGuardEvalContent joins the browser chat prompt and any extracted file/audio text
+// so the model analyzes everything the employee sent — without adding predefined policies.
+func buildGuardEvalContent(prompt, extractedText string) string {
+	prompt = strings.TrimSpace(prompt)
+	extractedText = strings.TrimSpace(extractedText)
+	switch {
+	case prompt != "" && extractedText != "" && !strings.EqualFold(prompt, extractedText):
+		return "BROWSER_CHAT_PROMPT:\n" + prompt + "\n\nEXTRACTED_TEXT:\n" + extractedText
+	case extractedText != "":
+		return extractedText
+	default:
+		return prompt
+	}
+}
+
+func browserAIGuardBotUserMessage(policy, content string) string {
 	policy = strings.TrimSpace(policy)
 	if policy == "" {
 		policy = "(empty policy — treat as no restriction; violation false)"
 	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		content = "(empty content)"
+	}
 	return fmt.Sprintf(
-		`SECURITY_POLICY (enforce strictly — short text still counts):
+		`SECURITY_POLICY:
 %s
 
-USER_PROMPT TO EVALUATE:
+CONTENT_TO_EVALUATE:
 %s
 
-Decide if USER_PROMPT violates SECURITY_POLICY.
-JSON only: {"violation":true} or {"violation":false}`,
+Does CONTENT_TO_EVALUATE violate SECURITY_POLICY?
+Respond with ONLY: {"violation":true} or {"violation":false}`,
 		policy,
-		truncateRunes(userPrompt, browserAIGuardBotMaxPromptRunes),
+		truncateRunes(content, browserAIGuardBotMaxPromptRunes),
 	)
 }
 
@@ -1962,10 +2071,16 @@ func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, use
 
 	systemPrompt := browserAIGuardBotSystemPrompt()
 	userMsg := browserAIGuardBotUserMessage(rule.BotPrompt, userPrompt)
+	// Ultra-short fallback when models ignore JSON instructions on the long prompt.
+	shortUserMsg := fmt.Sprintf(
+		"SECURITY_POLICY:\n%s\n\nCONTENT:\n%s\n\nReply ONLY with {\"violation\":true} or {\"violation\":false}",
+		truncateRunes(strings.TrimSpace(rule.BotPrompt), 4000),
+		truncateRunes(strings.TrimSpace(userPrompt), browserAIGuardBotMaxPromptRunes),
+	)
 
 	if isOllamaGuardProvider(string(providerName)) {
-		runOllama := func(jsonMode bool) (bool, string) {
-			rawText, err := callOllamaChatAny(modelName, systemPrompt, userMsg, jsonMode, 90*time.Second)
+		runOllama := func(system, user string, jsonMode bool) (bool, string) {
+			rawText, err := callOllamaChatAny(modelName, system, user, jsonMode, 90*time.Second)
 			if err != nil {
 				return false, truncateRunes(err.Error(), 180)
 			}
@@ -1979,15 +2094,23 @@ func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, use
 			}
 			return violated, ""
 		}
-		violated, errMsg := runOllama(true)
-		if errMsg == "" {
+		// 1) JSON mode + full prompt
+		if violated, errMsg := runOllama(systemPrompt, userMsg, true); errMsg == "" {
 			return violated, ""
+		} else {
+			// 2) plain + full prompt
+			if violated, errMsg2 := runOllama(systemPrompt, userMsg, false); errMsg2 == "" {
+				return violated, ""
+			}
+			// 3) short prompt JSON — last chance for small models
+			if violated, errMsg3 := runOllama(systemPrompt, shortUserMsg, true); errMsg3 == "" {
+				return violated, ""
+			}
+			if violated, errMsg4 := runOllama(systemPrompt, shortUserMsg, false); errMsg4 == "" {
+				return violated, ""
+			}
+			return false, errMsg
 		}
-		violated, errMsg2 := runOllama(false)
-		if errMsg2 == "" {
-			return violated, ""
-		}
-		return false, errMsg + "; retry: " + errMsg2
 	}
 
 	if h.client == nil {
@@ -1997,36 +2120,42 @@ func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, use
 	maxTokens := 128
 	temp := 0.0
 	responseFormat := any(map[string]any{"type": "json_object"})
-	unifaiReq := &schemas.UnifAIChatRequest{
-		Provider: providerName,
-		Model:    modelName,
-		Input: []schemas.ChatMessage{
-			{
-				Role: schemas.ChatMessageRoleSystem,
-				Content: &schemas.ChatMessageContent{
-					ContentStr: schemas.Ptr(systemPrompt),
+	buildReq := func(user string, withJSON bool) *schemas.UnifAIChatRequest {
+		req := &schemas.UnifAIChatRequest{
+			Provider: providerName,
+			Model:    modelName,
+			Input: []schemas.ChatMessage{
+				{
+					Role: schemas.ChatMessageRoleSystem,
+					Content: &schemas.ChatMessageContent{
+						ContentStr: schemas.Ptr(systemPrompt),
+					},
+				},
+				{
+					Role: schemas.ChatMessageRoleUser,
+					Content: &schemas.ChatMessageContent{
+						ContentStr: schemas.Ptr(user),
+					},
 				},
 			},
-			{
-				Role: schemas.ChatMessageRoleUser,
-				Content: &schemas.ChatMessageContent{
-					ContentStr: schemas.Ptr(userMsg),
-				},
+			Params: &schemas.ChatParameters{
+				MaxCompletionTokens: &maxTokens,
+				Temperature:         &temp,
 			},
-		},
-		Params: &schemas.ChatParameters{
-			MaxCompletionTokens: &maxTokens,
-			Temperature:         &temp,
-			ResponseFormat:      &responseFormat,
-		},
+		}
+		if withJSON {
+			rf := any(map[string]any{"type": "json_object"})
+			req.Params.ResponseFormat = &rf
+			_ = responseFormat
+		}
+		return req
 	}
 
-	runOnce := func() (bool, string) {
-		deadline := time.Now().Add(18 * time.Second)
+	runOnce := func(user string, withJSON bool) (bool, string) {
+		unifaiReq := buildReq(user, withJSON)
+		deadline := time.Now().Add(60 * time.Second)
 		unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
-		// Guard eval is an internal call using configured provider keys. Skip the plugin
-		// pipeline so mandatory virtual-key / session auth cannot fail-open the DLP check.
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
 		resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
 		if unifaiErr != nil {
@@ -2043,17 +2172,17 @@ func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, use
 		return violated, ""
 	}
 
-	violated, errMsg := runOnce()
-	if errMsg == "" {
+	if violated, errMsg := runOnce(userMsg, true); errMsg == "" {
 		return violated, ""
+	} else {
+		if violated, errMsg2 := runOnce(userMsg, false); errMsg2 == "" {
+			return violated, ""
+		}
+		if violated, errMsg3 := runOnce(shortUserMsg, false); errMsg3 == "" {
+			return violated, ""
+		}
+		return false, errMsg
 	}
-	// One retry without json_object — some providers reject response_format.
-	unifaiReq.Params.ResponseFormat = nil
-	violated, errMsg2 := runOnce()
-	if errMsg2 == "" {
-		return violated, ""
-	}
-	return false, errMsg + "; retry: " + errMsg2
 }
 
 func (h *BrowserAIHandler) evaluateAIBotVisionRule(rule logstore.BrowserGuardRule, userPrompt string, uploadImages []string, providerName schemas.ModelProvider, modelName string) (bool, string) {
@@ -2065,14 +2194,13 @@ func (h *BrowserAIHandler) evaluateAIBotVisionRule(rule logstore.BrowserGuardRul
 	}
 
 	userMsg := fmt.Sprintf(
-		`SECURITY_POLICY (enforce strictly — short text still counts):
+		`SECURITY_POLICY:
 %s
 
 EXTRACTED_TEXT (if any):
 %s
 
-Evaluate the attached upload image(s) against SECURITY_POLICY / reference template.
-Prefer violation=true when content reasonably matches what the policy forbids.
+Evaluate the attached upload image(s) against SECURITY_POLICY / reference template only.
 JSON only: {"violation":true} or {"violation":false}`,
 		policy,
 		truncateRunes(userPrompt, browserAIGuardBotMaxPromptRunes),
@@ -2217,8 +2345,30 @@ func unifaiErrorMessage(err *schemas.UnifAIError) string {
 	if err == nil {
 		return "unknown evaluator error"
 	}
-	if err.Error != nil && strings.TrimSpace(err.Error.Message) != "" {
-		return strings.TrimSpace(err.Error.Message)
+	parts := make([]string, 0, 4)
+	if err.Error != nil {
+		if err.Error.Type != nil {
+			if t := strings.TrimSpace(*err.Error.Type); t != "" {
+				parts = append(parts, t)
+			}
+		}
+		if err.Error.Code != nil {
+			if c := strings.TrimSpace(*err.Error.Code); c != "" {
+				parts = append(parts, "code="+c)
+			}
+		}
+		if m := strings.TrimSpace(err.Error.Message); m != "" {
+			parts = append(parts, m)
+		}
+	}
+	if p := strings.TrimSpace(string(err.ExtraFields.Provider)); p != "" {
+		parts = append(parts, "provider="+p)
+	}
+	if m := strings.TrimSpace(err.ExtraFields.OriginalModelRequested); m != "" {
+		parts = append(parts, "model="+m)
+	}
+	if len(parts) > 0 {
+		return strings.Join(parts, ": ")
 	}
 	return "evaluator request failed"
 }
@@ -2241,16 +2391,24 @@ func parseAIBotViolation(raw string) bool {
 }
 
 func parseAIBotDecision(raw string) (bool, bool) {
-	compact := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(raw, " ", ""), "\n", ""))
+	compact := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(raw, " ", ""), "\n", ""), "\t", ""))
 	iTrue := maxIndex(
 		strings.LastIndex(compact, `"violation":true`),
 		strings.LastIndex(compact, `"violation":1`),
 		strings.LastIndex(compact, `violation:true`),
+		strings.LastIndex(compact, `"is_violation":true`),
+		strings.LastIndex(compact, `"violated":true`),
+		strings.LastIndex(compact, `"blocked":true`),
+		strings.LastIndex(compact, `"violation":"true"`),
 	)
 	iFalse := maxIndex(
 		strings.LastIndex(compact, `"violation":false`),
 		strings.LastIndex(compact, `"violation":0`),
 		strings.LastIndex(compact, `violation:false`),
+		strings.LastIndex(compact, `"is_violation":false`),
+		strings.LastIndex(compact, `"violated":false`),
+		strings.LastIndex(compact, `"blocked":false`),
+		strings.LastIndex(compact, `"violation":"false"`),
 	)
 	if iTrue >= 0 || iFalse >= 0 {
 		return iTrue > iFalse, true
@@ -2268,10 +2426,24 @@ func parseAIBotDecision(raw string) (bool, bool) {
 	trimmed := strings.ToLower(strings.TrimSpace(raw))
 	trimmed = strings.Trim(trimmed, "`\"'")
 	switch trimmed {
-	case "true", "yes", "block", "violation", "violated", "1":
+	case "true", "yes", "block", "blocked", "violation", "violated", "1", "deny", "denied":
 		return true, true
-	case "false", "no", "allow", "allowed", "safe", "0":
+	case "false", "no", "allow", "allowed", "safe", "0", "clear", "ok":
 		return false, true
+	}
+	// Last non-empty line often holds the decision for chatty models.
+	lines := strings.Split(raw, "\n")
+	fullLower := strings.ToLower(strings.TrimSpace(raw))
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.ToLower(strings.TrimSpace(lines[i]))
+		line = strings.Trim(line, "`\"'")
+		if line == "" || line == fullLower {
+			continue
+		}
+		if v, ok := parseAIBotDecision(line); ok {
+			return v, true
+		}
+		break
 	}
 	return false, false
 }

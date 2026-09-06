@@ -3183,6 +3183,7 @@ def _scan_upload_for_rules(
                     platform, domain, (scanned or "")[:50_000], client_ip, url, method or "POST",
                     upload_images=upload_images,
                     evaluation_only=True,
+                    extracted_text=(scanned or "")[:50_000],
                 )
                 if eval_err:
                     scan_eval_error = str(eval_err).strip()
@@ -5623,7 +5624,7 @@ def get_client_ip(flow: http.HTTPFlow) -> str:
         return "127.0.0.1"
 
 
-def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str, upload_images: list[str] | None = None, evaluation_only: bool = False) -> tuple[bool, str, str, str, str, str]:
+def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str, upload_images: list[str] | None = None, evaluation_only: bool = False, extracted_text: str = "") -> tuple[bool, str, str, str, str, str]:
     """
     Send intercepted prompt to UnifAI backend /api/browser-ai/intercept.
     Backend handles guard rule matching and returns allowed/blocked decision.
@@ -5638,6 +5639,9 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             "agent_hostname": UNIFAI_AGENT_HOSTNAME,
             "evaluation_only": bool(evaluation_only),
         }
+        ext = (extracted_text or "").strip()
+        if ext:
+            metadata["extracted_text"] = ext[:50_000]
         # Do NOT set upload_scan for evaluation_only — that flag is for file audit logs only
         # and would skip AI Guard Bot if the eval_only early-return ever changed.
         payload = json.dumps({

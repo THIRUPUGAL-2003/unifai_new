@@ -24,6 +24,85 @@ const resolveSize = (size: IconSize): number => {
 	return sizeMap[size] || sizeMap.md;
 };
 
+/** Real logo files under /public/images/providers — preferred over letter placeholders / SVG. */
+export const ProviderLogoFiles: Partial<Record<string, string>> = {
+	anthropic: "anthropic.jpg",
+	anyscale: "anyscale.png",
+	arcee: "arcee.png",
+	ark: "ark.png",
+	azure: "azure.png",
+	baichuan: "baichuan.png",
+	bedrock: "bedrock.jpg",
+	bedrock_mantle: "bedrock_mantle.png",
+	cerebras: "cerebras.png",
+	cerebrium: "cerebrium.png",
+	cohere: "cohere.png",
+	dashscope: "dashscope.png",
+	dashscopecn: "dashscopecn.png",
+	deepinfra: "deepinfra.jpeg",
+	deepseek: "deepseek.png",
+	elevenlabs: "elevenlabs.png",
+	empower: "empower.png",
+	featherless: "featherless.png",
+	fireworks: "fireworks.png",
+	freemodel: "freemodel.png",
+	friendli: "friendli.png",
+	gemini: "gemini.png",
+	groq: "groq.png",
+	hunyuan: "hunyuan.jpg",
+	hyperbolic: "hyperbolic.webp",
+	inferencenet: "inferencenet.png",
+	jina: "jina.jpg",
+	kluster: "kluster.png",
+	krutrim: "krutrim.jpg",
+	lepton: "lepton.webp",
+	lingyiwanwu: "lingyiwanwu.png",
+	mancer: "mancer.png",
+	minimax: "minimax.jpg",
+	mistral: "mistral.png",
+	modelscope: "modelscope.png",
+	monsterapi: "monsterapi.png",
+	moonshot: "moonshot.png",
+	morphllm: "morphllm.png",
+	nanogpt: "nanogpt.png",
+	nararouter: "nararouter.png",
+	navy: "navy.png",
+	nebius: "nebius.jpeg",
+	nlpcloud: "nlpcloud.png",
+	novita: "novita.png",
+	nscale: "nscale.jpg",
+	nvidia: "nvidia.png",
+	ollama: "ollama.png",
+	openai: "openai.png",
+	"opencode-go": "opencode-go.png",
+	"opencode-zen": "opencode-zen.png",
+	opper: "opper.png",
+	parasail: "parasail.png",
+	perplexity: "perplexity.png",
+	portkey: "portkey.png",
+	publicai: "publicai.png",
+	qianfan: "qianfan.png",
+	reka: "reka.jpg",
+	replicate: "replicate.png",
+	runware: "runware.png",
+	runway: "runway.png",
+	sakana: "sakana.png",
+	sambanova: "sambanova.png",
+	scaleway: "scaleway.png",
+	sensenova: "sensenova.png",
+	sgl: "sgl.png",
+	siliconflow: "siliconflow.png",
+	spark: "spark.png",
+	stepfun: "stepfun.png",
+	upstage: "upstage.png",
+	vertex: "vertex.png",
+	vllm: "vllm.png",
+	voyage: "voyage.png",
+	wafer: "wafer.jpg",
+	xai: "xai.png",
+	zhipu: "zhipu.png",
+};
+
 // Provider Icons with theme awareness where applicable
 export const ProviderIcons = {
 	anthropic: ({ size = "md", className = "", theme }: IconProps) => {
@@ -1431,6 +1510,21 @@ export type RoutingEngineType = keyof typeof RoutingEngineUsedIcons;
 // Helper component to render provider icons
 export const RenderProviderIcon = ({ provider, ...props }: IconProps & { provider: keyof typeof ProviderIcons }) => {
 	const { resolvedTheme } = useTheme();
+	const logoFile = ProviderLogoFiles[provider as string];
+	if (logoFile) {
+		const resolvedSize = resolveSize(props.size ?? "md");
+		return (
+			<img
+				src={`/images/providers/${logoFile}`}
+				alt={String(provider)}
+				width={resolvedSize}
+				height={resolvedSize}
+				loading="lazy"
+				decoding="async"
+				className={cn("w-5 h-5 shrink-0 object-contain", props.className)}
+			/>
+		);
+	}
 	const IconComponent = ProviderIcons[provider];
 	return IconComponent ? IconComponent({ ...props, theme: resolvedTheme, className: cn("w-5 h-5 shrink-0", props.className) }) : null;
 };
