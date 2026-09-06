@@ -1405,15 +1405,18 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setResult(`EVAL FAILED: ${res.eval_error}`);
 				return;
 			}
-				setResult(`BLOCK — ${res.security_message || "policy violation"}`);
-				setResult(`BLOCK — ${res.security_message || "policy violation"}`);
-			if (res.would_warn) {
-				setResult(`REDACT — ${res.security_message || "policy match"}`);
-				setResult(`REDACT — ${res.security_message || "policy match"}`);
-				setResult(`REDACT — ${res.security_message || "policy match"}`);
-			setResult(`OK — ${res.security_message || "no violation"}`);
-			setResult(`OK — ${res.security_message || "no violation"}`);
-			setResult(`OK — ${res.security_message || "no violation"}`);
+			let outcome = `OK — ${res.security_message || "no violation"}`;
+			if (res.would_block) {
+				outcome = `BLOCK — ${res.security_message || "policy violation"}`;
+			} else if (res.would_warn) {
+				outcome = `REDACT — ${res.security_message || "policy match"}`;
+			}
+			if (res.model_raw?.trim()) {
+				outcome = `${outcome}\n\nmodel_raw: ${res.model_raw}`;
+			}
+			setResult(outcome);
+		} catch (e: any) {
+			setResult(
 				e?.data?.error?.message ||
 					e?.data?.message ||
 					e?.message ||
