@@ -252,11 +252,15 @@ func providerConfigsFromSpec(items []map[string]any, vkID string) []tables.Table
 		cfg := tables.TableVirtualKeyProviderConfig{
 			VirtualKeyID: vkID,
 			Provider:     provider,
+			AllowAllKeys: true, // listed provider without explicit key pin → use all provider keys
 		}
 		if models := stringSliceFromAny(item["allowed_models"]); len(models) > 0 {
 			cfg.AllowedModels = schemas.WhiteList(models)
 		} else if all, ok := item["all_models_allowed"].(bool); ok && all {
 			cfg.AllowedModels = schemas.WhiteList{"*"}
+		}
+		if keyIDs := stringSliceFromAny(item["key_ids"]); len(keyIDs) > 0 && !(len(keyIDs) == 1 && keyIDs[0] == "*") {
+			cfg.AllowAllKeys = false
 		}
 		if weight, ok := item["weight"].(float64); ok {
 			cfg.Weight = &weight

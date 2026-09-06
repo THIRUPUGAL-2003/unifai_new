@@ -167,7 +167,10 @@ export const browserAiApi = baseApi.injectEndpoints({
 				would_block: boolean;
 				would_warn: boolean;
 				eval_error?: string;
+				model_raw?: string;
 				rule_name?: string;
+				bot_provider?: string;
+				bot_model?: string;
 			},
 			{
 				bot_provider: string;

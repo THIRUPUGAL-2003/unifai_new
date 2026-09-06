@@ -1,11 +1,14 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ComboboxSelect } from "@/components/ui/combobox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ModelMultiselect } from "@/components/ui/modelMultiselect";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getErrorMessage, useGetMCPClientsQuery, useGetVirtualKeysQuery } from "@/lib/store";
+import { getProviderLabel } from "@/lib/constants/logs";
+import { getErrorMessage, useGetMCPClientsQuery, useGetProvidersQuery, useGetVirtualKeysQuery } from "@/lib/store";
 import {
 	useActivateAccessProfileMutation,
 	useCloneAccessProfileMutation,
@@ -16,7 +19,7 @@ import {
 } from "@enterprise/lib/store/apis/accessProfileApi";
 import { AccessProfile } from "@enterprise/lib/types/workspace";
 import { Copy, IdCard, Pencil, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type ProfileFormState = {
@@ -24,7 +27,7 @@ type ProfileFormState = {
 	description: string;
 	tags: string;
 	providerName: string;
-	allowedModels: string;
+	allowedModels: string[];
 	selectedVkIds: string[];
 	selectedMcpNames: string[];
 	budgetMax: string;
@@ -40,7 +43,7 @@ const emptyForm = (): ProfileFormState => ({
 	description: "",
 	tags: "",
 	providerName: "",
-	allowedModels: "",
+	allowedModels: [],
 	selectedVkIds: [],
 	selectedMcpNames: [],
 	budgetMax: "",
@@ -79,6 +82,10 @@ function buildPayload(form: ProfileFormState) {
 				}
 			: undefined;
 
+	const allowAll =
+		form.allowedModels.length === 0 || form.allowedModels.includes("*");
+	const allowedModels = allowAll ? [] : form.allowedModels.filter((m) => m && m !== "*");
+
 	return {
 		name: form.name,
 		description: form.description,
@@ -90,11 +97,8 @@ function buildPayload(form: ProfileFormState) {
 			? [
 					{
 						provider_name: form.providerName.trim(),
-						all_models_allowed: !form.allowedModels.trim(),
-						allowed_models: form.allowedModels
-							.split(",")
-							.map((model) => model.trim())
-							.filter(Boolean),
+						all_models_allowed: allowAll,
+						allowed_models: allowedModels,
 					},
 				]
 			: [],
@@ -116,6 +120,7 @@ export default function AccessProfilesIndexView() {
 	const [form, setForm] = useState<ProfileFormState>(emptyForm);
 
 	const { data, isLoading } = useGetAccessProfilesQuery({ search: search || undefined });
+	const { data: providersData = [] } = useGetProvidersQuery();
 	const { data: vkData } = useGetVirtualKeysQuery({ limit: 200, offset: 0 });
 	const { data: mcpClientsData } = useGetMCPClientsQuery({ limit: 200, offset: 0 });
 	const virtualKeys = vkData?.virtual_keys || [];
@@ -127,6 +132,20 @@ export default function AccessProfilesIndexView() {
 	const [updateProfile] = useUpdateAccessProfileMutation();
 
 	const profiles = data?.access_profiles || [];
+
+	const providerOptions = useMemo(() => {
+		const names = new Set<string>([
+			...providersData.map((p) => p.name),
+			...(form.providerName ? [form.providerName] : []),
+		]);
+		return Array.from(names)
+			.filter(Boolean)
+			.sort((a, b) => a.localeCompare(b))
+			.map((name) => ({
+				value: name,
+				label: getProviderLabel(name) || name,
+			}));
+	}, [providersData, form.providerName]);
 
 	const resetForm = () => {
 		setForm(emptyForm());
@@ -141,12 +160,13 @@ export default function AccessProfilesIndexView() {
 		const mcpNames = (profile.mcp_servers || [])
 			.map((server) => String(server.mcp_client_name || server.name || ""))
 			.filter(Boolean);
+		const allAllowed = cfg?.all_models_allowed !== false && !(cfg?.allowed_models?.length);
 		setForm({
 			name: profile.name,
 			description: profile.description || "",
 			tags: (profile.tags || []).join(", "),
 			providerName: cfg?.provider_name || "",
-			allowedModels: cfg?.allowed_models?.join(", ") || "",
+			allowedModels: allAllowed ? [] : cfg?.allowed_models || [],
 			selectedVkIds: profile.virtual_key_ids || [],
 			selectedMcpNames: mcpNames,
 			budgetMax: budget?.max_limit != null ? String(budget.max_limit) : "",
@@ -222,18 +242,32 @@ export default function AccessProfilesIndexView() {
 			</div>
 			<div className="space-y-1">
 				<Label>Provider</Label>
-				<Input
-					value={form.providerName}
-					onChange={(e) => setForm((p) => ({ ...p, providerName: e.target.value }))}
-					placeholder="openai"
+				<ComboboxSelect
+					options={providerOptions}
+					value={form.providerName || null}
+					onValueChange={(value) =>
+						setForm((prev) => ({
+							...prev,
+							providerName: value ?? "",
+							allowedModels: prev.providerName !== (value ?? "") ? [] : prev.allowedModels,
+						}))
+					}
+					placeholder="Select provider..."
+					noPortal
 				/>
 			</div>
 			<div className="space-y-1">
-				<Label>Allowed models (blank = all)</Label>
-				<Input
+				<Label>Allowed models (blank / All = all)</Label>
+				<ModelMultiselect
+					provider={form.providerName || undefined}
 					value={form.allowedModels}
-					onChange={(e) => setForm((p) => ({ ...p, allowedModels: e.target.value }))}
-					placeholder="gpt-4o, gpt-4o-mini"
+					onChange={(models) => setForm((prev) => ({ ...prev, allowedModels: models }))}
+					unfiltered
+					allowAllOption
+					placeholder={!form.providerName ? "Select a provider first" : "Search models..."}
+					disabled={!form.providerName}
+					menuPosition="absolute"
+					clearable
 				/>
 			</div>
 			<div className="grid grid-cols-2 gap-2">

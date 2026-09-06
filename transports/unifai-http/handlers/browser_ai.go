@@ -1582,7 +1582,7 @@ func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
 		rule.Name = "Test AI Guard Bot"
 	}
 	applyAIBotDefaults(&rule)
-	violated, evalErr := h.evaluateAIBotRule(rule, sample, nil)
+	violated, evalErr, modelRaw := h.evaluateAIBotRuleDetailed(rule, sample, nil)
 	verdict := "clear"
 	message := securityVerdictMessage("clear", rule.Name)
 	wouldBlock := false
@@ -1611,6 +1611,7 @@ func (h *BrowserAIHandler) testAIGuardBot(ctx *fasthttp.RequestCtx) {
 		"would_block":       wouldBlock,
 		"would_warn":        wouldWarn,
 		"eval_error":        evalErr,
+		"model_raw":         truncateRunes(modelRaw, 400),
 		"rule_name":         rule.Name,
 		"bot_provider":      rule.BotProvider,
 		"bot_model":         rule.BotModel,
@@ -1989,28 +1990,52 @@ func stringFromUpdate(updates map[string]any, key string) string {
 	return strings.TrimSpace(v)
 }
 
+// isWeakGuardEvalModel flags free/code/embed models that often mis-classify Guard policies.
+func isWeakGuardEvalModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+	return strings.Contains(m, ":free") ||
+		strings.Contains(m, "mini-code") ||
+		strings.Contains(m, "code-") ||
+		strings.HasSuffix(m, "-code") ||
+		strings.Contains(m, "embed") ||
+		strings.Contains(m, "whisper") ||
+		strings.Contains(m, "tts")
+}
+
 // browserAIGuardBotSystemPrompt is used for every AI Guard Bot text rule (any admin policy).
-// No predefined DLP examples — the admin SECURITY_POLICY alone defines what to enforce.
+// No predefined DLP topic list — only the admin SECURITY_POLICY defines what to enforce.
 func browserAIGuardBotSystemPrompt() string {
-	return `You are an enterprise DLP classifier.
+	return `You are a strict enterprise policy classifier.
 
-Apply ONLY the admin SECURITY_POLICY to CONTENT_TO_EVALUATE.
-Do not invent extra rules. Do not ignore the policy because it is short or informal.
-If CONTENT_TO_EVALUATE violates SECURITY_POLICY → {"violation":true}
-If it does not → {"violation":false}
+Your ONLY job: decide if CONTENT_TO_EVALUATE breaks SECURITY_POLICY.
 
-Reply with one JSON object only, nothing else:
+Rules:
+1. SECURITY_POLICY is the admin's intent. Fix obvious typos (e.g. "notr"→"not", "addresss"→"address"). Informal / comma-separated lists are fine.
+2. If the policy forbids a CATEGORY or TYPE of content, any concrete INSTANCE of that category in CONTENT is a violation.
+   Reasoning style (not a real policy): policy "fruit names not allowed" + content "banana" → {"violation":true}.
+3. Do NOT require the content to repeat the policy wording. Match meaning / category / examples / synonyms.
+4. If SECURITY_POLICY mentions PIN, OTP, phone, mobile, card, ATM, CVV, postal/zip/pin code, account, Aadhaar, SSN (or similar) and CONTENT is mainly digits that reasonably fit those forms → {"violation":true}.
+   Example style: policy includes "pin code" + content "613002" → {"violation":true}.
+5. If CONTENT is clearly unrelated to the policy → {"violation":false}.
+6. If unsure but CONTENT likely matches policy intent → {"violation":true}.
+
+Reply with one JSON object only:
 {"violation":true}
 or
 {"violation":false}`
 }
 
 func browserAIGuardBotVisionSystemPrompt() string {
-	return `You are an enterprise DLP vision classifier.
+	return `You are a strict enterprise vision policy classifier.
 
 Apply ONLY the admin SECURITY_POLICY to the uploaded image(s) and any EXTRACTED_TEXT.
 The first image (when present) is an admin REFERENCE_TEMPLATE.
-Do not invent extra rules.
+Interpret policy intent (typos OK). Category policies cover concrete visual instances.
+If policy mentions PIN/phone/card/ID and the image/text shows matching digits or documents → {"violation":true}.
+If unsure but content likely matches → {"violation":true}.
 
 Reply with one JSON object only:
 {"violation":true}
@@ -2049,106 +2074,153 @@ func browserAIGuardBotUserMessage(policy, content string) string {
 CONTENT_TO_EVALUATE:
 %s
 
-Does CONTENT_TO_EVALUATE violate SECURITY_POLICY?
+Task: Does CONTENT_TO_EVALUATE break SECURITY_POLICY?
+- Interpret policy intent (fix typos; comma lists OK).
+- Category bans apply to concrete instances (animal name → cat/dog; pin code → digit PIN-like values).
+- If policy lists pin/phone/card/address/names and CONTENT looks like one of those → violation true.
+- Prefer {"violation":true} when the content matches the policy intent.
+
 Respond with ONLY: {"violation":true} or {"violation":false}`,
 		policy,
 		truncateRunes(content, browserAIGuardBotMaxPromptRunes),
 	)
 }
 
+func browserAIGuardBotStrictUserMessage(policy, content string) string {
+	policy = strings.TrimSpace(policy)
+	content = strings.TrimSpace(content)
+	return fmt.Sprintf(
+		`ADMIN_POLICY (intent): %s
+
+EMPLOYEE_TEXT: %s
+
+Decide now.
+- If EMPLOYEE_TEXT contains anything ADMIN_POLICY forbids (category instances, synonyms, digit forms for pin/phone/card when listed) → {"violation":true}
+- Else → {"violation":false}
+JSON only.`,
+		truncateRunes(policy, 4000),
+		truncateRunes(content, browserAIGuardBotMaxPromptRunes),
+	)
+}
+
 func (h *BrowserAIHandler) evaluateAIBotRule(rule logstore.BrowserGuardRule, userPrompt string, uploadImages []string) (bool, string) {
+	violated, evalErr, _ := h.evaluateAIBotRuleDetailed(rule, userPrompt, uploadImages)
+	return violated, evalErr
+}
+
+func (h *BrowserAIHandler) evaluateAIBotRuleDetailed(rule logstore.BrowserGuardRule, userPrompt string, uploadImages []string) (bool, string, string) {
 	applyAIBotDefaults(&rule)
 
 	if rulePatternMatches(rule, userPrompt) {
-		return true, ""
+		return true, "", "pattern_match"
 	}
 
 	providerName, modelName := resolveGuardBotModel(rule.BotProvider, rule.BotModel)
 	if providerName == "" || strings.TrimSpace(modelName) == "" {
-		return false, "guard bot provider/model missing"
+		return false, "guard bot provider/model missing", ""
 	}
 
 	useVision := len(uploadImages) > 0 && (isVisionGuardModel(modelName) || strings.TrimSpace(rule.BotReferenceImage) != "")
 	if useVision {
-		return h.evaluateAIBotVisionRule(rule, userPrompt, uploadImages, providerName, modelName)
+		v, e := h.evaluateAIBotVisionRule(rule, userPrompt, uploadImages, providerName, modelName)
+		return v, e, ""
 	}
 
 	systemPrompt := browserAIGuardBotSystemPrompt()
 	userMsg := browserAIGuardBotUserMessage(rule.BotPrompt, userPrompt)
-	// Ultra-short fallback when models ignore JSON instructions on the long prompt.
 	shortUserMsg := fmt.Sprintf(
-		"SECURITY_POLICY:\n%s\n\nCONTENT:\n%s\n\nReply ONLY with {\"violation\":true} or {\"violation\":false}",
+		"SECURITY_POLICY:\n%s\n\nCONTENT:\n%s\n\nIf CONTENT breaks the policy (category instances count), reply ONLY {\"violation\":true} else {\"violation\":false}",
 		truncateRunes(strings.TrimSpace(rule.BotPrompt), 4000),
 		truncateRunes(strings.TrimSpace(userPrompt), browserAIGuardBotMaxPromptRunes),
 	)
+	strictUserMsg := browserAIGuardBotStrictUserMessage(rule.BotPrompt, userPrompt)
 
 	if isOllamaGuardProvider(string(providerName)) {
-		return runOllamaTextGuardEval(modelName, systemPrompt, userMsg, shortUserMsg)
+		return runOllamaTextGuardEvalDetailed(modelName, systemPrompt, userMsg, shortUserMsg, strictUserMsg)
 	}
 
 	if h.client == nil {
-		return false, "unifai client not available"
+		return false, "unifai client not available", ""
 	}
 
 	// Preflight: selected Model Provider must have a usable API key.
 	{
 		keyCtx := schemas.NewUnifAIContext(context.Background(), time.Now().Add(10*time.Second))
 		if _, keyErr := h.client.SelectKeyForProviderRequestType(keyCtx, schemas.ChatCompletionRequest, providerName, modelName); keyErr != nil {
-			return false, fmt.Sprintf("no usable API key for provider %s — add/enable the key under Model Providers (model=%s): %v", providerName, modelName, keyErr)
+			return false, fmt.Sprintf("no usable API key for provider %s — add/enable the key under Model Providers (model=%s): %v", providerName, modelName, keyErr), ""
 		}
 	}
 
-	runOutsource := func(user string, withSystem, withJSON bool) (bool, string) {
+	runOutsource := func(user string, withSystem, withJSON bool) (bool, string, string) {
 		unifaiReq := buildGuardOutsourceChatRequest(providerName, modelName, systemPrompt, user, withSystem, withJSON)
 		deadline := time.Now().Add(60 * time.Second)
 		unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
-		// Let ExtraParams (max_tokens) merge for OpenAI-compatible gateways.
 		unifaiCtx.SetValue(schemas.UnifAIContextKeyPassthroughExtraParams, true)
 		resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
 		if unifaiErr != nil {
-			return false, truncateRunes(unifaiErrorMessage(unifaiErr), 220)
+			return false, truncateRunes(unifaiErrorMessage(unifaiErr), 220), ""
 		}
 		rawText := stripEvalMarkdown(evaluatorChoiceText(resp))
 		if rawText == "" {
-			return false, "empty evaluator response"
+			return false, "empty evaluator response", ""
 		}
 		violated, recognized := parseAIBotDecision(rawText)
 		if !recognized {
-			return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80)
+			return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80), rawText
 		}
-		return violated, ""
+		return violated, "", rawText
 	}
 
-	// Prefer the most compatible shape first (single user message, no response_format).
+	// Prefer compatible shapes. Collect parseable answers; for security prefer any violation=true.
 	attempts := []struct {
 		user       string
 		withSystem bool
 		withJSON   bool
 	}{
-		{userMsg, false, false},
-		{shortUserMsg, false, false},
-		{userMsg, true, false},
 		{userMsg, true, true},
-		{shortUserMsg, false, true},
+		{userMsg, true, false},
+		{userMsg, false, false},
+		{strictUserMsg, true, false},
+		{shortUserMsg, false, false},
+		{strictUserMsg, false, true},
 	}
 	var firstErr string
+	var lastRaw string
+	sawClearFalse := false
 	for _, a := range attempts {
-		violated, errMsg := runOutsource(a.user, a.withSystem, a.withJSON)
-		if errMsg == "" {
-			return violated, ""
+		violated, errMsg, raw := runOutsource(a.user, a.withSystem, a.withJSON)
+		if raw != "" {
+			lastRaw = raw
 		}
-		if firstErr == "" {
-			firstErr = errMsg
+		if errMsg != "" {
+			if firstErr == "" {
+				firstErr = errMsg
+			}
+			continue
 		}
+		if violated {
+			return true, "", raw
+		}
+		sawClearFalse = true
+		// Keep going — a later strict pass may catch category instances small models miss.
+	}
+	if sawClearFalse {
+		return false, "", lastRaw
 	}
 
 	// Last resort: local Ollama still evaluates the admin policy (no hardcoded DLP).
-	if violated, ollamaErr := runOllamaTextGuardEval(browserAIGuardBotDefaultModel, systemPrompt, userMsg, shortUserMsg); ollamaErr == "" {
-		return violated, ""
+	if violated, ollamaErr, raw := runOllamaTextGuardEvalDetailed(browserAIGuardBotDefaultModel, systemPrompt, userMsg, shortUserMsg, strictUserMsg); ollamaErr == "" {
+		return violated, "", raw
 	} else {
-		return false, firstErr + "; ollama fallback: " + ollamaErr
+		err := firstErr
+		if err == "" {
+			err = ollamaErr
+		} else {
+			err = firstErr + "; ollama fallback: " + ollamaErr
+		}
+		return false, err, lastRaw
 	}
 }
 
@@ -2216,35 +2288,75 @@ func buildGuardOutsourceChatRequest(provider schemas.ModelProvider, model, syste
 
 // runOllamaTextGuardEval runs the text Guard Bot classifier against Ollama (JSON then plain, full then short).
 func runOllamaTextGuardEval(modelName, systemPrompt, userMsg, shortUserMsg string) (bool, string) {
-	runOllama := func(system, user string, jsonMode bool) (bool, string) {
+	v, e, _ := runOllamaTextGuardEvalDetailed(modelName, systemPrompt, userMsg, shortUserMsg, "")
+	return v, e
+}
+
+func runOllamaTextGuardEvalDetailed(modelName, systemPrompt, userMsg, shortUserMsg, strictUserMsg string) (bool, string, string) {
+	runOllama := func(system, user string, jsonMode bool) (bool, string, string) {
 		rawText, err := callOllamaChatAny(modelName, system, user, jsonMode, 90*time.Second)
 		if err != nil {
-			return false, truncateRunes(err.Error(), 180)
+			return false, truncateRunes(err.Error(), 180), ""
 		}
 		rawText = stripEvalMarkdown(rawText)
 		if rawText == "" {
-			return false, "empty evaluator response"
+			return false, "empty evaluator response", ""
 		}
 		violated, recognized := parseAIBotDecision(rawText)
 		if !recognized {
-			return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80)
+			return false, "evaluator returned unparseable output: " + truncateRunes(rawText, 80), rawText
 		}
-		return violated, ""
+		return violated, "", rawText
 	}
-	if violated, errMsg := runOllama(systemPrompt, userMsg, true); errMsg == "" {
-		return violated, ""
-	} else {
-		if violated, errMsg2 := runOllama(systemPrompt, userMsg, false); errMsg2 == "" {
-			return violated, ""
-		}
-		if violated, errMsg3 := runOllama(systemPrompt, shortUserMsg, true); errMsg3 == "" {
-			return violated, ""
-		}
-		if violated, errMsg4 := runOllama(systemPrompt, shortUserMsg, false); errMsg4 == "" {
-			return violated, ""
-		}
-		return false, errMsg
+
+	attempts := []struct {
+		system   string
+		user     string
+		jsonMode bool
+	}{
+		{systemPrompt, userMsg, true},
+		{systemPrompt, userMsg, false},
+		{systemPrompt, shortUserMsg, true},
+		{systemPrompt, shortUserMsg, false},
 	}
+	if strings.TrimSpace(strictUserMsg) != "" {
+		attempts = append(attempts,
+			struct {
+				system   string
+				user     string
+				jsonMode bool
+			}{systemPrompt, strictUserMsg, true},
+			struct {
+				system   string
+				user     string
+				jsonMode bool
+			}{systemPrompt, strictUserMsg, false},
+		)
+	}
+
+	var firstErr string
+	var lastRaw string
+	sawClearFalse := false
+	for _, a := range attempts {
+		violated, errMsg, raw := runOllama(a.system, a.user, a.jsonMode)
+		if raw != "" {
+			lastRaw = raw
+		}
+		if errMsg != "" {
+			if firstErr == "" {
+				firstErr = errMsg
+			}
+			continue
+		}
+		if violated {
+			return true, "", raw
+		}
+		sawClearFalse = true
+	}
+	if sawClearFalse {
+		return false, "", lastRaw
+	}
+	return false, firstErr, lastRaw
 }
 
 func (h *BrowserAIHandler) evaluateAIBotVisionRule(rule logstore.BrowserGuardRule, userPrompt string, uploadImages []string, providerName schemas.ModelProvider, modelName string) (bool, string) {

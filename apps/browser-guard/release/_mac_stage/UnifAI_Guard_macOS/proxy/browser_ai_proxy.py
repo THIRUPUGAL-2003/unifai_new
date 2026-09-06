@@ -903,13 +903,60 @@ def _is_opaque_wire_blob(text: str) -> bool:
     if _is_google_wire_blob(text):
         return True
     t = (text or "").strip()
-    if not t or " " in t or "\n" in t or len(t) < 20:
+    if not t or len(t) < 8:
         return False
-    # Copilot / Sydney / Edge often ship conversation tokens as base64url (with / + =).
-    if re.fullmatch(r"[A-Za-z0-9_\-+/=]+", t):
-        if "/" in t or "+" in t or t.endswith("="):
+    # Single-token opaque blobs (no whitespace)
+    if " " not in t and "\n" not in t and len(t) >= 20:
+        if re.fullmatch(r"[A-Za-z0-9_\-+/=]+", t):
+            if "/" in t or "+" in t or t.endswith("="):
+                return True
+            if len(t) >= 32 and not re.search(r"[aeiouAEIOU]{2}", t):
+                return True
+    return _looks_like_binary_or_wire_garbage(t)
+
+
+def _looks_like_binary_or_wire_garbage(text: str) -> bool:
+    """Reject Cursor/IDE/binary decode soup that is not a real user-typed prompt.
+
+    Examples that must NOT enter Prompt Logs:
+      Rp];$u\\OVoT]xy 9+)*wlTP-
+      X*L$( rF2D:TvJxf<
+    """
+    t = (text or "").strip()
+    if not t:
+        return True
+    # Control characters (except tab / LF / CR)
+    if any(ord(c) < 9 or (10 < ord(c) < 32 and ord(c) != 13) or ord(c) == 127 for c in t):
+        return True
+    # Dense high-bit / mojibake on short strings
+    if len(t) < 100:
+        high = sum(1 for c in t if ord(c) > 127)
+        if high / len(t) >= 0.12:
             return True
-        if len(t) >= 32 and not re.search(r"[aeiouAEIOU]{2}", t):
+
+    alnum = sum(1 for c in t if c.isalnum())
+    space = sum(1 for c in t if c.isspace())
+    other = len(t) - alnum - space
+    specials = {c for c in t if not c.isalnum() and not c.isspace()}
+
+    # Short / medium strings with symbol soup (IDE wire frames, encrypted chunks)
+    if len(t) <= 96:
+        if other >= 4 and len(specials) >= 4 and other / len(t) >= 0.28:
+            return True
+        if other / len(t) >= 0.42 and other >= 3:
+            return True
+        letters = sum(1 for c in t if c.isalpha())
+        vowels = sum(1 for c in t.lower() if c in "aeiou")
+        if letters >= 4 and other >= 5 and vowels <= 1:
+            return True
+        # Very few alnum relative to punctuation
+        if alnum > 0 and other >= alnum and len(specials) >= 5:
+            return True
+
+    # Backslash + brackets + dollar heavy fragments (common binary-as-text)
+    if len(t) <= 80:
+        weird = sum(t.count(ch) for ch in "\\]$^*`~|{};<>")
+        if weird >= 3 and other / max(len(t), 1) >= 0.25:
             return True
     return False
 
@@ -6465,9 +6512,9 @@ class BrowserAIInterceptor:
             if chat_carries_attachment(raw_text):
                 return
             return
-        if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip()):
+        if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip() and not _looks_like_binary_or_wire_garbage(prompt)):
             return
-        if _is_opaque_wire_blob(prompt) and not (chatgpt_shaped and len(prompt.strip()) < 32):
+        if _is_opaque_wire_blob(prompt) or _looks_like_binary_or_wire_garbage(prompt):
             return
         # Skip duplicate FILE UPLOAD lines if extract_prompt somehow returned that
         if prompt.strip().startswith("[FILE UPLOAD"):
@@ -6673,9 +6720,9 @@ class BrowserAIInterceptor:
         prompt = extract_prompt_universal(content.encode("utf-8"), "application/json", host=host, url=flow.request.url)
         if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
             return
-        if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip()):
+        if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip() and not _looks_like_binary_or_wire_garbage(prompt)):
             return
-        if _is_opaque_wire_blob(prompt) and not (chatgpt_shaped and len(prompt.strip()) < 32):
+        if _is_opaque_wire_blob(prompt) or _looks_like_binary_or_wire_garbage(prompt):
             return
 
         if is_unsubmitted_chat_body(flow.request.path, content):

@@ -441,6 +441,8 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"add_allowed_sections_to_users"}, run: migrationAddAllowedSectionsToUsers},
 	{IDs: []string{"add_user_registration_status"}, run: migrationAddUserRegistrationStatus},
 	{IDs: []string{"ensure_user_registration_columns"}, run: migrationEnsureUserRegistrationColumns},
+	{IDs: []string{"add_external_id_to_governance_users"}, run: migrationAddExternalIDToGovernanceUsers},
+	{IDs: []string{"backfill_vk_provider_allow_all_keys"}, run: migrationBackfillVKProviderAllowAllKeys},
 	{IDs: []string{"add_oauth_resource_indicator"}, run: migrationAddOAuthResourceIndicator},
 	{IDs: []string{"add_workspace_feature_tables"}, run: migrationAddWorkspaceFeatureTables},
 	{IDs: []string{"rename_oauth2_bf_columns_to_uf"}, run: migrationRenameOAuth2BfColumnsToUf},
@@ -10552,6 +10554,65 @@ func migrationEnsureUserRegistrationColumns(ctx context.Context, db *gorm.DB, lo
 				tables.UserStatusApproved,
 			).Error; err != nil {
 				return fmt.Errorf("backfill user status: %w", err)
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			return nil
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+// migrationAddExternalIDToGovernanceUsers adds optional SCIM/external identity column.
+func migrationAddExternalIDToGovernanceUsers(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_external_id_to_governance_users"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, "external_id"); err != nil {
+				return fmt.Errorf("add external_id to governance_users: %w", err)
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			return dropColumnIfExists(tx, logger, &tables.TableUser{}, "external_id")
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+// migrationBackfillVKProviderAllowAllKeys fixes provider configs that list a provider
+// but have allow_all_keys=false with zero associated keys (deny-all footgun → "no keys found").
+func migrationBackfillVKProviderAllowAllKeys(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "backfill_vk_provider_allow_all_keys"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			var configs []tables.TableVirtualKeyProviderConfig
+			if err := tx.Preload("Keys").Where("allow_all_keys = ?", false).Find(&configs).Error; err != nil {
+				return fmt.Errorf("list provider configs: %w", err)
+			}
+			for i := range configs {
+				if len(configs[i].Keys) > 0 {
+					continue
+				}
+				if err := tx.Model(&configs[i]).Update("allow_all_keys", true).Error; err != nil {
+					return fmt.Errorf("backfill allow_all_keys for provider config %d: %w", configs[i].ID, err)
+				}
 			}
 			return nil
 		},

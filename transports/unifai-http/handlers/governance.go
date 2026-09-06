@@ -43,6 +43,13 @@ func dbForUpdate(db *gorm.DB) *gorm.DB {
 	return db.Clauses(clause.Locking{Strength: "UPDATE"})
 }
 
+// resolveVKProviderAllowAllKeys decides whether a VK provider config may use any
+// provider API key. key_ids=["*"] or omitted/empty key_ids → allow all keys.
+// A non-empty concrete key_ids list pins those keys only.
+func resolveVKProviderAllowAllKeys(keyIDs schemas.WhiteList) bool {
+	return keyIDs.IsEmpty() || keyIDs.IsUnrestricted()
+}
+
 // GovernanceManager is the interface for the governance manager
 type GovernanceManager interface {
 	GetGovernanceData(ctx context.Context) *governance.GovernanceData
@@ -1339,10 +1346,8 @@ func (h *GovernanceHandler) createVirtualKey(ctx *fasthttp.RequestCtx) {
 
 				// Get keys for this provider config if specified
 				var keys []configstoreTables.TableKey
-				allowAllKeys := false
-				if pc.KeyIDs.IsUnrestricted() {
-					allowAllKeys = true
-				} else if !pc.KeyIDs.IsEmpty() {
+				allowAllKeys := resolveVKProviderAllowAllKeys(pc.KeyIDs)
+				if !allowAllKeys {
 					var err error
 					keys, err = h.configStore.GetKeysByIDs(ctx, pc.KeyIDs)
 					if err != nil {
@@ -1641,10 +1646,8 @@ func (h *GovernanceHandler) updateVirtualKey(ctx *fasthttp.RequestCtx) {
 
 					// Get keys for this provider config if specified
 					var keys []configstoreTables.TableKey
-					allowAllKeys := false
-					if pc.KeyIDs.IsUnrestricted() {
-						allowAllKeys = true
-					} else if !pc.KeyIDs.IsEmpty() {
+					allowAllKeys := resolveVKProviderAllowAllKeys(pc.KeyIDs)
+					if !allowAllKeys {
 						var err error
 						keys, err = h.configStore.GetKeysByIDs(ctx, pc.KeyIDs)
 						if err != nil {
@@ -1704,10 +1707,8 @@ func (h *GovernanceHandler) updateVirtualKey(ctx *fasthttp.RequestCtx) {
 
 					// Get keys for this provider config if specified
 					var keys []configstoreTables.TableKey
-					allowAllKeys := false
-					if pc.KeyIDs.IsUnrestricted() {
-						allowAllKeys = true
-					} else if !pc.KeyIDs.IsEmpty() {
+					allowAllKeys := resolveVKProviderAllowAllKeys(pc.KeyIDs)
+					if !allowAllKeys {
 						var err error
 						keys, err = h.configStore.GetKeysByIDs(ctx, pc.KeyIDs)
 						if err != nil {

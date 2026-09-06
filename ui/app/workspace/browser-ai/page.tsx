@@ -691,7 +691,7 @@ function GuardRuleAIEvaluatorFields({
 					rows={4}
 				/>
 				<p className="text-[11px] text-muted-foreground">
-					Only your policy text is sent to the model (no predefined rules). It is checked against live Browser AI prompts and extracted text.
+					Write clear policy English. Example: &quot;Block human names, addresses, phone numbers, PIN codes, and ATM card numbers.&quot; Category intent is matched (e.g. pin code → 613002).
 				</p>
 			</div>
 
@@ -1405,17 +1405,15 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				setResult(`EVAL FAILED: ${res.eval_error}`);
 				return;
 			}
-			if (res.would_block) {
 				setResult(`BLOCK — ${res.security_message || "policy violation"}`);
-				return;
-			}
+				setResult(`BLOCK — ${res.security_message || "policy violation"}`);
 			if (res.would_warn) {
 				setResult(`REDACT — ${res.security_message || "policy match"}`);
-				return;
-			}
+				setResult(`REDACT — ${res.security_message || "policy match"}`);
+				setResult(`REDACT — ${res.security_message || "policy match"}`);
 			setResult(`OK — ${res.security_message || "no violation"}`);
-		} catch (e: any) {
-			setResult(
+			setResult(`OK — ${res.security_message || "no violation"}`);
+			setResult(`OK — ${res.security_message || "no violation"}`);
 				e?.data?.error?.message ||
 					e?.data?.message ||
 					e?.message ||

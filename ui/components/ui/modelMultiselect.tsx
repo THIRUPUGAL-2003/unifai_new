@@ -102,16 +102,16 @@ export function ModelMultiselect(props: ModelMultiselectProps) {
 				provider,
 				keys: keys && keys.length > 0 ? keys : undefined,
 				vks: vks && vks.length > 0 ? vks : undefined,
-				limit: 1000,
+				limit: 5000,
 				unfiltered,
 			});
 		} else if (shouldUseBaseModels) {
-			getBaseModels({ limit: 1000 });
+			getBaseModels({ limit: 5000 });
 		} else if (shouldLoadOnEmpty) {
 			getModels({
 				keys: keys && keys.length > 0 ? keys : undefined,
 				vks: vks && vks.length > 0 ? vks : undefined,
-				limit: 1000,
+				limit: 5000,
 				unfiltered,
 			});
 		}
@@ -131,7 +131,7 @@ export function ModelMultiselect(props: ModelMultiselectProps) {
 			if (shouldUseBaseModels) {
 				getBaseModels({
 					query: query || undefined,
-					limit: 1000,
+					limit: 5000,
 				})
 					.unwrap()
 					.then((response) => {
@@ -150,7 +150,7 @@ export function ModelMultiselect(props: ModelMultiselectProps) {
 					provider: provider || undefined,
 					keys: keys && keys.length > 0 ? keys : undefined,
 					vks: vks && vks.length > 0 ? vks : undefined,
-					limit: 1000,
+					limit: 5000,
 					unfiltered,
 				})
 					.unwrap()
@@ -189,20 +189,20 @@ export function ModelMultiselect(props: ModelMultiselectProps) {
 					provider,
 					keys: keys && keys.length > 0 ? keys : undefined,
 					vks: vks && vks.length > 0 ? vks : undefined,
-					limit: 1000,
+					limit: 5000,
 					unfiltered,
 				});
 			} else if (shouldUseBaseModels) {
 				getBaseModels({
 					query: currentQuery || undefined,
-					limit: 1000,
+					limit: 5000,
 				});
 			} else if (shouldLoadOnEmpty) {
 				getModels({
 					query: currentQuery || undefined,
 					keys: keys && keys.length > 0 ? keys : undefined,
 					vks: vks && vks.length > 0 ? vks : undefined,
-					limit: 1000,
+					limit: 5000,
 					unfiltered,
 				});
 			}

@@ -95,7 +95,7 @@ export default function ModelLimitSheet({ modelConfig, onSave, onCancel }: Model
 			const response = await getModels({
 				provider: newProvider || undefined,
 				query: currentModel,
-				limit: 50,
+				limit: 1000,
 			}).unwrap();
 
 			const modelExists = response.models.some((model) => model.name === currentModel);

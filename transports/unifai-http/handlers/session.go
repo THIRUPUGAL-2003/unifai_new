@@ -436,6 +436,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		existing.ReviewedAt = &now
 		existing.UpdatedAt = now
 		if err := h.configStore.UpdateUser(ctx, existing); err != nil {
+			logger.Error("failed to update pending governance user username=%s: %v", payload.Username, err)
 			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
 			return
 		}
@@ -466,7 +467,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 			SendError(ctx, fasthttp.StatusConflict, "Username is already registered")
 			return
 		}
-		if strings.Contains(errLower, "column") && (strings.Contains(errLower, "status") || strings.Contains(errLower, "email") || strings.Contains(errLower, "reviewed_at")) {
+		if strings.Contains(errLower, "column") && (strings.Contains(errLower, "status") || strings.Contains(errLower, "email") || strings.Contains(errLower, "reviewed_at") || strings.Contains(errLower, "external_id")) {
 			SendError(ctx, fasthttp.StatusInternalServerError, "Database is missing user registration columns; restart the server to apply migrations")
 			return
 		}

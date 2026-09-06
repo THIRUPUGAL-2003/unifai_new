@@ -25,6 +25,82 @@ func looksLikeSecretToken(s string) bool {
 	return secretTokenPrefix.MatchString(strings.TrimSpace(s))
 }
 
+// looksLikeBinaryOrWireGarbage rejects IDE/proxy decode soup that is not a real typed prompt.
+// Mirrors apps/browser-guard/proxy/browser_ai_proxy.py::_looks_like_binary_or_wire_garbage.
+func looksLikeBinaryOrWireGarbage(s string) bool {
+	t := strings.TrimSpace(s)
+	if t == "" {
+		return true
+	}
+	for _, r := range t {
+		if r < 9 || (r > 10 && r < 32 && r != 13) || r == 127 {
+			return true
+		}
+	}
+	runes := []rune(t)
+	n := len(runes)
+	if n < 100 {
+		high := 0
+		for _, r := range runes {
+			if r > 127 {
+				high++
+			}
+		}
+		if float64(high)/float64(n) >= 0.12 {
+			return true
+		}
+	}
+	alnum, space, other := 0, 0, 0
+	specials := map[rune]struct{}{}
+	for _, r := range runes {
+		switch {
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9'):
+			alnum++
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			space++
+		default:
+			other++
+			specials[r] = struct{}{}
+		}
+	}
+	if n <= 96 {
+		if other >= 4 && len(specials) >= 4 && float64(other)/float64(n) >= 0.28 {
+			return true
+		}
+		if float64(other)/float64(n) >= 0.42 && other >= 3 {
+			return true
+		}
+		letters, vowels := 0, 0
+		for _, r := range runes {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				letters++
+				switch r {
+				case 'a', 'e', 'i', 'o', 'u', 'A', 'E', 'I', 'O', 'U':
+					vowels++
+				}
+			}
+		}
+		if letters >= 4 && other >= 5 && vowels <= 1 {
+			return true
+		}
+		if alnum > 0 && other >= alnum && len(specials) >= 5 {
+			return true
+		}
+	}
+	if n <= 80 {
+		weirdChars := `\]$^*` + "`" + `~|{};<>`
+		weird := 0
+		for _, ch := range weirdChars {
+			weird += strings.Count(t, string(ch))
+		}
+		if weird >= 3 && float64(other)/float64(n) >= 0.25 {
+			return true
+		}
+	}
+	_ = space
+	return false
+}
+
 // GuardSeverityScore maps rule severity to predictive risk score + label.
 func GuardSeverityScore(severity string) (int, string) {
 	return guardSeverityScore(severity)
@@ -867,6 +943,28 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 
 	if m.db == nil {
 		return nil, "", fmt.Errorf("database connection not available")
+	}
+
+	// Do not persist Cursor/IDE binary decode fragments as Prompt Logs.
+	if looksLikeBinaryOrWireGarbage(promptFull) &&
+		!strings.HasPrefix(strings.TrimSpace(promptFull), "[FILE UPLOAD]") &&
+		!strings.HasPrefix(strings.TrimSpace(promptFull), "[VOICE UPLOAD]") &&
+		!strings.HasPrefix(strings.TrimSpace(promptFull), "[SITE BLOCKED") {
+		return &BrowserAILog{
+			ID:                uuid.New().String(),
+			Timestamp:         time.Now(),
+			Platform:          platform,
+			UserPromptPreview: "",
+			UserPromptFull:    "",
+			EstTokens:         0,
+			ClientIP:          clientIP,
+			Status:            "Skipped (opaque wire)",
+			Action:            "Allowed",
+			RiskScore:         0,
+			PredictiveRisk:    "LOW",
+			PredictedCategory: "SAFE",
+			CreatedAt:         time.Now(),
+		}, "", nil
 	}
 
 	words := strings.Fields(promptFull)

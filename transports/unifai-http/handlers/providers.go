@@ -677,13 +677,13 @@ type listedModel struct {
 //   - query: Filter models by name (case-insensitive partial match)
 //   - provider: Filter by specific provider name
 //   - keys: Comma-separated list of provider key UUIDs to filter models accessible by those keys
-//   - limit: Maximum number of results to return (default: 5)
+//   - limit: Maximum number of results to return (default: 1000)
 //
 // Request headers:
 //   - x-uf-vk / Authorization: Bearer / x-api-key / x-goog-api-key: Virtual key (sk-uf-…) to scope
 //     results to providers and models allowed by that virtual key.
 func (h *ProviderHandler) listModels(ctx *fasthttp.RequestCtx) {
-	query, ok := h.parseModelListQuery(ctx, 5)
+	query, ok := h.parseModelListQuery(ctx, 1000)
 	if !ok {
 		return
 	}
@@ -720,14 +720,14 @@ func (h *ProviderHandler) listModels(ctx *fasthttp.RequestCtx) {
 //   - provider: Filter by specific provider name
 //   - keys: Comma-separated list of key IDs to filter models accessible by those keys
 //   - unfiltered: If true, bypass provider-level model pool restrictions only
-//   - limit: Maximum number of results to return (default: 20)
+//   - limit: Maximum number of results to return (default: 1000)
 //   - offset: Number of results to skip (for pagination)
 //
 // Request headers:
 //   - x-uf-vk / Authorization: Bearer / x-api-key / x-goog-api-key: Virtual key (sk-uf-…) to scope
 //     results to providers and models allowed by that virtual key.
 func (h *ProviderHandler) listModelDetails(ctx *fasthttp.RequestCtx) {
-	query, ok := h.parseModelListQuery(ctx, 20)
+	query, ok := h.parseModelListQuery(ctx, 1000)
 	if !ok {
 		return
 	}
@@ -1126,12 +1126,12 @@ type ListBaseModelsResponse struct {
 // listBaseModels handles GET /api/models/base - List distinct base model names from the catalog
 // Query parameters:
 //   - query: Filter base models by name (case-insensitive partial match)
-//   - limit: Maximum number of results to return (default: 20)
+//   - limit: Maximum number of results to return (default: 1000)
 func (h *ProviderHandler) listBaseModels(ctx *fasthttp.RequestCtx) {
 	queryParam := string(ctx.QueryArgs().Peek("query"))
 	limitParam := string(ctx.QueryArgs().Peek("limit"))
 
-	limit := 20
+	limit := 1000
 	if limitParam != "" {
 		if n, err := ctx.QueryArgs().GetUint("limit"); err == nil {
 			limit = n
