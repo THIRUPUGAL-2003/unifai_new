@@ -117,6 +117,14 @@ CHAT_PATH_MARKERS = [
     # Copilot / Bing Sydney
     "/sydney/", "/chatoverstream", "/getresponse", "/chathub", "/c/api/",
     "/api/v0/chat", "/api/v0/", "/backend-anon", "/turing/conversation",
+    # Broader AI chat APIs (DeepSeek / Poe / HF / custom / enterprise bots)
+    "/api/v1/chat", "/api/v2/chat", "/api/v3/chat", "/api/v4/chat",
+    "/v1/completions", "/v2/completions", "/chat/api", "/ai/chat",
+    "/llm/", "/aichat", "/send_message", "/send-message", "/submit",
+    "/generate_response", "/generate-response", "/user_message",
+    "/rpc/chat", "/gateway/chat", "/assistant", "/bots/", "/bot/",
+    "/inference", "/predict", "/respond", "/reply",
+]
     # Gemini generate APIs (StreamGenerate is the real chat submit; batchexecute is mostly RPC noise)
     "/streamgenerate", "/streamgeneratecontent", "/generatecontent", "/_$stream",
     "bardfrontendservice", "/bardchatui", "/_/bard",
@@ -1627,7 +1635,12 @@ def _should_intercept_extracted_prompt(
     host: str = "",
     raw_bytes: bytes = b"",
 ) -> bool:
-    """Only finished chat Send with real user text — not telemetry/sync/internal RPC."""
+    """Only finished chat Send with real user text — not telemetry/sync/internal RPC.
+
+    Works for ANY admin-monitored Target Website — not ChatGPT-only. Known platform
+    shapes (ChatGPT/Claude/Gemini/…) are preferred; unknown AI chat APIs still pass
+    when we extracted real user text on a non-noise chat-looking request.
+    """
     if not prompt or not isinstance(prompt, str):
         return False
     text = prompt.strip()
@@ -1649,8 +1662,25 @@ def _should_intercept_extracted_prompt(
             return False
     if _is_typing_or_draft_path(path, raw_text):
         return False
-    if not _is_confident_chat_send(path, raw_text, raw_bytes):
+    if is_noise(path, raw_text):
         return False
+
+    confident = _is_confident_chat_send(path, raw_text, raw_bytes)
+    if not confident:
+        # Unknown / other AI products: still predict when body/path looks like a chat send
+        # OR we already extracted a real user sentence from JSON on a monitored host.
+        body = (raw_text or "").lstrip()
+        looks_chat = (
+            is_chat_path(path, host, raw_text)
+            or _path_has_chat_marker(path)
+            or body.startswith(("{", "["))
+        )
+        if not looks_chat:
+            return False
+        # Require a bit more substance for non-confident shapes to avoid telemetry false hits.
+        if len(text) < 2 and not text.isdigit():
+            return False
+
     # Only skip ultra-fast single-keystroke drafts on prepare/autocomplete paths.
     path_l = (path or "").lower()
     if ("prepare" in path_l or "autocomplet" in path_l) and is_composer_typing_draft(domain, text):
@@ -3230,6 +3260,7 @@ def _scan_upload_for_rules(
                     platform, domain, (scanned or "")[:50_000], client_ip, url, method or "POST",
                     upload_images=upload_images,
                     evaluation_only=True,
+                    extracted_text=(scanned or "")[:50_000],
                 )
                 if eval_err:
                     scan_eval_error = str(eval_err).strip()
@@ -5670,7 +5701,7 @@ def get_client_ip(flow: http.HTTPFlow) -> str:
         return "127.0.0.1"
 
 
-def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str, upload_images: list[str] | None = None, evaluation_only: bool = False) -> tuple[bool, str, str, str, str, str]:
+def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str, upload_images: list[str] | None = None, evaluation_only: bool = False, extracted_text: str = "") -> tuple[bool, str, str, str, str, str]:
     """
     Send intercepted prompt to UnifAI backend /api/browser-ai/intercept.
     Backend handles guard rule matching and returns allowed/blocked decision.
@@ -5685,6 +5716,9 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             "agent_hostname": UNIFAI_AGENT_HOSTNAME,
             "evaluation_only": bool(evaluation_only),
         }
+        ext = (extracted_text or "").strip()
+        if ext:
+            metadata["extracted_text"] = ext[:50_000]
         # Do NOT set upload_scan for evaluation_only — that flag is for file audit logs only
         # and would skip AI Guard Bot if the eval_only early-return ever changed.
         payload = json.dumps({
