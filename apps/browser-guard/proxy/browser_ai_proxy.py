@@ -235,7 +235,7 @@ def _fetch_json(url: str, timeout: float | None = None) -> dict | None:
 
 
 def _normalize_domain(raw: str) -> str:
-    """Normalize backend domain values like 'https://chatgpt.com/' -> 'chatgpt.com'."""
+    """Normalize admin Target domain values like 'https://example.com/' -> 'example.com'."""
     domain = (raw or "").strip().lower()
     if not domain:
         return ""
@@ -709,11 +709,6 @@ def controls_active(key: str) -> bool:
 # Helper Functions
 # ─────────────────────────────────────────────
 
-def looks_like_secret_token(text: str) -> bool:
-    t = (text or "").strip()
-    return bool(re.match(r"^(sk-|sk-ant-|sk-proj-|sk-admin-|ghp_|gho_|github_pat_|AKIA|AIzaSy|pcsk_)", t, re.I))
-
-
 def _compile_guard_regex(pattern: str):
     """Compile admin regex once. Strip nested (?i) so IGNORECASE is applied cleanly."""
     p = (pattern or "").strip()
@@ -725,26 +720,12 @@ def _compile_guard_regex(pattern: str):
     return re.compile(p, re.IGNORECASE)
 
 
-def is_phone_like_rule(name: str, pattern: str = "") -> bool:
-    n = (name or "").lower()
-    p = (pattern or "").lower()
-    if any(x in n for x in ("phone", "mobile", "cell")):
-        return True
-    return any(x in p for x in (r"\d{8", r"\d{9", r"\d{10", r"\d{11", "[0-9]{10"))
-
-
 def rule_matches_prompt(rule: dict, prompt: str) -> bool:
+    """True only when the admin-configured regex matches. No hardcoded DLP heuristics."""
     regex = rule.get("regex")
     if regex is None or not prompt:
         return False
-    m = regex.search(prompt)
-    if not m:
-        return False
-    if is_phone_like_rule(rule.get("name", ""), rule.get("pattern", "")) and looks_like_secret_token(prompt):
-        return False
-    if m.start() >= 3 and prompt[m.start() - 3 : m.start()].lower() == "sk-":
-        return False
-    return True
+    return bool(regex.search(prompt))
 
 
 def _redacted_forward(prompt: str, warning_message: str = "") -> str:
@@ -868,17 +849,15 @@ def _merge_guard_decisions(
 
 
 def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
-    """Apply all matching regex rules; strictest action wins (BLOCK > REDACT)."""
+    """Apply admin-added regex rules only; strictest action wins (BLOCK > REDACT)."""
     rules = list(get_guard_rules())
 
     def _prio(r: dict) -> tuple:
         action = (r.get("action") or "BLOCK").upper()
         if action == "WARN":
             action = "REDACT"
-        # Lower tuple sorts first: BLOCK before REDACT; non-phone before phone-like.
-        block_first = 0 if action == "BLOCK" else 1
-        phone_last = 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0
-        return (block_first, phone_last)
+        # BLOCK before REDACT — no product/phone heuristics.
+        return (0 if action == "BLOCK" else 1,)
 
     rules.sort(key=_prio)
 
@@ -898,13 +877,7 @@ def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
         r = best_redact
         return True, r["name"], "Redacted", _redacted_forward(prompt, r.get("warning_message", "")), ""
 
-    if looks_like_secret_token(prompt):
-        for r in rules:
-            n = (r.get("name") or "").lower()
-            if any(x in n for x in ("phone", "mobile")):
-                continue
-            if any(x in n for x in ("api", "key", "secret", "token")):
-                return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
+    # No built-in / hardcoded DLP patterns — only admin-added rules above.
     return True, "", "Allowed", prompt, ""
 
 
@@ -5723,14 +5696,14 @@ def extract_upload_text_for_rules(
 def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
     """
     Apply active Guard Rules to arbitrary text (prompt, file extract, or audio STT).
-    Same matching semantics as typed prompts (phone/secret-token nuance included).
+    Same matching semantics as typed prompts (admin regex only).
     Returns (matched, rule_name, action).
     """
     if not text or len(text.strip()) < 1:
         return False, "", ""
     rules = sorted(
         get_guard_rules(),
-        key=lambda r: 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0,
+        key=lambda r: 0 if (r.get("action") or "BLOCK").upper() in ("BLOCK",) else 1,
     )
     for r in rules:
         try:
@@ -6167,7 +6140,7 @@ def check_guard_rules(content: str) -> tuple[bool, str, str]:
     """
     rules = sorted(
         get_guard_rules(),
-        key=lambda r: 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0,
+        key=lambda r: 0 if (r.get("action") or "BLOCK").upper() == "BLOCK" else 1,
     )
     for rule in rules:
         if rule_matches_prompt(rule, content):
@@ -6247,10 +6220,10 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
     except Exception as e:
         print(f"[UnifAI Proxy] send_to_backend failed: {e}")
 
-    # Fallback: apply guard rules locally if backend is down
+    # Fallback: apply admin guard rules locally if backend is down
     rules = sorted(
         get_guard_rules(),
-        key=lambda r: 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0,
+        key=lambda r: 0 if (r.get("action") or "BLOCK").upper() == "BLOCK" else 1,
     )
     for r in rules:
         if not rule_matches_prompt(r, prompt):

@@ -19,14 +19,9 @@ import (
 var pacHostSafe = regexp.MustCompile(`^[a-z0-9.-]+$`)
 var pacProxyAddrSafe = regexp.MustCompile(`^[A-Za-z0-9.:\[\]-]+$`)
 var nicGUID = regexp.MustCompile(`(?i)\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}`)
-var secretTokenPrefix = regexp.MustCompile(`(?i)^(sk-|sk-ant-|sk-proj-|sk-admin-|ghp_|gho_|github_pat_|akia|aizasy|pcsk_)`)
 var ideExeAtHash = regexp.MustCompile(`(?i)\b[\w.-]+\.exe\*@`)
 var hexAtHash24 = regexp.MustCompile(`(?i)@[a-f0-9]{24,}`)
 var cpuVendorTelemetry = regexp.MustCompile(`(?i)\b(?:amd|intel|qualcomm|apple)\b.+\b(?:cpu|gpu|mhz|ghz)\b`)
-
-func looksLikeSecretToken(s string) bool {
-	return secretTokenPrefix.MatchString(strings.TrimSpace(s))
-}
 
 // IsOpaqueOrWirePrompt reports IDE/binary/wire junk that must never drive Guard Bot or Prompt Logs.
 func IsOpaqueOrWirePrompt(s string) bool {
@@ -159,16 +154,6 @@ func guardSeverityScore(severity string) (int, string) {
 	default:
 		return 85, "HIGH"
 	}
-}
-
-func isPhoneLikeRule(name, pattern string) bool {
-	n := strings.ToLower(name)
-	p := strings.ToLower(pattern)
-	if strings.Contains(n, "phone") || strings.Contains(n, "mobile") || strings.Contains(n, "cell") {
-		return true
-	}
-	return strings.Contains(p, `\d{8`) || strings.Contains(p, `\d{9`) || strings.Contains(p, `\d{10`) ||
-		strings.Contains(p, `\d{11`) || strings.Contains(p, `[0-9]{10`)
 }
 
 // CompileGuardRegex builds a case-insensitive RE2 pattern, stripping a leading (?i) from admin input.
@@ -1119,15 +1104,10 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 	}
 
 	sort.SliceStable(rules, func(i, j int) bool {
-		// BLOCK before REDACT so duplicate patterns never prefer a weaker action.
+		// BLOCK before REDACT — admin rules only, no phone/secret heuristics.
 		ai := NormalizeGuardRuleAction(rules[i].Action) == "BLOCK"
 		aj := NormalizeGuardRuleAction(rules[j].Action) == "BLOCK"
-		if ai != aj {
-			return ai
-		}
-		pi := isPhoneLikeRule(rules[i].Name, rules[i].Pattern)
-		pj := isPhoneLikeRule(rules[j].Name, rules[j].Pattern)
-		return pi != pj && !pi && pj
+		return ai && !aj
 	})
 
 	// Proxy already decided Blocked (upload / site lock) — do not let a REDACT rule downgrade it.
@@ -1162,14 +1142,6 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		re, err := CompileGuardRegex(rule.Pattern)
 		if err != nil || !re.MatchString(regexScanText) {
 			continue
-		}
-		if isPhoneLikeRule(rule.Name, rule.Pattern) && looksLikeSecretToken(regexScanText) {
-			continue
-		}
-		if loc := re.FindStringIndex(regexScanText); loc != nil && loc[0] >= 3 {
-			if strings.EqualFold(regexScanText[loc[0]-3:loc[0]], "sk-") {
-				continue
-			}
 		}
 		ruleTriggered = rule.Name
 		matchedWarning = strings.TrimSpace(rule.WarningMessage)
@@ -1209,24 +1181,7 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		}
 	}
 
-	if action == "Allowed" && !uploadScan && looksLikeSecretToken(promptFull) {
-		for _, rule := range rules {
-			n := strings.ToLower(rule.Name)
-			if strings.Contains(n, "phone") || strings.Contains(n, "mobile") {
-				continue
-			}
-			if strings.Contains(n, "api") || strings.Contains(n, "key") || strings.Contains(n, "secret") || strings.Contains(n, "token") {
-				ruleTriggered = rule.Name
-				matchedWarning = strings.TrimSpace(rule.WarningMessage)
-				action = "Blocked"
-				status = fmt.Sprintf("Blocked (%s)", rule.Name)
-				riskScore = 95
-				predictiveRisk = "CRITICAL"
-				predictedCategory = "SECURITY_POLICY_VIOLATION"
-				break
-			}
-		}
-	}
+	// No built-in / hardcoded DLP patterns — only admin-added regex/bot rules above.
 
 	if action == "Allowed" && ruleTriggered == "" && (status == "Allowed" || status == "") {
 		status = "Allowed (no guard rule matched)"
