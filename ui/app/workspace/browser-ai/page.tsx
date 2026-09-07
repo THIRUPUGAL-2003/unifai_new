@@ -189,9 +189,9 @@ function GuardBotOutsourceModelPicker({
 				searchPlaceholder="Search catalog models..."
 				data-testid="browser-ai-guard-bot-outsource-model"
 			/>
-			{String(value || "").toLowerCase().includes(":free") || /code/i.test(String(value || "")) ? (
+			{String(value || "").toLowerCase().includes(":free") || /code/i.test(String(value || "")) || /reasoner|reasoning|deepseek-r1|thinking/i.test(String(value || "")) ? (
 				<p className="text-[11px] text-amber-400">
-					This model may reject Guard chat evaluate (e.g. 422). Pick a chat model that matches your API key, or use Download → llama3.2.
+					This model may reject Guard chat evaluate (e.g. 422) or return empty text. Prefer a chat model that matches your API key (e.g. deepseek-chat), or use Download → llama3.2.
 				</p>
 			) : null}
 		</>

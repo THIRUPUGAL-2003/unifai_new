@@ -1717,20 +1717,84 @@ type aiBotEvalResult struct {
 }
 
 func evaluatorChoiceText(resp *schemas.UnifAIChatResponse) string {
-	if resp == nil || len(resp.Choices) == 0 || resp.Choices[0].Message.Content == nil {
+	if resp == nil || len(resp.Choices) == 0 {
 		return ""
 	}
-	c := resp.Choices[0].Message.Content
-	if c.ContentStr != nil {
-		return strings.TrimSpace(*c.ContentStr)
+	choice := resp.Choices[0]
+	if choice.Message == nil {
+		return ""
 	}
-	var b strings.Builder
-	for _, block := range c.ContentBlocks {
-		if block.Text != nil {
-			b.WriteString(*block.Text)
+	return assistantMessageText(choice.Message)
+}
+
+// assistantMessageText pulls usable text from content, then reasoning/refusal.
+// DeepSeek-reasoner / R1-style models often leave content empty and put the
+// JSON decision only in reasoning / reasoning_content.
+func assistantMessageText(msg *schemas.ChatMessage) string {
+	if msg == nil {
+		return ""
+	}
+	if msg.Content != nil {
+		if msg.Content.ContentStr != nil {
+			if s := strings.TrimSpace(*msg.Content.ContentStr); s != "" {
+				return s
+			}
+		}
+		var b strings.Builder
+		for _, block := range msg.Content.ContentBlocks {
+			if block.Text != nil {
+				b.WriteString(*block.Text)
+			}
+			if block.Refusal != nil {
+				b.WriteString(*block.Refusal)
+			}
+		}
+		if s := strings.TrimSpace(b.String()); s != "" {
+			return s
 		}
 	}
-	return strings.TrimSpace(b.String())
+	if msg.ChatAssistantMessage != nil {
+		if msg.Refusal != nil {
+			if s := strings.TrimSpace(*msg.Refusal); s != "" {
+				return s
+			}
+		}
+		if msg.Reasoning != nil {
+			if s := strings.TrimSpace(*msg.Reasoning); s != "" {
+				return s
+			}
+		}
+		for _, d := range msg.ReasoningDetails {
+			if d.Text != nil {
+				if s := strings.TrimSpace(*d.Text); s != "" {
+					return s
+				}
+			}
+			if d.Summary != nil {
+				if s := strings.TrimSpace(*d.Summary); s != "" {
+					return s
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func evaluatorEmptyReason(resp *schemas.UnifAIChatResponse) string {
+	if resp == nil || len(resp.Choices) == 0 {
+		return "empty evaluator response (no choices from model)"
+	}
+	fr := ""
+	if resp.Choices[0].FinishReason != nil {
+		fr = strings.TrimSpace(*resp.Choices[0].FinishReason)
+	}
+	if fr == "length" {
+		return "empty evaluator response (finish_reason=length — pick a chat model or raise tokens; reasoner models need more room)"
+	}
+	if fr != "" {
+		return "empty evaluator response (finish_reason=" + fr + " — pick a chat model that returns text content, not a free/code/reasoner-only model)"
+	}
+	return "empty evaluator response (model returned no text — pick a chat model matching your API key, or Download → llama3.2)"
 }
 
 func securityVerdictMessage(verdict, ruleName string) string {
@@ -1924,9 +1988,12 @@ Derive the pattern only from SECURITY_POLICY.`
 			return "", fmt.Errorf("unifai client not available for outsource model")
 		}
 		prov := schemas.ModelProvider(provider)
-		unifaiReq := buildGuardOutsourceChatRequest(prov, model, systemPrompt, user, false, preferJSON)
+		unifaiReq := buildGuardOutsourceChatRequest(prov, model, systemPrompt, user, false, preferJSON && !isWeakGuardEvalModel(model) && !isReasoningGuardModel(model))
 		if unifaiReq.Params != nil {
-			maxTokens := 320
+			maxTokens := 512
+			if isReasoningGuardModel(model) {
+				maxTokens = 1024
+			}
 			temp := 0.1
 			unifaiReq.Params.Temperature = &temp
 			if unifaiReq.Params.ExtraParams == nil {
@@ -2219,6 +2286,23 @@ func isWeakGuardEvalModel(model string) bool {
 		strings.Contains(m, "tts")
 }
 
+// isReasoningGuardModel detects thinking/reasoner models that often leave content empty.
+func isReasoningGuardModel(model string) bool {
+	m := strings.ToLower(strings.TrimSpace(model))
+	if m == "" {
+		return false
+	}
+	return strings.Contains(m, "reasoner") ||
+		strings.Contains(m, "reasoning") ||
+		strings.Contains(m, "deepseek-r1") ||
+		strings.Contains(m, "r1-") ||
+		strings.HasSuffix(m, "-r1") ||
+		strings.Contains(m, "thinking") ||
+		strings.Contains(m, "o1-") ||
+		strings.Contains(m, "o3-") ||
+		strings.Contains(m, "o4-")
+}
+
 // browserAIGuardBotSystemPrompt is used for every AI Guard Bot text rule (any admin policy).
 // No predefined DLP topic list — only the admin SECURITY_POLICY defines what to enforce.
 func browserAIGuardBotSystemPrompt() string {
@@ -2363,6 +2447,8 @@ func (h *BrowserAIHandler) evaluateAIBotRuleDetailed(rule logstore.BrowserGuardR
 	}
 
 	budgetEnd := time.Now().Add(guardBotEvalBudget())
+	weakModel := isWeakGuardEvalModel(modelName)
+	reasoningModel := isReasoningGuardModel(modelName)
 	runOutsource := func(user string, withSystem, withJSON bool) (bool, string, string) {
 		remaining := time.Until(budgetEnd)
 		if remaining < 2*time.Second {
@@ -2379,7 +2465,7 @@ func (h *BrowserAIHandler) evaluateAIBotRuleDetailed(rule logstore.BrowserGuardR
 		}
 		rawText := stripEvalMarkdown(evaluatorChoiceText(resp))
 		if rawText == "" {
-			return false, "empty evaluator response", ""
+			return false, evaluatorEmptyReason(resp), ""
 		}
 		violated, recognized := parseAIBotDecision(rawText)
 		if !recognized {
@@ -2389,6 +2475,8 @@ func (h *BrowserAIHandler) evaluateAIBotRuleDetailed(rule logstore.BrowserGuardR
 	}
 
 	// Few attempts under one shared budget — Send path cannot stack 6× LLM calls.
+	// Weak/free/code and reasoner models often reject json_object or leave content empty;
+	// start plain-text first for those, JSON-first for normal chat models.
 	attempts := []struct {
 		user       string
 		withSystem bool
@@ -2397,6 +2485,19 @@ func (h *BrowserAIHandler) evaluateAIBotRuleDetailed(rule logstore.BrowserGuardR
 		{shortUserMsg, true, true},
 		{userMsg, true, true},
 		{strictUserMsg, true, false},
+		{shortUserMsg, false, false},
+	}
+	if weakModel || reasoningModel {
+		attempts = []struct {
+			user       string
+			withSystem bool
+			withJSON   bool
+		}{
+			{shortUserMsg, false, false},
+			{strictUserMsg, true, false},
+			{shortUserMsg, true, false},
+			{userMsg, true, true},
+		}
 	}
 	var firstErr string
 	var lastRaw string
@@ -2437,7 +2538,11 @@ func (h *BrowserAIHandler) evaluateAIBotRuleDetailed(rule logstore.BrowserGuardR
 // and OpenAI-compatible providers (OpenRouter, Groq, DeepSeek, etc.) when the
 // configured API key matches the selected provider.
 func buildGuardOutsourceChatRequest(provider schemas.ModelProvider, model, systemPrompt, user string, withSystem, withJSON bool) *schemas.UnifAIChatRequest {
-	maxTokens := 128
+	// 128 was too low for reasoner models (finish_reason=length + empty content).
+	maxTokens := 384
+	if isReasoningGuardModel(model) {
+		maxTokens = 768
+	}
 	temp := 0.0
 	params := &schemas.ChatParameters{
 		Temperature: &temp,
@@ -2451,7 +2556,8 @@ func buildGuardOutsourceChatRequest(provider schemas.ModelProvider, model, syste
 	if p == string(schemas.OpenAI) || p == string(schemas.Azure) {
 		params.MaxCompletionTokens = &maxTokens
 	}
-	if withJSON {
+	// Skip json_object for weak/reasoner models — many return 422 or empty content.
+	if withJSON && !isWeakGuardEvalModel(model) && !isReasoningGuardModel(model) {
 		rf := any(map[string]any{"type": "json_object"})
 		params.ResponseFormat = &rf
 	}
@@ -2514,7 +2620,7 @@ func runOllamaTextGuardEvalDetailed(modelName, systemPrompt, userMsg, shortUserM
 		}
 		rawText = stripEvalMarkdown(rawText)
 		if rawText == "" {
-			return false, "empty evaluator response", ""
+			return false, "empty evaluator response (Ollama returned no text — confirm llama3.2 is pulled and reachable)", ""
 		}
 		violated, recognized := parseAIBotDecision(rawText)
 		if !recognized {
@@ -2666,7 +2772,7 @@ JSON only: {"violation":true} or {"violation":false}`,
 		return false, "no vision images to evaluate"
 	}
 
-	maxTokens := 128
+	maxTokens := 384
 	temp := 0.0
 	responseFormat := any(map[string]any{"type": "json_object"})
 	unifaiReq := &schemas.UnifAIChatRequest{
@@ -2690,6 +2796,9 @@ JSON only: {"violation":true} or {"violation":false}`,
 			MaxCompletionTokens: &maxTokens,
 			Temperature:         &temp,
 			ResponseFormat:      &responseFormat,
+			ExtraParams: map[string]interface{}{
+				"max_tokens": maxTokens,
+			},
 		},
 	}
 
@@ -2698,13 +2807,14 @@ JSON only: {"violation":true} or {"violation":false}`,
 		unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
+		unifaiCtx.SetValue(schemas.UnifAIContextKeyPassthroughExtraParams, true)
 		resp, unifaiErr := h.client.ChatCompletionRequest(unifaiCtx, unifaiReq)
 		if unifaiErr != nil {
 			return false, truncateRunes(unifaiErrorMessage(unifaiErr), 180)
 		}
 		rawText := stripEvalMarkdown(evaluatorChoiceText(resp))
 		if rawText == "" {
-			return false, "empty vision evaluator response"
+			return false, evaluatorEmptyReason(resp)
 		}
 		violated, recognized := parseAIBotDecision(rawText)
 		if !recognized {
