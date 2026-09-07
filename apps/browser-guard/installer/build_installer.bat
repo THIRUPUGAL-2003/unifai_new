@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-title Build UnifAI Guard Enterprise Installer 1.6.3
+title Build UnifAI Guard Enterprise Installer 1.6.18
 
 cd /d "%~dp0.."
 
@@ -67,11 +67,14 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo  SUCCESS — UnifAI Guard 1.6.3
+echo  SUCCESS — UnifAI Guard 1.6.18
 echo  Employee installer:
 echo    release\UnifAI_Guard_Setup.exe
+echo  Portable EXE:
+echo    release\UnifAI_Guard.exe  (and dist\UnifAI_Guard.exe)
 echo  Backend:
 echo    https://unifaiv2.dev-yp.com
 echo ============================================================
 dir release\UnifAI_Guard_Setup.exe
+dir release\UnifAI_Guard.exe
 endlocal

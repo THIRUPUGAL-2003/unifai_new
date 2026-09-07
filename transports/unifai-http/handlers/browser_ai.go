@@ -540,7 +540,7 @@ func browserAISetupCandidates() map[string][]string {
 			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_Setup.exe"),
 			filepath.Join("release", "UnifAI_Guard_Setup.exe"),
 		},
-		// Portable EXE (latest PyInstaller build) — use when Setup.exe is stale.
+		// Portable EXE (latest PyInstaller build) — preferred when newer than Setup.exe.
 		"UnifAI_Guard.exe": {
 			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard.exe"),
 			filepath.Join("apps", "browser-guard", "dist", "UnifAI_Guard.exe"),
@@ -559,6 +559,10 @@ func browserAISetupCandidates() map[string][]string {
 			filepath.Join("apps", "browser-guard", "release", "INSTALL_WINDOWS.txt"),
 			filepath.Join("release", "INSTALL_WINDOWS.txt"),
 		},
+		"VERSION.txt": {
+			filepath.Join("apps", "browser-guard", "release", "VERSION.txt"),
+			filepath.Join("release", "VERSION.txt"),
+		},
 	}
 }
 
@@ -571,25 +575,82 @@ func findFirstExisting(candidates []string) (string, bool) {
 	return "", false
 }
 
+func fileModTime(path string) time.Time {
+	info, err := os.Stat(path)
+	if err != nil {
+		return time.Time{}
+	}
+	return info.ModTime()
+}
+
+func readGuardReleaseVersion() string {
+	for _, p := range []string{
+		filepath.Join("apps", "browser-guard", "release", "VERSION.txt"),
+		filepath.Join("release", "VERSION.txt"),
+	} {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		v := strings.TrimSpace(string(data))
+		if v != "" {
+			return v
+		}
+	}
+	// Fallback: parse AGENT_VERSION from source when VERSION.txt missing.
+	agentPy := filepath.Join("apps", "browser-guard", "agent", "unifai_agent.py")
+	data, err := os.ReadFile(agentPy)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "AGENT_VERSION") && strings.Contains(line, "=") {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				v := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
+				if v != "" {
+					return v
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 	type zipAsset struct {
 		name string
 		path string
 	}
 
+	setupPath, setupOK := findFirstExisting(browserAISetupCandidates()["UnifAI_Guard_Setup.exe"])
+	exePath, exeOK := findFirstExisting(browserAISetupCandidates()["UnifAI_Guard.exe"])
+
+	// Stale Setup.exe was shipping Active agents as 1.6.0 while source was 1.6.17+.
+	// If portable EXE is newer, omit Setup so Download cannot install the old binary.
+	if setupOK && exeOK {
+		if fileModTime(exePath).After(fileModTime(setupPath)) {
+			setupOK = false
+		}
+	}
+
 	var assets []zipAsset
-	for name, candidates := range browserAISetupCandidates() {
-		if path, ok := findFirstExisting(candidates); ok {
+	if setupOK {
+		assets = append(assets, zipAsset{name: "UnifAI_Guard_Setup.exe", path: setupPath})
+	}
+	if exeOK {
+		assets = append(assets, zipAsset{name: "UnifAI_Guard.exe", path: exePath})
+	}
+	for _, name := range []string{"UnifAI_Guard_macOS.zip", "MAC_INSTALL.txt", "INSTALL_WINDOWS.txt", "VERSION.txt"} {
+		if path, ok := findFirstExisting(browserAISetupCandidates()[name]); ok {
 			assets = append(assets, zipAsset{name: name, path: path})
 		}
 	}
 
-	hasWindows := false
+	hasWindows := setupOK || exeOK
 	hasMac := false
 	for _, a := range assets {
-		if a.name == "UnifAI_Guard_Setup.exe" || a.name == "UnifAI_Guard.exe" {
-			hasWindows = true
-		}
 		if a.name == "UnifAI_Guard_macOS.zip" {
 			hasMac = true
 		}
@@ -603,11 +664,17 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	releaseVer := readGuardReleaseVersion()
+
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetContentType("application/zip")
 	ctx.Response.Header.Set("Content-Disposition", `attachment; filename="unifai-browser-ai-setup.zip"`)
+	if releaseVer != "" {
+		ctx.Response.Header.Set("X-UnifAI-Guard-Version", releaseVer)
+	}
 	ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
 		zw := zip.NewWriter(w)
+		wroteVersion := false
 		for _, asset := range assets {
 			data, err := os.ReadFile(asset.path)
 			if err != nil {
@@ -617,8 +684,15 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 			if err != nil {
 				continue
 			}
-			if _, err := entry.Write(data); err != nil {
-				continue
+			_, _ = entry.Write(data)
+			if asset.name == "VERSION.txt" {
+				wroteVersion = true
+			}
+		}
+		// Always embed the current release version so employees see the expected number.
+		if !wroteVersion && releaseVer != "" {
+			if entry, err := zw.Create("VERSION.txt"); err == nil {
+				_, _ = entry.Write([]byte(releaseVer + "\n"))
 			}
 		}
 		_ = zw.Close()
