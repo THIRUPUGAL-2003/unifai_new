@@ -116,7 +116,13 @@ def load_runtime_config() -> dict:
     backend = pick("UNIFAI_BACKEND_URL", "backend_url", DEFAULT_BACKEND).rstrip("/")
     proxy_addr = pick("UNIFAI_PROXY_ADDR", "proxy_addr", "127.0.0.1:8085")
     pac_url = pick("UNIFAI_PAC_URL", "pac_url", f"{backend}/api/browser-ai/pac")
-    sync_secs = pick("UNIFAI_PAC_SYNC_SECONDS", "pac_sync_seconds", "1")
+    sync_secs = pick("UNIFAI_PAC_SYNC_SECONDS", "pac_sync_seconds", "60")
+    try:
+        # 1s default used to hammer PAC + force browser rebind → felt like connection cuts.
+        sync_i = int(float(sync_secs))
+    except Exception:
+        sync_i = 60
+    sync_secs = str(max(15, min(sync_i, 600)))
 
     os.environ["UNIFAI_BACKEND_URL"] = backend
     os.environ["UNIFAI_PROXY_ADDR"] = proxy_addr
@@ -291,14 +297,16 @@ def apply_admin_uninstall(agent_id: str) -> None:
 
 
 def heartbeat_loop(agent_id: str, stop_event: threading.Event) -> None:
+    ticks = 0
     while not stop_event.is_set():
         data = send_heartbeat(agent_id, status="active")
         if heartbeat_wants_uninstall(data):
             apply_admin_uninstall(agent_id)
             return
-        # Re-assert SAME PAC URL (no ?v= churn) — changing AutoConfigURL every 30s
-        # was cutting live HTTPS tunnels ("connection dropped").
-        ensure_pac_still_on(silent=True)
+        ticks += 1
+        # Re-assert PAC only every ~2 min — every-30s registry poke can drop tunnels on Windows.
+        if ticks % 4 == 1:
+            ensure_pac_still_on(silent=True)
         set_browser_quic(enable_quic=False)
         stop_event.wait(HEARTBEAT_SECONDS)
 
@@ -1287,13 +1295,18 @@ def write_local_pac(content: str) -> None:
 
 
 def sync_pac_loop(stop_event: threading.Event) -> None:
+    """Pull Target Website PAC from backend. Only rebind browsers when content actually changes.
+
+    Rebinding AutoConfigURL drops live HTTPS tunnels (ChatGPT/Claude) — never do it on a timer alone.
+    """
     last = ""
     while not stop_event.is_set():
         pac = fetch_proxy_pac()
         if pac and pac != last:
             write_local_pac(pac)
+            # First load or real domain-list change only.
+            apply_pac_with_bust(silent=False, force_new=(last != ""))
             last = pac
-            apply_pac_with_bust(silent=False, force_new=True)
             n = pac.count('",') if "aiHosts" in pac else 0
             print(f"[UnifAI Guard] PAC refreshed (~{n} domain entries).")
         stop_event.wait(PAC_SYNC_SECONDS)
