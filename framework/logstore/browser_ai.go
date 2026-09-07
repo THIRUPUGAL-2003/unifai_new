@@ -699,10 +699,44 @@ function FindProxyForURL(url, host) {
 `
 }
 
+// minimizePACHosts drops hosts already covered by a parent in the same list.
+// Example: chatgpt.com + www.chatgpt.com → keep chatgpt.com only (subdomain match).
+// No product hardcoding — purely structural. Cuts PAC size for 1000+ target rows.
+func minimizePACHosts(hosts []string) []string {
+	if len(hosts) <= 1 {
+		return hosts
+	}
+	set := map[string]bool{}
+	for _, h := range hosts {
+		h = strings.ToLower(strings.TrimSpace(h))
+		if h != "" {
+			set[h] = true
+		}
+	}
+	out := make([]string, 0, len(set))
+	for h := range set {
+		covered := false
+		parts := strings.Split(h, ".")
+		for i := 1; i < len(parts); i++ {
+			parent := strings.Join(parts[i:], ".")
+			if set[parent] {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			out = append(out, h)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 func buildDomainPAC(hosts []string, proxyAddr string) string {
+	hosts = minimizePACHosts(hosts)
 	var b strings.Builder
 	b.WriteString("// UnifAI Browser AI Guard — admin Target Websites from dashboard only.\n")
-	b.WriteString("// Each row you add (parent + related hosts) is listed here. No hardcoded domains.\n")
+	b.WriteString("// Parent domains only when children are covered by subdomain match. No hardcoded products.\n")
 	b.WriteString("function FindProxyForURL(url, host) {\n")
 	b.WriteString("    host = host.toLowerCase();\n\n")
 	b.WriteString("    var aiHosts = [\n")

@@ -1097,8 +1097,24 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         hosts.append(d)
 
     hosts.sort()
+    # Collapse children covered by a parent already in the list (no product hardcoding).
+    host_set = set(hosts)
+    minimized: list[str] = []
+    for d in hosts:
+        parts = d.split(".")
+        covered = False
+        for i in range(1, len(parts)):
+            parent = ".".join(parts[i:])
+            if parent in host_set:
+                covered = True
+                break
+        if not covered:
+            minimized.append(d)
+    hosts = minimized
+
     lines = [
         "// UnifAI Browser AI Guard — admin Target Websites from dashboard only.",
+        "// Parent domains preferred when children are covered by subdomain match.",
         "function FindProxyForURL(url, host) {",
         "    host = host.toLowerCase();",
         "    var aiHosts = [",

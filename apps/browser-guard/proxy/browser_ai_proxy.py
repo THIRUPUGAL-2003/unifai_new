@@ -35,10 +35,10 @@ UNIFAI_BACKEND_URL = os.getenv("UNIFAI_BACKEND_URL", "https://unifaiv2.dev-yp.co
 UNIFAI_AGENT_ID = os.getenv("UNIFAI_AGENT_ID", "")
 UNIFAI_AGENT_HOSTNAME = os.getenv("UNIFAI_AGENT_HOSTNAME", "")
 
-# Cache refresh interval in seconds (targets / rules / controls).
-# Keep >= fetch time: large target lists (~1.5k domains) can take several seconds.
-CACHE_TTL = 30
-# Backend GET timeout — must exceed slow /targets and /rules responses (often 5–10s).
+# Cache refresh: keep short so Monitor/Block toggles apply within ~1s at 1000+ domains.
+# Lite ?for=agent payloads make sub-second refreshes practical.
+CACHE_TTL = 1
+# Backend GET timeout — must exceed slow /targets and /rules responses.
 _BACKEND_FETCH_TIMEOUT = 45
 
 # Default fallback domains if backend is temporarily unreachable
@@ -469,16 +469,16 @@ def has_ai_bot_rules() -> bool:
 
 
 def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str) -> tuple[bool, str, str, str, str]:
-    """Regex (local) + AI Guard Bot (backend) — both run when bot rules exist; strictest action wins."""
-    local = decide_prompt_locally(prompt)
-    if has_ai_bot_rules():
-        allowed, rt, action, forward, reply, eval_err = send_to_backend(platform, domain, prompt, client_ip, url, method)
-        if eval_err:
-            print(f"[UnifAI Proxy] AI Guard Bot prompt eval failed | {eval_err}")
-        return _merge_guard_decisions(local, (allowed, rt, action, forward, reply))
+    """Regex (local, instant) + AI Guard Bot (backend) when needed; strictest action wins.
 
-    allowed, rule_triggered, action, redacted_prompt, reply_text = local
-    if action == "Blocked" or not allowed:
+    At 1000+ rules/domains: regex BLOCK returns immediately (no LLM wait).
+    AI bot runs only when local regex did not already block.
+    """
+    local = decide_prompt_locally(prompt)
+    local_allowed, local_rt, local_action, local_fwd, local_reply = local
+
+    # Instant path — do not wait on AI Guard Bot (up to ~95s) when regex already blocked.
+    if (not local_allowed) or (local_action or "").lower() == "blocked":
         def _log_local_block() -> None:
             try:
                 payload = json.dumps({
@@ -492,7 +492,7 @@ def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url
                         "url": url,
                         "method": method,
                         "is_blocked": True,
-                        "blocked_reason": rule_triggered or "Guard Rule",
+                        "blocked_reason": local_rt or "Guard Rule",
                         "agent_id": UNIFAI_AGENT_ID,
                         "agent_hostname": UNIFAI_AGENT_HOSTNAME,
                     },
@@ -508,11 +508,17 @@ def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url
                 pass
 
         threading.Thread(target=_log_local_block, daemon=True).start()
-        return False, rule_triggered, action or "Blocked", redacted_prompt, reply_text
+        return False, local_rt, local_action or "Blocked", local_fwd, local_reply
 
-    if action in ("Redacted", "Warned"):
+    if has_ai_bot_rules():
+        allowed, rt, action, forward, reply, eval_err = send_to_backend(platform, domain, prompt, client_ip, url, method)
+        if eval_err:
+            print(f"[UnifAI Proxy] AI Guard Bot prompt eval failed | {eval_err}")
+        return _merge_guard_decisions(local, (allowed, rt, action, forward, reply))
+
+    if local_action in ("Redacted", "Warned"):
         log_prompt_async(platform, domain, prompt, client_ip, url, method)
-        return allowed, rule_triggered, action, redacted_prompt, reply_text
+        return local_allowed, local_rt, local_action, local_fwd, local_reply
 
     log_prompt_async(platform, domain, prompt, client_ip, url, method)
     return True, "", "Allowed", prompt, ""

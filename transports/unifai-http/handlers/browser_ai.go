@@ -814,6 +814,10 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	// Evaluate AI Guard Bot whenever the prompt is still allowed (Allowed or Warned).
 	// A regex WARN must not short-circuit a stronger AI Guard Bot BLOCK policy.
 	if allowed {
+		// Never run AI bots on IDE/wire junk — avoids false CRITICAL blocks and multi-second LLM waits.
+		if logstore.IsOpaqueOrWirePrompt(payload.Prompt) {
+			securityVerdict = "not_evaluated"
+		} else {
 		rules, _ := h.manager.GetRules(ctx)
 		for _, rule := range rules {
 			if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
@@ -867,6 +871,9 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 				}
 				_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 				continue
+			}
+			if violated && aiBotViolationLikelyFalsePositive(rule, evalContent) {
+				violated = false
 			}
 			if violated {
 				ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
@@ -941,6 +948,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 			logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
 			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 		}
+		} // end non-opaque AI bot evaluation
 	}
 
 	// What the browser AI receives on WARN: full prompt + warning. Logs keep the original only.
@@ -1073,6 +1081,17 @@ func rulePatternMatches(rule logstore.BrowserGuardRule, text string) bool {
 		return false
 	}
 	return re.MatchString(text)
+}
+
+// aiBotViolationLikelyFalsePositive only drops non-prompt wire/IDE junk.
+// No greeting lists, no product domains, no policy-topic hardcoding —
+// admin Target Websites + Guard Rules + the employee prompt decide the rest.
+func aiBotViolationLikelyFalsePositive(_ logstore.BrowserGuardRule, content string) bool {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return true
+	}
+	return logstore.IsOpaqueOrWirePrompt(content)
 }
 
 // evaluateGuardOnly runs regex + AI Guard Bot rules without persisting a log row (file-scan pre-check).
@@ -2059,9 +2078,9 @@ Rules:
    Example style: policy "fruit names not allowed" + content "banana" → {"violation":true}.
 3. Do NOT require the content to repeat the policy wording — but do NOT invent matches.
 4. If SECURITY_POLICY mentions PIN/OTP/phone/card/CVV/Aadhaar/SSN (or similar) and CONTENT clearly contains that form → {"violation":true}.
-5. If CONTENT is unrelated, a greeting, filler, IDE/hash/telemetry, or opaque tokens → {"violation":false}.
+5. If CONTENT is unrelated to the policy, filler with no concrete forbidden instance, or opaque/IDE wire junk → {"violation":false}.
 6. Default to {"violation":false} when unsure. Prefer false over false positives.
-7. For human/animal/person "names" policies: {"violation":true} ONLY if CONTENT contains a real name (e.g. "John", "cat"). "hi"/"hello"/"test" alone are NOT violations.
+7. Category policies (e.g. names) need a concrete instance in CONTENT — not a vague guess.
 
 Reply with one JSON object only:
 {"violation":true}
@@ -2115,8 +2134,7 @@ CONTENT_TO_EVALUATE:
 
 Task: Does CONTENT_TO_EVALUATE clearly break SECURITY_POLICY?
 - Concrete forbidden instances only (not guesses).
-- Greetings, filler, IDE hashes, hardware strings → {"violation":false}.
-- Names policies need a real name in CONTENT; "hi" alone is false.
+- Unrelated or opaque/non-prompt junk → {"violation":false}.
 - Default {"violation":false} when unsure.
 
 Respond with ONLY: {"violation":true} or {"violation":false}`,
@@ -2135,7 +2153,7 @@ EMPLOYEE_TEXT: %s
 
 Decide now.
 - True ONLY if EMPLOYEE_TEXT clearly contains something ADMIN_POLICY forbids.
-- Unsure / greeting / junk / no concrete match → {"violation":false}
+- Unsure or no concrete match → {"violation":false}
 JSON only.`,
 		truncateRunes(policy, 4000),
 		truncateRunes(content, browserAIGuardBotMaxPromptRunes),
