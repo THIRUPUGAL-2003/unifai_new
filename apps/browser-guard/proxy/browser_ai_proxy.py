@@ -5537,6 +5537,89 @@ def _office_extract_steps(data: bytes, primary: str) -> list[tuple[str, callable
     return steps
 
 
+def _extract_zip_archive_members_text(
+    data: bytes,
+    *,
+    depth: int = 0,
+    max_depth: int = 2,
+    max_files: int = 40,
+    max_chars: int = 250_000,
+) -> str:
+    """Unpack a real .zip and extract text from each inner file (PDF/Office/image/plain/nested zip).
+
+    Used so Guard Rules + predict see resumes.zip contents, not only the outer archive name.
+    """
+    if not data or depth > max_depth:
+        return ""
+    zdata = data
+    if data[:2] != b"PK":
+        zdata = _office_zip_bytes(data) or data
+    if not zdata or zdata[:2] != b"PK":
+        return ""
+    chunks: list[str] = []
+    total = 0
+    n_files = 0
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            for info in zf.infolist():
+                if n_files >= max_files or total >= max_chars:
+                    break
+                name = (info.filename or "").replace("\\", "/")
+                base = name.rsplit("/", 1)[-1]
+                low = name.lower()
+                if info.is_dir():
+                    continue
+                if not base or base.startswith("."):
+                    continue
+                if "__macosx" in low or low.endswith("/.ds_store") or low.endswith(".ds_store"):
+                    continue
+                if info.file_size <= 0 or info.file_size > 25 * 1024 * 1024:
+                    continue
+                try:
+                    inner = zf.read(info)
+                except Exception:
+                    continue
+                if not inner or len(inner) < 8:
+                    continue
+                n_files += 1
+                try:
+                    inner_kind = _classify_upload_kind(inner, "", base)
+                except Exception:
+                    inner_kind = "unknown"
+                # Nested real archives only — OOXML (docx/xlsx/pptx) also starts with PK.
+                if inner_kind == "zip" or low.endswith(".zip"):
+                    if depth >= max_depth:
+                        continue
+                    nested = _extract_zip_archive_members_text(
+                        inner, depth=depth + 1, max_depth=max_depth,
+                        max_files=max(8, max_files - n_files),
+                        max_chars=max_chars - total,
+                    )
+                    if nested:
+                        piece = f"[ZIP:{base}]\n{nested}"
+                        chunks.append(piece)
+                        total += len(piece)
+                    continue
+                try:
+                    t = _extract_text_from_file_bytes(inner, "", base)
+                except Exception:
+                    t = ""
+                if t and t.strip():
+                    piece = f"[FILE:{base}]\n{t.strip()}"
+                    chunks.append(piece)
+                    total += len(piece)
+    except Exception as e:
+        print(f"[UnifAI Proxy] zip member extract failed (allowed): {e}")
+        return ""
+    if not chunks:
+        return ""
+    out = "\n\n".join(chunks)
+    print(
+        f"[UnifAI Proxy] ZIP archive extract | members_text={len(chunks)} files~{n_files} | {len(out)} chars"
+    )
+    return out[:max_chars]
+
+
 def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name: str = "") -> str:
     """Extract scannable text — primary method per file type, then fallbacks until one succeeds."""
     if not data:
@@ -5644,11 +5727,13 @@ def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name
             ])
 
         if kind == "zip":
-            steps = [
+            # Real archives (resumes.zip): unpack members → PDF/Office/image/plain → rules.
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("zip-members", lambda: _extract_zip_archive_members_text(data)),
                 ("odf", lambda: _extract_opendocument_text(data)),
-            ] + _office_extract_steps(data, "docx")
-            steps.append(("plain-decode", lambda: _extract_plain_text_bytes(data)))
-            return _try_file_extract_chain(data, ct, fn, kind, steps)
+            ] + _office_extract_steps(data, "docx") + [
+                ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+            ])
 
         # Unknown: try every sensible extractor in order (never crash the proxy)
         return _try_file_extract_chain(data, ct, fn, kind or "unknown", [
@@ -5692,8 +5777,8 @@ def extract_upload_text_for_rules(
 ) -> str:
     """
     Pull text from an upload body so Guard Rules can scan file contents
-    (PDF, Word doc/docx, Excel xls/xlsx, PowerPoint ppt/pptx, ODF, RTF, HTML,
-    image OCR, voice STT, plain text, multipart).
+    (PDF, Word, Excel, PowerPoint, ODF, RTF, HTML, image OCR, voice STT,
+    ZIP member files, plain text, multipart).
     Uses one extractor per detected file type with safe fallbacks.
     """
     try:
