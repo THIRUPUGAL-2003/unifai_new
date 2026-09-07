@@ -60,7 +60,7 @@ else:
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
-AGENT_VERSION = "1.6.0"
+AGENT_VERSION = "1.6.1"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
@@ -398,32 +398,38 @@ def time_iso() -> str:
 
 
 def health_loop(stop_event: threading.Event, proxy_port: int) -> None:
-    # First check shortly after proxy starts
+    # First check after proxy has had time to bind
     stop_event.wait(4)
     proxy_was_down = False
+    fail_streak = 0
     while not stop_event.is_set():
         try:
             report = run_health_check(proxy_port)
             checks = report.get("checks") if isinstance(report, dict) else {}
             proxy_up = bool(checks.get("proxy_port"))
-            # Local proxy died (sleep/wake, crash, restart): force all-DIRECT PAC so
-            # browsers do not stick on a dead PROXY and show network errors.
+            # Require several misses before all-DIRECT — one blip must not sticky-bypass forever.
             if not proxy_up:
-                write_local_pac(
-                    "// UnifAI Guard — local proxy down; fail open until proxy returns.\n"
-                    'function FindProxyForURL(url, host) { return "DIRECT"; }\n'
-                )
-                apply_pac_with_bust(silent=True)
-                proxy_was_down = True
-            elif proxy_was_down:
-                # Proxy recovered — pull fresh domain PAC again.
-                pac = fetch_proxy_pac()
-                if pac:
-                    write_local_pac(pac)
-                apply_pac_with_bust(silent=True)
-                proxy_was_down = False
+                fail_streak += 1
+                if fail_streak >= 3:
+                    write_local_pac(
+                        "// UnifAI Guard — local proxy down; fail open until proxy returns.\n"
+                        'function FindProxyForURL(url, host) { return "DIRECT"; }\n'
+                    )
+                    apply_pac_with_bust(silent=True, force_new=True)
+                    proxy_was_down = True
+                    print("[UnifAI Guard] Proxy port down x3 — PAC fail-open DIRECT (browsers stay online).")
             else:
-                apply_pac_with_bust(silent=True)
+                if fail_streak > 0 or proxy_was_down:
+                    pac = fetch_proxy_pac()
+                    if pac:
+                        write_local_pac(pac)
+                    apply_pac_with_bust(silent=True, force_new=True)
+                    print("[UnifAI Guard] Proxy healthy again — PAC restored (forced browser refetch).")
+                    proxy_was_down = False
+                else:
+                    # Time-based bust so sticky DIRECT decisions cannot linger after a brief blip.
+                    apply_pac_with_bust(silent=True)
+                fail_streak = 0
             set_browser_quic(enable_quic=False)
         except Exception as e:
             print(f"[UnifAI Guard WARNING] Health loop: {e}")
@@ -462,8 +468,12 @@ def maybe_first_run_prompt() -> None:
         pass
 
 
-def apply_pac_with_bust(silent: bool = False) -> bool:
-    """Enable PAC with cache-busting query so all browsers pick up Target Website changes fast."""
+def apply_pac_with_bust(silent: bool = False, force_new: bool = False) -> bool:
+    """Enable PAC with cache-busting query so browsers pick up Target Website + heal events.
+
+    Uses content hash + 30s time slice so AutoConfigURL changes even when the domain
+    list is unchanged — prevents Chrome/Edge sticky DIRECT after a brief :8085 blip.
+    """
     global _LAST_PAC_BUST
     try:
         content = ""
@@ -471,7 +481,11 @@ def apply_pac_with_bust(silent: bool = False) -> bool:
         if os.path.isfile(path):
             with open(path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
-        bust = abs(hash(content or PROXY_ADDR)) % 1000000007
+        content_hash = abs(hash(content or PROXY_ADDR)) % 1000000007
+        time_slice = int(time.time()) // 30
+        bust = (content_hash + time_slice) % 1000000007
+        if force_new:
+            bust = (bust + int(time.time())) % 1000000007
         pac_url = f"{pac_http_url()}?v={bust}"
         _LAST_PAC_BUST = pac_url
         return set_system_proxy_pac_and_browsers(enable=True, pac_url=pac_url, silent=silent)
@@ -1202,7 +1216,7 @@ def sync_pac_loop(stop_event: threading.Event) -> None:
         if pac and pac != last:
             write_local_pac(pac)
             last = pac
-            apply_pac_with_bust(silent=False)
+            apply_pac_with_bust(silent=False, force_new=True)
             n = pac.count('",') if "aiHosts" in pac else 0
             print(f"[UnifAI Guard] PAC refreshed (~{n} domain entries).")
         stop_event.wait(PAC_SYNC_SECONDS)
@@ -1306,7 +1320,8 @@ def main() -> None:
         )
 
     start_local_pac_http_server()
-    apply_pac_with_bust(silent=False)
+    # Do NOT apply PAC until local mitmproxy is listening — otherwise browsers
+    # hit PROXY;DIRECT, fail once, and stick on DIRECT (Claude works, logs stay 0).
     set_browser_quic(enable_quic=False)
     if IS_WIN:
         print("[UnifAI Guard] Browser HTTP/3 (QUIC) disabled for Chromium browsers so Target Websites use the proxy.")
@@ -1332,8 +1347,36 @@ def main() -> None:
     maybe_first_run_prompt()
 
     stop_event = threading.Event()
+    port = int(PROXY_ADDR.rsplit(":", 1)[-1] or "8085")
+
+    def proxy_supervise_loop() -> None:
+        while not stop_event.is_set():
+            try:
+                run_proxy_server(addon_script, port=port)
+            except Exception as e:
+                print(f"[UnifAI Guard WARNING] Proxy crashed: {e}")
+            if stop_event.is_set():
+                break
+            print("[UnifAI Guard] Proxy stopped — staying Active, restarting in 2s (sleep/wake safe).")
+            stop_event.wait(2)
+
+    threading.Thread(target=proxy_supervise_loop, daemon=True).start()
+
+    proxy_ready = False
+    for _ in range(75):  # ~15s
+        if port_open("127.0.0.1", port):
+            proxy_ready = True
+            break
+        time.sleep(0.2)
+    if proxy_ready:
+        print(f"[UnifAI Guard] Local proxy listening on {PROXY_ADDR} — applying PAC now.")
+        apply_pac_with_bust(silent=False, force_new=True)
+    else:
+        print("[UnifAI Guard WARNING] Proxy port not open yet — PAC deferred; health loop will apply when ready.")
+
     threading.Thread(target=sync_pac_loop, args=(stop_event,), daemon=True).start()
     threading.Thread(target=heartbeat_loop, args=(agent_id, stop_event), daemon=True).start()
+    threading.Thread(target=health_loop, args=(stop_event, port), daemon=True).start()
 
     def cleanup_and_exit(signum=None, frame=None):
         print("\n[UnifAI Guard] Shutting down agent...")
@@ -1345,16 +1388,10 @@ def main() -> None:
     signal.signal(signal.SIGTERM, cleanup_and_exit)
 
     print("[UnifAI Guard] Agent is active. Sleep/shutdown keep monitoring; only uninstall stops Guard.")
-    port = int(PROXY_ADDR.rsplit(":", 1)[-1] or "8085")
-    threading.Thread(target=health_loop, args=(stop_event, port), daemon=True).start()
+    print("[UnifAI Guard] IMPORTANT: Fully quit Chrome/Edge (all windows) then reopen for PAC to stick.")
     try:
         while not stop_event.is_set():
-            apply_pac_with_bust(silent=True)
-            run_proxy_server(addon_script, port=port)
-            if stop_event.is_set():
-                break
-            print("[UnifAI Guard] Proxy stopped — staying Active, restarting in 2s (sleep/wake safe).")
-            stop_event.wait(2)
+            stop_event.wait(3600)
     finally:
         stop_event.set()
         clear_guard_runtime()
