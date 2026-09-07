@@ -167,9 +167,12 @@ _UNIVERSAL_PROMPT_KEYS = (
 # Deduplicate identical events per domain within this window (seconds).
 # Keep short so intentional same-text resends (~1s later) still predict;
 # only collapses near-simultaneous browser double-submits.
-DEDUPE_TTL = 0.5
+DEDUPE_TTL = 4.0
 # Longer window for upload/download blocks (ChatGPT fires many file API calls)
 BLOCK_DEDUPE_TTL = 30
+# Typing: ignore rapid prefix growth so Prompt Logs / predict do not spam every keystroke.
+COMPOSER_DRAFT_TTL = 0.45
+COMPOSER_DRAFT_MAX_GROW = 4
 
 # ─────────────────────────────────────────────
 # In-memory Caches
@@ -583,7 +586,10 @@ def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url
         allowed, rt, action, forward, reply, eval_err = send_to_backend(platform, domain, prompt, client_ip, url, method)
         if eval_err:
             print(f"[UnifAI Proxy] AI Guard Bot prompt eval failed | {eval_err}")
-        # Backend miss must not erase a local REDACT decision.
+            # Bot hang/timeout must not erase local regex — re-check before fail-open.
+            local2 = decide_prompt_locally(prompt)
+            if (not local2[0]) or (local2[2] or "").lower() == "blocked" or local2[2] in ("Redacted", "Warned"):
+                return local2
         merged = _merge_guard_decisions(local, (allowed, rt, action, forward, reply))
         return merged
 
@@ -1812,9 +1818,9 @@ def _should_intercept_extracted_prompt(
         if len(text) < 2 and not text.isdigit():
             return False
 
-    # Only skip ultra-fast single-keystroke drafts on prepare/autocomplete paths.
-    path_l = (path or "").lower()
-    if ("prepare" in path_l or "autocomplet" in path_l) and is_composer_typing_draft(domain, text):
+    # Skip rapid prefix growth while typing on ANY chat path (not only /prepare).
+    # Final Enter/Send usually has a short pause → still predicts.
+    if is_composer_typing_draft(domain, text):
         return False
     if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
         return False
@@ -2055,10 +2061,9 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
 
 
 def is_composer_typing_draft(domain: str, prompt: str) -> bool:
-    """Skip only ultra-fast single-keystroke drafts while the user is still typing.
+    """Skip rapid in-composer growth so predict does not fire on every keystroke.
 
-    Final Enter/send must always reach prediction — short prompts like "hi" and
-  numbers like "613882" were missed when we treated h→hi growth as draft forever.
+    Final Enter/Send usually pauses ≥ COMPOSER_DRAFT_TTL → treated as real submit.
     """
     text = (prompt or "").strip()
     if not text or not domain:
@@ -2070,15 +2075,14 @@ def is_composer_typing_draft(domain: str, prompt: str) -> bool:
         return False
     prev_text, prev_ts = prev
     elapsed = now - prev_ts
-    # Pause before Enter/send → treat as a real submit, always predict.
-    if elapsed >= 0.25:
+    if elapsed >= COMPOSER_DRAFT_TTL:
         return False
     if text == prev_text:
         return False
-    # Only skip a single-character extension during active typing (<250ms).
-    if len(text) == len(prev_text) + 1 and text.startswith(prev_text):
+    # Growing or shrinking by a few chars = still typing.
+    if text.startswith(prev_text) and 1 <= (len(text) - len(prev_text)) <= COMPOSER_DRAFT_MAX_GROW:
         return True
-    if len(prev_text) == len(text) + 1 and prev_text.startswith(text):
+    if prev_text.startswith(text) and 1 <= (len(prev_text) - len(text)) <= COMPOSER_DRAFT_MAX_GROW:
         return True
     return False
 
@@ -3156,11 +3160,107 @@ def extract_inline_attachment_bytes(raw_text: str) -> tuple[bytes, str, str]:
     return b"", "", ""
 
 
-def _file_policy_applies_on_send(path: str, raw_text: str, raw_bytes: bytes) -> bool:
-    """File scan/log only on finished chat Send — never on upload-picker API calls."""
+def _domain_has_pending_upload_cache(domain: str) -> bool:
+    """True when a recent upload is cached for this Target Website family (peek only)."""
+    aliases = upload_domain_aliases(domain)
+    if not aliases:
+        d = _normalize_domain(domain or "")
+        aliases = [d] if d else []
+    now = time.time()
+    with _UPLOAD_FILE_CACHE_LOCK:
+        _purge_upload_file_cache()
+        for alias in aliases:
+            latest = _UPLOAD_FILE_CACHE.get(f"{alias}|latest")
+            if latest and (now - float(latest.get("ts") or 0)) <= _UPLOAD_LATEST_MATCH_TTL:
+                return True
+            for entry in _UPLOAD_FILE_QUEUES.get(_upload_queue_key(alias), []) or []:
+                if (now - float(entry.get("ts") or 0)) <= _UPLOAD_LATEST_MATCH_TTL:
+                    return True
+    return False
+
+
+def _host_from_url_header(raw: str) -> str:
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    try:
+        if "://" not in s:
+            s = "https://" + s
+        return _normalize_domain(urllib.parse.urlparse(s).hostname or "")
+    except Exception:
+        return ""
+
+
+def _resolve_upload_bind_domain(flow: http.HTTPFlow, upload_host: str) -> str:
+    """Map a file-CDN / non-chat host upload to an admin Target Website.
+
+    No product hostname hardcoding — uses Referer/Origin (chat page) or parent
+    Target Website that covers this host as a subdomain.
+    """
+    # Prefer the page the employee is chatting on.
+    for hdr in ("Referer", "Origin", "referer", "origin"):
+        ref_host = _host_from_url_header(flow.request.headers.get(hdr, "") or "")
+        if not ref_host:
+            continue
+        ok, domain, _plat = detect_target(ref_host)
+        if ok and domain:
+            return domain
+
+    # Upload host itself might be a monitored target or child of one.
+    ok, domain, _plat = detect_target(upload_host)
+    if ok and domain:
+        return domain
+
+    # Child of a monitored parent (admin added parent only).
+    get_target_domains()
+    h = _normalize_domain(upload_host or "")
+    best = ""
+    for d in _cached_domains:
+        if h == d or h.endswith("." + d):
+            if len(d) > len(best):
+                best = d
+    return best
+
+
+def _file_policy_applies_on_send(
+    path: str,
+    raw_text: str,
+    raw_bytes: bytes = b"",
+    *,
+    domain: str = "",
+    host: str = "",
+) -> bool:
+    """File extract + Guard Rules on finished chat Send — ANY admin-monitored domain.
+
+    Not ChatGPT-only: known platform shapes OR attachment markers OR pending upload
+    cache for this Target Website family.
+    """
     if _path_looks_like_upload(path):
         return False
-    return _is_confident_chat_send(path, raw_text, raw_bytes)
+    if _is_typing_or_draft_path(path, raw_text or ""):
+        return False
+    if _is_confident_chat_send(path, raw_text, raw_bytes):
+        return True
+
+    body = raw_text or ""
+    has_file = (
+        _send_carries_attachment(body)
+        or chatgpt_carries_file(body)
+        or chat_carries_attachment(body)
+        or copilot_carries_binary_attach(body)
+    )
+    chatish = is_chat_path(path, host, body) or _path_has_chat_marker(path)
+    if has_file and chatish:
+        return True
+
+    # Unknown AI products: recent upload on this domain family + JSON/chat Send.
+    if domain and _domain_has_pending_upload_cache(domain):
+        if chatish:
+            return True
+        stripped = body.lstrip()
+        if stripped[:1] in ("{", "[") and not is_noise(path, body):
+            return True
+    return False
 
 
 def block_upload_request_now(
@@ -5872,7 +5972,7 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
         # AI Guard Bot may call an LLM — keep under browser request timeouts.
         # Default 28s (was 95s): long holds look like "connection cut" on ChatGPT/Claude.
         try:
-            eval_timeout = float(os.getenv("UNIFAI_EVAL_TIMEOUT", "28") or "28")
+            eval_timeout = float(os.getenv("UNIFAI_EVAL_TIMEOUT", "18") or "18")
         except Exception:
             eval_timeout = 28.0
         eval_timeout = max(8.0, min(eval_timeout, 95.0))
@@ -6584,16 +6684,51 @@ class BrowserAIInterceptor:
             return
 
         is_target, domain, platform = detect_target(host)
+        path = flow.request.path
+        client_ip = get_client_ip(flow)
+        method = (flow.request.method or "").upper()
 
         if not is_target:
+            # File CDNs are often NOT the chat Target Website. Bind via Referer/Origin
+            # to the admin-added domain so extract→rules still run on Send (any AI site).
+            if method in ("POST", "PUT", "PATCH"):
+                raw_bytes_nt = flow.request.content or b""
+                content_type_nt = flow.request.headers.get("content-type", "")
+                try:
+                    raw_text_nt = raw_bytes_nt.decode("utf-8", errors="ignore")
+                except Exception:
+                    raw_text_nt = ""
+                is_upload_nt, upload_reason_nt = detect_file_upload(flow, raw_text_nt)
+                if is_upload_nt:
+                    fname_nt = extract_filename_from_upload(flow, raw_text_nt)
+                    if is_confident_file_upload(
+                        fname=fname_nt,
+                        content_type=content_type_nt,
+                        raw_bytes=raw_bytes_nt,
+                        raw_text=raw_text_nt,
+                        upload_reason=upload_reason_nt or "",
+                        host=host,
+                        path=path,
+                    ):
+                        bind = _resolve_upload_bind_domain(flow, host)
+                        if bind:
+                            file_ids = _extract_file_ids_from_chat(raw_text_nt)
+                            cache_upload_file(
+                                bind,
+                                file_name=fname_nt or "attachment",
+                                raw_bytes=raw_bytes_nt,
+                                content_type=content_type_nt,
+                                upload_reason=upload_reason_nt or "",
+                                file_id=file_ids[0] if file_ids else "",
+                            )
+                            print(
+                                f"[UnifAI Proxy] FILE CACHED via Referer bind | upload_host={host} → "
+                                f"target={bind} | {fname_nt or 'attachment'} | {len(raw_bytes_nt)} bytes"
+                            )
             return
 
         # Keep control settings warm
         get_control_settings()
-
-        path = flow.request.path
-        client_ip = get_client_ip(flow)
-        method = (flow.request.method or "").upper()
 
         # ── Universal GET: query-string prompts on any monitored domain ──
         if method == "GET":
@@ -6664,15 +6799,29 @@ class BrowserAIInterceptor:
                 )
             return
 
-        # ── File Send: scan/cache on pick; predict + allow/block on Send ──
-        if attachment_send and _file_policy_applies_on_send(path, raw_text, raw_bytes):
-            blocked, _n = self._file_send_maybe_block(
+        # ── File Send: scan cached bytes; then still apply caption Guard Rules ──
+        # Any admin Target Website — attachment markers OR pending upload cache.
+        if _file_policy_applies_on_send(path, raw_text, raw_bytes, domain=domain, host=host):
+            blocked, n_processed = self._file_send_maybe_block(
                 flow, domain, platform, client_ip, raw_text, content_type, path,
             )
             if blocked:
                 return
-            # File row logged above — do not also log caption or embedded doc text as a separate prompt.
-            return
+            if n_processed > 0:
+                # File logged/scanned — still enforce regex/AI rules on a short user caption.
+                if (
+                    has_prompt
+                    and peek_prompt
+                    and len((peek_prompt or "").strip()) <= 320
+                    and not _looks_like_document_body_dump(peek_prompt)
+                ):
+                    self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
+                return
+            # Cache miss with attachment markers: fall through so prompt + rules still run.
+            print(
+                f"[UnifAI Proxy] File Send markers without cache | {domain} | "
+                "falling through to prompt evaluate (upload may have used another host)"
+            )
 
         # ── Domain-add-only intercept: extracted user text → predict ──
         if has_prompt:
@@ -6700,14 +6849,16 @@ class BrowserAIInterceptor:
             return
 
         # File attached + Send (fallback path when extract missed on first pass)
-        if _file_policy_applies_on_send(path, raw_text, raw_bytes):
+        if _file_policy_applies_on_send(path, raw_text, raw_bytes, domain=domain, host=host):
             blocked, n_processed = self._file_send_maybe_block(
                 flow, domain, platform, client_ip, raw_text, content_type, path,
             )
             if blocked:
                 return
             if n_processed > 0:
-                return
+                # Caption rules still apply when extract finds short user text below.
+                pass
+            # If no cache processed, continue so prompt evaluate can still block.
 
         prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=flow.request.url)
         if not prompt or len(prompt.strip()) < 1:
@@ -6728,8 +6879,10 @@ class BrowserAIInterceptor:
             return
 
         # ChatGPT/Perplexity: skip only in-progress draft bodies, not finished submits.
-        # Every finished prompt (1 letter, number, symbol, long text) must predict + apply rules.
         if is_unsubmitted_chat_body(path, raw_text):
+            return
+        # Keystroke growth spam (same as early path) — pause before Send still predicts.
+        if is_composer_typing_draft(domain, prompt):
             return
 
         # Collapse browser double-fire — MUST still enforce the same guard decision
@@ -6808,7 +6961,9 @@ class BrowserAIInterceptor:
         )
         attachment_send = _send_carries_attachment(content)
 
-        if attachment_send and _file_policy_applies_on_send(ws_path, content, content.encode("utf-8", errors="ignore")):
+        if attachment_send and _file_policy_applies_on_send(
+            ws_path, content, content.encode("utf-8", errors="ignore"), domain=domain, host=host,
+        ):
             should_block_file, file_block_msg, _n = enforce_file_send_policy(
                 platform=platform,
                 domain=domain,
@@ -6920,7 +7075,9 @@ class BrowserAIInterceptor:
             return
 
         # File attachment Send must hit Block Upload / file rules (finished Send only)
-        if _file_policy_applies_on_send(ws_path, content, content.encode("utf-8", errors="ignore")):
+        if _file_policy_applies_on_send(
+            ws_path, content, content.encode("utf-8", errors="ignore"), domain=domain, host=host,
+        ):
             should_block_file, file_block_msg, n_processed = enforce_file_send_policy(
                 platform=platform,
                 domain=domain,
@@ -6942,11 +7099,13 @@ class BrowserAIInterceptor:
                         pass
                 inject_websocket_reply(flow, host, file_block_msg)
                 return
-            if n_processed > 0:
-                return
+            # Cache miss: fall through to prompt evaluate. Cache hit: allow caption below.
 
         # Copilot/Edge image or file frames must not fall through as garbled text prompts.
-        if copilot_carries_binary_attach(content) or chat_carries_attachment(content) or chatgpt_carries_file(content):
+        if (
+            (copilot_carries_binary_attach(content) or chat_carries_attachment(content) or chatgpt_carries_file(content))
+            and not (ws_has_prompt and ws_prompt and len((ws_prompt or "").strip()) <= 320)
+        ):
             return
 
         prompt = extract_prompt_universal(content.encode("utf-8"), "application/json", host=host, url=flow.request.url)
@@ -6960,6 +7119,8 @@ class BrowserAIInterceptor:
             return
 
         if is_unsubmitted_chat_body(flow.request.path, content):
+            return
+        if is_composer_typing_draft(domain, prompt):
             return
 
         if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):

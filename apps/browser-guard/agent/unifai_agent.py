@@ -1465,7 +1465,7 @@ def main() -> None:
 
     threading.Thread(target=proxy_ready_watch, daemon=True).start()
     # Cap AI Guard Bot hold so browsers do not drop the request (felt as connection cut).
-    os.environ.setdefault("UNIFAI_EVAL_TIMEOUT", "28")
+    os.environ.setdefault("UNIFAI_EVAL_TIMEOUT", "18")
     threading.Thread(target=sync_pac_loop, args=(stop_event,), daemon=True).start()
     threading.Thread(target=heartbeat_loop, args=(agent_id, stop_event), daemon=True).start()
     threading.Thread(target=health_loop, args=(stop_event, port), daemon=True).start()

@@ -63,7 +63,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions, HOST_ROLE_OPTIONS, hostRoleLabel, type HostRole } from "./relatedHosts";
-import { buildAttachmentPreview, pickBestExtractedText, type AttachmentPreviewKind } from "./attachmentPreview";
+import { buildAttachmentPreview, pickBestExtractedText, type AttachmentPreviewKind, type AttachmentSheetPreview } from "./attachmentPreview";
+import { ExportFormatsDropdown } from "@/components/exportFormatsDropdown";
+import type { ExportFormatsPayload } from "@/components/exportFormatsDropdown";
 
 import {
 	useGetBrowserAiLogsQuery,
@@ -816,6 +818,8 @@ export default function BrowserAiPage() {
 	const [pageOffset, setPageOffset] = useState(0);
 
 	const [ruleSearch, setRuleSearch] = useState("");
+	const [rulesPageLimit, setRulesPageLimit] = useState(10);
+	const [rulesPageOffset, setRulesPageOffset] = useState(0);
 	const [targetSearch, setTargetSearch] = useState("");
 	const [targetPageLimit, setTargetPageLimit] = useState(10);
 	const [targetPageOffset, setTargetPageOffset] = useState(0);
@@ -826,6 +830,12 @@ export default function BrowserAiPage() {
 	const [attachmentPreviewKind, setAttachmentPreviewKind] = useState<AttachmentPreviewKind | null>(null);
 	const [attachmentPreviewHtml, setAttachmentPreviewHtml] = useState("");
 	const [attachmentPreviewText, setAttachmentPreviewText] = useState("");
+	const [attachmentBlob, setAttachmentBlob] = useState<Blob | null>(null);
+	const [attachmentSheets, setAttachmentSheets] = useState<AttachmentSheetPreview[]>([]);
+	const [attachmentSheetIndex, setAttachmentSheetIndex] = useState(0);
+	const [attachmentTruncated, setAttachmentTruncated] = useState(false);
+	const [attachmentShowAll, setAttachmentShowAll] = useState(false);
+	const [extractedTextExpanded, setExtractedTextExpanded] = useState(false);
 	const [pdfLoading, setPdfLoading] = useState(false);
 	const [pdfError, setPdfError] = useState("");
 	const [copiedPrompt, setCopiedPrompt] = useState(false);
@@ -1053,6 +1063,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			setAttachmentPreviewKind(null);
 			setAttachmentPreviewHtml("");
 			setAttachmentPreviewText("");
+			setAttachmentBlob(null);
+			setAttachmentSheets([]);
+			setAttachmentSheetIndex(0);
+			setAttachmentTruncated(false);
+			setAttachmentShowAll(false);
 			setPdfLoading(false);
 			setPdfError("");
 			return;
@@ -1064,6 +1079,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 		setAttachmentPreviewKind(null);
 		setAttachmentPreviewHtml("");
 		setAttachmentPreviewText("");
+		setAttachmentBlob(null);
+		setAttachmentSheets([]);
+		setAttachmentSheetIndex(0);
+		setAttachmentTruncated(false);
+		setAttachmentShowAll(false);
 		if (pdfBlobUrl) {
 			URL.revokeObjectURL(pdfBlobUrl);
 			setPdfBlobUrl(null);
@@ -1081,18 +1101,27 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				}
 				const blob = await res.blob();
 				if (cancelled) return;
+				setAttachmentBlob(blob);
 				const preview = await buildAttachmentPreview(
 					blob,
 					logAttachmentLabel(pdfViewerLog),
 					pdfViewerLog.attachment_content_type || blob.type,
+					{ showAll: false },
 				);
 				if (cancelled) return;
 				setAttachmentPreviewKind(preview.kind);
+				setAttachmentSheets(preview.sheets || []);
+				setAttachmentSheetIndex(0);
+				setAttachmentTruncated(!!preview.truncated);
 				if (preview.blobUrl) {
 					objectUrl = preview.blobUrl;
 					setPdfBlobUrl(preview.blobUrl);
 				}
-				if (preview.html) setAttachmentPreviewHtml(preview.html);
+				if (preview.sheets?.length) {
+					setAttachmentPreviewHtml(preview.sheets[0].html);
+				} else if (preview.html) {
+					setAttachmentPreviewHtml(preview.html);
+				}
 				if (preview.text) setAttachmentPreviewText(preview.text);
 				if (preview.kind === "unsupported") {
 					objectUrl = URL.createObjectURL(blob);
@@ -1115,9 +1144,39 @@ type RelatedHostEntry = { host: string; role: HostRole };
 		// eslint-disable-next-line react-hooks/exhaustive-deps -- reload only when log id changes
 	}, [pdfViewerLog?.id]);
 
+	const reloadAttachmentPreview = async (showAll: boolean) => {
+		if (!pdfViewerLog || !attachmentBlob) return;
+		setPdfLoading(true);
+		setPdfError("");
+		try {
+			const preview = await buildAttachmentPreview(
+				attachmentBlob,
+				logAttachmentLabel(pdfViewerLog),
+				pdfViewerLog.attachment_content_type || attachmentBlob.type,
+				{ showAll },
+			);
+			setAttachmentShowAll(showAll);
+			setAttachmentPreviewKind(preview.kind);
+			setAttachmentSheets(preview.sheets || []);
+			setAttachmentSheetIndex(0);
+			setAttachmentTruncated(!!preview.truncated);
+			if (preview.sheets?.length) {
+				setAttachmentPreviewHtml(preview.sheets[0].html);
+			} else if (preview.html) {
+				setAttachmentPreviewHtml(preview.html);
+			}
+			if (preview.text) setAttachmentPreviewText(preview.text);
+		} catch (e) {
+			setPdfError(e instanceof Error ? e.message : "Failed to expand preview");
+		} finally {
+			setPdfLoading(false);
+		}
+	};
+
 	const openPdfViewer = (log: BrowserAILogEntry, e?: React.MouseEvent) => {
 		e?.stopPropagation();
 		setPdfViewerTab("preview");
+		setAttachmentShowAll(false);
 		setPdfViewerLog(log);
 	};
 
@@ -1708,6 +1767,107 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			(r.description || "").toLowerCase().includes(ruleSearch.toLowerCase())
 	);
 
+	useEffect(() => {
+		setRulesPageOffset(0);
+	}, [ruleSearch, rulesPageLimit]);
+
+	const rulesTotalPages = Math.ceil(filteredRules.length / rulesPageLimit) || 1;
+	const rulesCurrentPage = Math.floor(rulesPageOffset / rulesPageLimit) + 1;
+	const pagedRules = filteredRules.slice(rulesPageOffset, rulesPageOffset + rulesPageLimit);
+
+	const getBrowserAiExportPayload = (): ExportFormatsPayload => {
+		if (activeTab === "rules") {
+			return {
+				filename: "browser-ai-guard-rules",
+				title: "Browser AI — Guard Rules",
+				subtitle: `${filteredRules.length} rule(s)`,
+				columns: [
+					{ key: "name", header: "Name" },
+					{ key: "rule_type", header: "Type" },
+					{ key: "severity", header: "Severity" },
+					{ key: "action", header: "Action" },
+					{ key: "active", header: "Active" },
+					{ key: "pattern", header: "Pattern / Policy" },
+					{ key: "description", header: "Description" },
+				],
+				rows: filteredRules.map((r) => ({
+					name: r.name,
+					rule_type: r.rule_type === "ai_bot" ? "AI Guard Bot" : "Regex",
+					severity: r.severity,
+					action: r.action,
+					active: r.active ? "Yes" : "No",
+					pattern: r.rule_type === "ai_bot" ? (r.bot_prompt || "").slice(0, 500) : r.pattern || "",
+					description: r.description || "",
+				})),
+			};
+		}
+		if (activeTab === "targets") {
+			return {
+				filename: "browser-ai-targets",
+				title: "Browser AI — Target Websites",
+				subtitle: `${targets.length} target(s)`,
+				columns: [
+					{ key: "domain", header: "Domain" },
+					{ key: "platform", header: "Platform" },
+					{ key: "status", header: "Status" },
+					{ key: "host_role", header: "Host role" },
+				],
+				rows: targets.map((t) => ({
+					domain: t.domain,
+					platform: t.platform_name || "",
+					status: t.block_site ? "Blocked" : t.monitored ? "Monitored" : "Paused",
+					host_role: t.host_role || "",
+				})),
+			};
+		}
+		if (activeTab === "agents") {
+			return {
+				filename: "browser-ai-agents",
+				title: "Browser AI — Guard Agents",
+				subtitle: `${agents.length} agent(s)`,
+				columns: [
+					{ key: "hostname", header: "Hostname" },
+					{ key: "agent_id", header: "Agent ID" },
+					{ key: "status", header: "Status" },
+					{ key: "last_seen", header: "Last seen" },
+				],
+				rows: agents.map((a) => ({
+					hostname: a.hostname || "",
+					agent_id: a.id || "",
+					status: a.status || "",
+					last_seen: a.last_seen_at || "",
+				})),
+			};
+		}
+		// overview + logs
+		const logPage = Math.floor(pageOffset / pageLimit) + 1;
+		return {
+			filename: "browser-ai-prompt-logs",
+			title: "Browser AI — Prompt Logs",
+			subtitle: `Page ${logPage} · ${logs.length} of ${totalLogs} shown`,
+			columns: [
+				{ key: "timestamp", header: "Timestamp" },
+				{ key: "platform", header: "Platform" },
+				{ key: "prompt", header: "Prompt" },
+				{ key: "action", header: "Action" },
+				{ key: "rule", header: "Rule" },
+				{ key: "risk", header: "Risk" },
+				{ key: "tokens", header: "Est. Tokens" },
+				{ key: "attachment", header: "Attachment" },
+			],
+			rows: logs.map((log) => ({
+				timestamp: log.timestamp ? new Date(log.timestamp).toLocaleString() : "",
+				platform: log.platform || "",
+				prompt: (log.user_prompt_full || log.user_prompt_preview || "").slice(0, 500),
+				action: log.action || "",
+				rule: log.rule_triggered || "",
+				risk: log.predictive_risk || log.risk_score || "",
+				tokens: log.est_tokens ?? "",
+				attachment: log.attachment_name || "",
+			})),
+		};
+	};
+
 	const targetSearchLower = targetSearch.toLowerCase().trim();
 	const targetMatchesSearch = (tgt: BrowserTargetWebsite) => {
 		if (!targetSearchLower) return true;
@@ -1781,6 +1941,15 @@ type RelatedHostEntry = { host: string; role: HostRole };
 							Live Update
 						</Label>
 					</div>
+
+					{activeTab !== "setup" ? (
+						<ExportFormatsDropdown
+							size="sm"
+							className="h-8 text-xs gap-2 border-border"
+							getPayload={getBrowserAiExportPayload}
+							testId="browser-ai-export-trigger"
+						/>
+					) : null}
 
 					<Button
 						variant="outline"
@@ -1875,9 +2044,14 @@ type RelatedHostEntry = { host: string; role: HostRole };
 					</div>
 
 					<Card className="bg-card border-border">
-						<CardHeader>
-							<CardTitle className="text-lg">Recent Intercepted Activity</CardTitle>
-							<CardDescription>Real-time prompt stream captured from browser sessions</CardDescription>
+						<CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+							<div>
+								<CardTitle className="text-lg">Recent Intercepted Activity</CardTitle>
+								<CardDescription>Real-time prompt stream captured from browser sessions</CardDescription>
+							</div>
+							<Button variant="outline" size="sm" className="h-8 text-xs shrink-0" onClick={() => setActiveTab("logs")}>
+								Show all
+							</Button>
 						</CardHeader>
 						<CardContent>
 							<div className="rounded-md border border-border overflow-x-auto">
@@ -2538,7 +2712,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 						</CardHeader>
 						<CardContent>
 							<div className="space-y-3">
-								{filteredRules.map((rule) => (
+								{pagedRules.map((rule) => (
 									<div
 										key={rule.id}
 										className="rounded-xl border border-border bg-background/40 p-4 hover:border-primary/30 transition-colors"
@@ -2679,6 +2853,57 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								{filteredRules.length === 0 && (
 									<div className="rounded-xl border border-dashed border-border py-12 text-center text-sm text-muted-foreground">
 										No guard rules found matching your search.
+									</div>
+								)}
+
+								{filteredRules.length > 0 && (
+									<div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-2 border-t border-border">
+										<div className="flex items-center gap-2 text-xs text-muted-foreground">
+											<span>Rows per page</span>
+											<Select
+												value={rulesPageLimit.toString()}
+												onValueChange={(v) => {
+													setRulesPageLimit(Number(v));
+													setRulesPageOffset(0);
+												}}
+											>
+												<SelectTrigger className="h-8 w-[72px]">
+													<SelectValue />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value="10">10</SelectItem>
+													<SelectItem value="25">25</SelectItem>
+													<SelectItem value="50">50</SelectItem>
+												</SelectContent>
+											</Select>
+											<span>
+												Showing {filteredRules.length ? rulesPageOffset + 1 : 0}–
+												{Math.min(rulesPageOffset + rulesPageLimit, filteredRules.length)} of {filteredRules.length}
+											</span>
+										</div>
+										<div className="flex items-center gap-2">
+											<span className="text-xs text-muted-foreground">
+												Page {rulesCurrentPage} of {rulesTotalPages}
+											</span>
+											<Button
+												variant="outline"
+												size="sm"
+												className="h-8"
+												disabled={rulesPageOffset <= 0}
+												onClick={() => setRulesPageOffset(Math.max(0, rulesPageOffset - rulesPageLimit))}
+											>
+												<ChevronLeft className="h-4 w-4" />
+											</Button>
+											<Button
+												variant="outline"
+												size="sm"
+												className="h-8"
+												disabled={rulesPageOffset + rulesPageLimit >= filteredRules.length}
+												onClick={() => setRulesPageOffset(rulesPageOffset + rulesPageLimit)}
+											>
+												<ChevronRight className="h-4 w-4" />
+											</Button>
+										</div>
 									</div>
 								)}
 							</div>
@@ -3996,9 +4221,24 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 								{isFileUploadLog(selectedLog) && logExtractedText(selectedLog) ? (
 									<div className="space-y-2">
-										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Extracted file text (used for bot check)</Label>
-										<pre className="p-3.5 bg-background border border-border rounded-lg font-mono text-[11px] max-h-36 overflow-auto whitespace-pre-wrap break-words">
-											{logExtractedText(selectedLog).slice(0, 4000)}
+										<div className="flex items-center justify-between gap-2">
+											<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Extracted file text (used for bot check)</Label>
+											{logExtractedText(selectedLog).length > 4000 ? (
+												<Button
+													type="button"
+													variant="ghost"
+													size="sm"
+													className="h-7 text-xs"
+													onClick={() => setExtractedTextExpanded((v) => !v)}
+												>
+													{extractedTextExpanded ? "Show less" : "Show all"}
+												</Button>
+											) : null}
+										</div>
+										<pre className="p-3.5 bg-background border border-border rounded-lg font-mono text-[11px] max-h-64 overflow-auto whitespace-pre-wrap break-words">
+											{extractedTextExpanded
+												? logExtractedText(selectedLog)
+												: logExtractedText(selectedLog).slice(0, 4000)}
 										</pre>
 									</div>
 								) : null}
@@ -4034,6 +4274,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 						setAttachmentPreviewKind(null);
 						setAttachmentPreviewHtml("");
 						setAttachmentPreviewText("");
+						setAttachmentBlob(null);
+						setAttachmentSheets([]);
+						setAttachmentSheetIndex(0);
+						setAttachmentTruncated(false);
+						setAttachmentShowAll(false);
 					}
 				}}
 			>
@@ -4057,7 +4302,49 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<Button size="sm" className="h-8 gap-1.5" onClick={() => downloadPdfAttachment(pdfViewerLog)} disabled={pdfLoading}>
 									<Download className="h-3.5 w-3.5" /> Download
 								</Button>
-								<div className="flex rounded-md border border-border overflow-hidden">
+								{attachmentTruncated && attachmentBlob ? (
+									<Button
+										size="sm"
+										variant="outline"
+										className="h-8 gap-1.5"
+										disabled={pdfLoading}
+										onClick={() => reloadAttachmentPreview(true)}
+									>
+										{pdfLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+										Show all
+									</Button>
+								) : null}
+								{attachmentShowAll ? (
+									<Button
+										size="sm"
+										variant="ghost"
+										className="h-8 text-xs"
+										disabled={pdfLoading}
+										onClick={() => reloadAttachmentPreview(false)}
+									>
+										Show less
+									</Button>
+								) : null}
+								{attachmentSheets.length > 1 ? (
+									<div className="flex flex-wrap items-center gap-1.5">
+										{attachmentSheets.map((sheet, idx) => (
+											<Button
+												key={`${sheet.name}-${idx}`}
+												size="sm"
+												variant={idx === attachmentSheetIndex ? "secondary" : "outline"}
+												className="h-7 text-[11px]"
+												onClick={() => {
+													setAttachmentSheetIndex(idx);
+													setAttachmentPreviewHtml(sheet.html);
+												}}
+											>
+												{sheet.name}
+												<span className="opacity-70 ml-1">({sheet.rowCount})</span>
+											</Button>
+										))}
+									</div>
+								) : null}
+								<div className="flex rounded-md border border-border overflow-hidden ml-auto">
 									<Button
 										size="sm"
 										variant={pdfViewerTab === "preview" ? "default" : "ghost"}

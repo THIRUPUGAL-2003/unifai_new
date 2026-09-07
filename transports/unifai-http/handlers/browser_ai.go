@@ -8,8 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -27,6 +30,11 @@ type BrowserAIHandler struct {
 	config      *lib.Config
 	client      *unifai.UnifAI
 	manager     *logstore.BrowserAIManager
+
+	// Short TTL cache — 1000+ employees hammer GetRules on every AI-bot prompt.
+	rulesCacheMu sync.RWMutex
+	rulesCache   []logstore.BrowserGuardRule
+	rulesCacheAt time.Time
 }
 
 func NewBrowserAIHandler(configStore configstore.ConfigStore, config *lib.Config, client *unifai.UnifAI) *BrowserAIHandler {
@@ -40,6 +48,145 @@ func NewBrowserAIHandler(configStore configstore.ConfigStore, config *lib.Config
 	h.initDB()
 	startBrowserAIAttachmentCleanup(manager)
 	return h
+}
+
+// getRulesCached returns active rules with a 2s in-memory cache (hot intercept path).
+func (h *BrowserAIHandler) getRulesCached(ctx context.Context) ([]logstore.BrowserGuardRule, error) {
+	h.rulesCacheMu.RLock()
+	if h.rulesCache != nil && time.Since(h.rulesCacheAt) < 2*time.Second {
+		out := h.rulesCache
+		h.rulesCacheMu.RUnlock()
+		return out, nil
+	}
+	h.rulesCacheMu.RUnlock()
+
+	rules, err := h.manager.GetRules(ctx)
+	if err != nil {
+		return rules, err
+	}
+	h.rulesCacheMu.Lock()
+	h.rulesCache = rules
+	h.rulesCacheAt = time.Now()
+	h.rulesCacheMu.Unlock()
+	return rules, nil
+}
+
+// invalidateRulesCache clears the short TTL after admin rule writes.
+func (h *BrowserAIHandler) invalidateRulesCache() {
+	h.rulesCacheMu.Lock()
+	h.rulesCache = nil
+	h.rulesCacheAt = time.Time{}
+	h.rulesCacheMu.Unlock()
+}
+
+func guardBotEvalBudget() time.Duration {
+	// Per-bot LLM budget. Agent wait is ~18–28s; keep bots under that (parallel = max, not sum).
+	sec := 12
+	if v := strings.TrimSpace(os.Getenv("UNIFAI_GUARD_BOT_TIMEOUT_SEC")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 3 && n <= 60 {
+			sec = n
+		}
+	}
+	return time.Duration(sec) * time.Second
+}
+
+const maxAIBotsPerPrompt = 8
+const maxAIBotParallel = 4
+
+type aiBotRuleResult struct {
+	rule          logstore.BrowserGuardRule
+	violated      bool
+	evalErr       string
+	misconfigured bool
+	skipped       bool
+}
+
+func collectAIBotRulesForEval(rules []logstore.BrowserGuardRule, uploadImages []string) (ready []logstore.BrowserGuardRule, misconfigBlock []logstore.BrowserGuardRule) {
+	for _, rule := range rules {
+		if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
+			continue
+		}
+		applyAIBotDefaults(&rule)
+		if strings.TrimSpace(rule.BotPrompt) == "" && strings.TrimSpace(rule.BotReferenceImage) == "" {
+			if logstore.NormalizeGuardRuleAction(rule.Action) == "BLOCK" {
+				misconfigBlock = append(misconfigBlock, rule)
+			}
+			continue
+		}
+		if skipAIBotRuleWithoutImages(rule.BotModel, rule.BotReferenceImage, uploadImages) {
+			continue
+		}
+		ready = append(ready, rule)
+	}
+	// BLOCK policies first so a hard stop wins under the shared time budget.
+	sort.SliceStable(ready, func(i, j int) bool {
+		ai := logstore.NormalizeGuardRuleAction(ready[i].Action) == "BLOCK"
+		aj := logstore.NormalizeGuardRuleAction(ready[j].Action) == "BLOCK"
+		if ai == aj {
+			return false
+		}
+		return ai
+	})
+	if len(ready) > maxAIBotsPerPrompt {
+		ready = ready[:maxAIBotsPerPrompt]
+	}
+	return ready, misconfigBlock
+}
+
+// evalAIBotRulesParallel runs AI Guard Bots concurrently (max latency ≈ slowest bot, not sum).
+func (h *BrowserAIHandler) evalAIBotRulesParallel(evalContent string, uploadImages []string, bots []logstore.BrowserGuardRule) []aiBotRuleResult {
+	results := make([]aiBotRuleResult, len(bots))
+	if len(bots) == 0 {
+		return results
+	}
+	budget := guardBotEvalBudget()
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
+
+	sem := make(chan struct{}, maxAIBotParallel)
+	var wg sync.WaitGroup
+	var foundBlock atomic.Bool
+
+	for i := range bots {
+		wg.Add(1)
+		go func(i int, rule logstore.BrowserGuardRule) {
+			defer wg.Done()
+			if foundBlock.Load() {
+				results[i] = aiBotRuleResult{rule: rule, skipped: true}
+				return
+			}
+			select {
+			case sem <- struct{}{}:
+			case <-ctx.Done():
+				results[i] = aiBotRuleResult{rule: rule, evalErr: "guard bot eval budget exceeded", skipped: true}
+				return
+			}
+			defer func() { <-sem }()
+
+			if foundBlock.Load() || ctx.Err() != nil {
+				results[i] = aiBotRuleResult{rule: rule, skipped: true}
+				return
+			}
+
+			violated := false
+			var evalErr string
+			if rulePatternMatches(rule, evalContent) {
+				violated = true
+			} else {
+				violated, evalErr = h.evaluateAIBotRule(rule, evalContent, uploadImages)
+			}
+			if violated && aiBotViolationLikelyFalsePositive(rule, evalContent) {
+				violated = false
+			}
+			results[i] = aiBotRuleResult{rule: rule, violated: violated, evalErr: evalErr}
+			if violated && logstore.NormalizeGuardRuleAction(rule.Action) == "BLOCK" {
+				foundBlock.Store(true)
+				cancel()
+			}
+		}(i, bots[i])
+	}
+	wg.Wait()
+	return results
 }
 
 func (h *BrowserAIHandler) initDB() {
@@ -217,6 +364,7 @@ func (h *BrowserAIHandler) createRule(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
 	}
+	h.invalidateRulesCache()
 	SendJSON(ctx, map[string]any{"status": "success", "rule": rule})
 }
 
@@ -297,6 +445,7 @@ func (h *BrowserAIHandler) updateRule(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
 	}
+	h.invalidateRulesCache()
 	SendJSON(ctx, map[string]any{"status": "success"})
 }
 
@@ -311,6 +460,7 @@ func (h *BrowserAIHandler) deleteRule(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
 	}
+	h.invalidateRulesCache()
 	SendJSON(ctx, map[string]any{"status": "success"})
 }
 
@@ -827,136 +977,119 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		if logstore.IsOpaqueOrWirePrompt(payload.Prompt) {
 			securityVerdict = "not_evaluated"
 		} else {
-		rules, _ := h.manager.GetRules(ctx)
-		for _, rule := range rules {
-			if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
-				continue
-			}
-			applyAIBotDefaults(&rule)
-			if strings.TrimSpace(rule.BotPrompt) == "" && strings.TrimSpace(rule.BotReferenceImage) == "" {
-				// Misconfigured bot rule — do not silently skip BLOCK policies.
-				if logstore.NormalizeGuardRuleAction(rule.Action) == "BLOCK" {
-					logEntry.Action = "Blocked"
-					logEntry.Status = fmt.Sprintf("Blocked (%s — AI Guard Bot misconfigured)", rule.Name)
-					logEntry.RiskScore = 95
-					logEntry.PredictiveRisk = "CRITICAL"
-					logEntry.PredictedCategory = "AI_GUARD_BOT_MISCONFIGURED"
-					logEntry.RuleTriggered = rule.Name
-					ruleWarning = strings.TrimSpace(rule.WarningMessage)
-					if ruleWarning == "" {
-						ruleWarning = "AI Guard Bot rule is incomplete (evaluation prompt required)."
-					}
-					allowed = false
-					isViolationBlock = true
-					evalError = "ai guard bot misconfigured: evaluation prompt is required"
-					securityVerdict = "misconfigured"
-					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
-					break
-				}
-				continue
-			}
-			if skipAIBotRuleWithoutImages(rule.BotModel, rule.BotReferenceImage, payload.UploadImages) {
-				continue
-			}
-			var violated bool
-			var evalErr string
+			rules, _ := h.getRulesCached(ctx)
 			evalContent := buildGuardEvalContent(payload.Prompt, getMetadataString(payload.Metadata, "extracted_text"))
-			if rulePatternMatches(rule, evalContent) {
-				violated = true
-			} else {
-				violated, evalErr = h.evaluateAIBotRule(rule, evalContent, payload.UploadImages)
-			}
-			if evalErr != "" {
-				evalError = evalErr
-				ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
-				// Evaluator errors must NOT block normal traffic — only a confirmed
-				// violation from the model may block/warn. Log the error and allow.
-				logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", rule.Name)
-				logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
+			readyBots, misconfigBlock := collectAIBotRulesForEval(rules, payload.UploadImages)
+			if len(misconfigBlock) > 0 {
+				rule := misconfigBlock[0]
+				logEntry.Action = "Blocked"
+				logEntry.Status = fmt.Sprintf("Blocked (%s — AI Guard Bot misconfigured)", rule.Name)
+				logEntry.RiskScore = 95
+				logEntry.PredictiveRisk = "CRITICAL"
+				logEntry.PredictedCategory = "AI_GUARD_BOT_MISCONFIGURED"
 				logEntry.RuleTriggered = rule.Name
-				securityVerdict = "eval_failed"
-				if ruleAction == "BLOCK" {
-					evalError = evalErr + " (allowed — eval error does not block)"
+				ruleWarning = strings.TrimSpace(rule.WarningMessage)
+				if ruleWarning == "" {
+					ruleWarning = "AI Guard Bot rule is incomplete (evaluation prompt required)."
 				}
+				allowed = false
+				isViolationBlock = true
+				evalError = "ai guard bot misconfigured: evaluation prompt is required"
+				securityVerdict = "misconfigured"
 				_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
-				continue
-			}
-			if violated && aiBotViolationLikelyFalsePositive(rule, evalContent) {
-				violated = false
-			}
-			if violated {
-				ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
-				sevScore, sevLabel := logstore.GuardSeverityScore(rule.Severity)
-				if ruleAction == "BLOCK" {
-					logEntry.Action = "Blocked"
-					logEntry.Status = fmt.Sprintf("Blocked (%s)", rule.Name)
-					logEntry.RiskScore = sevScore
-					if logEntry.RiskScore < 80 {
-						logEntry.RiskScore = 90
+			} else if len(readyBots) > 0 {
+				// Parallel bots: wall time ≈ slowest bot (not sum). Cap + shared budget for enterprise scale.
+				for _, res := range h.evalAIBotRulesParallel(evalContent, payload.UploadImages, readyBots) {
+					if res.skipped || (!res.violated && res.evalErr == "") {
+						if !res.skipped && res.evalErr == "" && !res.violated {
+							aiBotCheckedOK = true
+							if securityVerdict == "not_evaluated" || securityVerdict == "clear" || securityVerdict == "eval_failed" {
+								securityVerdict = "clear"
+								evalError = ""
+							}
+						}
+						continue
 					}
-					logEntry.PredictiveRisk = sevLabel
-					if logEntry.PredictiveRisk == "LOW" || logEntry.PredictiveRisk == "MEDIUM" {
-						logEntry.PredictiveRisk = "HIGH"
+					if res.evalErr != "" {
+						evalError = res.evalErr
+						ruleAction := logstore.NormalizeGuardRuleAction(res.rule.Action)
+						logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", res.rule.Name)
+						logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
+						logEntry.RuleTriggered = res.rule.Name
+						securityVerdict = "eval_failed"
+						if ruleAction == "BLOCK" {
+							evalError = res.evalErr + " (allowed — eval error does not block)"
+						}
+						_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+						continue
 					}
-					logEntry.PredictedCategory = "AI_GUARD_BOT_VIOLATION"
-					logEntry.RuleTriggered = rule.Name
-					ruleWarning = strings.TrimSpace(rule.WarningMessage)
-					if strings.Contains(strings.ToLower(ruleWarning), "evaluation failed") {
-						ruleWarning = ""
+					if !res.violated {
+						continue
 					}
-					if ruleWarning == "" {
-						ruleWarning = "This request was blocked by UnifAI Guard."
+					ruleAction := logstore.NormalizeGuardRuleAction(res.rule.Action)
+					sevScore, sevLabel := logstore.GuardSeverityScore(res.rule.Severity)
+					if ruleAction == "BLOCK" {
+						logEntry.Action = "Blocked"
+						logEntry.Status = fmt.Sprintf("Blocked (%s)", res.rule.Name)
+						logEntry.RiskScore = sevScore
+						if logEntry.RiskScore < 80 {
+							logEntry.RiskScore = 90
+						}
+						logEntry.PredictiveRisk = sevLabel
+						if logEntry.PredictiveRisk == "LOW" || logEntry.PredictiveRisk == "MEDIUM" {
+							logEntry.PredictiveRisk = "HIGH"
+						}
+						logEntry.PredictedCategory = "AI_GUARD_BOT_VIOLATION"
+						logEntry.RuleTriggered = res.rule.Name
+						ruleWarning = strings.TrimSpace(res.rule.WarningMessage)
+						if strings.Contains(strings.ToLower(ruleWarning), "evaluation failed") {
+							ruleWarning = ""
+						}
+						if ruleWarning == "" {
+							ruleWarning = "This request was blocked by UnifAI Guard."
+						}
+						allowed = false
+						isViolationBlock = true
+						evalError = ""
+						securityVerdict = "violation"
+						_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+						break
+					} else if ruleAction == "REDACT" {
+						logEntry.Action = "Redacted"
+						logEntry.Status = fmt.Sprintf("Redacted (%s)", res.rule.Name)
+						logEntry.RiskScore = sevScore
+						if logEntry.RiskScore > 70 {
+							logEntry.RiskScore = 65
+						}
+						if logEntry.RiskScore < 40 {
+							logEntry.RiskScore = 50
+						}
+						logEntry.PredictiveRisk = "MEDIUM"
+						if sevLabel == "CRITICAL" || sevLabel == "HIGH" {
+							logEntry.PredictiveRisk = "HIGH"
+						}
+						logEntry.PredictedCategory = "AI_GUARD_BOT_REDACT"
+						logEntry.RuleTriggered = res.rule.Name
+						ruleWarning = strings.TrimSpace(res.rule.WarningMessage)
+						evalError = ""
+						securityVerdict = "warning"
+						_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 					}
-					allowed = false
-					isViolationBlock = true
-					evalError = ""
-					securityVerdict = "violation"
-					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
-					break
-				} else if ruleAction == "REDACT" {
-					logEntry.Action = "Redacted"
-					logEntry.Status = fmt.Sprintf("Redacted (%s)", rule.Name)
-					logEntry.RiskScore = sevScore
-					if logEntry.RiskScore > 70 {
-						logEntry.RiskScore = 65
-					}
-					if logEntry.RiskScore < 40 {
-						logEntry.RiskScore = 50
-					}
-					logEntry.PredictiveRisk = "MEDIUM"
-					if sevLabel == "CRITICAL" || sevLabel == "HIGH" {
-						logEntry.PredictiveRisk = "HIGH"
-					}
-					logEntry.PredictedCategory = "AI_GUARD_BOT_REDACT"
-					logEntry.RuleTriggered = rule.Name
-					ruleWarning = strings.TrimSpace(rule.WarningMessage)
-					evalError = ""
-					securityVerdict = "warning"
-					_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 				}
-			} else {
-				// Model said no violation — security policy met for this bot rule.
-				aiBotCheckedOK = true
-				if securityVerdict == "not_evaluated" || securityVerdict == "clear" || securityVerdict == "eval_failed" {
-					securityVerdict = "clear"
-					evalError = ""
+			}
+			if allowed && aiBotCheckedOK && securityVerdict == "clear" && logEntry.Action == "Allowed" {
+				logEntry.Status = "Allowed (AI Guard Bot: security OK)"
+				logEntry.PredictedCategory = "AI_GUARD_BOT_CLEAR"
+				logEntry.RuleTriggered = ""
+				_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+			} else if allowed && securityVerdict == "eval_failed" && logEntry.PredictedCategory != "AI_GUARD_BOT_EVAL_ERROR" {
+				logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", logEntry.RuleTriggered)
+				if strings.TrimSpace(logEntry.RuleTriggered) == "" {
+					logEntry.Status = "Allowed (AI Guard Bot eval failed)"
 				}
+				logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
+				_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 			}
-		}
-		if allowed && aiBotCheckedOK && securityVerdict == "clear" && logEntry.Action == "Allowed" {
-			logEntry.Status = "Allowed (AI Guard Bot: security OK)"
-			logEntry.PredictedCategory = "AI_GUARD_BOT_CLEAR"
-			logEntry.RuleTriggered = ""
-			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
-		} else if allowed && securityVerdict == "eval_failed" && logEntry.PredictedCategory != "AI_GUARD_BOT_EVAL_ERROR" {
-			// Ensure Prompt Logs never look like "bot never ran" when evaluation failed.
-			logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", logEntry.RuleTriggered)
-			if strings.TrimSpace(logEntry.RuleTriggered) == "" {
-				logEntry.Status = "Allowed (AI Guard Bot eval failed)"
-			}
-			logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
-			_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
-		}
 		} // end non-opaque AI bot evaluation
 	}
 
@@ -1110,7 +1243,7 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 	action = "Allowed"
 	securityVerdict = "not_evaluated"
 	prompt = strings.TrimSpace(prompt)
-	rules, _ := h.manager.GetRules(ctx)
+	rules, _ := h.getRulesCached(ctx)
 	for _, rule := range rules {
 		if !rule.Active || strings.ToLower(rule.RuleType) == "ai_bot" || rule.Pattern == "" {
 			continue
@@ -1132,31 +1265,20 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 		}
 	}
 	botCheckedOK := false
-	for _, rule := range rules {
-		if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
+	readyBots, _ := collectAIBotRulesForEval(rules, uploadImages)
+	for _, res := range h.evalAIBotRulesParallel(prompt, uploadImages, readyBots) {
+		if res.skipped {
 			continue
 		}
-		applyAIBotDefaults(&rule)
-		if strings.TrimSpace(rule.BotPrompt) == "" && strings.TrimSpace(rule.BotReferenceImage) == "" {
-			continue
-		}
-		if skipAIBotRuleWithoutImages(rule.BotModel, rule.BotReferenceImage, uploadImages) {
-			continue
-		}
-		violated := rulePatternMatches(rule, prompt)
-		var evalErr string
-		if !violated {
-			violated, evalErr = h.evaluateAIBotRule(rule, prompt, uploadImages)
-		}
-		if evalErr != "" {
-			evalError = evalErr
+		if res.evalErr != "" {
+			evalError = res.evalErr
 			securityVerdict = "eval_failed"
 			if ruleTriggered == "" {
-				ruleTriggered = rule.Name
+				ruleTriggered = res.rule.Name
 			}
 			continue
 		}
-		if !violated {
+		if !res.violated {
 			botCheckedOK = true
 			if securityVerdict == "not_evaluated" || securityVerdict == "clear" || securityVerdict == "eval_failed" {
 				securityVerdict = "clear"
@@ -1164,9 +1286,9 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 			}
 			continue
 		}
-		ruleTriggered = rule.Name
-		ruleWarning = strings.TrimSpace(rule.WarningMessage)
-		ruleAction := logstore.NormalizeGuardRuleAction(rule.Action)
+		ruleTriggered = res.rule.Name
+		ruleWarning = strings.TrimSpace(res.rule.WarningMessage)
+		ruleAction := logstore.NormalizeGuardRuleAction(res.rule.Action)
 		evalError = ""
 		if ruleAction == "BLOCK" {
 			return false, "Blocked", ruleTriggered, ruleWarning, "", "violation"
@@ -1308,27 +1430,15 @@ func (h *BrowserAIHandler) runAIBotOnLogEntry(ctx *fasthttp.RequestCtx, logEntry
 	if content == "" && len(uploadImages) == 0 {
 		return
 	}
-	rules, _ := h.manager.GetRules(ctx)
+	rules, _ := h.getRulesCached(ctx)
 	anyClear := false
-	for _, rule := range rules {
-		if !rule.Active || strings.ToLower(rule.RuleType) != "ai_bot" {
+	readyBots, _ := collectAIBotRulesForEval(rules, uploadImages)
+	for _, res := range h.evalAIBotRulesParallel(content, uploadImages, readyBots) {
+		if res.skipped {
 			continue
 		}
-		applyAIBotDefaults(&rule)
-		if strings.TrimSpace(rule.BotPrompt) == "" && strings.TrimSpace(rule.BotReferenceImage) == "" {
-			continue
-		}
-		if skipAIBotRuleWithoutImages(rule.BotModel, rule.BotReferenceImage, uploadImages) {
-			continue
-		}
-		var violated bool
-		var evalErr string
-		if rulePatternMatches(rule, content) {
-			violated = true
-		} else {
-			violated, evalErr = h.evaluateAIBotRule(rule, content, uploadImages)
-		}
-		if evalErr != "" {
+		rule := res.rule
+		if res.evalErr != "" {
 			if logEntry.Action == "Allowed" {
 				logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", rule.Name)
 				logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
@@ -1337,7 +1447,7 @@ func (h *BrowserAIHandler) runAIBotOnLogEntry(ctx *fasthttp.RequestCtx, logEntry
 			}
 			continue
 		}
-		if !violated {
+		if !res.violated {
 			if logEntry.Action == "Allowed" {
 				anyClear = true
 			}
@@ -2217,10 +2327,14 @@ func (h *BrowserAIHandler) evaluateAIBotRuleDetailed(rule logstore.BrowserGuardR
 		}
 	}
 
+	budgetEnd := time.Now().Add(guardBotEvalBudget())
 	runOutsource := func(user string, withSystem, withJSON bool) (bool, string, string) {
+		remaining := time.Until(budgetEnd)
+		if remaining < 2*time.Second {
+			return false, "guard bot eval budget exceeded", ""
+		}
 		unifaiReq := buildGuardOutsourceChatRequest(providerName, modelName, systemPrompt, user, withSystem, withJSON)
-		deadline := time.Now().Add(60 * time.Second)
-		unifaiCtx := schemas.NewUnifAIContext(context.Background(), deadline)
+		unifaiCtx := schemas.NewUnifAIContext(context.Background(), time.Now().Add(remaining))
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipBudgetAndRateLimits, true)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeySkipPluginPipeline, true)
 		unifaiCtx.SetValue(schemas.UnifAIContextKeyPassthroughExtraParams, true)
@@ -2239,23 +2353,22 @@ func (h *BrowserAIHandler) evaluateAIBotRuleDetailed(rule logstore.BrowserGuardR
 		return violated, "", rawText
 	}
 
-	// Prefer compatible shapes. Collect parseable answers; for security prefer any violation=true.
+	// Few attempts under one shared budget — Send path cannot stack 6× LLM calls.
 	attempts := []struct {
 		user       string
 		withSystem bool
 		withJSON   bool
 	}{
+		{shortUserMsg, true, true},
 		{userMsg, true, true},
-		{userMsg, true, false},
-		{userMsg, false, false},
 		{strictUserMsg, true, false},
-		{shortUserMsg, false, false},
-		{strictUserMsg, false, true},
 	}
 	var firstErr string
 	var lastRaw string
-	sawClearFalse := false
 	for _, a := range attempts {
+		if time.Until(budgetEnd) < 2*time.Second {
+			break
+		}
 		violated, errMsg, raw := runOutsource(a.user, a.withSystem, a.withJSON)
 		if raw != "" {
 			lastRaw = raw
@@ -2269,25 +2382,20 @@ func (h *BrowserAIHandler) evaluateAIBotRuleDetailed(rule logstore.BrowserGuardR
 		if violated {
 			return true, "", raw
 		}
-		sawClearFalse = true
-		// Keep going — a later strict pass may catch category instances small models miss.
-	}
-	if sawClearFalse {
-		return false, "", lastRaw
+		return false, "", raw
 	}
 
-	// Last resort: local Ollama still evaluates the admin policy (no hardcoded DLP).
-	if violated, ollamaErr, raw := runOllamaTextGuardEvalDetailed(browserAIGuardBotDefaultModel, systemPrompt, userMsg, shortUserMsg, strictUserMsg); ollamaErr == "" {
-		return violated, "", raw
-	} else {
-		err := firstErr
-		if err == "" {
-			err = ollamaErr
+	// Last resort only if outsource never returned parseable JSON and budget remains.
+	if time.Until(budgetEnd) >= 3*time.Second {
+		if violated, ollamaErr, raw := runOllamaTextGuardEvalDetailed(browserAIGuardBotDefaultModel, systemPrompt, userMsg, shortUserMsg, strictUserMsg); ollamaErr == "" {
+			return violated, "", raw
+		} else if firstErr == "" {
+			return false, ollamaErr, lastRaw
 		} else {
-			err = firstErr + "; ollama fallback: " + ollamaErr
+			return false, firstErr + "; ollama fallback: " + ollamaErr, lastRaw
 		}
-		return false, err, lastRaw
 	}
+	return false, firstErr, lastRaw
 }
 
 // buildGuardOutsourceChatRequest builds a chat request that works across OpenAI-native
@@ -2359,8 +2467,13 @@ func runOllamaTextGuardEval(modelName, systemPrompt, userMsg, shortUserMsg strin
 }
 
 func runOllamaTextGuardEvalDetailed(modelName, systemPrompt, userMsg, shortUserMsg, strictUserMsg string) (bool, string, string) {
+	deadline := time.Now().Add(guardBotEvalBudget())
 	runOllama := func(system, user string, jsonMode bool) (bool, string, string) {
-		rawText, err := callOllamaChatAny(modelName, system, user, jsonMode, 90*time.Second)
+		remaining := time.Until(deadline)
+		if remaining < 2*time.Second {
+			return false, "guard bot eval budget exceeded", ""
+		}
+		rawText, err := callOllamaChatAny(modelName, system, user, jsonMode, remaining)
 		if err != nil {
 			return false, truncateRunes(err.Error(), 180), ""
 		}
@@ -2375,35 +2488,31 @@ func runOllamaTextGuardEvalDetailed(modelName, systemPrompt, userMsg, shortUserM
 		return violated, "", rawText
 	}
 
+	// Keep attempts short — enterprise Send latency cannot afford 6×90s Ollama retries.
 	attempts := []struct {
 		system   string
 		user     string
 		jsonMode bool
 	}{
-		{systemPrompt, userMsg, true},
-		{systemPrompt, userMsg, false},
 		{systemPrompt, shortUserMsg, true},
+		{systemPrompt, userMsg, true},
 		{systemPrompt, shortUserMsg, false},
 	}
 	if strings.TrimSpace(strictUserMsg) != "" {
-		attempts = append(attempts,
-			struct {
-				system   string
-				user     string
-				jsonMode bool
-			}{systemPrompt, strictUserMsg, true},
-			struct {
-				system   string
-				user     string
-				jsonMode bool
-			}{systemPrompt, strictUserMsg, false},
-		)
+		attempts = append(attempts, struct {
+			system   string
+			user     string
+			jsonMode bool
+		}{systemPrompt, strictUserMsg, true})
 	}
 
 	var firstErr string
 	var lastRaw string
 	sawClearFalse := false
 	for _, a := range attempts {
+		if time.Until(deadline) < 2*time.Second {
+			break
+		}
 		violated, errMsg, raw := runOllama(a.system, a.user, a.jsonMode)
 		if raw != "" {
 			lastRaw = raw
@@ -2418,6 +2527,8 @@ func runOllamaTextGuardEvalDetailed(modelName, systemPrompt, userMsg, shortUserM
 			return true, "", raw
 		}
 		sawClearFalse = true
+		// First clear parse is enough — do not burn remaining budget on retries.
+		return false, "", raw
 	}
 	if sawClearFalse {
 		return false, "", lastRaw

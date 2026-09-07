@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdownMenu";
 import { buildCSV, downloadCSV } from "@/lib/utils/csv";
+import { downloadDocTable, downloadExcelTable } from "@/lib/utils/tableExport";
 import { Download, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { type DashboardData, getCSVSections } from "../utils/exportUtils";
@@ -12,6 +13,34 @@ interface ExportPopoverProps {
 	onPreloadData: () => Promise<void>;
 	onPdfExport: () => Promise<HTMLElement[]>;
 	onPdfExportDone: () => void;
+}
+
+function flattenDashboardRows(data: DashboardData) {
+	const sections = getCSVSections(data, "all");
+	const columns = [
+		{ key: "section", header: "Section" },
+		{ key: "c1", header: "Col 1" },
+		{ key: "c2", header: "Col 2" },
+		{ key: "c3", header: "Col 3" },
+		{ key: "c4", header: "Col 4" },
+		{ key: "c5", header: "Col 5" },
+		{ key: "c6", header: "Col 6" },
+	];
+	const rows: Record<string, string>[] = [];
+	for (const section of sections) {
+		for (const row of section.csv.rows) {
+			rows.push({
+				section: section.name,
+				c1: String(row[0] ?? ""),
+				c2: String(row[1] ?? ""),
+				c3: String(row[2] ?? ""),
+				c4: String(row[3] ?? ""),
+				c5: String(row[4] ?? ""),
+				c6: String(row[5] ?? ""),
+			});
+		}
+	}
+	return { columns, rows };
 }
 
 export function ExportPopover({ getData, onPreloadData, onPdfExport, onPdfExportDone }: ExportPopoverProps) {
@@ -37,10 +66,43 @@ export function ExportPopover({ getData, onPreloadData, onPdfExport, onPdfExport
 		}
 	}, [getData, onPreloadData]);
 
+	const handleExcelExport = useCallback(async () => {
+		setExporting(true);
+		try {
+			await onPreloadData();
+			const { columns, rows } = flattenDashboardRows(getData());
+			await downloadExcelTable({
+				filename: "dashboard-export",
+				sheetName: "Dashboard",
+				columns,
+				rows,
+			});
+		} finally {
+			setExporting(false);
+		}
+	}, [getData, onPreloadData]);
+
+	const handleDocExport = useCallback(async () => {
+		setExporting(true);
+		try {
+			await onPreloadData();
+			const { columns, rows } = flattenDashboardRows(getData());
+			await downloadDocTable({
+				filename: "dashboard-export",
+				title: "UnifAI Dashboard Export",
+				subtitle: "Usage and ranking snapshot",
+				columns,
+				rows,
+				logoSrc: "/header_logo.png",
+			});
+		} finally {
+			setExporting(false);
+		}
+	}, [getData, onPreloadData]);
+
 	const handlePdfExport = useCallback(async () => {
 		setExporting(true);
 
-		// Yield a frame so the spinner renders before heavy work starts
 		await new Promise((r) => requestAnimationFrame(r));
 
 		try {
@@ -74,13 +136,21 @@ export function ExportPopover({ getData, onPreloadData, onPdfExport, onPdfExport
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end">
-				<DropdownMenuItem onClick={handleCsvExport} data-testid="export-csv-item">
-					<FileSpreadsheet className="h-4 w-4" />
-					CSV
-				</DropdownMenuItem>
 				<DropdownMenuItem onClick={handlePdfExport} data-testid="export-pdf-item">
 					<FileText className="h-4 w-4" />
 					PDF
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={handleExcelExport} data-testid="export-excel-item">
+					<FileSpreadsheet className="h-4 w-4" />
+					Excel
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={handleDocExport} data-testid="export-doc-item">
+					<FileText className="h-4 w-4" />
+					DOC
+				</DropdownMenuItem>
+				<DropdownMenuItem onClick={handleCsvExport} data-testid="export-csv-item">
+					<FileSpreadsheet className="h-4 w-4" />
+					CSV
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>

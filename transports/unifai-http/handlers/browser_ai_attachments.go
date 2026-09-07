@@ -415,7 +415,7 @@ func storeBrowserAIAttachment(logID, originalName string, data []byte, contentTy
 	}, id)
 	storedName = id + "_" + safe
 	path := filepath.Join(dir, storedName)
-	if err := os.WriteFile(path, payload, 0o644); err != nil {
+	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		return "", "", err
 	}
 	return storedName, ctype, nil

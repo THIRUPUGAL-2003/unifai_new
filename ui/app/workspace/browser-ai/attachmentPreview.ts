@@ -4,6 +4,29 @@ import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 
 export type AttachmentPreviewKind = "pdf" | "image" | "html" | "text" | "unsupported";
 
+export type AttachmentSheetPreview = {
+	name: string;
+	html: string;
+	rowCount: number;
+};
+
+export type AttachmentPreviewResult = {
+	kind: AttachmentPreviewKind;
+	blobUrl?: string;
+	html?: string;
+	text?: string;
+	/** Multi-sheet workbooks — UI can switch / show all. */
+	sheets?: AttachmentSheetPreview[];
+	/** True when CSV/XLSX was capped for first paint. */
+	truncated?: boolean;
+	totalRows?: number;
+};
+
+const CSV_PREVIEW_ROWS = 200;
+const CSV_SHOW_ALL_MAX = 5000;
+const XLSX_PREVIEW_ROWS = 200;
+const XLSX_SHOW_ALL_MAX = 5000;
+
 /** Heuristic: distinguish readable extracted text from PDF-binary regex garbage. */
 export function isReadableExtractedText(text: string): boolean {
 	const t = (text || "").trim();
@@ -18,11 +41,9 @@ export function isReadableExtractedText(text: string): boolean {
 	if (ratio < 0.75) return false;
 	if (letters + digits < Math.min(12, t.length * 0.08)) return false;
 
-	// Regex fallback often produces long runs of symbols / @ signs.
 	if (/[@#^*]{4,}/.test(t)) return false;
 	if (/[^\w\s.,!?;:'"()\-–—/\\[\]{}%$&+=<>@#^*|`~]{10,}/.test(t)) return false;
 
-	// Prefer some word-like structure for longer snippets.
 	if (t.length > 40 && spaces < 2 && letters > 30) return false;
 
 	return true;
@@ -77,6 +98,46 @@ function escapeHtml(s: string): string {
 		.replace(/"/g, "&quot;");
 }
 
+/** Strip script/handlers from mammoth / sheet HTML before dangerouslySetInnerHTML. */
+export function sanitizePreviewHtml(html: string): string {
+	return (html || "")
+		.replace(/<script\b[\s\S]*?<\/script>/gi, "")
+		.replace(/<iframe\b[\s\S]*?<\/iframe>/gi, "")
+		.replace(/<object\b[\s\S]*?<\/object>/gi, "")
+		.replace(/<embed\b[^>]*>/gi, "")
+		.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
+		.replace(/(href|src)\s*=\s*("|')\s*javascript:[^"']*\2/gi, '$1="#"')
+		.replace(/javascript:/gi, "");
+}
+
+function csvRowsToHtml(rows: string[]): string {
+	const table = rows
+		.map((row, i) => {
+			const cells = row.split(",").map((c) => `<td class="border border-border px-2 py-1 text-xs">${escapeHtml(c)}</td>`);
+			return `<tr class="${i === 0 ? "bg-muted/40 font-medium" : ""}">${cells.join("")}</tr>`;
+		})
+		.join("");
+	return `<div class="overflow-auto"><table class="w-full border-collapse">${table}</table></div>`;
+}
+
+function sheetAoAToHtml(aoa: unknown[][], maxRows: number): { html: string; rowCount: number; truncated: boolean } {
+	const total = aoa.length;
+	const slice = aoa.slice(0, maxRows);
+	const rowsHtml = slice
+		.map((row, i) => {
+			const cells = (row as unknown[]).map(
+				(c) => `<td class="border border-border px-2 py-1 text-xs">${escapeHtml(c == null ? "" : String(c))}</td>`,
+			);
+			return `<tr class="${i === 0 ? "bg-muted/40 font-medium" : ""}">${cells.join("")}</tr>`;
+		})
+		.join("");
+	return {
+		html: `<div class="overflow-auto"><table class="w-full border-collapse">${rowsHtml}</table></div>`,
+		rowCount: total,
+		truncated: total > maxRows,
+	};
+}
+
 let pdfjsReady: Promise<typeof import("pdfjs-dist")> | null = null;
 
 async function getPdfJs() {
@@ -111,11 +172,21 @@ async function extractPdfText(bytes: Uint8Array): Promise<string> {
 	}
 }
 
+export type BuildAttachmentPreviewOptions = {
+	/** When true, expand CSV/XLSX up to SHOW_ALL_MAX rows and include every sheet. */
+	showAll?: boolean;
+};
+
 export async function buildAttachmentPreview(
 	blob: Blob,
 	name?: string,
 	contentType?: string,
-): Promise<{ kind: AttachmentPreviewKind; blobUrl?: string; html?: string; text?: string }> {
+	options?: BuildAttachmentPreviewOptions,
+): Promise<AttachmentPreviewResult> {
+	const showAll = !!options?.showAll;
+	const csvLimit = showAll ? CSV_SHOW_ALL_MAX : CSV_PREVIEW_ROWS;
+	const xlsxLimit = showAll ? XLSX_SHOW_ALL_MAX : XLSX_PREVIEW_ROWS;
+
 	const buf = await blob.arrayBuffer();
 	const bytes = new Uint8Array(buf);
 	if (bytes.length === 0) {
@@ -140,9 +211,10 @@ export async function buildAttachmentPreview(
 			? "image"
 			: classifyAttachmentPreview(name, sniffedType || contentType || blob.type);
 	const ext = attachmentExt(name, sniffedType || contentType || blob.type);
-	const typedBlob = sniffedType ? new Blob([buf], { type: sniffedType }) : new Blob([buf], { type: blob.type || contentType || "application/octet-stream" });
+	const typedBlob = sniffedType
+		? new Blob([buf], { type: sniffedType })
+		: new Blob([buf], { type: blob.type || contentType || "application/octet-stream" });
 
-	// API / ChatGPT handshake JSON in an iframe looks like Chrome "Pretty-print" + a blank white pane.
 	const looksJson = first === 0x7b || first === 0x5b;
 	if (looksJson) {
 		const text = new TextDecoder().decode(bytes);
@@ -161,7 +233,9 @@ export async function buildAttachmentPreview(
 			text:
 				`This log stored JSON (ChatGPT request / API metadata), not the original file bytes.\n` +
 				`The prompt was intercepted, but the PDF/image itself was not captured in this event.\n\n` +
-				pretty.slice(0, 8000),
+				pretty.slice(0, showAll ? 200_000 : 8000),
+			truncated: !showAll && pretty.length > 8000,
+			totalRows: pretty.length,
 		};
 	}
 
@@ -173,19 +247,29 @@ export async function buildAttachmentPreview(
 	if (kind === "text" || ext === ".csv") {
 		const text = new TextDecoder().decode(bytes);
 		if (ext === ".csv") {
-			const rows = text.split(/\r?\n/).filter((l) => l.length > 0).slice(0, 200);
-			const table = rows
-				.map((row, i) => {
-					const cells = row.split(",").map((c) => `<td class="border border-border px-2 py-1 text-xs">${escapeHtml(c)}</td>`);
-					return `<tr class="${i === 0 ? "bg-muted/40 font-medium" : ""}">${cells.join("")}</tr>`;
-				})
-				.join("");
+			const allRows = text.split(/\r?\n/).filter((l) => l.length > 0);
+			const rows = allRows.slice(0, csvLimit);
+			const truncated = allRows.length > csvLimit;
 			return {
 				kind: "html",
-				html: `<div class="overflow-auto"><table class="w-full border-collapse">${table}</table></div>`,
+				html: sanitizePreviewHtml(csvRowsToHtml(rows)),
+				truncated,
+				totalRows: allRows.length,
+				sheets: [
+					{
+						name: "CSV",
+						html: sanitizePreviewHtml(csvRowsToHtml(rows)),
+						rowCount: allRows.length,
+					},
+				],
 			};
 		}
-		return { kind: "text", text };
+		return {
+			kind: "text",
+			text: showAll ? text : text.slice(0, 50_000),
+			truncated: !showAll && text.length > 50_000,
+			totalRows: text.length,
+		};
 	}
 
 	if (ext === ".docx" || (contentType || "").includes("wordprocessingml")) {
@@ -194,7 +278,7 @@ export async function buildAttachmentPreview(
 		const api = mammoth.default ?? mammoth;
 		const result = await api.convertToHtml({ arrayBuffer: buf });
 		const html = result.value?.trim()
-			? `<div class="prose prose-invert max-w-none text-sm leading-relaxed p-2">${result.value}</div>`
+			? `<div class="prose prose-invert max-w-none text-sm leading-relaxed p-2">${sanitizePreviewHtml(result.value)}</div>`
 			: `<p class="text-muted-foreground text-sm">Empty document.</p>`;
 		return { kind: "html", html };
 	}
@@ -204,17 +288,42 @@ export async function buildAttachmentPreview(
 		const XLSXmod: any = await import("xlsx");
 		const XLSX = XLSXmod.default ?? XLSXmod;
 		const wb = XLSX.read(buf, { type: "array" });
-		const sheetName = wb.SheetNames[0];
-		if (!sheetName) {
+		if (!wb.SheetNames.length) {
 			return { kind: "html", html: `<p class="text-sm text-muted-foreground">Workbook has no sheets.</p>` };
 		}
-		const sheet = wb.Sheets[sheetName];
-		const htmlTable = XLSX.utils.sheet_to_html(sheet, { id: "unifai-xlsx-preview", editable: false });
-		const wrapped = `<div class="overflow-auto text-xs [&_table]:w-full [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:bg-muted/40">
-			<p class="text-[11px] text-muted-foreground mb-2">Sheet: ${escapeHtml(sheetName)}${wb.SheetNames.length > 1 ? ` (+${wb.SheetNames.length - 1} more)` : ""}</p>
-			${htmlTable}
+
+		const sheets: AttachmentSheetPreview[] = [];
+		let anyTruncated = false;
+		let totalRows = 0;
+		for (const sheetName of wb.SheetNames) {
+			const sheet = wb.Sheets[sheetName];
+			const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: "" }) as unknown[][];
+			const built = sheetAoAToHtml(aoa, xlsxLimit);
+			totalRows += built.rowCount;
+			if (built.truncated) anyTruncated = true;
+			sheets.push({
+				name: sheetName,
+				html: sanitizePreviewHtml(built.html),
+				rowCount: built.rowCount,
+			});
+		}
+
+		const first = sheets[0];
+		const moreNote =
+			sheets.length > 1 ? ` · ${sheets.length} sheets` : "";
+		const truncNote = anyTruncated && !showAll ? ` · showing first ${xlsxLimit} rows (Show all available)` : "";
+		const wrapped = `<div class="overflow-auto text-xs">
+			<p class="text-[11px] text-muted-foreground mb-2">Sheet: ${escapeHtml(first.name)}${escapeHtml(moreNote)}${escapeHtml(truncNote)}</p>
+			${first.html}
 		</div>`;
-		return { kind: "html", html: wrapped };
+
+		return {
+			kind: "html",
+			html: sanitizePreviewHtml(wrapped),
+			sheets,
+			truncated: anyTruncated && !showAll,
+			totalRows,
+		};
 	}
 
 	return { kind: "unsupported" };
