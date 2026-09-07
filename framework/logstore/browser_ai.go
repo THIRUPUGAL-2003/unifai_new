@@ -690,6 +690,20 @@ func (m *BrowserAIManager) GetTargets(ctx context.Context) ([]BrowserTargetWebsi
 	if err := m.db.WithContext(ctx).Order("domain ASC").Find(&targets).Error; err != nil {
 		return targets, err
 	}
+	// Heal status vs block_site/monitored drift (children could keep BLOCKED after Block was turned off).
+	for i := range targets {
+		t := &targets[i]
+		want := "MONITORED"
+		if t.BlockSite {
+			want = "BLOCKED"
+		} else if !t.Monitored {
+			want = "PAUSED"
+		}
+		if t.Status != want {
+			t.Status = want
+			_ = m.db.WithContext(ctx).Model(&BrowserTargetWebsite{}).Where("id = ?", t.ID).Update("status", want).Error
+		}
+	}
 	return targets, nil
 }
 
@@ -986,9 +1000,16 @@ func (m *BrowserAIManager) UpdateTarget(ctx context.Context, id string, updates 
 	}
 	if bs, ok := filtered["block_site"].(bool); ok {
 		child["block_site"] = bs
-		if _, hasStatus := child["status"]; !hasStatus {
-			if bs {
-				child["status"] = "BLOCKED"
+		if bs {
+			child["status"] = "BLOCKED"
+		} else if _, hasStatus := child["status"]; !hasStatus {
+			// Turning Block off must clear stale BLOCKED status on children.
+			child["status"] = "MONITORED"
+		} else if st, _ := child["status"].(string); strings.EqualFold(st, "BLOCKED") {
+			if mon, ok := child["monitored"].(bool); ok && !mon {
+				child["status"] = "PAUSED"
+			} else {
+				child["status"] = "MONITORED"
 			}
 		}
 	}

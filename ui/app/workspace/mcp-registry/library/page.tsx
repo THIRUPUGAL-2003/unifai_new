@@ -13,7 +13,7 @@ import { parseAsArrayOf, parseAsInteger, parseAsString, useQueryStates } from "n
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MCPLibraryAddServerSheet } from "./views/mcpLibraryAddServerSheet";
 import { MCPLibraryFilterSidebar, type MCPLibraryFilters } from "./views/mcpLibraryFilterSidebar";
-import { MCPLibraryInstallSheet, sanitizeServerName } from "./views/mcpLibraryInstallSheet";
+import { MCPLibraryInstallSheet, mcpClientNameMatchesCatalog } from "./views/mcpLibraryInstallSheet";
 import { MCPLibraryServerCard, MCPLibraryServerCardSkeleton } from "./views/mcpLibraryServerCard";
 import { MCPLibraryServersTable, MCPLibraryServersTableSkeleton } from "./views/mcpLibraryServersTable";
 import { MCPLibrarySettingsSheet } from "./views/mcpLibrarySettingsSheet";
@@ -101,8 +101,12 @@ export default function MCPLibraryPage() {
 	const servers = useMemo(() => libraryData?.servers || [], [libraryData?.servers]);
 	const totalCount = libraryData?.total_count || 0;
 
-	// Installed-detection: match on connection_url or name (case-insensitive)
-	const { data: mcpClientsData, error: mcpClientsError } = useGetMCPClientsQuery({ limit: 100, offset: 0 });
+	// Installed-detection: match on connection_url or name (incl. canva2-style suffixes).
+	// High limit so Install badge stays accurate past the first 100 clients.
+	const { data: mcpClientsData, error: mcpClientsError, refetch: refetchMCPClients } = useGetMCPClientsQuery({
+		limit: 1000,
+		offset: 0,
+	});
 
 	useEffect(() => {
 		if (!libraryError && !mcpClientsError) return;
@@ -115,17 +119,22 @@ export default function MCPLibraryPage() {
 
 	const installedServerSlugs = useMemo(() => {
 		const clients = mcpClientsData?.clients || [];
+		const normalizeUrl = (raw?: string | null) => (raw || "").trim().toLowerCase().replace(/\/+$/, "");
 		return new Set(
 			servers
 				.filter((server) =>
 					clients.some((client) => {
 						const connectionString = client.config.connection_string;
 						const connectionUrl =
-							connectionString?.type === "env" || connectionString?.type === "vault" ? connectionString.ref : connectionString?.value;
-						return (
-							(server.connection_url && connectionUrl === server.connection_url) ||
-							client.config.name.toLowerCase() === sanitizeServerName(server.name).toLowerCase()
-						);
+							connectionString?.type === "env" || connectionString?.type === "vault"
+								? connectionString.ref
+								: connectionString?.value;
+						const urlMatch =
+							!!server.connection_url &&
+							!!connectionUrl &&
+							normalizeUrl(connectionUrl) === normalizeUrl(server.connection_url);
+						const nameMatch = mcpClientNameMatchesCatalog(client.config.name || "", server.name || "");
+						return urlMatch || nameMatch;
 					}),
 				)
 				.map((server) => server.slug),
@@ -133,8 +142,8 @@ export default function MCPLibraryPage() {
 	}, [mcpClientsData?.clients, servers]);
 
 	const handleInstalled = useCallback(async () => {
-		await refetch();
-	}, [refetch]);
+		await Promise.all([refetch(), refetchMCPClients()]);
+	}, [refetch, refetchMCPClients]);
 
 	const handleViewModeChange = useCallback((mode: MCPLibraryViewMode) => {
 		setViewMode(mode);

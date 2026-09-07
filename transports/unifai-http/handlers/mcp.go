@@ -632,6 +632,30 @@ func (h *MCPHandler) addMCPClient(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	// Reject duplicates before OAuth pending / connect so users never rename to canva2 after a late 409.
+	if _, err := h.store.ConfigStore.GetMCPClientByName(ctx, req.Name); err == nil {
+		SendError(ctx, fasthttp.StatusConflict, "An MCP client with this name already exists")
+		return
+	} else if err != nil && !errors.Is(err, configstore.ErrNotFound) {
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to check MCP client name: %v", err))
+		return
+	}
+	if req.ConnectionString != nil {
+		connURL := strings.TrimSpace(req.ConnectionString.GetValue())
+		if connURL == "" {
+			connURL = strings.TrimSpace(req.ConnectionString.GetRef())
+		}
+		if connURL != "" {
+			if existing, err := h.store.ConfigStore.GetMCPClientByConnectionURL(ctx, connURL); err == nil && existing != nil {
+				SendError(ctx, fasthttp.StatusConflict, fmt.Sprintf("An MCP client with this connection URL already exists as %q", existing.Name))
+				return
+			} else if err != nil && !errors.Is(err, configstore.ErrNotFound) {
+				SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to check MCP connection URL: %v", err))
+				return
+			}
+		}
+	}
+
 	// Handle per-user headers: admin declares the required key names (schema)
 	// AND supplies a sample set of values inline so the server can verify
 	// upstream + discover tools in a single round-trip. Mirrors the per-user

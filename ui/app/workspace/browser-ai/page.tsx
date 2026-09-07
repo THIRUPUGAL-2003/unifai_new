@@ -587,10 +587,16 @@ function GuardRuleAIEvaluatorFields({
 	const visionModel = isVisionGuardModel(botModel);
 	const multimodalModel = isMultimodalGuardModel(botModel);
 	const modelSource: "download" | "outsource" = isDownloadGuardSource(botProvider) ? "download" : "outsource";
-	const activeOutsourceProvider =
-		botProvider && !isDownloadGuardSource(botProvider)
-			? botProvider
-			: outsourceProviderOptions[0]?.value || "";
+	const activeOutsourceProvider = (() => {
+		if (modelSource === "download") {
+			return outsourceProviderOptions[0]?.value || "";
+		}
+		const want = (botProvider || "").trim().toLowerCase();
+		const match = outsourceProviderOptions.find((o) => o.value.toLowerCase() === want);
+		// Prefer catalog provider id (exact casing) so model list + API keys resolve correctly.
+		if (match) return match.value;
+		return outsourceProviderOptions[0]?.value || botProvider || "";
+	})();
 
 	const setModelSource = (source: "download" | "outsource") => {
 		if (source === "download") {
@@ -599,10 +605,20 @@ function GuardRuleAIEvaluatorFields({
 			return;
 		}
 		const first = outsourceProviderOptions[0]?.value || "";
+		if (!first) {
+			onProviderChange("");
+			onModelChange("");
+			return;
+		}
 		if (isDownloadGuardSource(botProvider) || !botProvider) {
 			onProviderChange(first);
 			onModelChange("");
+			return;
 		}
+		// Keep current outsource provider if it still exists in the catalog (case-insensitive).
+		const keep = outsourceProviderOptions.find((o) => o.value.toLowerCase() === botProvider.toLowerCase());
+		onProviderChange(keep?.value || first);
+		if (!keep) onModelChange("");
 	};
 
 	return (

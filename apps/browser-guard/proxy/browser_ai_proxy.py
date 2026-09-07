@@ -385,8 +385,23 @@ def _ensure_background_config_refresh() -> None:
             time.sleep(1.0)
 
     threading.Thread(target=_loop, name="unifai-config-refresh", daemon=True).start()
-    # Immediate first pull so Block/Monitor work in the first second after Guard start.
-    threading.Thread(target=_refresh_targets_from_backend, daemon=True).start()
+
+    def _first_pull() -> None:
+        try:
+            _refresh_targets_from_backend()
+        except Exception as e:
+            print(f"[UnifAI Proxy] first targets pull: {e}")
+        try:
+            get_guard_rules(force_network=True)
+        except Exception as e:
+            print(f"[UnifAI Proxy] first rules pull: {e}")
+        try:
+            get_control_settings(force_network=True)
+        except Exception as e:
+            print(f"[UnifAI Proxy] first controls pull: {e}")
+
+    # Immediate first pull — targets + rules + controls (avoid empty-regex cold start).
+    threading.Thread(target=_first_pull, name="unifai-config-first-pull", daemon=True).start()
 
 
 def get_target_domains() -> dict:
@@ -460,14 +475,9 @@ def get_guard_rules(force_network: bool = False) -> list:
     global _cached_rules, _cached_rule_catalog, _cached_has_ai_bot, _rules_fetched_at, _rules_fetch_ok
     _ensure_background_config_refresh()
     now = time.time()
-    if not force_network and now - _rules_fetched_at < CACHE_TTL_RULES:
-        return _cached_rules
-    # On request path without force: if cache is fresh enough for hot path, return.
-    # force_network bypasses TTL for the background poller.
     if not force_network and _rules_fetched_at > 0:
         return _cached_rules
 
-    _rules_fetched_at = now
     data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/rules?for=agent")
     if data is None:
         data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/rules")
@@ -515,13 +525,12 @@ def get_guard_rules(force_network: bool = False) -> list:
             _cached_rule_catalog = catalog
             _cached_has_ai_bot = has_ai_bot
             _rules_fetch_ok = True
+            _rules_fetched_at = time.time()
         print(f"[UnifAI Proxy] Refreshed {len(compiled)} regex rules, {len(catalog)} active rules from backend.")
         return _cached_rules
 
-    # Backend unreachable: keep last cache (may be empty). Do not invent rules.
-    # Allow a fast retry when cache is still empty (do not sit idle for full TTL).
+    # Backend unreachable: keep last cache. Do NOT stamp success time — cold-start can retry.
     if not _cached_rules and not _rules_fetch_ok:
-        _rules_fetched_at = now - max(0.0, CACHE_TTL_RULES - 0.25)
         print("[UnifAI Proxy] WARNING: guard rules empty — regex DLP idle until backend rules fetch succeeds.")
     return _cached_rules
 
@@ -661,13 +670,9 @@ def get_control_settings(force_network: bool = False) -> dict:
     """Fetch browser interaction controls. Request path = memory; bg poller force_network."""
     global _cached_controls, _controls_fetched_at, _controls_from_backend
     _ensure_background_config_refresh()
-    now = time.time()
     if not force_network and _controls_fetched_at > 0:
         return _cached_controls
-    if not force_network and now - _controls_fetched_at < CACHE_TTL_CONTROLS and _cached_controls:
-        return _cached_controls
 
-    _controls_fetched_at = now
     data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/controls")
     if data and isinstance(data.get("controls"), dict):
         c = data["controls"]
@@ -678,11 +683,13 @@ def get_control_settings(force_network: bool = False) -> dict:
                 "upload_warning": (c.get("upload_warning") or "").strip(),
             }
             _controls_from_backend = True
+            _controls_fetched_at = time.time()
         print(
             "[UnifAI Proxy] Controls refreshed | "
             f"enabled={_cached_controls['enabled']} "
             f"upload={_cached_controls['block_upload']}"
         )
+    # Failure: do not stamp _controls_fetched_at — next force_network / cold path can retry.
     return _cached_controls
 
 
@@ -6256,13 +6263,23 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
         if rule_action == "REDACT":
             return True, r["name"], "Redacted", _redacted_forward(prompt, r.get("warning_message", "")), "", ""
 
-    # Backend / evaluator miss — allow traffic; regex rules already ran locally.
+    # Backend / evaluator miss — regex already ran locally.
+    # Default fail-CLOSED when AI Guard Bots are configured (do not silently allow).
+    # Opt-in fail-open only via UNIFAI_FAIL_OPEN=1.
     backend_miss = "backend unreachable or AI Guard Bot could not evaluate"
-    if _fail_open() or has_ai_bot_rules():
+    if _fail_open():
         if not evaluation_only:
             log_prompt_async(platform, domain, prompt, client_ip, url, method)
-        # Surface miss so file-scan path does not stamp false security OK.
-        return True, "", "Allowed", prompt, "", backend_miss if has_ai_bot_rules() else ""
+        return True, "", "Allowed", prompt, "", backend_miss
+    if has_ai_bot_rules():
+        return (
+            False,
+            "AI Guard Bot Unavailable",
+            "Blocked",
+            prompt,
+            "UnifAI Guard could not reach the AI security evaluator. Prompt blocked for safety.",
+            backend_miss,
+        )
     return (
         False,
         "Backend Unreachable",
@@ -6274,8 +6291,14 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
 
 
 def _security_reply_text(rule_triggered: str, warning_message: str = "") -> str:
-    """Only the warning the admin typed on the rule. No built-in template."""
-    return (warning_message or "").strip()
+    """Admin block message first; otherwise a clear default that still names the rule."""
+    w = (warning_message or "").strip()
+    if w:
+        return w
+    name = (rule_triggered or "").strip()
+    if name:
+        return f"Blocked by UnifAI Guard ({name})."
+    return "This request was blocked by UnifAI Guard."
 
 
 def _warning_for_rule_name(rule_name: str) -> str:
@@ -6671,8 +6694,18 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         )
         return
 
-    # ── OpenAI-compatible SSE (Accept/path shape — any admin-added domain) ──
-    if "event-stream" in accept or "chat/completions" in path or "stream" in path or "completion" in path:
+    # ── OpenAI-compatible SSE (Accept/path/body stream flag — any admin-added domain) ──
+    raw_low = (raw_body or "").lower()
+    wants_stream = (
+        "event-stream" in accept
+        or "chat/completions" in path
+        or "/stream" in path
+        or path.endswith("/stream")
+        or "stream" in path and ("completion" in path or "chat" in path or "generate" in path)
+        or '"stream":true' in raw_low.replace(" ", "")
+        or '"stream": true' in raw_low
+    )
+    if wants_stream or "completion" in path:
         openai_sse = (
             'data: {"id":"unifai-reply","object":"chat.completion.chunk","choices":'
             '[{"index":0,"delta":{"role":"assistant","content":'
@@ -6689,25 +6722,79 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         )
         return
 
-    # ── Fallback for ANY other Target Website: HTTP 200 OpenAI-style JSON ──
+    # ── Fallback for ANY other Target Website ──
+    # Many UIs (Abacus, Poe, custom chat apps) ignore plain OpenAI JSON and keep spinning.
+    # Emit a multi-shape body + SSE twin so at least one field the SPA reads shows the block message.
+    multi = {
+        "id": "unifai-security-block",
+        "object": "chat.completion",
+        "choices": [{
+            "index": 0,
+            "message": {"role": "assistant", "content": msg},
+            "delta": {"role": "assistant", "content": msg},
+            "text": msg,
+            "finish_reason": "stop",
+        }],
+        "message": {
+            "id": "unifai-security-block",
+            "role": "assistant",
+            "author": {"role": "assistant"},
+            "content": msg,
+            "text": msg,
+            "parts": [msg],
+            "content_type": "text",
+        },
+        "messages": [{"role": "assistant", "content": msg, "text": msg}],
+        "text": msg,
+        "content": msg,
+        "answer": msg,
+        "reply": msg,
+        "response": msg,
+        "output": msg,
+        "result": {
+            "content": [{"type": "text", "text": msg}],
+            "message": msg,
+            "text": msg,
+        },
+        "data": {"message": msg, "text": msg, "content": msg, "answer": msg},
+        "error": None,
+        "unifai": {
+            "blocked": True,
+            "rule": rule_triggered,
+            "message": msg,
+        },
+        # Some SPAs surface server "detail" / "error_message" even on HTTP 200.
+        "detail": msg,
+        "error_message": msg,
+        "status": "ok",
+        "success": True,
+    }
+    # Prefer SSE when the path looks chatty — stops infinite "thinking" loaders on unknown sites.
+    chatty_path = any(
+        x in path
+        for x in (
+            "chat", "message", "completion", "generate", "ask", "prompt",
+            "conversation", "thread", "query", "agent", "llm", "ai/",
+        )
+    )
+    if chatty_path:
+        sse_lines = (
+            f"data: {json.dumps({'text': msg, 'message': msg, 'content': msg, 'role': 'assistant'}, ensure_ascii=False)}\n\n"
+            f"data: {json.dumps({'choices': [{'delta': {'content': msg}, 'finish_reason': None}]}, ensure_ascii=False)}\n\n"
+            f"data: {json.dumps({'choices': [{'delta': {}, 'finish_reason': 'stop'}]}, ensure_ascii=False)}\n\n"
+            f"data: {json.dumps(multi, ensure_ascii=False)}\n\n"
+            "data: [DONE]\n\n"
+        )
+        flow.response = http.Response.make(
+            200,
+            sse_lines.encode("utf-8"),
+            {**common_headers, "Content-Type": "text/event-stream; charset=utf-8"},
+        )
+        return
+
     flow.response = http.Response.make(
         200,
-        json.dumps({
-            "id": "unifai-security-block",
-            "object": "chat.completion",
-            "choices": [{
-                "index": 0,
-                "message": {"role": "assistant", "content": msg},
-                "finish_reason": "stop",
-            }],
-            "message": {"role": "assistant", "content": msg, "text": msg},
-            "text": msg,
-            "unifai": {
-                "blocked": True,
-                "rule": rule_triggered,
-                "message": msg,
-            },
-        }).encode("utf-8"),
+        json.dumps(multi, ensure_ascii=False).encode("utf-8"),
         {**common_headers, "Content-Type": "application/json; charset=utf-8"},
     )
 

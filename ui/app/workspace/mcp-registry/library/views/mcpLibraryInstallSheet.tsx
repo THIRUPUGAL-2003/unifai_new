@@ -56,6 +56,16 @@ export function sanitizeServerName(name: string): string {
 	return /^[0-9]/.test(cleaned) || cleaned === "" ? `mcp_${cleaned}` : cleaned;
 }
 
+/** True when an installed client name is the catalog name or a numbered duplicate (canva, canva2, canva_2). */
+export function mcpClientNameMatchesCatalog(clientName: string, catalogName: string): boolean {
+	const client = (clientName || "").trim().toLowerCase();
+	const base = sanitizeServerName(catalogName).toLowerCase();
+	if (!client || !base) return false;
+	if (client === base) return true;
+	// Migration / reinstall suffixes: canva2, canva3, canva_2, canva_3
+	return new RegExp(`^${base.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[_]?\\d+$`).test(client);
+}
+
 function inferLibraryAuthType(server: MCPLibraryEntry): MCPAuthType {
 	const catalog = (server.auth_type || "none") as MCPAuthType;
 	if (catalog !== "none") return catalog;
@@ -393,7 +403,15 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 		} catch (error) {
 			setIsLoading(false);
 			if ((error as any)?.status === 409) {
-				setError("name", { message: getErrorMessage(error) });
+				const message = getErrorMessage(error);
+				setError("name", { message });
+				toast({
+					title: "Already installed",
+					description:
+						message ||
+						"This MCP server (same name or connection URL) is already installed. Open MCP Catalog and reuse the existing entry — do not create canva2 / canva3 duplicates.",
+					variant: "destructive",
+				});
 				return;
 			}
 			const message = getErrorMessage(error);

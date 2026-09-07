@@ -1660,8 +1660,9 @@ func (s *RDBConfigStore) GetMCPClientsPaginated(ctx context.Context, params MCPC
 
 	if limit <= 0 {
 		limit = 25
-	} else if limit > 100 {
-		limit = 100
+	} else if limit > 1000 {
+		// Library installed-detection and admin catalogs need more than 100 rows.
+		limit = 1000
 	}
 
 	if offset < 0 {
@@ -2011,6 +2012,25 @@ func (s *RDBConfigStore) GetMCPClientConfigByID(ctx context.Context, id string) 
 	}, nil
 }
 
+func normalizeMCPConnectionURL(raw string) string {
+	s := strings.TrimSpace(strings.ToLower(raw))
+	s = strings.TrimRight(s, "/")
+	return s
+}
+
+func mcpConnectionURLPlain(sv *schemas.SecretVar) string {
+	if sv == nil {
+		return ""
+	}
+	if v := strings.TrimSpace(sv.GetValue()); v != "" {
+		return v
+	}
+	if ref := strings.TrimSpace(sv.GetRef()); ref != "" {
+		return ref
+	}
+	return ""
+}
+
 // GetMCPClientByName retrieves an MCP client by name from the database.
 func (s *RDBConfigStore) GetMCPClientByName(ctx context.Context, name string) (*tables.TableMCPClient, error) {
 	var mcpClient tables.TableMCPClient
@@ -2023,12 +2043,45 @@ func (s *RDBConfigStore) GetMCPClientByName(ctx context.Context, name string) (*
 	return &mcpClient, nil
 }
 
+// GetMCPClientByConnectionURL finds an existing client with the same normalized HTTP/SSE URL.
+func (s *RDBConfigStore) GetMCPClientByConnectionURL(ctx context.Context, rawURL string) (*tables.TableMCPClient, error) {
+	want := normalizeMCPConnectionURL(rawURL)
+	if want == "" {
+		return nil, ErrNotFound
+	}
+	var existing []tables.TableMCPClient
+	if err := s.DB().WithContext(ctx).Find(&existing).Error; err != nil {
+		return nil, err
+	}
+	for i := range existing {
+		got := normalizeMCPConnectionURL(mcpConnectionURLPlain(existing[i].ConnectionString))
+		if got != "" && got == want {
+			return &existing[i], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
 // CreateMCPClientConfig creates a new MCP client configuration in the database.
 func (s *RDBConfigStore) CreateMCPClientConfig(ctx context.Context, clientConfig *schemas.MCPClientConfig) error {
 	return s.DB().Transaction(func(tx *gorm.DB) error {
 		// Check if a client with the same name already exists
 		if _, err := s.GetMCPClientByName(ctx, clientConfig.Name); err == nil {
 			return fmt.Errorf("MCP client with name %q %w", clientConfig.Name, ErrAlreadyExists)
+		}
+		// Reject duplicate connection URLs so library reinstalls cannot create canva / canva2 / canva3 clones.
+		if connURL := mcpConnectionURLPlain(clientConfig.ConnectionString); connURL != "" {
+			var existing []tables.TableMCPClient
+			if err := tx.WithContext(ctx).Find(&existing).Error; err != nil {
+				return err
+			}
+			want := normalizeMCPConnectionURL(connURL)
+			for i := range existing {
+				got := normalizeMCPConnectionURL(mcpConnectionURLPlain(existing[i].ConnectionString))
+				if got != "" && got == want {
+					return fmt.Errorf("MCP client with this connection URL already exists as %q %w", existing[i].Name, ErrAlreadyExists)
+				}
+			}
 		}
 		// Create a deep copy to avoid modifying the original
 		clientConfigCopy, err := deepCopy(*clientConfig)
