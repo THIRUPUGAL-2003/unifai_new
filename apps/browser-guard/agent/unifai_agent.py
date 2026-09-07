@@ -60,7 +60,7 @@ else:
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
-AGENT_VERSION = "1.6.6"
+AGENT_VERSION = "1.6.8"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
@@ -116,13 +116,14 @@ def load_runtime_config() -> dict:
     backend = pick("UNIFAI_BACKEND_URL", "backend_url", DEFAULT_BACKEND).rstrip("/")
     proxy_addr = pick("UNIFAI_PROXY_ADDR", "proxy_addr", "127.0.0.1:8085")
     pac_url = pick("UNIFAI_PAC_URL", "pac_url", f"{backend}/api/browser-ai/pac")
-    sync_secs = pick("UNIFAI_PAC_SYNC_SECONDS", "pac_sync_seconds", "60")
+    # Default 3s: Monitor/Block host list enters PAC same few seconds (not 10–30s wait).
+    sync_secs = pick("UNIFAI_PAC_SYNC_SECONDS", "pac_sync_seconds", "3")
     try:
-        # 1s default used to hammer PAC + force browser rebind → felt like connection cuts.
         sync_i = int(float(sync_secs))
     except Exception:
-        sync_i = 60
-    sync_secs = str(max(15, min(sync_i, 600)))
+        sync_i = 3
+    # Floor 2s — 1s PAC churn felt like connection cuts; 2–3s still feels instant.
+    sync_secs = str(max(2, min(sync_i, 600)))
 
     os.environ["UNIFAI_BACKEND_URL"] = backend
     os.environ["UNIFAI_PROXY_ADDR"] = proxy_addr

@@ -35,9 +35,13 @@ UNIFAI_BACKEND_URL = os.getenv("UNIFAI_BACKEND_URL", "https://unifaiv2.dev-yp.co
 UNIFAI_AGENT_ID = os.getenv("UNIFAI_AGENT_ID", "")
 UNIFAI_AGENT_HOSTNAME = os.getenv("UNIFAI_AGENT_HOSTNAME", "")
 
-# Cache refresh: 10s balances admin toggle lag vs 1000+ employee stampede (was 1s).
-# Lite ?for=agent payloads keep refreshes cheap.
-CACHE_TTL = 10
+# Admin Monitor/Block toggles must feel instant. Split TTLs:
+# - targets/controls: 1s (Monitor ON / Block site)
+# - rules: 3s (Guard Rules still near-instant, less stampede than 1s)
+CACHE_TTL = 1  # legacy alias — used where a single TTL is referenced
+CACHE_TTL_TARGETS = 1
+CACHE_TTL_CONTROLS = 1
+CACHE_TTL_RULES = 3
 # Backend GET timeout — must exceed slow /targets and /rules responses.
 _BACKEND_FETCH_TIMEOUT = 45
 
@@ -189,6 +193,10 @@ _cached_has_ai_bot = False
 _rules_fetch_ok = False  # True after at least one successful /rules fetch
 _domains_fetched_at: float = 0
 _rules_fetched_at: float = 0
+_controls_fetched_at: float = 0
+_controls_from_backend = False
+_cache_lock = threading.RLock()
+_bg_config_refresh_started = False
 _recent_prompts: dict = {}  # key -> timestamp
 # domain|prompt -> (ts, decision_tuple) so ChatGPT double-fire cannot bypass a BLOCK
 _recent_decisions: dict = {}
@@ -199,10 +207,7 @@ _cached_controls: dict = {
     "block_upload": False,
     "upload_warning": "",
 }
-_controls_fetched_at: float = 0
-_controls_from_backend = False
 
-# File bytes cached at upload-time; Prompt Log + allow/block happen only on chat Send.
 _UPLOAD_FILE_CACHE: dict[str, dict] = {}
 _UPLOAD_FILE_QUEUES: dict[str, list[dict]] = {}
 _UPLOAD_FILE_CACHE_LOCK = threading.Lock()
@@ -310,61 +315,102 @@ def _build_target_families(targets: list) -> dict[str, frozenset[str]]:
     return {d: frozenset(groups[find(d)]) for d in domains}
 
 
-def get_target_domains() -> dict:
-    """
-    Fetch target domains from UnifAI backend every CACHE_TTL seconds.
-    Returns dict of {domain: platform_name} for PAC/monitor routing
-    (monitored OR block_site). Also refreshes _cached_blocked for full-site lock
-    and _cached_families for upload-cache sharing across admin-added related hosts.
-    """
+def _apply_targets_from_data(data: dict) -> None:
+    """Update in-memory target maps from a successful backend payload."""
     global _cached_domains, _cached_blocked, _cached_roles, _cached_families, _domains_fetched_at
-    now = time.time()
-    if now - _domains_fetched_at < CACHE_TTL:
-        return _cached_domains
-
-    # Always stamp fetch time (success or fail) so a slow/failed GET cannot
-    # stampede on every request and leave domains empty forever (timeout < payload time).
-    _domains_fetched_at = now
-    data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets?for=agent")
-    if data is None:
-        data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets")
-    if data is not None:
-        targets = data.get("targets", [])
-        new_map = {}
-        new_blocked = {}
-        new_roles = {}
-        for t in targets:
-            domain = _normalize_domain(t.get("domain", ""))
-            monitored = bool(t.get("monitored"))
-            block_site = bool(t.get("block_site"))
-            platform = t.get("platform_name") or domain or "AI Platform"
-            role = (t.get("host_role") or "").strip().lower()
-            if role not in ("ui", "chat", "file"):
-                role = ""
-            if domain and (monitored or block_site):
-                new_map[domain] = platform
-                new_roles[domain] = role
-            if domain and block_site:
-                new_blocked[domain] = platform
+    targets = data.get("targets", []) if isinstance(data, dict) else []
+    new_map = {}
+    new_blocked = {}
+    new_roles = {}
+    for t in targets:
+        domain = _normalize_domain(t.get("domain", ""))
+        monitored = bool(t.get("monitored"))
+        block_site = bool(t.get("block_site"))
+        platform = t.get("platform_name") or domain or "AI Platform"
+        role = (t.get("host_role") or "").strip().lower()
+        if role not in ("ui", "chat", "file"):
+            role = ""
+        if domain and (monitored or block_site):
+            new_map[domain] = platform
+            new_roles[domain] = role
+        if domain and block_site:
+            new_blocked[domain] = platform
+    with _cache_lock:
         _cached_domains = new_map
         _cached_blocked = new_blocked
         _cached_roles = new_roles
         _cached_families = _build_target_families(targets)
-        print(
-            f"[UnifAI Proxy] Refreshed {len(new_map)} target domains "
-            f"({len(new_blocked)} full-site locks, {len(_cached_families)} upload families) from backend."
-        )
+        _domains_fetched_at = time.time()
+    print(
+        f"[UnifAI Proxy] Refreshed {len(new_map)} target domains "
+        f"({len(new_blocked)} full-site locks, {len(_cached_families)} upload families) from backend."
+    )
+
+
+def _refresh_targets_from_backend() -> None:
+    data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets?for=agent")
+    if data is None:
+        data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets")
+    if data is not None:
+        _apply_targets_from_data(data)
     elif not _cached_domains:
         print("[UnifAI Proxy] WARNING: target domains empty — monitoring idle until backend targets fetch succeeds.")
 
-    return _cached_domains
+
+def _ensure_background_config_refresh() -> None:
+    """Poll targets/rules/controls in a daemon thread — never block HTTPS request path.
+
+    1594 targets × sync GET on every request made Monitor/Block feel broken and slow.
+    Background 1s refresh = admin toggle applies within ~1s while proxy stays fast.
+    """
+    global _bg_config_refresh_started
+    if _bg_config_refresh_started:
+        return
+    _bg_config_refresh_started = True
+
+    def _loop() -> None:
+        while True:
+            try:
+                _refresh_targets_from_backend()
+            except Exception as e:
+                print(f"[UnifAI Proxy] bg targets refresh: {e}")
+            try:
+                get_guard_rules(force_network=True)
+            except Exception as e:
+                print(f"[UnifAI Proxy] bg rules refresh: {e}")
+            try:
+                get_control_settings(force_network=True)
+            except Exception as e:
+                print(f"[UnifAI Proxy] bg controls refresh: {e}")
+            time.sleep(1.0)
+
+    threading.Thread(target=_loop, name="unifai-config-refresh", daemon=True).start()
+    # Immediate first pull so Block/Monitor work in the first second after Guard start.
+    threading.Thread(target=_refresh_targets_from_backend, daemon=True).start()
+
+
+def get_target_domains() -> dict:
+    """
+    Instant in-memory Target map (Monitor + Block). Network refresh is background-only.
+    """
+    _ensure_background_config_refresh()
+    # One-shot sync if we have never loaded (Guard just started).
+    if _domains_fetched_at <= 0 and not _cached_domains:
+        try:
+            _refresh_targets_from_backend()
+        except Exception:
+            pass
+    with _cache_lock:
+        return _cached_domains
 
 
 def detect_site_block(host: str) -> tuple[bool, str, str]:
     """Return (blocked, domain, platform) when admin enabled Block entire website."""
-    get_target_domains()  # refresh caches
+    get_target_domains()  # ensure bg refresh + memory maps
     host_lower = (host or "").lower().strip(".")
-    for domain, platform in _cached_blocked.items():
+    with _cache_lock:
+        blocked_map = dict(_cached_blocked)
+    for domain, platform in blocked_map.items():
         if host_lower == domain or host_lower.endswith("." + domain):
             return True, domain, platform
     return False, "", ""
@@ -405,15 +451,20 @@ def make_site_blocked_response(flow: http.HTTPFlow, domain: str, platform: str) 
     )
 
 
-def get_guard_rules() -> list:
+def get_guard_rules(force_network: bool = False) -> list:
     """
-    Fetch active DLP guard rules from UnifAI backend every CACHE_TTL seconds.
-    Returns only admin-created rules. Empty list means nothing is matched.
+    Fetch active DLP guard rules from UnifAI backend.
+    Request path: memory only. Background thread uses force_network=True (~1s).
     Never falls back to hardcoded patterns.
     """
     global _cached_rules, _cached_rule_catalog, _cached_has_ai_bot, _rules_fetched_at, _rules_fetch_ok
+    _ensure_background_config_refresh()
     now = time.time()
-    if now - _rules_fetched_at < CACHE_TTL:
+    if not force_network and now - _rules_fetched_at < CACHE_TTL_RULES:
+        return _cached_rules
+    # On request path without force: if cache is fresh enough for hot path, return.
+    # force_network bypasses TTL for the background poller.
+    if not force_network and _rules_fetched_at > 0:
         return _cached_rules
 
     _rules_fetched_at = now
@@ -459,17 +510,18 @@ def get_guard_rules() -> list:
                 })
             except re.error as e:
                 print(f"[UnifAI Proxy] WARNING: invalid regex skipped | {name!r} | {e}")
-        _cached_rules = compiled
-        _cached_rule_catalog = catalog
-        _cached_has_ai_bot = has_ai_bot
-        _rules_fetch_ok = True
+        with _cache_lock:
+            _cached_rules = compiled
+            _cached_rule_catalog = catalog
+            _cached_has_ai_bot = has_ai_bot
+            _rules_fetch_ok = True
         print(f"[UnifAI Proxy] Refreshed {len(compiled)} regex rules, {len(catalog)} active rules from backend.")
         return _cached_rules
 
     # Backend unreachable: keep last cache (may be empty). Do not invent rules.
     # Allow a fast retry when cache is still empty (do not sit idle for full TTL).
     if not _cached_rules and not _rules_fetch_ok:
-        _rules_fetched_at = now - max(0.0, CACHE_TTL - 0.25)
+        _rules_fetched_at = now - max(0.0, CACHE_TTL_RULES - 0.25)
         print("[UnifAI Proxy] WARNING: guard rules empty — regex DLP idle until backend rules fetch succeeds.")
     return _cached_rules
 
@@ -605,23 +657,27 @@ def _fail_open() -> bool:
     return os.getenv("UNIFAI_FAIL_OPEN", "").strip() in ("1", "true", "TRUE", "yes", "YES")
 
 
-def get_control_settings() -> dict:
-    """Fetch browser interaction controls from backend every CACHE_TTL seconds."""
+def get_control_settings(force_network: bool = False) -> dict:
+    """Fetch browser interaction controls. Request path = memory; bg poller force_network."""
     global _cached_controls, _controls_fetched_at, _controls_from_backend
+    _ensure_background_config_refresh()
     now = time.time()
-    if now - _controls_fetched_at < CACHE_TTL and _cached_controls:
+    if not force_network and _controls_fetched_at > 0:
+        return _cached_controls
+    if not force_network and now - _controls_fetched_at < CACHE_TTL_CONTROLS and _cached_controls:
         return _cached_controls
 
     _controls_fetched_at = now
     data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/controls")
     if data and isinstance(data.get("controls"), dict):
         c = data["controls"]
-        _cached_controls = {
-            "enabled": bool(c.get("enabled", False)),
-            "block_upload": bool(c.get("block_upload", False)),
-            "upload_warning": (c.get("upload_warning") or "").strip(),
-        }
-        _controls_from_backend = True
+        with _cache_lock:
+            _cached_controls = {
+                "enabled": bool(c.get("enabled", False)),
+                "block_upload": bool(c.get("block_upload", False)),
+                "upload_warning": (c.get("upload_warning") or "").strip(),
+            }
+            _controls_from_backend = True
         print(
             "[UnifAI Proxy] Controls refreshed | "
             f"enabled={_cached_controls['enabled']} "
@@ -6686,7 +6742,11 @@ class BrowserAIInterceptor:
 
     def __init__(self):
         print(f"[UnifAI Proxy] Started. Backend: {UNIFAI_BACKEND_URL}")
-        print(f"[UnifAI Proxy] Fetching target domains & guard rules every {CACHE_TTL}s from backend API.")
+        print(
+            "[UnifAI Proxy] Config refresh: background every 1s "
+            "(targets/rules/controls) — request path is memory-only (instant Block/Monitor)."
+        )
+        _ensure_background_config_refresh()
 
     def _apply_http_prompt(
         self,
