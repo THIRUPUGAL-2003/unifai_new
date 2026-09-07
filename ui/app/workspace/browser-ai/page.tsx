@@ -396,14 +396,15 @@ function logHasStoredAttachment(log: BrowserAILogEntry | null | undefined) {
 function logAttachmentLabel(log: BrowserAILogEntry) {
 	const name = (log.attachment_name || "").trim();
 	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
-	// [FILE UPLOAD] name (1/2) | caption — Allowed
+	// [FILE UPLOAD] resumes.zip [3 files: a.pdf, b.docx] (1/2) | caption — Allowed
 	const m = full.match(/^\[(?:FILE|VOICE) UPLOAD\]\s+(.+?)(?:\s+[—–-]\s+|\s+--\s+|$)/i);
 	if (m?.[1]) {
-		const label = m[1].trim();
-		if (label) return label;
+		const label = m[1].replace(/\s+\(\d+\/\d+\)\s*$/, "").trim();
+		if (label && !/^attachment(-\d+)?$/i.test(label)) return label;
 	}
-	if (name && name.toLowerCase() !== "attachment") return name;
-	return name || "attachment";
+	if (name && !/^attachment(-\d+)?$/i.test(name) && name.toLowerCase() !== "document.pdf") return name;
+	if (name) return name;
+	return "attachment";
 }
 
 /** Clear security pass/fail wording for Prompt Details (AI Guard Bot + categories). */

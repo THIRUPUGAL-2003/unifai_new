@@ -2649,7 +2649,291 @@ _FAKE_UPLOAD_NAMES = frozenset({
     "", "attachment", "attachment.txt", "attachment.bin", "blob", "blob.txt",
     "file", "file.txt", "upload", "untitled", "document", "document.txt",
     "image", "image.png", "audio", "video", "media", "unknown", "null", "undefined",
+    "document.pdf", "archive.zip", "attachment-1", "attachment-2", "attachment-3",
 })
+
+_UPLOAD_NAME_EXTS = (
+    ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".xlsm", ".pptx", ".ppt",
+    ".odt", ".ods", ".odp", ".rtf", ".html", ".htm", ".xml",
+    ".txt", ".csv", ".json", ".md", ".log",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff",
+    ".zip", ".tar", ".gz", ".7z", ".rar",
+    ".wav", ".mp3", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".opus", ".wma",
+    ".py", ".js", ".ts", ".java", ".go",
+)
+
+
+def _is_fake_upload_name(name: str) -> bool:
+    n = (name or "").strip().lower()
+    if not n or n in _FAKE_UPLOAD_NAMES:
+        return True
+    if re.fullmatch(r"attachment(-\d+)?", n):
+        return True
+    return False
+
+
+def _sanitize_upload_filename(name: str) -> str:
+    name = urllib.parse.unquote((name or "").strip().strip("\"'"))
+    name = name.replace("\\", "/").rsplit("/", 1)[-1].strip()
+    if not name or _is_fake_upload_name(name):
+        return ""
+    # Reject path traversal / absurd lengths
+    if ".." in name or len(name) > 180:
+        return ""
+    return name
+
+
+def _filename_from_multipart_or_headers(raw: bytes = b"", headers=None, raw_text: str = "") -> str:
+    """Pull a real user filename from multipart bytes, headers, or JSON text."""
+    if headers is not None:
+        try:
+            cd = headers.get("content-disposition", "") or ""
+        except Exception:
+            cd = ""
+        if "filename" in cd.lower():
+            m = re.search(r"filename\*=(?:UTF-8''|utf-8'')([^;\r\n]+)|filename\*?=(?:UTF-8''|utf-8'')?\"?([^\";\r\n]+)\"?", cd, re.I)
+            if m:
+                got = _sanitize_upload_filename(m.group(1) or m.group(2) or "")
+                if got:
+                    return got
+        for hk in (
+            "x-file-name", "x-goog-upload-file-name", "x-filename", "x-upload-filename",
+            "x-ms-file-name", "openai-file-name", "file-name", "x-amz-meta-filename",
+        ):
+            try:
+                val = headers.get(hk)
+            except Exception:
+                val = None
+            if val:
+                got = _sanitize_upload_filename(str(val))
+                if got:
+                    return got
+
+    blob = raw or b""
+    if blob:
+        sample = blob[: min(len(blob), 96 * 1024)]
+        for pat in (
+            rb'filename\*=(?:UTF-8\'\'|utf-8\'\')([^;\r\n]+)',
+            rb'filename="([^"]+)"',
+            rb"filename='([^']+)'",
+            rb'filename=([^;\r\n\s]+)',
+        ):
+            m = re.search(pat, sample, re.I)
+            if m:
+                try:
+                    raw_name = m.group(1).decode("utf-8", errors="ignore")
+                except Exception:
+                    raw_name = m.group(1).decode("latin-1", errors="ignore")
+                got = _sanitize_upload_filename(raw_name)
+                if got:
+                    return got
+
+    text = raw_text or ""
+    if text:
+        for pat in (
+            r'["\'](?:file_name|fileName|filename|original_name|originalName|original_filename)["\']\s*:\s*["\']([^"\']+)["\']',
+            r'filename\s*=\s*["\']([^"\';\r\n]+)["\']',
+        ):
+            m = re.search(pat, text[:20000], re.I)
+            if m:
+                got = _sanitize_upload_filename(m.group(1))
+                if got:
+                    return got
+    return ""
+
+
+def _default_name_from_bytes(raw: bytes, content_type: str = "", idx: int = 0) -> str:
+    """Fallback label when the product wire omits the real filename."""
+    kind = ""
+    try:
+        kind = _classify_upload_kind(raw or b"", content_type, "")
+    except Exception:
+        kind = ""
+    suffix = f"-{idx + 1}" if idx > 0 else ""
+    return {
+        "pdf": f"document{suffix}.pdf",
+        "zip": f"archive{suffix}.zip",
+        "image": f"image{suffix}.png",
+        "audio": f"audio{suffix}.bin",
+        "video": f"video{suffix}.bin",
+        "docx": f"document{suffix}.docx",
+        "xlsx": f"spreadsheet{suffix}.xlsx",
+        "pptx": f"presentation{suffix}.pptx",
+        "plain": f"file{suffix}.txt",
+    }.get(kind, f"attachment{suffix}")
+
+
+def _list_zip_member_basenames(data: bytes, max_names: int = 24) -> list[str]:
+    if not data:
+        return []
+    zdata = data if data[:2] == b"PK" else (_office_zip_bytes(data) or b"")
+    if not zdata or zdata[:2] != b"PK":
+        return []
+    out: list[str] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(zdata)) as zf:
+            for info in zf.infolist():
+                if len(out) >= max_names:
+                    break
+                if info.is_dir():
+                    continue
+                name = (info.filename or "").replace("\\", "/")
+                base = name.rsplit("/", 1)[-1]
+                low = name.lower()
+                if not base or base.startswith("."):
+                    continue
+                if "__macosx" in low or low.endswith(".ds_store"):
+                    continue
+                out.append(base)
+    except Exception:
+        return []
+    return out
+
+
+def extract_all_attachment_filenames_from_send(raw_text: str) -> list[str]:
+    """All real filenames referenced on a chat Send (multi-file)."""
+    if not raw_text:
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
+    patterns = (
+        r'["\'](?:file_name|fileName|filename|original_name|originalName|original_filename)["\']\s*:\s*["\']([^"\']+)["\']',
+        r'"attachments"\s*:\s*\[[\s\S]{0,20000}?\]',
+        r'"name"\s*:\s*"([^"]+\.[A-Za-z0-9]{2,8})"',
+        r'"title"\s*:\s*"([^"]+\.[A-Za-z0-9]{2,8})"',
+    )
+    for pat in patterns:
+        if pat.startswith('"attachments"'):
+            continue
+        for m in re.finditer(pat, raw_text, re.I):
+            got = _sanitize_upload_filename(m.group(1))
+            if not got:
+                continue
+            key = got.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(got)
+    # Attachment objects: pull name fields inside attachments/files arrays
+    for arr_pat in (
+        r'"attachments"\s*:\s*\[([\s\S]{0,40000}?)\]',
+        r'"files"\s*:\s*\[([\s\S]{0,40000}?)\]',
+        r'"parts"\s*:\s*\[([\s\S]{0,40000}?)\]',
+    ):
+        for am in re.finditer(arr_pat, raw_text, re.I):
+            block = am.group(1) or ""
+            for m in re.finditer(
+                r'["\'](?:file_name|fileName|filename|name|title)["\']\s*:\s*["\']([^"\']+)["\']',
+                block,
+                re.I,
+            ):
+                got = _sanitize_upload_filename(m.group(1))
+                if not got:
+                    continue
+                key = got.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                found.append(got)
+    return found
+
+
+def extract_file_id_name_map(raw_text: str) -> dict[str, str]:
+    """Map ChatGPT/Claude file_id → real filename when both appear near each other."""
+    out: dict[str, str] = {}
+    if not raw_text:
+        return out
+    # file_id then name (within a small window)
+    for m in re.finditer(
+        r'(?:file_id|fileId|id)\s*"?\s*:\s*"((?:file-)?[A-Za-z0-9_-]{6,})"[^\n]{0,400}?'
+        r'(?:file_name|fileName|filename|name|title)\s*"?\s*:\s*"([^"]+)"',
+        raw_text,
+        re.I,
+    ):
+        fid = (m.group(1) or "").strip()
+        name = _sanitize_upload_filename(m.group(2))
+        if fid and name:
+            out[fid] = name
+            if fid.startswith("file-"):
+                out[fid[5:]] = name
+            else:
+                out["file-" + fid] = name
+    # name then file_id
+    for m in re.finditer(
+        r'(?:file_name|fileName|filename|name|title)\s*"?\s*:\s*"([^"]+)"[^\n]{0,400}?'
+        r'(?:file_id|fileId|id)\s*"?\s*:\s*"((?:file-)?[A-Za-z0-9_-]{6,})"',
+        raw_text,
+        re.I,
+    ):
+        name = _sanitize_upload_filename(m.group(1))
+        fid = (m.group(2) or "").strip()
+        if fid and name:
+            out[fid] = name
+            if fid.startswith("file-"):
+                out[fid[5:]] = name
+            else:
+                out["file-" + fid] = name
+    return out
+
+
+def _bind_real_filenames_to_cached_uploads(cached_list: list[dict], raw_text: str) -> list[dict]:
+    """Attach real names from the Send body onto cached uploads (ChatGPT often omits name at upload)."""
+    if not cached_list:
+        return cached_list
+    id_map = extract_file_id_name_map(raw_text or "")
+    send_names = extract_all_attachment_filenames_from_send(raw_text or "")
+    used_names: set[str] = set()
+
+    for entry in cached_list:
+        cur = (entry.get("file_name") or "").strip()
+        fid = (entry.get("file_id") or "").strip()
+        if fid and fid in id_map:
+            entry["file_name"] = id_map[fid]
+            used_names.add(id_map[fid].lower())
+            continue
+        if fid.startswith("file-") and fid[5:] in id_map:
+            entry["file_name"] = id_map[fid[5:]]
+            used_names.add(id_map[fid[5:]].lower())
+            continue
+        if not _is_fake_upload_name(cur) and cur.lower() != "document.pdf":
+            used_names.add(cur.lower())
+
+    unused = [n for n in send_names if n.lower() not in used_names]
+    ui = 0
+    for i, entry in enumerate(cached_list):
+        cur = (entry.get("file_name") or "").strip()
+        if not _is_fake_upload_name(cur) and cur.lower() != "document.pdf":
+            continue
+        if ui < len(unused):
+            entry["file_name"] = unused[ui]
+            used_names.add(unused[ui].lower())
+            ui += 1
+            continue
+        raw = entry.get("raw_bytes") or b""
+        if isinstance(raw, (bytes, bytearray)) and raw:
+            entry["file_name"] = _default_name_from_bytes(
+                bytes(raw), entry.get("content_type") or "", i,
+            )
+        elif _is_fake_upload_name(cur):
+            entry["file_name"] = f"attachment-{i + 1}"
+    return cached_list
+
+
+def _display_label_for_upload(name: str, raw: bytes, content_type: str = "") -> str:
+    """Human label for Prompt Logs — real name + ZIP member preview when useful."""
+    label = (name or "").strip() or "attachment"
+    kind = ""
+    try:
+        kind = _classify_upload_kind(raw or b"", content_type, label)
+    except Exception:
+        kind = ""
+    if kind == "zip" or label.lower().endswith(".zip"):
+        members = _list_zip_member_basenames(raw or b"")
+        if members:
+            preview = ", ".join(members[:4])
+            more = f" +{len(members) - 4} more" if len(members) > 4 else ""
+            return f"{label} [{len(members)} files: {preview}{more}]"
+    return label
 
 
 def is_confident_file_upload(
@@ -2751,55 +3035,21 @@ def is_confident_file_upload(
 
 def extract_filename_from_upload(flow: http.HTTPFlow, raw_text: str = "") -> str:
     """Extract uploaded file name from headers, JSON body, multipart body, or URL path."""
-    headers = flow.request.headers
+    raw_bytes = b""
+    try:
+        raw_bytes = flow.request.content or b""
+    except Exception:
+        raw_bytes = b""
+    got = _filename_from_multipart_or_headers(raw_bytes, flow.request.headers, raw_text or "")
+    if got:
+        return got
 
-    # 1. Content-Disposition header
-    cd = headers.get("content-disposition", "")
-    if "filename" in cd:
-        m = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';\r\n]+)["\']?', cd, re.I)
-        if m:
-            name = m.group(1).strip().strip('"\'')
-            if name.lower() not in _FAKE_UPLOAD_NAMES:
-                return name
-
-    # 2. X-File-Name or upload headers
-    for hk in ("x-file-name", "x-goog-upload-file-name", "x-filename", "x-upload-filename"):
-        val = headers.get(hk)
-        if val:
-            name = str(val).strip().strip('"\'')
-            if name.lower() not in _FAKE_UPLOAD_NAMES:
-                return name
-
-    # 3. JSON body fields (e.g. {"file_name": "data.pdf"} or {"fileName": "..."})
-    if raw_text:
-        m = re.search(
-            r'["\'](?:file_name|fileName|filename)["\']\s*:\s*["\']([^"\']+\.[a-zA-Z0-9]{2,6})["\']',
-            raw_text,
-        )
-        if m:
-            name = m.group(1).strip()
-            if name.lower() not in _FAKE_UPLOAD_NAMES:
-                return name
-        # Do NOT use generic "name"/"title" — WhatsApp/Gemini metadata often has junk like attachment.txt
-        m = re.search(r'filename\s*=\s*["\']([^"\';\r\n]+\.[a-zA-Z0-9]{2,6})["\']', raw_text[:8000], re.I)
-        if m:
-            name = m.group(1).strip()
-            if name.lower() not in _FAKE_UPLOAD_NAMES:
-                return name
-
-    # 4. Path parameter if it ends with a file extension
+    # Path parameter if it ends with a file extension
     path_clean = (flow.request.path or "").split("?", 1)[0]
     last_seg = path_clean.rsplit("/", 1)[-1]
-    if "." in last_seg and any(last_seg.lower().endswith(ext) for ext in (
-        ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".xlsm", ".pptx", ".ppt",
-        ".odt", ".ods", ".odp", ".rtf", ".html", ".htm", ".xml",
-        ".txt", ".csv", ".json", ".md", ".log",
-        ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff",
-        ".zip", ".tar", ".gz", ".py", ".js",
-        ".wav", ".mp3", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".opus", ".wma",
-    )):
-        name = urllib.parse.unquote(last_seg)
-        if name.lower() not in _FAKE_UPLOAD_NAMES:
+    if "." in last_seg:
+        name = _sanitize_upload_filename(urllib.parse.unquote(last_seg))
+        if name and any(name.lower().endswith(ext) for ext in _UPLOAD_NAME_EXTS):
             return name
 
     return ""
@@ -2868,11 +3118,21 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
     """Best-effort file bytes from upload body. Returns (bytes, content_type, name)."""
     if not raw:
         return None, "", file_name or "attachment"
-    name = (file_name or "").strip() or "attachment"
+    name = _sanitize_upload_filename(file_name) or (file_name or "").strip() or "attachment"
+    # Prefer multipart / header filename when caller only had a placeholder.
+    mp_name = _filename_from_multipart_or_headers(raw, None, "")
+    if mp_name and _is_fake_upload_name(name):
+        name = mp_name
+    elif mp_name and not _is_fake_upload_name(mp_name):
+        name = mp_name
+
     pdf = extract_pdf_bytes(raw)
     if pdf:
         if not name.lower().endswith(".pdf"):
-            name = f"{name}.pdf" if name != "attachment" else "document.pdf"
+            if _is_fake_upload_name(name):
+                name = "document.pdf"
+            else:
+                name = f"{name}.pdf"
         return pdf, "application/pdf", name
 
     # ChatGPT conversation / files-API JSON is not the uploaded document.
@@ -2886,6 +3146,17 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
         idx = low_prefix.find(b"filename=")
         if idx >= 0:
             rest = raw[idx:]
+            # Capture filename= value from this part header
+            try:
+                hdr_end = rest.find(b"\r\n\r\n")
+                hdr = rest[: hdr_end if hdr_end >= 0 else 800].decode("utf-8", errors="ignore")
+                hm = re.search(r'filename\*?=(?:UTF-8\'\')?["\']?([^"\';\r\n]+)["\']?', hdr, re.I)
+                if hm:
+                    got = _sanitize_upload_filename(hm.group(1))
+                    if got:
+                        name = got
+            except Exception:
+                pass
             sep = b"\r\n\r\n"
             si = rest.find(sep)
             if si < 0:
@@ -2903,11 +3174,16 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
                     pdf2 = extract_pdf_bytes(part)
                     if pdf2:
                         if not name.lower().endswith(".pdf"):
-                            name = f"{name}.pdf" if name != "attachment" else "document.pdf"
+                            if _is_fake_upload_name(name):
+                                name = "document.pdf"
+                            else:
+                                name = f"{name}.pdf"
                         return pdf2, "application/pdf", name
                     ctype = _sniff_upload_content_type(part, name, content_type)
                     if len(part) > 20 * 1024 * 1024:
                         part = part[: 20 * 1024 * 1024]
+                    if _is_fake_upload_name(name):
+                        name = _default_name_from_bytes(part, ctype, 0)
                     return part, ctype, name
 
     # Direct binary body (resumable / octet-stream)
@@ -2918,6 +3194,8 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
         if stripped[:1] in (b"{", b"[") and len(raw) < 50_000 and ctype == "application/octet-stream":
             return None, "", name
         data = raw if len(raw) <= 20 * 1024 * 1024 else raw[: 20 * 1024 * 1024]
+        if _is_fake_upload_name(name):
+            name = _default_name_from_bytes(data, ctype, 0)
         return data, ctype, name
     return None, "", name
 
@@ -3239,21 +3517,8 @@ def copilot_carries_binary_attach(raw_text: str) -> bool:
 
 def extract_attachment_filename_from_send(raw_text: str) -> str:
     """Best-effort filename from a chat Send JSON body."""
-    if not raw_text:
-        return ""
-    for pat in (
-        r'["\'](?:file_name|fileName|filename)["\']\s*:\s*["\']([^"\']+)["\']',
-        r'"attachments"\s*:\s*\[\s*\{[^}]*"name"\s*:\s*"([^"]+)"',
-        r'"files"\s*:\s*\[\s*\{[^}]*"name"\s*:\s*"([^"]+)"',
-        r'"name"\s*:\s*"([^"]+\.(?:pdf|docx?|xlsx?|pptx?|csv|txt|png|jpe?g|gif|webp|zip))"',
-        r'"parts"\s*:\s*\[[\s\S]{0,8000}?"name"\s*:\s*"([^"]+\.[a-zA-Z0-9]{2,8})"',
-    ):
-        m = re.search(pat, raw_text, re.I)
-        if m:
-            name = (m.group(1) or "").strip()
-            if name and name.lower() not in _FAKE_UPLOAD_NAMES:
-                return name
-    return ""
+    names = extract_all_attachment_filenames_from_send(raw_text or "")
+    return names[0] if names else ""
 
 
 def extract_inline_attachment_bytes(raw_text: str) -> tuple[bytes, str, str]:
@@ -3546,11 +3811,13 @@ def take_recent_confident_caches_for_send(domain: str) -> list[dict]:
                 if age > _UPLOAD_LATEST_MATCH_TTL:
                     continue
                 name = (entry.get("file_name") or "").strip()
-                if not name or name.lower() in _FAKE_UPLOAD_NAMES:
-                    continue
                 raw = entry.get("raw_bytes") or b""
+                # ChatGPT often caches as "attachment" — still bind real bytes on Send.
+                if not isinstance(raw, (bytes, bytearray)) or len(raw) < 32:
+                    if not name or _is_fake_upload_name(name):
+                        continue
                 if not is_confident_file_upload(
-                    fname=name,
+                    fname=name if not _is_fake_upload_name(name) else "file.bin",
                     content_type=(entry.get("content_type") or ""),
                     raw_bytes=raw if isinstance(raw, (bytes, bytearray)) else b"",
                     raw_text="",
@@ -4051,6 +4318,7 @@ def enforce_file_send_policy(
         seen_uids.add(uid)
         deduped.append(entry)
     cached_list = deduped[:_UPLOAD_FILE_QUEUE_MAX]
+    cached_list = _bind_real_filenames_to_cached_uploads(cached_list, raw_text or "")
 
     caption = ""
     try:
@@ -4082,13 +4350,19 @@ def enforce_file_send_policy(
 
     hint = (file_name_hint or "").strip()
     for i, cached in enumerate(cached_list):
-        fname = (cached.get("file_name") or "").strip() or (hint if i == 0 else "") or "attachment"
-        if fname.lower() in _FAKE_UPLOAD_NAMES:
-            fname = "attachment" if len(cached_list) == 1 else f"attachment-{i + 1}"
+        fname = (cached.get("file_name") or "").strip() or (hint if i == 0 else "") or ""
+        if _is_fake_upload_name(fname):
+            raw0 = cached.get("raw_bytes") or b""
+            fname = _default_name_from_bytes(
+                bytes(raw0) if isinstance(raw0, (bytes, bytearray)) else b"",
+                cached.get("content_type") or content_type or "",
+                i,
+            )
         cached_bytes = cached.get("raw_bytes") or b""
         if not isinstance(cached_bytes, (bytes, bytearray)):
             cached_bytes = b""
         cached_ct = (cached.get("content_type") or content_type or "").strip()
+        display_label = _display_label_for_upload(fname, bytes(cached_bytes), cached_ct)
         scanned, local_hit, local_name, local_action, excerpt, upload_images, _, _ = _scan_upload_for_rules(
             bytes(cached_bytes),
             cached_ct,
@@ -4111,7 +4385,8 @@ def enforce_file_send_policy(
         if scanned:
             text_parts.append(f"[FILE:{fname}]\n{scanned}")
         file_rows.append({
-            "file_label": fname,
+            "file_label": display_label,
+            "store_name": fname,
             "cached_bytes": bytes(cached_bytes),
             "cached_ct": cached_ct,
             "scanned": scanned or "",
@@ -4239,7 +4514,7 @@ def enforce_file_send_policy(
                 domain=domain,
                 url=url,
                 method=method,
-                file_name=row["file_label"],
+                file_name=row.get("store_name") or row["file_label"],
                 is_blocked=True,
                 blocked_reason=blocked_reason,
                 raw_bytes=row["cached_bytes"],
@@ -4269,7 +4544,7 @@ def enforce_file_send_policy(
                 domain=domain,
                 url=url,
                 method=method,
-                file_name=row["file_label"],
+                file_name=row.get("store_name") or row["file_label"],
                 is_blocked=False,
                 raw_bytes=row["cached_bytes"],
                 content_type=row["cached_ct"],
@@ -4299,7 +4574,7 @@ def enforce_file_send_policy(
             domain=domain,
             url=url,
             method=method,
-            file_name=row["file_label"],
+            file_name=row.get("store_name") or row["file_label"],
             is_blocked=False,
             raw_bytes=row["cached_bytes"],
             content_type=row["cached_ct"],
@@ -5989,6 +6264,7 @@ def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name
             ("pdf-smart", lambda: _extract_pdf_text_smart(data)),
             ("pdf-pypdf", lambda: _extract_pdf_pypdf(data)),
             ("pdf-regex", lambda: _extract_pdf_regex(data)),
+            ("zip-members", lambda: _extract_zip_archive_members_text(data)),
             ("rtf", lambda: _extract_rtf_text(data)),
             ("html", lambda: _extract_html_text(data)),
             ("odf", lambda: _extract_opendocument_text(data)),
