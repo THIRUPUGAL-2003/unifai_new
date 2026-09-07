@@ -2049,19 +2049,19 @@ func isWeakGuardEvalModel(model string) bool {
 // browserAIGuardBotSystemPrompt is used for every AI Guard Bot text rule (any admin policy).
 // No predefined DLP topic list — only the admin SECURITY_POLICY defines what to enforce.
 func browserAIGuardBotSystemPrompt() string {
-	return `You are a strict enterprise policy classifier.
+	return `You are a careful enterprise policy classifier.
 
-Your ONLY job: decide if CONTENT_TO_EVALUATE breaks SECURITY_POLICY.
+Your ONLY job: decide if CONTENT_TO_EVALUATE clearly breaks SECURITY_POLICY.
 
 Rules:
-1. SECURITY_POLICY is the admin's intent. Fix obvious typos (e.g. "notr"→"not", "addresss"→"address"). Informal / comma-separated lists are fine.
-2. If the policy forbids a CATEGORY or TYPE of content, any concrete INSTANCE of that category in CONTENT is a violation.
-   Reasoning style (not a real policy): policy "fruit names not allowed" + content "banana" → {"violation":true}.
-3. Do NOT require the content to repeat the policy wording. Match meaning / category / examples / synonyms.
-4. If SECURITY_POLICY mentions PIN, OTP, phone, mobile, card, ATM, CVV, postal/zip/pin code, account, Aadhaar, SSN (or similar) and CONTENT is mainly digits that reasonably fit those forms → {"violation":true}.
-   Example style: policy includes "pin code" + content "613002" → {"violation":true}.
-5. If CONTENT is clearly unrelated to the policy → {"violation":false}.
-6. If unsure but CONTENT likely matches policy intent → {"violation":true}.
+1. SECURITY_POLICY is the admin's intent. Fix obvious typos (e.g. "notr"→"not"). Informal lists are fine.
+2. If the policy forbids a CATEGORY, only a concrete INSTANCE in CONTENT is a violation.
+   Example style: policy "fruit names not allowed" + content "banana" → {"violation":true}.
+3. Do NOT require the content to repeat the policy wording — but do NOT invent matches.
+4. If SECURITY_POLICY mentions PIN/OTP/phone/card/CVV/Aadhaar/SSN (or similar) and CONTENT clearly contains that form → {"violation":true}.
+5. If CONTENT is unrelated, a greeting, filler, IDE/hash/telemetry, or opaque tokens → {"violation":false}.
+6. Default to {"violation":false} when unsure. Prefer false over false positives.
+7. For human/animal/person "names" policies: {"violation":true} ONLY if CONTENT contains a real name (e.g. "John", "cat"). "hi"/"hello"/"test" alone are NOT violations.
 
 Reply with one JSON object only:
 {"violation":true}
@@ -2070,13 +2070,11 @@ or
 }
 
 func browserAIGuardBotVisionSystemPrompt() string {
-	return `You are a strict enterprise vision policy classifier.
+	return `You are a careful enterprise vision policy classifier.
 
 Apply ONLY the admin SECURITY_POLICY to the uploaded image(s) and any EXTRACTED_TEXT.
-The first image (when present) is an admin REFERENCE_TEMPLATE.
-Interpret policy intent (typos OK). Category policies cover concrete visual instances.
-If policy mentions PIN/phone/card/ID and the image/text shows matching digits or documents → {"violation":true}.
-If unsure but content likely matches → {"violation":true}.
+Interpret policy intent (typos OK). Category policies need concrete visual instances.
+Default to {"violation":false} when unsure. Prefer false over false positives.
 
 Reply with one JSON object only:
 {"violation":true}
@@ -2115,11 +2113,11 @@ func browserAIGuardBotUserMessage(policy, content string) string {
 CONTENT_TO_EVALUATE:
 %s
 
-Task: Does CONTENT_TO_EVALUATE break SECURITY_POLICY?
-- Interpret policy intent (fix typos; comma lists OK).
-- Category bans apply to concrete instances (animal name → cat/dog; pin code → digit PIN-like values).
-- If policy lists pin/phone/card/address/names and CONTENT looks like one of those → violation true.
-- Prefer {"violation":true} when the content matches the policy intent.
+Task: Does CONTENT_TO_EVALUATE clearly break SECURITY_POLICY?
+- Concrete forbidden instances only (not guesses).
+- Greetings, filler, IDE hashes, hardware strings → {"violation":false}.
+- Names policies need a real name in CONTENT; "hi" alone is false.
+- Default {"violation":false} when unsure.
 
 Respond with ONLY: {"violation":true} or {"violation":false}`,
 		policy,
@@ -2136,8 +2134,8 @@ func browserAIGuardBotStrictUserMessage(policy, content string) string {
 EMPLOYEE_TEXT: %s
 
 Decide now.
-- If EMPLOYEE_TEXT contains anything ADMIN_POLICY forbids (category instances, synonyms, digit forms for pin/phone/card when listed) → {"violation":true}
-- Else → {"violation":false}
+- True ONLY if EMPLOYEE_TEXT clearly contains something ADMIN_POLICY forbids.
+- Unsure / greeting / junk / no concrete match → {"violation":false}
 JSON only.`,
 		truncateRunes(policy, 4000),
 		truncateRunes(content, browserAIGuardBotMaxPromptRunes),

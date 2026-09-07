@@ -28,6 +28,11 @@ func looksLikeSecretToken(s string) bool {
 	return secretTokenPrefix.MatchString(strings.TrimSpace(s))
 }
 
+// IsOpaqueOrWirePrompt reports IDE/binary/wire junk that must never drive Guard Bot or Prompt Logs.
+func IsOpaqueOrWirePrompt(s string) bool {
+	return looksLikeBinaryOrWireGarbage(s)
+}
+
 // looksLikeBinaryOrWireGarbage rejects IDE/proxy decode soup that is not a real typed prompt.
 // Mirrors apps/browser-guard/proxy/browser_ai_proxy.py::_looks_like_binary_or_wire_garbage.
 func looksLikeBinaryOrWireGarbage(s string) bool {
