@@ -60,7 +60,7 @@ else:
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
-AGENT_VERSION = "1.6.12"
+AGENT_VERSION = "1.6.13"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
@@ -321,11 +321,18 @@ def first_run_path() -> str:
 
 
 def port_open(host: str, port: int, timeout: float = 0.6) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
-    except Exception:
-        return False
+    """True if TCP connect works. On Windows, also try ::1 when host is 127.0.0.1
+    (mitm can briefly bind IPv6-only; PAC still uses 127.0.0.1 after listen-host fix)."""
+    candidates = [host]
+    if host in ("127.0.0.1", "localhost"):
+        candidates.append("::1")
+    for h in candidates:
+        try:
+            with socket.create_connection((h, port), timeout=timeout):
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def ca_trusted() -> bool:
@@ -1338,14 +1345,24 @@ def install_ca_certificate() -> bool:
 
 
 def run_proxy_server(addon_script: str, port: int = 8085) -> None:
+    # Force IPv4 localhost. On some Windows setups mitm binds [::]:port only;
+    # PAC/Chrome use 127.0.0.1 → connect timeout → health fail-open DIRECT (no Monitor/Block).
+    listen_host = "127.0.0.1"
+    try:
+        cfg_host = (PROXY_ADDR or "").rsplit(":", 1)[0].strip()
+        if cfg_host and cfg_host not in ("0.0.0.0", "*", "::"):
+            listen_host = cfg_host
+    except Exception:
+        pass
     args = [
+        "--listen-host", listen_host,
         "-p", str(port),
         "-s", addon_script,
         "--set", "block_global=false",
         "--set", "ssl_insecure=true",
     ]
     try:
-        print(f"[UnifAI Guard] Launching MitM Security Interceptor on Port {port}...")
+        print(f"[UnifAI Guard] Launching MitM Security Interceptor on {listen_host}:{port}...")
         mitmdump(args)
     except SystemExit as e:
         print(f"[UnifAI Guard WARNING] Proxy engine exited ({e})")
