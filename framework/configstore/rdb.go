@@ -2701,19 +2701,8 @@ func (s *RDBConfigStore) UpsertModelPricingAttributes(ctx context.Context, model
 	if res.Error != nil {
 		return 0, s.parseGormError(res.Error)
 	}
-	if res.RowsAffected == 0 {
-		newRow := tables.TableModelPricing{
-			Model:                    model,
-			Provider:                 provider,
-			Mode:                     "chat",
-			AdditionalAttributes:     attrs,
-			AdditionalAttributesJSON: value,
-		}
-		if err := db.Create(&newRow).Error; err != nil {
-			return 0, s.parseGormError(err)
-		}
-		return 1, nil
-	}
+	// Do not invent stub pricing rows here — management API requires an existing
+	// pricing row (sync/datasheet). Returning 0 lets the caller reject with 400.
 	return res.RowsAffected, nil
 }
 

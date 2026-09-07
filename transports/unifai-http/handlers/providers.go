@@ -677,6 +677,8 @@ type listedModel struct {
 //   - query: Filter models by name (case-insensitive partial match)
 //   - provider: Filter by specific provider name
 //   - keys: Comma-separated list of provider key UUIDs to filter models accessible by those keys
+//   - vks: Comma-separated virtual key IDs to scope providers/models (UI ModelMultiselect)
+//   - unfiltered: If true, expand model pool (still respects keys/vks filters)
 //   - limit: Maximum number of results to return (default: 1000)
 //
 // Request headers:
@@ -733,11 +735,6 @@ func (h *ProviderHandler) listModelDetails(ctx *fasthttp.RequestCtx) {
 	}
 
 	modelCatalog := h.inMemoryStore.ModelCatalog
-	if modelCatalog == nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "model catalog not available")
-		return
-	}
-
 	allModels, total, err := h.listManagementModels(query)
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to get providers: %v", err))
@@ -753,13 +750,16 @@ func (h *ProviderHandler) listModelDetails(ctx *fasthttp.RequestCtx) {
 		if len(model.AccessibleByKeys) > 0 {
 			details.AccessibleByKeys = model.AccessibleByKeys
 		}
-		if capabilities := modelCatalog.GetModelCapabilityEntryForModel(model.Name, model.Provider); capabilities != nil {
-			details.ContextLength = capabilities.ContextLength
-			details.MaxInputTokens = capabilities.MaxInputTokens
-			details.MaxOutputTokens = capabilities.MaxOutputTokens
-			details.Architecture = capabilities.Architecture
-			details.IsDeprecated = capabilities.IsDeprecated
-			details.AdditionalAttributes = capabilities.AdditionalAttributes
+		// Soft-fail: catalog nil still returns models without capability enrichment.
+		if modelCatalog != nil {
+			if capabilities := modelCatalog.GetModelCapabilityEntryForModel(model.Name, model.Provider); capabilities != nil {
+				details.ContextLength = capabilities.ContextLength
+				details.MaxInputTokens = capabilities.MaxInputTokens
+				details.MaxOutputTokens = capabilities.MaxOutputTokens
+				details.Architecture = capabilities.Architecture
+				details.IsDeprecated = capabilities.IsDeprecated
+				details.AdditionalAttributes = capabilities.AdditionalAttributes
+			}
 		}
 		responseModels = append(responseModels, details)
 	}
@@ -780,7 +780,7 @@ func (h *ProviderHandler) isModelDeprecated(model string, provider schemas.Model
 }
 
 // parseModelListQuery normalizes the management model-list query string and resolves
-// any virtual key present in the request headers to populate provider/model filters.
+// any virtual key present in the request headers or `vks` query (VK IDs) to populate filters.
 func (h *ProviderHandler) parseModelListQuery(ctx *fasthttp.RequestCtx, defaultLimit int) (modelListQuery, bool) {
 	queryArgs := ctx.QueryArgs()
 	query := modelListQuery{
@@ -833,6 +833,33 @@ func (h *ProviderHandler) parseModelListQuery(ctx *fasthttp.RequestCtx, defaultL
 		if vk != nil {
 			query.HasVKFilter = true
 			query.VKProviderConfigs = vk.ProviderConfigs
+		}
+	}
+
+	// UI ModelMultiselect sends ?vks=<vk-id>,<vk-id> (IDs, not sk-uf values).
+	if vksRaw := string(queryArgs.Peek("vks")); strings.TrimSpace(vksRaw) != "" {
+		if h.dbStore == nil {
+			SendError(ctx, fasthttp.StatusServiceUnavailable, "database store unavailable")
+			return query, false
+		}
+		for _, rawID := range strings.Split(vksRaw, ",") {
+			vkID := strings.TrimSpace(rawID)
+			if vkID == "" {
+				continue
+			}
+			vk, err := h.dbStore.GetVirtualKey(ctx, vkID)
+			if err != nil {
+				if errors.Is(err, configstore.ErrNotFound) {
+					continue
+				}
+				SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to resolve virtual key id %s: %v", vkID, err))
+				return query, false
+			}
+			if vk == nil {
+				continue
+			}
+			query.HasVKFilter = true
+			query.VKProviderConfigs = append(query.VKProviderConfigs, vk.ProviderConfigs...)
 		}
 	}
 
@@ -898,18 +925,24 @@ func (h *ProviderHandler) listManagementModelsForProvider(
 		models = h.modelsManager.GetUnfilteredModelsForProvider(provider)
 	}
 
-	// Apply VK-level model whitelist filtering.
-	// AllowedModels=["*"] passes all; empty AllowedModels denies all (deny-by-default).
+	// Apply VK-level model whitelist filtering across all matched VK provider configs.
+	// A model is kept if ANY matching provider config allows it (OR across VKs).
 	if query.HasVKFilter {
-		if idx := slices.IndexFunc(query.VKProviderConfigs, func(pc tables.TableVirtualKeyProviderConfig) bool {
-			return strings.EqualFold(pc.Provider, string(provider))
-		}); idx >= 0 {
-			allowedModels := query.VKProviderConfigs[idx].AllowedModels
-			models = slices.DeleteFunc(models, func(m string) bool { return !allowedModels.IsAllowed(m) })
-		}
+		models = slices.DeleteFunc(models, func(m string) bool {
+			for _, pc := range query.VKProviderConfigs {
+				if !strings.EqualFold(pc.Provider, string(provider)) {
+					continue
+				}
+				if pc.AllowedModels.IsAllowed(m) {
+					return false
+				}
+			}
+			return true
+		})
 	}
 
-	if len(query.KeyIDs) == 0 || query.Unfiltered {
+	// unfiltered expands the model pool only — key filters still apply when keys= is set.
+	if len(query.KeyIDs) == 0 {
 		return buildListedModels(provider, models, nil, query.Query)
 	}
 
@@ -1290,6 +1323,11 @@ func (h *ProviderHandler) upsertModelCatalogEntries(ctx *fasthttp.RequestCtx) {
 	}
 
 	if err := h.modelsManager.UpsertModelPricingAttributes(ctx, payload); err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "no pricing row") {
+			SendError(ctx, fasthttp.StatusBadRequest, msg)
+			return
+		}
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to upsert catalog entries: %v", err))
 		return
 	}

@@ -72,8 +72,8 @@ const (
 	DefaultPricingTimeout         = datasheet.DefaultPricingTimeout
 	DefaultModelParametersTimeout = datasheet.DefaultModelParametersTimeout
 
-	DefaultMCPLibraryURL         = "file:///app/data/mcp-library.json"
-	DefaultMCPLibraryFallbackURL = "file:///app/data/mcp-library.json"
+	DefaultMCPLibraryURL         = "file:///app/configs/mcp-library.json"
+	DefaultMCPLibraryFallbackURL = "file:///app/configs/mcp-library.json"
 	DefaultMCPLibraryTimeout     = 45 * time.Second
 )
 

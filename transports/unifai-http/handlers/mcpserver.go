@@ -110,9 +110,6 @@ func NewMCPServerHandler(ctx context.Context, config *lib.Config, toolManager MC
 	// Register per-request tool filter so x-uf-mcp-include-clients and x-uf-mcp-include-tools are respected on tools/list
 	server.WithToolFilter(handler.makeIncludeClientsFilter())(handler.globalMCPServer)
 
-	// Register per-request tool filter so x-uf-mcp-include-clients and x-uf-mcp-include-tools are respected on tools/list
-	server.WithToolFilter(handler.makeIncludeClientsFilter())(handler.globalMCPServer)
-
 	if err := handler.SyncAllMCPServers(ctx); err != nil {
 		return nil, fmt.Errorf("failed to sync all MCP servers: %w", err)
 	}

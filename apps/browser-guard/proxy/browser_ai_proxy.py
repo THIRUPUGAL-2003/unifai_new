@@ -183,9 +183,13 @@ _cached_families: dict[str, frozenset[str]] = {}
 _cached_rules: list = []   # regex rules: {"name", "pattern", "regex", "action", "warning_message"}
 _cached_rule_catalog: dict[str, dict] = {}  # all active rules by name — from admin UI only
 _cached_has_ai_bot = False
+_rules_fetch_ok = False  # True after at least one successful /rules fetch
 _domains_fetched_at: float = 0
 _rules_fetched_at: float = 0
 _recent_prompts: dict = {}  # key -> timestamp
+# domain|prompt -> (ts, decision_tuple) so ChatGPT double-fire cannot bypass a BLOCK
+_recent_decisions: dict = {}
+_eval_inflight: dict = {}  # key -> threading.Event — coalesce parallel evaluates
 _composer_draft: dict = {}  # domain -> (prompt, timestamp) while user is still typing
 _cached_controls: dict = {
     "enabled": False,
@@ -404,7 +408,7 @@ def get_guard_rules() -> list:
     Returns only admin-created rules. Empty list means nothing is matched.
     Never falls back to hardcoded patterns.
     """
-    global _cached_rules, _cached_rule_catalog, _cached_has_ai_bot, _rules_fetched_at
+    global _cached_rules, _cached_rule_catalog, _cached_has_ai_bot, _rules_fetched_at, _rules_fetch_ok
     now = time.time()
     if now - _rules_fetched_at < CACHE_TTL:
         return _cached_rules
@@ -417,12 +421,14 @@ def get_guard_rules() -> list:
         rules = data.get("rules", [])
         compiled = []
         catalog: dict[str, dict] = {}
-        has_ai_bot = False
+        # Top-level flag from lite API, else detect from rows
+        has_ai_bot = bool(data.get("has_ai_bot"))
         for r in rules:
-            if not r.get("active", False):
+            # Agent lite always sends active=true; full API may include inactive.
+            if "active" in r and not r.get("active", False):
                 continue
             name = (r.get("name") or "").strip()
-            rule_type = str(r.get("rule_type") or "").strip().lower()
+            rule_type = str(r.get("rule_type") or "regex").strip().lower()
             action = (r.get("action") or "BLOCK").upper()
             if action == "WARN":
                 action = "REDACT"
@@ -448,16 +454,19 @@ def get_guard_rules() -> list:
                     "severity": r.get("severity", "HIGH"),
                     "warning_message": (r.get("warning_message") or "").strip(),
                 })
-            except re.error:
-                pass
+            except re.error as e:
+                print(f"[UnifAI Proxy] WARNING: invalid regex skipped | {name!r} | {e}")
         _cached_rules = compiled
         _cached_rule_catalog = catalog
         _cached_has_ai_bot = has_ai_bot
+        _rules_fetch_ok = True
         print(f"[UnifAI Proxy] Refreshed {len(compiled)} regex rules, {len(catalog)} active rules from backend.")
         return _cached_rules
 
     # Backend unreachable: keep last cache (may be empty). Do not invent rules.
-    if not _cached_rules:
+    # Allow a fast retry when cache is still empty (do not sit idle for full TTL).
+    if not _cached_rules and not _rules_fetch_ok:
+        _rules_fetched_at = now - max(0.0, CACHE_TTL - 0.25)
         print("[UnifAI Proxy] WARNING: guard rules empty — regex DLP idle until backend rules fetch succeeds.")
     return _cached_rules
 
@@ -467,12 +476,70 @@ def has_ai_bot_rules() -> bool:
     return bool(_cached_has_ai_bot)
 
 
+def _prompt_decision_key(domain: str, prompt: str) -> str:
+    return f"{(domain or '').strip().lower()}|{(prompt or '').strip().lower()}"
+
+
+def remember_guard_decision(domain: str, prompt: str, decision: tuple) -> None:
+    key = _prompt_decision_key(domain, prompt)
+    _recent_decisions[key] = (time.time(), decision)
+    # Bound memory
+    if len(_recent_decisions) > 4000:
+        cutoff = time.time() - BLOCK_DEDUPE_TTL
+        dead = [k for k, (ts, _) in _recent_decisions.items() if ts < cutoff]
+        for k in dead[:2000]:
+            _recent_decisions.pop(k, None)
+
+
+def get_remembered_guard_decision(domain: str, prompt: str, ttl: float = BLOCK_DEDUPE_TTL) -> tuple | None:
+    key = _prompt_decision_key(domain, prompt)
+    item = _recent_decisions.get(key)
+    if not item:
+        return None
+    ts, decision = item
+    if time.time() - ts > ttl:
+        return None
+    return decision
+
+
+def evaluate_prompt_coalesced(
+    platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str,
+) -> tuple[bool, str, str, str, str]:
+    """One evaluate per domain+prompt; parallel ChatGPT retries reuse the same decision."""
+    cached = get_remembered_guard_decision(domain, prompt)
+    if cached is not None:
+        return cached
+
+    key = _prompt_decision_key(domain, prompt)
+    wait_ev = _eval_inflight.get(key)
+    if wait_ev is not None:
+        wait_ev.wait(timeout=100)
+        cached = get_remembered_guard_decision(domain, prompt)
+        if cached is not None:
+            return cached
+        # First call failed to publish — still enforce local regex (never silent allow).
+        local = decide_prompt_locally(prompt)
+        remember_guard_decision(domain, prompt, local if (not local[0] or (local[2] or "").lower() == "blocked" or local[2] in ("Redacted", "Warned")) else local)
+        return local
+
+    ev = threading.Event()
+    _eval_inflight[key] = ev
+    try:
+        decision = evaluate_prompt(platform, domain, prompt, client_ip, url, method)
+        remember_guard_decision(domain, prompt, decision)
+        return decision
+    finally:
+        ev.set()
+        _eval_inflight.pop(key, None)
+
+
 def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url: str, method: str) -> tuple[bool, str, str, str, str]:
     """Regex (local, instant) + AI Guard Bot (backend) when needed; strictest action wins.
 
     At 1000+ rules/domains: regex BLOCK returns immediately (no LLM wait).
     AI bot runs only when local regex did not already block.
     """
+    get_guard_rules()
     local = decide_prompt_locally(prompt)
     local_allowed, local_rt, local_action, local_fwd, local_reply = local
 
@@ -509,11 +576,16 @@ def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url
         threading.Thread(target=_log_local_block, daemon=True).start()
         return False, local_rt, local_action or "Blocked", local_fwd, local_reply
 
-    if has_ai_bot_rules():
+    # Sync backend when AI bots exist, or rules cache never loaded (do not fail-open).
+    need_backend = has_ai_bot_rules() or (not _rules_fetch_ok)
+
+    if need_backend:
         allowed, rt, action, forward, reply, eval_err = send_to_backend(platform, domain, prompt, client_ip, url, method)
         if eval_err:
             print(f"[UnifAI Proxy] AI Guard Bot prompt eval failed | {eval_err}")
-        return _merge_guard_decisions(local, (allowed, rt, action, forward, reply))
+        # Backend miss must not erase a local REDACT decision.
+        merged = _merge_guard_decisions(local, (allowed, rt, action, forward, reply))
+        return merged
 
     if local_action in ("Redacted", "Warned"):
         log_prompt_async(platform, domain, prompt, client_ip, url, method)
@@ -735,7 +807,7 @@ def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
             n = (r.get("name") or "").lower()
             if any(x in n for x in ("phone", "mobile")):
                 continue
-            if any(x in n for x in ("api", "key", "secret", "token", "openai")):
+            if any(x in n for x in ("api", "key", "secret", "token")):
                 return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
     return True, "", "Allowed", prompt, ""
 
@@ -5797,8 +5869,14 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             method="POST"
         )
 
-        # AI Guard Bot may call an LLM — allow enough time for Ollama round-trip
-        with urllib.request.urlopen(req, timeout=95) as response:
+        # AI Guard Bot may call an LLM — keep under browser request timeouts.
+        # Default 28s (was 95s): long holds look like "connection cut" on ChatGPT/Claude.
+        try:
+            eval_timeout = float(os.getenv("UNIFAI_EVAL_TIMEOUT", "28") or "28")
+        except Exception:
+            eval_timeout = 28.0
+        eval_timeout = max(8.0, min(eval_timeout, 95.0))
+        with urllib.request.urlopen(req, timeout=eval_timeout) as response:
             if response.status == 200:
                 res_data = json.loads(response.read().decode("utf-8"))
                 allowed = res_data.get("allowed", True)
@@ -6337,7 +6415,7 @@ class BrowserAIInterceptor:
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
         mark_duplicate_event(domain, prompt)
 
-        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
+        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
             platform=platform,
             domain=domain,
             prompt=prompt,
@@ -6363,6 +6441,38 @@ class BrowserAIInterceptor:
             except Exception as e:
                 print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
 
+    def _apply_duplicate_http_prompt(
+        self,
+        flow: http.HTTPFlow,
+        domain: str,
+        platform: str,
+        prompt: str,
+        client_ip: str,
+        raw_text: str,
+    ) -> None:
+        """ChatGPT/Claude often double-fire the same Send — never silent-allow the retry."""
+        host = flow.request.pretty_host
+        decision = get_remembered_guard_decision(domain, prompt)
+        if decision is None:
+            decision = evaluate_prompt_coalesced(
+                platform=platform,
+                domain=domain,
+                prompt=prompt,
+                client_ip=client_ip,
+                url=flow.request.url,
+                method=flow.request.method,
+            )
+        allowed, rule_triggered, action, redacted_prompt, reply_text = decision
+        if not allowed:
+            print(f"[UnifAI Proxy] BLOCKED duplicate prompt to {domain} → Rule: {rule_triggered}")
+            make_blocked_response(flow, rule_triggered, host, reply_text=reply_text)
+        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+            try:
+                new_content = inject_warned_prompt(raw_text, prompt, redacted_prompt)
+                if new_content:
+                    flow.request.content = new_content.encode("utf-8")
+            except Exception:
+                pass
     def _file_send_maybe_block(
         self,
         flow: http.HTTPFlow,
@@ -6492,9 +6602,11 @@ class BrowserAIInterceptor:
                 qs_prompt
                 and looks_like_user_prompt(qs_prompt)
                 and _is_confident_chat_send(path, "", b"")
-                and not is_duplicate_event(domain, qs_prompt, ttl=DEDUPE_TTL, mark=False)
             ):
-                self._apply_http_prompt(flow, domain, platform, qs_prompt, client_ip, "")
+                if is_duplicate_event(domain, qs_prompt, ttl=DEDUPE_TTL, mark=False):
+                    self._apply_duplicate_http_prompt(flow, domain, platform, qs_prompt, client_ip, "")
+                else:
+                    self._apply_http_prompt(flow, domain, platform, qs_prompt, client_ip, "")
             return
 
         if method not in ("POST", "PUT", "PATCH"):
@@ -6620,14 +6732,16 @@ class BrowserAIInterceptor:
         if is_unsubmitted_chat_body(path, raw_text):
             return
 
-        # Collapse browser double-fire only; do not stamp until we actually intercept.
+        # Collapse browser double-fire — MUST still enforce the same guard decision
+        # (silent return here previously let the 2nd request bypass BLOCK).
         if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
+            self._apply_duplicate_http_prompt(flow, domain, platform, prompt, client_ip, raw_text)
             return
 
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
         mark_duplicate_event(domain, prompt)
 
-        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
+        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
             platform=platform,
             domain=domain,
             prompt=prompt,
@@ -6722,7 +6836,7 @@ class BrowserAIInterceptor:
                 if pn and len(pn) <= 320 and not _looks_like_document_body_dump(pn):
                     if not is_duplicate_event(domain, pn, ttl=DEDUPE_TTL, mark=False):
                         mark_duplicate_event(domain, ws_prompt)
-                        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
+                        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
                             platform=platform,
                             domain=domain,
                             prompt=ws_prompt,
@@ -6743,12 +6857,35 @@ class BrowserAIInterceptor:
                             new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
                             if new_content:
                                 msg.text = new_content
+                    else:
+                        decision = get_remembered_guard_decision(domain, pn) or evaluate_prompt_coalesced(
+                            platform=platform,
+                            domain=domain,
+                            prompt=ws_prompt,
+                            client_ip=client_ip,
+                            url=flow.request.url,
+                            method="WS",
+                        )
+                        allowed, rule_triggered, action, redacted_prompt, reply_text = decision
+                        if not allowed:
+                            try:
+                                msg.drop()
+                            except Exception:
+                                try:
+                                    msg.kill()
+                                except Exception:
+                                    pass
+                            inject_websocket_reply(flow, host, (reply_text or "").strip())
+                        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != ws_prompt:
+                            new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
+                            if new_content:
+                                msg.text = new_content
             return
 
         # ── Universal WebSocket: domain-agnostic extract (same rule as HTTP) ──
         if ws_has_prompt:
             mark_duplicate_event(domain, ws_prompt)
-            allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
+            allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
                 platform=platform,
                 domain=domain,
                 prompt=ws_prompt,
@@ -6826,13 +6963,37 @@ class BrowserAIInterceptor:
             return
 
         if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
+            decision = get_remembered_guard_decision(domain, prompt)
+            if decision is None:
+                decision = evaluate_prompt_coalesced(
+                    platform=platform,
+                    domain=domain,
+                    prompt=prompt,
+                    client_ip=get_client_ip(flow),
+                    url=flow.request.url,
+                    method="WS",
+                )
+            allowed, rule_triggered, action, redacted_prompt, reply_text = decision
+            if not allowed:
+                try:
+                    msg.drop()
+                except Exception:
+                    try:
+                        msg.kill()
+                    except Exception:
+                        pass
+                inject_websocket_reply(flow, host, (reply_text or "").strip())
+            elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+                new_content = inject_warned_prompt(content, prompt, redacted_prompt)
+                if new_content:
+                    msg.text = new_content
             return
 
         client_ip = get_client_ip(flow)
         print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
         mark_duplicate_event(domain, prompt)
 
-        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt(
+        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
             platform=platform,
             domain=domain,
             prompt=prompt,

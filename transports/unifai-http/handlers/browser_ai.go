@@ -144,11 +144,17 @@ func (h *BrowserAIHandler) getRules(ctx *fasthttp.RequestCtx) {
 	forAgent := strings.EqualFold(string(ctx.QueryArgs().Peek("for")), "agent")
 	if forAgent {
 		out := make([]map[string]any, 0, len(rules))
+		hasAIBot := false
 		for _, r := range rules {
 			if !r.Active {
 				continue
 			}
-			out = append(out, map[string]any{
+			rt := strings.ToLower(strings.TrimSpace(r.RuleType))
+			if rt == "ai_bot" {
+				hasAIBot = true
+			}
+			// Lite payload: pattern + action for local regex. Skip huge bot_prompt blobs.
+			row := map[string]any{
 				"id":              r.ID,
 				"name":            r.Name,
 				"rule_type":       r.RuleType,
@@ -156,13 +162,16 @@ func (h *BrowserAIHandler) getRules(ctx *fasthttp.RequestCtx) {
 				"action":          r.Action,
 				"severity":        r.Severity,
 				"warning_message": r.WarningMessage,
-				"bot_provider":    r.BotProvider,
-				"bot_model":       r.BotModel,
-				"bot_prompt":      r.BotPrompt,
 				"active":          true,
-			})
+			}
+			if rt == "ai_bot" {
+				row["bot_provider"] = r.BotProvider
+				row["bot_model"] = r.BotModel
+				// Intentionally omit bot_prompt / reference image — agent only needs has_ai_bot.
+			}
+			out = append(out, row)
 		}
-		SendJSON(ctx, map[string]any{"rules": out})
+		SendJSON(ctx, map[string]any{"rules": out, "has_ai_bot": hasAIBot})
 		return
 	}
 	SendJSON(ctx, map[string]any{"rules": rules})
