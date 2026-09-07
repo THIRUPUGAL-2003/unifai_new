@@ -1063,6 +1063,17 @@ def _is_google_wire_blob(text: str) -> bool:
     return False
 
 
+def _is_digit_heavy_user_text(text: str) -> bool:
+    """Mostly digits (OTP / ID / number+light separators) — always treat as user prompt."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    digits = sum(1 for c in t if c.isdigit())
+    if digits < 1:
+        return False
+    return digits / len(t) >= 0.55
+
+
 def _is_typed_numeric_prompt(text: str) -> bool:
     """User-typed digits / numeric IDs — keep as prompts (do not classify as opaque wire)."""
     t = (text or "").strip()
@@ -1070,17 +1081,46 @@ def _is_typed_numeric_prompt(text: str) -> bool:
         return False
     if t.isdigit():
         return True
-    # Formatted numbers: +91 98765-43210, (555) 123-4567
-    if re.fullmatch(r"\+?[\d\s\-().]{3,24}", t):
+    if _is_digit_heavy_user_text(t):
+        return True
+    # Formatted numbers: +91 98765-43210, (555) 123-4567, 12-=-34
+    if re.fullmatch(r"[\d\s\-+().=/]{3,200}", t):
         digits = sum(1 for c in t if c.isdigit())
-        return digits >= 3 and digits >= (len(re.sub(r"\s", "", t)) // 2)
+        return digits >= 3
+    return False
+
+
+def _is_clear_protocol_junk(text: str) -> bool:
+    """True only for multipart / challenge / IDE binary — not normal typed chat."""
+    t = (text or "").strip()
+    if not t:
+        return True
+    low_head = t[:80].lower()
+    if (
+        "webkitformboundary" in low_head
+        or t.startswith("------")
+        or "content-disposition: form-data" in t[:500].lower()
+        or "multipart/form-data" in t[:200].lower()
+    ):
+        return True
+    if t.startswith("gAAAA") or '"p":"gAAAA' in t:
+        return True
+    if _is_ai_chrome_url(t):
+        return True
+    if _looks_like_filename_only(t):
+        return True
+    # Real binary/IDE soup — but never reject digit-heavy user strings.
+    if _is_digit_heavy_user_text(t) or _is_typed_numeric_prompt(t):
+        return False
+    if _looks_like_binary_or_wire_garbage(t):
+        return True
     return False
 
 
 def _is_opaque_wire_blob(text: str) -> bool:
     """Encoded wire/session tokens (Copilot/Bing base64url, Gemini blobs) — not typed chat."""
     t = (text or "").strip()
-    if _is_typed_numeric_prompt(t):
+    if _is_typed_numeric_prompt(t) or _is_digit_heavy_user_text(t):
         return False
     if _is_google_wire_blob(text):
         return True
@@ -1089,8 +1129,8 @@ def _is_opaque_wire_blob(text: str) -> bool:
     # Single-token opaque blobs (no whitespace)
     if " " not in t and "\n" not in t and len(t) >= 20:
         if re.fullmatch(r"[A-Za-z0-9_\-+/=]+", t):
-            # Mostly-digit IDs are user prompts, not session tokens.
-            if t.isdigit() or sum(1 for c in t if c.isdigit()) >= int(len(t) * 0.85):
+            # Mostly-digit IDs / number+separator prompts are user text.
+            if t.isdigit() or sum(1 for c in t if c.isdigit()) >= int(len(t) * 0.55):
                 return False
             if "/" in t or "+" in t or t.endswith("="):
                 return True
@@ -1854,63 +1894,67 @@ def _should_intercept_extracted_prompt(
     host: str = "",
     raw_bytes: bytes = b"",
 ) -> bool:
-    """Only finished chat Send with real user text — not telemetry/sync/internal RPC.
+    """Finished chat Send with user text → predict. Telemetry/sync must not.
 
-    Works for ANY admin-monitored Target Website — not ChatGPT-only. Known platform
-    shapes (ChatGPT/Claude/Gemini/…) are preferred; unknown AI chat APIs still pass
-    when we extracted real user text on a non-noise chat-looking request.
+    Confident Send (Claude/ChatGPT/Gemini/… shape): accept ANY non-empty typed
+    text — letters, digits, symbols, 1 char or 1000+ — unless clear protocol junk.
     """
     if not prompt or not isinstance(prompt, str):
         return False
     text = prompt.strip()
     if len(text) < 1:
         return False
-    if not looks_like_user_prompt(text):
-        return False
-    if _is_opaque_wire_blob(text):
-        return False
-    if _looks_like_binary_or_wire_garbage(text):
-        return False
-    if _is_ide_non_chat_noise(text, domain=domain) or _is_ide_non_chat_noise(text, domain=host):
-        return False
-    if _is_internal_wire_text(text):
-        return False
     if text.startswith("[FILE UPLOAD"):
         return False
-    if _looks_like_filename_only(text):
+    if _is_typing_or_draft_path(path, raw_text):
+        return False
+    if is_noise(path, raw_text):
         return False
     # File Send bodies embed PDF/doc text — only short user captions belong in Prompt Logs.
     if _send_carries_attachment(raw_text):
         if _looks_like_document_body_dump(text) or len(text) > 320:
             return False
-    if _is_typing_or_draft_path(path, raw_text):
-        return False
-    if is_noise(path, raw_text):
-        return False
 
     confident = _is_confident_chat_send(path, raw_text, raw_bytes)
-    if not confident:
-        # Only predict finished chat Sends — never every JSON/telemetry request on the site.
-        # Unknown AI products: require an explicit chat path/marker (not merely "{" body).
-        if not (
-            is_chat_path(path, host, raw_text)
-            or _path_has_chat_marker(path)
-            or _is_clear_chat_submit(path, host or "", raw_text, raw_bytes)
-        ):
-            return False
-        # Require a bit more substance for non-confident shapes to avoid telemetry false hits.
-        if len(text) < 2 and not text.isdigit() and not _is_typed_numeric_prompt(text):
-            return False
-        # Pure JSON wire blobs that aren't platform chat shapes → skip predict
-        body = (raw_text or "").lstrip()
-        if body.startswith(("{", "[")) and not _looks_like_chatgpt_body(body, raw_bytes):
-            if not _path_has_chat_marker(path) and not is_chat_path(path, host, raw_text):
-                return False
 
-    # Typing debounce only for non-Send peeks. Finished Enter/Send must always predict.
     if confident:
+        # Exact user Send — do not drop number/symbol/short text via wire heuristics.
+        if _is_clear_protocol_junk(text):
+            return False
+        if _is_ide_non_chat_noise(text, domain=domain) or _is_ide_non_chat_noise(text, domain=host):
+            if not _is_digit_heavy_user_text(text) and not _is_typed_numeric_prompt(text):
+                return False
         _composer_draft.pop(domain, None)
-    elif is_composer_typing_draft(domain, text):
+        if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
+            return False
+        return True
+
+    # Non-confident paths keep stricter filters (avoid telemetry false positives).
+    if not looks_like_user_prompt(text):
+        return False
+    if _is_opaque_wire_blob(text):
+        return False
+    if _looks_like_binary_or_wire_garbage(text) and not _is_digit_heavy_user_text(text):
+        return False
+    if _is_ide_non_chat_noise(text, domain=domain) or _is_ide_non_chat_noise(text, domain=host):
+        return False
+    if _is_internal_wire_text(text) and not _is_digit_heavy_user_text(text):
+        return False
+    if _looks_like_filename_only(text):
+        return False
+    if not (
+        is_chat_path(path, host, raw_text)
+        or _path_has_chat_marker(path)
+        or _is_clear_chat_submit(path, host or "", raw_text, raw_bytes)
+    ):
+        return False
+    if len(text) < 2 and not text.isdigit() and not _is_typed_numeric_prompt(text):
+        return False
+    body = (raw_text or "").lstrip()
+    if body.startswith(("{", "[")) and not _looks_like_chatgpt_body(body, raw_bytes):
+        if not _path_has_chat_marker(path) and not is_chat_path(path, host, raw_text):
+            return False
+    if is_composer_typing_draft(domain, text):
         return False
     if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
         return False
@@ -7249,11 +7293,10 @@ class BrowserAIInterceptor:
             if chat_carries_attachment(raw_text):
                 return
             return
-        if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip() and not _looks_like_binary_or_wire_garbage(prompt)):
-            return
-        if _is_opaque_wire_blob(prompt) or _looks_like_binary_or_wire_garbage(prompt):
-            return
-        if _is_ide_non_chat_noise(prompt, platform=platform, domain=domain):
+        # Same gate as early path — confident Send keeps number/symbol/short text.
+        if not _should_intercept_extracted_prompt(
+            prompt, path, raw_text, domain, host=host, raw_bytes=raw_bytes
+        ):
             return
         # Skip duplicate FILE UPLOAD lines if extract_prompt somehow returned that
         if prompt.strip().startswith("[FILE UPLOAD"):
@@ -7494,16 +7537,15 @@ class BrowserAIInterceptor:
         prompt = extract_prompt_universal(content.encode("utf-8"), "application/json", host=host, url=flow.request.url)
         if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
             return
-        if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip() and not _looks_like_binary_or_wire_garbage(prompt)):
-            return
-        if _is_opaque_wire_blob(prompt) or _looks_like_binary_or_wire_garbage(prompt):
-            return
-        if _is_ide_non_chat_noise(prompt, platform=platform, domain=domain):
+        ws_bytes = content.encode("utf-8", errors="ignore")
+        if not _should_intercept_extracted_prompt(
+            prompt, flow.request.path, content, domain, host=host, raw_bytes=ws_bytes
+        ):
             return
 
         if is_unsubmitted_chat_body(flow.request.path, content):
             return
-        if _is_confident_chat_send(flow.request.path, content, content.encode("utf-8", errors="ignore")):
+        if _is_confident_chat_send(flow.request.path, content, ws_bytes):
             _composer_draft.pop(domain, None)
         elif is_composer_typing_draft(domain, prompt):
             return
