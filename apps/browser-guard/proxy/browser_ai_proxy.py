@@ -35,9 +35,9 @@ UNIFAI_BACKEND_URL = os.getenv("UNIFAI_BACKEND_URL", "https://unifaiv2.dev-yp.co
 UNIFAI_AGENT_ID = os.getenv("UNIFAI_AGENT_ID", "")
 UNIFAI_AGENT_HOSTNAME = os.getenv("UNIFAI_AGENT_HOSTNAME", "")
 
-# Cache refresh: keep short so Monitor/Block toggles apply within ~1s at 1000+ domains.
-# Lite ?for=agent payloads make sub-second refreshes practical.
-CACHE_TTL = 1
+# Cache refresh: 10s balances admin toggle lag vs 1000+ employee stampede (was 1s).
+# Lite ?for=agent payloads keep refreshes cheap.
+CACHE_TTL = 10
 # Backend GET timeout — must exceed slow /targets and /rules responses.
 _BACKEND_FETCH_TIMEOUT = 45
 
@@ -452,7 +452,7 @@ def get_guard_rules() -> list:
                 compiled.append({
                     "name": name or "Unknown Rule",
                     "pattern": pattern,
-                    "regex": re.compile(pattern, re.IGNORECASE),
+                    "regex": _compile_guard_regex(pattern),
                     "action": action,
                     "severity": r.get("severity", "HIGH"),
                     "warning_message": (r.get("warning_message") or "").strip(),
@@ -651,6 +651,17 @@ def looks_like_secret_token(text: str) -> bool:
     return bool(re.match(r"^(sk-|sk-ant-|sk-proj-|sk-admin-|ghp_|gho_|github_pat_|AKIA|AIzaSy|pcsk_)", t, re.I))
 
 
+def _compile_guard_regex(pattern: str):
+    """Compile admin regex once. Strip nested (?i) so IGNORECASE is applied cleanly."""
+    p = (pattern or "").strip()
+    low = p[:4].lower()
+    if low == "(?i)":
+        p = p[4:]
+    elif p[:5].lower() == "(?-i)":
+        p = p[5:]
+    return re.compile(p, re.IGNORECASE)
+
+
 def is_phone_like_rule(name: str, pattern: str = "") -> bool:
     n = (name or "").lower()
     p = (pattern or "").lower()
@@ -794,10 +805,21 @@ def _merge_guard_decisions(
 
 
 def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
-    rules = sorted(
-        get_guard_rules(),
-        key=lambda r: 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0,
-    )
+    """Apply all matching regex rules; strictest action wins (BLOCK > REDACT)."""
+    rules = list(get_guard_rules())
+
+    def _prio(r: dict) -> tuple:
+        action = (r.get("action") or "BLOCK").upper()
+        if action == "WARN":
+            action = "REDACT"
+        # Lower tuple sorts first: BLOCK before REDACT; non-phone before phone-like.
+        block_first = 0 if action == "BLOCK" else 1
+        phone_last = 1 if is_phone_like_rule(r.get("name", ""), r.get("pattern", "")) else 0
+        return (block_first, phone_last)
+
+    rules.sort(key=_prio)
+
+    best_redact = None
     for r in rules:
         if not rule_matches_prompt(r, prompt):
             continue
@@ -806,8 +828,13 @@ def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
             rule_action = "REDACT"
         if rule_action == "BLOCK":
             return False, r["name"], "Blocked", prompt, _security_reply_text(r["name"], r.get("warning_message", ""))
-        if rule_action == "REDACT":
-            return True, r["name"], "Redacted", _redacted_forward(prompt, r.get("warning_message", "")), ""
+        if rule_action == "REDACT" and best_redact is None:
+            best_redact = r
+
+    if best_redact is not None:
+        r = best_redact
+        return True, r["name"], "Redacted", _redacted_forward(prompt, r.get("warning_message", "")), ""
+
     if looks_like_secret_token(prompt):
         for r in rules:
             n = (r.get("name") or "").lower()

@@ -1218,7 +1218,7 @@ func rulePatternMatches(rule logstore.BrowserGuardRule, text string) bool {
 	if pattern == "" || text == "" {
 		return false
 	}
-	re, err := regexp.Compile("(?i)" + pattern)
+	re, err := logstore.CompileGuardRegex(pattern)
 	if err != nil {
 		return false
 	}
@@ -1248,7 +1248,7 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 		if !rule.Active || strings.ToLower(rule.RuleType) == "ai_bot" || rule.Pattern == "" {
 			continue
 		}
-		re, err := regexp.Compile("(?i)" + rule.Pattern)
+		re, err := logstore.CompileGuardRegex(rule.Pattern)
 		if err != nil || !re.MatchString(prompt) {
 			continue
 		}

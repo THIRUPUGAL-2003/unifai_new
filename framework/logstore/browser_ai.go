@@ -171,6 +171,17 @@ func isPhoneLikeRule(name, pattern string) bool {
 		strings.Contains(p, `\d{11`) || strings.Contains(p, `[0-9]{10`)
 }
 
+// CompileGuardRegex builds a case-insensitive RE2 pattern, stripping a leading (?i) from admin input.
+func CompileGuardRegex(pattern string) (*regexp.Regexp, error) {
+	p := strings.TrimSpace(pattern)
+	if len(p) >= 4 && strings.EqualFold(p[:4], "(?i)") {
+		p = p[4:]
+	} else if len(p) >= 5 && strings.EqualFold(p[:5], "(?-i)") {
+		p = p[5:]
+	}
+	return regexp.Compile("(?i)" + p)
+}
+
 type BrowserAILog struct {
 	ID                string    `gorm:"primaryKey" json:"id"`
 	Timestamp         time.Time `gorm:"index" json:"timestamp"`
@@ -1087,6 +1098,12 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 	}
 
 	sort.SliceStable(rules, func(i, j int) bool {
+		// BLOCK before REDACT so duplicate patterns never prefer a weaker action.
+		ai := NormalizeGuardRuleAction(rules[i].Action) == "BLOCK"
+		aj := NormalizeGuardRuleAction(rules[j].Action) == "BLOCK"
+		if ai != aj {
+			return ai
+		}
 		pi := isPhoneLikeRule(rules[i].Name, rules[i].Pattern)
 		pj := isPhoneLikeRule(rules[j].Name, rules[j].Pattern)
 		return pi != pj && !pi && pj
@@ -1121,7 +1138,7 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 		if strings.ToLower(rule.RuleType) == "ai_bot" || rule.Pattern == "" {
 			continue
 		}
-		re, err := regexp.Compile("(?i)" + rule.Pattern)
+		re, err := CompileGuardRegex(rule.Pattern)
 		if err != nil || !re.MatchString(regexScanText) {
 			continue
 		}
@@ -1188,6 +1205,11 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 				break
 			}
 		}
+	}
+
+	if action == "Allowed" && ruleTriggered == "" && (status == "Allowed" || status == "") {
+		status = "Allowed (no guard rule matched)"
+		predictedCategory = "SAFE"
 	}
 
 	if ruleTriggered == "" {
