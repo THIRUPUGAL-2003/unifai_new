@@ -941,10 +941,32 @@ def _looks_like_binary_or_wire_garbage(text: str) -> bool:
     Examples that must NOT enter Prompt Logs:
       Rp];$u\\OVoT]xy 9+)*wlTP-
       X*L$( rF2D:TvJxf<
+      Cursor.exe*@c8df43df32fdc3daf238c2dba17c9acbfa6a6066…
+      (Intel(R) Core(TM) i7-8850H CPU @ 2.60GHz
     """
     t = (text or "").strip()
     if not t:
         return True
+    low = t.lower()
+
+    # Cursor / IDE exe attestation + content hashes (not typed chat)
+    if "cursor.exe" in low or re.search(r"(?i)\b[\w.-]+\.exe\*@", t):
+        return True
+    if ".exe" in low and "@" in t and re.search(r"@[a-f0-9]{24,}", t, re.I):
+        return True
+    # Hardware / agent telemetry fragments
+    if "intel(r)" in low or "core(tm)" in low:
+        return True
+    if "cpu @" in low and "ghz" in low:
+        return True
+    if re.search(r"(?i)\b(?:amd|intel|qualcomm|apple)\b.+\b(?:cpu|gpu|mhz|ghz)\b", t) and len(t) < 120:
+        return True
+    # Long *@hex blobs (even without .exe)
+    if "*" in t and "@" in t and len(t) >= 40:
+        hexish = sum(1 for c in t if c in "0123456789abcdefABCDEF")
+        if hexish / len(t) >= 0.5:
+            return True
+
     # Control characters (except tab / LF / CR)
     if any(ord(c) < 9 or (10 < ord(c) < 32 and ord(c) != 13) or ord(c) == 127 for c in t):
         return True
@@ -978,6 +1000,22 @@ def _looks_like_binary_or_wire_garbage(text: str) -> bool:
         weird = sum(t.count(ch) for ch in "\\]$^*`~|{};<>")
         if weird >= 3 and other / max(len(t), 1) >= 0.25:
             return True
+    return False
+
+
+def _is_ide_non_chat_noise(text: str, platform: str = "", domain: str = "") -> bool:
+    """Cursor/IDE host noise that must never be evaluated or logged as a prompt."""
+    if _looks_like_binary_or_wire_garbage(text):
+        return True
+    t = (text or "").strip()
+    plat = (platform or "").lower()
+    dom = (domain or "").lower()
+    ide = "cursor" in plat or "cursor." in dom or dom.endswith("cursor.sh") or dom.endswith("cursor.com") or dom.endswith("cursor.so")
+    if not ide:
+        return False
+    # Single-character / tiny fragments from IDE wire — not a real chat Send
+    if len(t) <= 2 and " " not in t:
+        return True
     return False
 
 
@@ -1661,6 +1699,10 @@ def _should_intercept_extracted_prompt(
     if not looks_like_user_prompt(text):
         return False
     if _is_opaque_wire_blob(text):
+        return False
+    if _looks_like_binary_or_wire_garbage(text):
+        return False
+    if _is_ide_non_chat_noise(text, domain=domain) or _is_ide_non_chat_noise(text, domain=host):
         return False
     if _is_internal_wire_text(text):
         return False
@@ -6562,6 +6604,8 @@ class BrowserAIInterceptor:
             return
         if _is_opaque_wire_blob(prompt) or _looks_like_binary_or_wire_garbage(prompt):
             return
+        if _is_ide_non_chat_noise(prompt, platform=platform, domain=domain):
+            return
         # Skip duplicate FILE UPLOAD lines if extract_prompt somehow returned that
         if prompt.strip().startswith("[FILE UPLOAD"):
             return
@@ -6769,6 +6813,8 @@ class BrowserAIInterceptor:
         if not looks_like_user_prompt(prompt) and not (chatgpt_shaped and prompt.strip() and not _looks_like_binary_or_wire_garbage(prompt)):
             return
         if _is_opaque_wire_blob(prompt) or _looks_like_binary_or_wire_garbage(prompt):
+            return
+        if _is_ide_non_chat_noise(prompt, platform=platform, domain=domain):
             return
 
         if is_unsubmitted_chat_body(flow.request.path, content):

@@ -20,6 +20,9 @@ var pacHostSafe = regexp.MustCompile(`^[a-z0-9.-]+$`)
 var pacProxyAddrSafe = regexp.MustCompile(`^[A-Za-z0-9.:\[\]-]+$`)
 var nicGUID = regexp.MustCompile(`(?i)\{[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}`)
 var secretTokenPrefix = regexp.MustCompile(`(?i)^(sk-|sk-ant-|sk-proj-|sk-admin-|ghp_|gho_|github_pat_|akia|aizasy|pcsk_)`)
+var ideExeAtHash = regexp.MustCompile(`(?i)\b[\w.-]+\.exe\*@`)
+var hexAtHash24 = regexp.MustCompile(`(?i)@[a-f0-9]{24,}`)
+var cpuVendorTelemetry = regexp.MustCompile(`(?i)\b(?:amd|intel|qualcomm|apple)\b.+\b(?:cpu|gpu|mhz|ghz)\b`)
 
 func looksLikeSecretToken(s string) bool {
 	return secretTokenPrefix.MatchString(strings.TrimSpace(s))
@@ -32,6 +35,37 @@ func looksLikeBinaryOrWireGarbage(s string) bool {
 	if t == "" {
 		return true
 	}
+	low := strings.ToLower(t)
+
+	// Cursor / IDE exe attestation + content hashes (not typed chat)
+	if strings.Contains(low, "cursor.exe") || ideExeAtHash.MatchString(t) {
+		return true
+	}
+	if strings.Contains(low, ".exe") && strings.Contains(t, "@") && hexAtHash24.MatchString(t) {
+		return true
+	}
+	if strings.Contains(low, "intel(r)") || strings.Contains(low, "core(tm)") {
+		return true
+	}
+	if strings.Contains(low, "cpu @") && strings.Contains(low, "ghz") {
+		return true
+	}
+	if cpuVendorTelemetry.MatchString(t) && len([]rune(t)) < 120 {
+		return true
+	}
+	if strings.Contains(t, "*") && strings.Contains(t, "@") && len([]rune(t)) >= 40 {
+		hexish := 0
+		runesT := []rune(t)
+		for _, r := range runesT {
+			if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F') {
+				hexish++
+			}
+		}
+		if float64(hexish)/float64(len(runesT)) >= 0.5 {
+			return true
+		}
+	}
+
 	for _, r := range t {
 		if r < 9 || (r > 10 && r < 32 && r != 13) || r == 127 {
 			return true
