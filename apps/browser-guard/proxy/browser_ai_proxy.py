@@ -7052,6 +7052,7 @@ class BrowserAIInterceptor:
             )
 
         # ── Domain-add-only intercept: extracted user text → predict ──
+        # Only finished chat Sends (and short captions after file scan). Never every site request.
         if has_prompt:
             self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
             return
@@ -7065,6 +7066,10 @@ class BrowserAIInterceptor:
 
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
         if not is_chat_path(path, host, raw_text):
+            return
+
+        if not _is_confident_chat_send(path, raw_text, raw_bytes) and not attachment_send:
+            # Telemetry / background RPCs on chat-ish paths — no predict
             return
 
         chatgpt_shaped = _looks_like_chatgpt_body(raw_text, raw_bytes)
