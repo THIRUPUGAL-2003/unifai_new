@@ -1831,19 +1831,22 @@ def _should_intercept_extracted_prompt(
 
     confident = _is_confident_chat_send(path, raw_text, raw_bytes)
     if not confident:
-        # Unknown / other AI products: still predict when body/path looks like a chat send
-        # OR we already extracted a real user sentence from JSON on a monitored host.
-        body = (raw_text or "").lstrip()
-        looks_chat = (
+        # Only predict finished chat Sends — never every JSON/telemetry request on the site.
+        # Unknown AI products: require an explicit chat path/marker (not merely "{" body).
+        if not (
             is_chat_path(path, host, raw_text)
             or _path_has_chat_marker(path)
-            or body.startswith(("{", "["))
-        )
-        if not looks_chat:
+            or _is_clear_chat_submit(path, host or "", raw_text, raw_bytes)
+        ):
             return False
         # Require a bit more substance for non-confident shapes to avoid telemetry false hits.
         if len(text) < 2 and not text.isdigit():
             return False
+        # Pure JSON wire blobs that aren't platform chat shapes → skip predict
+        body = (raw_text or "").lstrip()
+        if body.startswith(("{", "[")) and not _looks_like_chatgpt_body(body, raw_bytes):
+            if not _path_has_chat_marker(path) and not is_chat_path(path, host, raw_text):
+                return False
 
     # Skip rapid prefix growth while typing on ANY chat path (not only /prepare).
     # Final Enter/Send usually has a short pause → still predicts.
@@ -4996,10 +4999,35 @@ def _extract_image_text(data: bytes) -> str:
     return _extract_image_tesseract(data)
 
 
+def _looks_like_video(data: bytes, content_type: str = "", file_name: str = "") -> bool:
+    """True for video uploads (mp4/mov/webm/mkv/avi) — scan via audio-track STT when possible."""
+    ct = (content_type or "").lower()
+    fn = (file_name or "").lower()
+    if ct.startswith("video/"):
+        return True
+    if fn.endswith((".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".wmv", ".mpeg", ".mpg")):
+        return True
+    if not data or len(data) < 12:
+        return False
+    head = data[:32]
+    if head[4:8] == b"ftyp":
+        brand = head[8:12]
+        # ISO BMFF — treat common video brands as video (audio-only m4a still caught as audio later)
+        if brand in (b"isom", b"iso2", b"mp41", b"mp42", b"avc1", b"dash", b"M4V ", b"qt  "):
+            return True
+    if head[:4] == b"RIFF" and len(data) >= 12 and data[8:12] == b"AVI ":
+        return True
+    if head[:4] == b"\x1aE\xdf\xa3":  # EBML / Matroska / webm
+        return True
+    return False
+
+
 def _looks_like_audio(data: bytes, content_type: str = "", file_name: str = "") -> bool:
     """True for voice notes / audio file uploads (wav/mp3/m4a/ogg/webm/aac/flac)."""
     ct = (content_type or "").lower()
     fn = (file_name or "").lower()
+    if ct.startswith("video/") or fn.endswith((".mp4", ".mov", ".mkv", ".avi", ".m4v", ".wmv")):
+        return False
     if ct.startswith("audio/") or "audio" in ct.split(";")[0]:
         return True
     if fn.endswith((".wav", ".mp3", ".m4a", ".aac", ".ogg", ".oga", ".opus", ".webm", ".flac", ".wma")):
@@ -5323,6 +5351,8 @@ def _classify_upload_kind(data: bytes, content_type: str = "", file_name: str = 
         return "pdf"
     if _looks_like_image(data, content_type, file_name):
         return "image"
+    if _looks_like_video(data, content_type, file_name):
+        return "video"
     if _looks_like_audio(data, content_type, file_name):
         return "audio"
     if _looks_like_rtf(data, content_type, file_name):
@@ -5490,6 +5520,13 @@ def _extract_text_from_file_bytes(data: bytes, content_type: str = "", file_name
         if kind == "audio":
             return _try_file_extract_chain(data, ct, fn, kind, [
                 ("audio-stt", lambda: _extract_audio_text(data, ct, fn)),
+                ("plain-decode", lambda: _extract_plain_text_bytes(data)),
+            ])
+
+        if kind == "video":
+            # Pull spoken track via ffmpeg→WAV→STT (same pipeline as voice).
+            return _try_file_extract_chain(data, ct, fn, kind, [
+                ("video-audio-stt", lambda: _extract_audio_text(data, ct, fn)),
                 ("plain-decode", lambda: _extract_plain_text_bytes(data)),
             ])
 
