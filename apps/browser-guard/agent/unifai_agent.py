@@ -60,7 +60,7 @@ else:
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
-AGENT_VERSION = "1.6.1"
+AGENT_VERSION = "1.6.2"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
@@ -213,6 +213,9 @@ def collect_agent_info(agent_id: str, status: str = "active") -> dict:
     hs = str(health.get("status") or "").strip()
     details = health.get("details") if isinstance(health.get("details"), list) else []
     detail_s = "; ".join(str(x) for x in details[:6])
+    pac_mode = str(health.get("pac_mode") or "")
+    if pac_mode and pac_mode not in detail_s:
+        detail_s = f"pac={pac_mode}" + (f"; {detail_s}" if detail_s else "")
     return {
         "id": agent_id,
         "hostname": hostname,
@@ -224,6 +227,7 @@ def collect_agent_info(agent_id: str, status: str = "active") -> dict:
         "agent_version": AGENT_VERSION,
         "health_status": hs or "unknown",
         "health_detail": detail_s,
+        "pac_mode": pac_mode or "unknown",
         "status": status or "active",
     }
 
@@ -318,6 +322,26 @@ def ca_trusted() -> bool:
     return platform_ca_trusted(os.path.join(data_dir(), "ca_install_status.txt"))
 
 
+def _detect_pac_mode() -> str:
+    """strict_proxy | fail_open_direct | bypass_chain | unknown — from local PAC file."""
+    try:
+        with open(local_pac_path(), "r", encoding="utf-8", errors="replace") as f:
+            body = f.read()
+    except Exception:
+        return "unknown"
+    if not body or "FindProxyForURL" not in body:
+        return "unknown"
+    upper = body.upper()
+    # Health-loop all-DIRECT while :8085 is down
+    if 'RETURN "DIRECT"' in upper.replace(" ", "") and "PROXY " not in upper:
+        return "fail_open_direct"
+    if "PROXY " in upper and "; DIRECT" in upper:
+        return "bypass_chain"  # sticky DIRECT risk — should be stripped
+    if "PROXY " in upper:
+        return "strict_proxy"
+    return "unknown"
+
+
 def run_health_check(proxy_port: int | None = None) -> dict:
     """Probe backend, PAC, local proxy, CA — write health.json for support."""
     global _LAST_HEALTH
@@ -363,8 +387,23 @@ def run_health_check(proxy_port: int | None = None) -> dict:
     if not checks["proxy_script"]:
         details.append("browser_ai_proxy.py missing")
 
+    pac_mode = _detect_pac_mode()
+    checks["pac_strict"] = pac_mode == "strict_proxy" or (
+        pac_mode == "fail_open_direct" and not checks.get("proxy_port")
+    )
+    if pac_mode == "bypass_chain":
+        details.append("PAC still has PROXY;DIRECT bypass chain — traffic may skip Guard")
+    elif pac_mode == "fail_open_direct" and checks.get("proxy_port"):
+        details.append("PAC is all-DIRECT while proxy is up — browsers bypass Guard (Prompt Logs stay 0)")
+        checks["pac_strict"] = False
+
     critical = ("backend_targets", "local_pac", "proxy_script")
-    if all(checks.get(k) for k in critical) and checks.get("ca_trusted") and checks.get("proxy_port"):
+    if (
+        all(checks.get(k) for k in critical)
+        and checks.get("ca_trusted")
+        and checks.get("proxy_port")
+        and pac_mode == "strict_proxy"
+    ):
         status = "ok"
     elif checks.get("backend_targets") and checks.get("proxy_script"):
         status = "degraded"
@@ -376,6 +415,7 @@ def run_health_check(proxy_port: int | None = None) -> dict:
         "agent_version": AGENT_VERSION,
         "backend_url": UNIFAI_BACKEND_URL,
         "proxy_addr": PROXY_ADDR,
+        "pac_mode": pac_mode,
         "checks": checks,
         "details": details,
         "updated_at": time_iso(),
@@ -430,6 +470,10 @@ def health_loop(stop_event: threading.Event, proxy_port: int) -> None:
                     # Time-based bust so sticky DIRECT decisions cannot linger after a brief blip.
                     apply_pac_with_bust(silent=True)
                 fail_streak = 0
+                # Keep CA trust healthy without DB — retry install if missing.
+                if not ca_trusted():
+                    print("[UnifAI Guard] CA not trusted — retrying certificate install…")
+                    install_ca_certificate()
             set_browser_quic(enable_quic=False)
         except Exception as e:
             print(f"[UnifAI Guard WARNING] Health loop: {e}")
@@ -663,6 +707,7 @@ table{{width:100%;border-collapse:collapse;margin-top:12px}} td,th{{border-botto
 </style></head><body><div class="card">
 <h1>UnifAI Guard {ver}</h1>
 <p>Status: <strong class="{'ok' if st=='ok' else 'deg' if st=='degraded' else 'bad'}">{st}</strong></p>
+<p>PAC mode: <code>{html_escape(str(report.get("pac_mode") or "unknown"))}</code> (strict_proxy = intercepts; fail_open_direct / bypass_chain = Prompt Logs stay 0)</p>
 <p>Backend: <code>{backend}</code></p>
 <p>Local status API: <code>/status</code></p>
 <table><thead><tr><th>Check</th><th>Result</th></tr></thead><tbody>{rows}</tbody></table>
@@ -1140,8 +1185,8 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         "    for (var i = 0; i < aiHosts.length; i++) {",
         "        var d = aiHosts[i];",
         '        if (host === d || dnsDomainIs(host, "." + d) || shExpMatch(host, "*." + d)) {',
-        "            // Fail open: if local Guard proxy is down/restarting, still reach the site.",
-        f'            return "PROXY {proxy_addr}; DIRECT";',
+        "            // Strict: monitored hosts MUST use Guard. Fail-open is health_loop all-DIRECT only.",
+        f'            return "PROXY {proxy_addr}";',
         "        }",
         "    }",
         '    return "DIRECT";',
@@ -1164,44 +1209,38 @@ def fetch_proxy_pac() -> str | None:
         seen.add(url)
         body = _http_get_text(url, "application/x-ns-proxy-autoconfig,*/*")
         if body and "FindProxyForURL" in body:
-            return ensure_pac_fail_open(body)
+            return ensure_pac_strict_proxy(body)
     print("[UnifAI Guard] Server PAC unavailable — building PAC from /api/browser-ai/targets")
     return build_pac_from_targets(PROXY_ADDR)
 
 
-def ensure_pac_fail_open(pac: str) -> str:
-    """Browsers must fall back to DIRECT if the local Guard proxy is unreachable.
+def ensure_pac_strict_proxy(pac: str) -> str:
+    """Monitored hosts use PROXY only while Guard is healthy.
 
-    Older PAC files returned only ``PROXY host:port``, which causes hard network
-    errors (ERR_PROXY_CONNECTION_FAILED) whenever mitmproxy restarts or the
-    laptop briefly loses the local listener. PAC syntax supports a fallback list.
+    ``PROXY …; DIRECT`` caused silent bypass (sites work, Prompt Logs stay 0).
+    When the local listener is down, health_loop rewrites PAC to all-DIRECT instead.
     """
     import re
 
     if not pac or "FindProxyForURL" not in pac:
         return pac
 
-    def _with_direct(match: re.Match[str]) -> str:
-        inner = match.group(1).strip()
-        # Already has a fallback chain.
-        if ";" in inner:
-            return match.group(0)
-        if not inner.upper().startswith("PROXY "):
-            return match.group(0)
-        return f'return "{inner}; DIRECT"'
-
-    # Matches: return "PROXY 127.0.0.1:8085";
-    return re.sub(
-        r'return\s*"([^"]+)"',
-        _with_direct,
+    # Normalize any "PROXY host:port; DIRECT" → "PROXY host:port"
+    pac = re.sub(
+        r'return\s*"\s*PROXY\s+([^";]+?)\s*;\s*DIRECT\s*"',
+        lambda m: f'return "PROXY {m.group(1).strip()}"',
         pac,
         flags=re.IGNORECASE,
     )
+    return pac
 
 
 def write_local_pac(content: str) -> None:
     path = local_pac_path()
     try:
+        # Never persist PROXY;DIRECT except intentional all-DIRECT fail-open from health_loop.
+        if content and "PROXY " in content.upper():
+            content = ensure_pac_strict_proxy(content)
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(content)
         print(f"[UnifAI Guard] Wrote local proxy.pac ({path})")

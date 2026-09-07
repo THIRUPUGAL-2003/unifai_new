@@ -1592,7 +1592,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	const handleCreateTarget = async () => {
 		const domain = normalizeTargetDomain(newTargetDomain);
 		if (!domain) {
-			setTargetError("Enter a domain only, e.g. gemini.google.com (no https://).");
+			setTargetError("Enter a domain only, e.g. chat.example.com (no https://).");
 			return;
 		}
 		setTargetError("");
@@ -1950,7 +1950,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 										{logs.length === 0 && (
 											<TableRow>
 												<TableCell colSpan={7} className="text-center py-6 text-muted-foreground">
-													No prompts intercepted yet. Start browsing AI platforms via proxy.
+													No prompts intercepted yet. Guard agent must be running (v1.6.2+),
+													Target site Monitoring ON and Block Website OFF, then fully quit and reopen
+													the browser so PAC hits 127.0.0.1:8085. If the AI site opens but logs stay 0,
+													traffic is bypassing the proxy — check Guard Agents health / local
+													http://127.0.0.1:18085/status.
 												</TableCell>
 											</TableRow>
 										)}
@@ -2724,7 +2728,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 											<div className="space-y-2">
 												<Label>Domain Name</Label>
 												<Input
-													placeholder="e.g. gemini.google.com"
+													placeholder="e.g. chat.example.com"
 													value={newTargetDomain}
 													onChange={(e) => setNewTargetDomain(e.target.value)}
 												/>
@@ -2781,7 +2785,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 													{customRelatedHosts.map((entry, idx) => (
 														<div key={idx} className="flex items-center gap-2">
 															<Input
-																placeholder="e.g. openai.com"
+																placeholder="e.g. docs.example.com"
 																className="font-mono text-sm flex-1"
 																value={entry.host}
 																onChange={(e) => {

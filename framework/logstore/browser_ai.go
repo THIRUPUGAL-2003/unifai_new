@@ -749,10 +749,10 @@ func buildDomainPAC(hosts []string, proxyAddr string) string {
 	b.WriteString("    for (var i = 0; i < aiHosts.length; i++) {\n")
 	b.WriteString("        var d = aiHosts[i];\n")
 	b.WriteString("        if (host === d || dnsDomainIs(host, \".\" + d) || shExpMatch(host, \"*.\" + d)) {\n")
-	b.WriteString("            // Fail open: if local Guard proxy is down/restarting, browsers must still reach the site.\n")
+	b.WriteString("            // Strict: monitored hosts use Guard only. Agent fail-opens to all-DIRECT if proxy is down.\n")
 	b.WriteString("            return \"PROXY ")
 	b.WriteString(proxyAddr)
-	b.WriteString("; DIRECT\";\n")
+	b.WriteString("\";\n")
 	b.WriteString("        }\n")
 	b.WriteString("    }\n\n")
 	b.WriteString("    return \"DIRECT\";\n")
@@ -1177,7 +1177,7 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 			if strings.Contains(n, "phone") || strings.Contains(n, "mobile") {
 				continue
 			}
-			if strings.Contains(n, "api") || strings.Contains(n, "key") || strings.Contains(n, "secret") || strings.Contains(n, "token") || strings.Contains(n, "openai") {
+			if strings.Contains(n, "api") || strings.Contains(n, "key") || strings.Contains(n, "secret") || strings.Contains(n, "token") {
 				ruleTriggered = rule.Name
 				matchedWarning = strings.TrimSpace(rule.WarningMessage)
 				action = "Blocked"

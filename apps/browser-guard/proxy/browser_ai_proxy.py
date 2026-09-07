@@ -41,8 +41,7 @@ CACHE_TTL = 1
 # Backend GET timeout — must exceed slow /targets and /rules responses.
 _BACKEND_FETCH_TIMEOUT = 45
 
-# Default fallback domains if backend is temporarily unreachable
-# Default fallback is EMPTY — only admin-added Target Websites are monitored.
+# Empty by design — never seed product domains. Only admin Target Websites are monitored.
 DEFAULT_TARGET_DOMAINS: dict = {}
 
 # Generic upload path tokens — any admin-added domain, not a product list.

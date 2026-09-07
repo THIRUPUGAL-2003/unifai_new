@@ -105,14 +105,14 @@ export default function LoginView() {
 										<div className="flex items-center justify-between rounded-xl border border-white/10 bg-[#0b0c10]/70 px-3 py-2.5">
 											<div className="flex items-center gap-2 text-sm text-white">
 												<Globe className="h-3.5 w-3.5 text-[#45f3ff]" />
-												chatgpt.com
+												chat.example.com
 											</div>
 											<span className="text-[10px] font-semibold tracking-wider text-emerald-400 uppercase">Monitored</span>
 										</div>
 										<div className="flex items-center justify-between rounded-xl border border-rose-500/20 bg-rose-950/40 px-3 py-2.5">
 											<div className="flex items-center gap-2 text-sm text-white">
 												<Lock className="h-3.5 w-3.5 text-rose-400" />
-												facebook.com
+												social.example.com
 											</div>
 											<span className="text-[10px] font-semibold tracking-wider text-rose-300 uppercase">Blocked</span>
 										</div>
