@@ -1,0 +1,14 @@
+UnifAI Guard Windows install (v1.6.13+)
+=====================================
+
+1. Fully quit old Guard (Task Manager → end ALL UnifAI_Guard.exe).
+2. Prefer UnifAI_Guard.exe from this ZIP (latest). Run it as Administrator once.
+   Optional: copy it over:
+   %LOCALAPPDATA%\Programs\UnifAI\Guard\UnifAI_Guard.exe
+3. Open http://127.0.0.1:18085/ — version must show 1.6.13 (or newer), proxy_port OK.
+4. Fully quit Chrome/Edge (all windows) and reopen.
+5. Test a Blocked Target Website — UnifAI block page should appear.
+
+Notes:
+- UnifAI_Guard_Setup.exe may be older than UnifAI_Guard.exe — use the newer file by date.
+- Website Download ZIP must be rebuilt/deployed on the server after each agent rebuild.

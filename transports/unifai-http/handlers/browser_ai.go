@@ -540,6 +540,12 @@ func browserAISetupCandidates() map[string][]string {
 			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_Setup.exe"),
 			filepath.Join("release", "UnifAI_Guard_Setup.exe"),
 		},
+		// Portable EXE (latest PyInstaller build) — use when Setup.exe is stale.
+		"UnifAI_Guard.exe": {
+			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard.exe"),
+			filepath.Join("apps", "browser-guard", "dist", "UnifAI_Guard.exe"),
+			filepath.Join("release", "UnifAI_Guard.exe"),
+		},
 		"UnifAI_Guard_macOS.zip": {
 			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_macOS.zip"),
 			filepath.Join("release", "UnifAI_Guard_macOS.zip"),
@@ -548,6 +554,10 @@ func browserAISetupCandidates() map[string][]string {
 			filepath.Join("apps", "browser-guard", "release", "MAC_INSTALL.txt"),
 			filepath.Join("apps", "browser-guard", "MAC_INSTALL.txt"),
 			filepath.Join("release", "MAC_INSTALL.txt"),
+		},
+		"INSTALL_WINDOWS.txt": {
+			filepath.Join("apps", "browser-guard", "release", "INSTALL_WINDOWS.txt"),
+			filepath.Join("release", "INSTALL_WINDOWS.txt"),
 		},
 	}
 }
@@ -577,7 +587,7 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 	hasWindows := false
 	hasMac := false
 	for _, a := range assets {
-		if a.name == "UnifAI_Guard_Setup.exe" {
+		if a.name == "UnifAI_Guard_Setup.exe" || a.name == "UnifAI_Guard.exe" {
 			hasWindows = true
 		}
 		if a.name == "UnifAI_Guard_macOS.zip" {
@@ -585,7 +595,7 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 		}
 	}
 	if !hasWindows && !hasMac {
-		SendError(ctx, fasthttp.StatusNotFound, "No Guard installer on server — add UnifAI_Guard_Setup.exe (Windows) and/or UnifAI_Guard_macOS.zip (Mac) under apps/browser-guard/release/")
+		SendError(ctx, fasthttp.StatusNotFound, "No Guard installer on server — add UnifAI_Guard.exe / UnifAI_Guard_Setup.exe (Windows) and/or UnifAI_Guard_macOS.zip (Mac) under apps/browser-guard/release/")
 		return
 	}
 	if len(assets) == 0 {

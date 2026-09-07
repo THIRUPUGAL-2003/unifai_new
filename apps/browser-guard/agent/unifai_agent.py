@@ -24,6 +24,7 @@ import socket
 import subprocess
 import sys
 import threading
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -60,7 +61,7 @@ else:
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
-AGENT_VERSION = "1.6.13"
+AGENT_VERSION = "1.6.14"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
@@ -1361,13 +1362,27 @@ def run_proxy_server(addon_script: str, port: int = 8085) -> None:
         "--set", "block_global=false",
         "--set", "ssl_insecure=true",
     ]
+    # mitmdump registers signal handlers; when launched from a supervise thread
+    # Python raises ValueError ("signal only works in main thread") and the
+    # proxy dies → PAC fail-open → Monitor/Block/predict all stop.
+    _orig_signal = signal.signal
+
+    def _thread_safe_signal(sig, handler):  # type: ignore[no-untyped-def]
+        try:
+            return _orig_signal(sig, handler)
+        except ValueError:
+            return None
+
     try:
         print(f"[UnifAI Guard] Launching MitM Security Interceptor on {listen_host}:{port}...")
+        signal.signal = _thread_safe_signal  # type: ignore[assignment]
         mitmdump(args)
     except SystemExit as e:
         print(f"[UnifAI Guard WARNING] Proxy engine exited ({e})")
     except Exception as e:
         print(f"[UnifAI Guard ERROR] Proxy engine stopped: {e}")
+    finally:
+        signal.signal = _orig_signal  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------
