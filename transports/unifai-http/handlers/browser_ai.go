@@ -1244,6 +1244,17 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 	securityVerdict = "not_evaluated"
 	prompt = strings.TrimSpace(prompt)
 	rules, _ := h.getRulesCached(ctx)
+
+	// BLOCK regex before REDACT so duplicate patterns take the stricter action.
+	sort.SliceStable(rules, func(i, j int) bool {
+		ai := logstore.NormalizeGuardRuleAction(rules[i].Action) == "BLOCK"
+		aj := logstore.NormalizeGuardRuleAction(rules[j].Action) == "BLOCK"
+		if ai != aj {
+			return ai
+		}
+		return false
+	})
+
 	for _, rule := range rules {
 		if !rule.Active || strings.ToLower(rule.RuleType) == "ai_bot" || rule.Pattern == "" {
 			continue
@@ -1265,7 +1276,15 @@ func (h *BrowserAIHandler) evaluateGuardOnly(ctx *fasthttp.RequestCtx, prompt st
 		}
 	}
 	botCheckedOK := false
-	readyBots, _ := collectAIBotRulesForEval(rules, uploadImages)
+	readyBots, misconfigBlock := collectAIBotRulesForEval(rules, uploadImages)
+	if len(misconfigBlock) > 0 {
+		rule := misconfigBlock[0]
+		warn := strings.TrimSpace(rule.WarningMessage)
+		if warn == "" {
+			warn = "AI Guard Bot rule is incomplete (evaluation prompt required)."
+		}
+		return false, "Blocked", rule.Name, warn, "ai guard bot misconfigured: evaluation prompt is required", "misconfigured"
+	}
 	for _, res := range h.evalAIBotRulesParallel(prompt, uploadImages, readyBots) {
 		if res.skipped {
 			continue
@@ -1575,9 +1594,15 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	extractedText := strings.TrimSpace(getMetadataString(metadata, "extracted_text"))
 	uploadImages := parseUploadImagesMetadata(metadata)
 	scanApplied := h.applyScanGuardFromMetadata(ctx, logEntry, metadata, &ruleWarning)
-	if !scanApplied && logEntry.Action != "Blocked" && (extractedText != "" || len(uploadImages) > 0 || strings.TrimSpace(prompt) != "") {
+	// Never stamp AI Guard Bot "security OK" on filename-only prefixes with no extract/images.
+	if !scanApplied && logEntry.Action != "Blocked" && (extractedText != "" || len(uploadImages) > 0) {
 		evalContent := buildGuardEvalContent(prompt, extractedText)
 		h.runAIBotOnLogEntry(ctx, logEntry, evalContent, uploadImages, &ruleWarning)
+	} else if !scanApplied && logEntry.Action == "Allowed" && extractedText == "" && len(uploadImages) == 0 {
+		logEntry.Status = "Allowed (no extractable content)"
+		logEntry.PredictedCategory = "SAFE"
+		logEntry.RuleTriggered = ""
+		_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 	}
 
 	safeName := sanitizeAttachmentFileName(fileName)

@@ -211,7 +211,7 @@ _UPLOAD_FILE_CACHE_MAX = 40
 _UPLOAD_FILE_QUEUE_MAX = 12  # multiple files per chat Send → one log row each
 # Only treat "latest upload" as this Send's file if the upload was this recent.
 # Prevents typed prompts from becoming "[FILE UPLOAD] attachment" after an old pick.
-_UPLOAD_LATEST_MATCH_TTL = 5 * 60  # 5 min — upload then Send without matching id still binds
+_UPLOAD_LATEST_MATCH_TTL = 10 * 60  # align with temp file View TTL / upload cache (was 5m)
 
 
 def _fetch_json(url: str, timeout: float | None = None) -> dict | None:
@@ -3791,7 +3791,130 @@ def enforce_file_send_policy(
                 "ts": time.time(),
             }]
 
-    if not cached_list:
+    # Cache miss but Send clearly carries file/voice — never fail-open for Block Upload.
+    if not cached_list and has_attach:
+        get_control_settings()
+        hint = (file_name_hint or "").strip() or extract_attachment_filename_from_send(raw_text or "") or "attachment"
+        tag = "[VOICE UPLOAD]" if (
+            chat_carries_attachment(raw_text) and _extract_transcript_fields_from_json(raw_text or "")
+        ) or _looks_like_audio(b"", content_type, hint) else "[FILE UPLOAD]"
+        if controls_active("block_upload"):
+            warn = (get_control_settings().get("upload_warning") or "").strip() or "File/voice uploads are blocked by admin policy."
+            msg = warn
+            dedupe_key = f"upload-send-block-all-nocache|{hint}"
+            if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                print(f"[UnifAI Proxy] FILE/VOICE SEND BLOCKED (no cache, Block Upload ON) | {client_ip} → {host}")
+                ok = post_upload_intercept(
+                    platform=platform,
+                    prompt=f"{tag} {hint} — Blocked (Block Upload)",
+                    client_ip=client_ip,
+                    domain=domain,
+                    url=url,
+                    method=method,
+                    file_name=hint,
+                    is_blocked=True,
+                    blocked_reason="Block Upload",
+                    scan_guard={"cache_miss": True},
+                )
+                if ok:
+                    mark_duplicate_event(domain, dedupe_key)
+            return True, msg, "", 0
+
+        # Voice/transcript or caption text still get regex+bot even without file bytes.
+        transcript = _extract_transcript_fields_from_json(raw_text or "")
+        caption = ""
+        try:
+            from_body = extract_prompt_universal((raw_text or "").encode("utf-8", errors="ignore"), content_type or "", host, url)
+            if from_body and looks_like_user_prompt(from_body):
+                caption = from_body.strip()
+        except Exception:
+            caption = ""
+        scan_text = "\n".join(x for x in (transcript, caption) if x).strip()
+        if scan_text:
+            rule_hit, rule_name, rule_action = match_guard_rules_on_text(scan_text)
+            rule_action = (rule_action or "").upper()
+            if rule_action == "WARN":
+                rule_action = "REDACT"
+            if platform and domain and (has_ai_bot_rules() or get_guard_rules()):
+                try:
+                    allowed, rt, action, _, _, eval_err = send_to_backend(
+                        platform, domain, scan_text[:50_000], client_ip, url, method or "POST",
+                        evaluation_only=True,
+                        extracted_text=scan_text[:50_000],
+                    )
+                    if not eval_err:
+                        rule_hit, rule_name, rule_action = _merge_file_scan_backend(
+                            rule_hit, rule_name, rule_action, allowed, rt, action or "",
+                        )
+                        rule_action = (rule_action or "").upper()
+                        if rule_action == "WARN":
+                            rule_action = "REDACT"
+                except Exception as e:
+                    print(f"[UnifAI Proxy] transcript/caption scan failed (allowed): {e}")
+            if rule_hit and rule_action == "BLOCK":
+                msg = _security_reply_text(rule_name, "") or f"Blocked by Guard Rule ({rule_name})"
+                dedupe_key = f"upload-send-block-nocache|{rule_name}|{hint}"
+                if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                    print(f"[UnifAI Proxy] FILE/VOICE SEND BLOCKED (transcript/caption) | {rule_name}")
+                    ok = post_upload_intercept(
+                        platform=platform,
+                        prompt=f"{tag} {hint} — Blocked ({rule_name})",
+                        client_ip=client_ip,
+                        domain=domain,
+                        url=url,
+                        method=method,
+                        file_name=hint,
+                        is_blocked=True,
+                        blocked_reason=rule_name,
+                        extracted_text=scan_text[:50_000],
+                        scan_guard={
+                            "cache_miss": True,
+                            "scan_rule_hit": True,
+                            "scan_rule_name": rule_name,
+                            "scan_rule_action": "BLOCK",
+                        },
+                    )
+                    if ok:
+                        mark_duplicate_event(domain, dedupe_key)
+                return True, msg, "", 1
+            if rule_hit and rule_action == "REDACT":
+                notice = _warning_for_rule_name(rule_name) or "UnifAI Guard redaction policy."
+                dedupe_key = f"upload-send-redact-nocache|{rule_name}|{hint}"
+                if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                    post_upload_intercept(
+                        platform=platform,
+                        prompt=f"{tag} {hint} — Redacted ({rule_name})",
+                        client_ip=client_ip,
+                        domain=domain,
+                        url=url,
+                        method=method,
+                        file_name=hint,
+                        extracted_text=scan_text[:50_000],
+                        scan_guard={
+                            "cache_miss": True,
+                            "scan_rule_hit": True,
+                            "scan_rule_name": rule_name,
+                            "scan_rule_action": "REDACT",
+                        },
+                    )
+                    mark_duplicate_event(domain, dedupe_key)
+                return False, "", notice, 1
+            dedupe_key = f"upload-send-allow-nocache|{hint}|{scan_text[:40]}"
+            if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                post_upload_intercept(
+                    platform=platform,
+                    prompt=f"{tag} {hint} — Allowed",
+                    client_ip=client_ip,
+                    domain=domain,
+                    url=url,
+                    method=method,
+                    file_name=hint,
+                    extracted_text=scan_text[:50_000],
+                    scan_guard={"cache_miss": True},
+                )
+                mark_duplicate_event(domain, dedupe_key)
+            return False, "", "", 1
+
         return False, "", "", 0
 
     # One log row per unique filename on a single Send (ChatGPT may match the same cache twice).
@@ -6672,6 +6795,47 @@ class BrowserAIInterceptor:
 
     def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
+        method = (flow.request.method or "").upper()
+
+        # CDN / noise hosts (cdn.*, static.*) often carry file uploads. Cache via Referer
+        # BEFORE noise early-return — otherwise extract→rules never see the bytes.
+        if method in ("POST", "PUT", "PATCH") and is_noise_host(host):
+            path_n = flow.request.path
+            raw_bytes_n = flow.request.content or b""
+            content_type_n = flow.request.headers.get("content-type", "")
+            try:
+                raw_text_n = raw_bytes_n.decode("utf-8", errors="ignore")
+            except Exception:
+                raw_text_n = ""
+            is_upload_n, upload_reason_n = detect_file_upload(flow, raw_text_n)
+            if is_upload_n:
+                fname_n = extract_filename_from_upload(flow, raw_text_n)
+                if is_confident_file_upload(
+                    fname=fname_n,
+                    content_type=content_type_n,
+                    raw_bytes=raw_bytes_n,
+                    raw_text=raw_text_n,
+                    upload_reason=upload_reason_n or "",
+                    host=host,
+                    path=path_n,
+                ):
+                    bind = _resolve_upload_bind_domain(flow, host)
+                    if bind:
+                        file_ids = _extract_file_ids_from_chat(raw_text_n)
+                        cache_upload_file(
+                            bind,
+                            file_name=fname_n or "attachment",
+                            raw_bytes=raw_bytes_n,
+                            content_type=content_type_n,
+                            upload_reason=upload_reason_n or "",
+                            file_id=file_ids[0] if file_ids else "",
+                        )
+                        print(
+                            f"[UnifAI Proxy] FILE CACHED via noise CDN bind | upload_host={host} → "
+                            f"target={bind} | {fname_n or 'attachment'} | {len(raw_bytes_n)} bytes"
+                        )
+            return
+
         if is_noise_host(host):
             return
 
