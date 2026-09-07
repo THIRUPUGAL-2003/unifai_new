@@ -212,11 +212,12 @@ _UPLOAD_FILE_CACHE: dict[str, dict] = {}
 _UPLOAD_FILE_QUEUES: dict[str, list[dict]] = {}
 _UPLOAD_FILE_CACHE_LOCK = threading.Lock()
 _UPLOAD_FILE_CACHE_TTL = 15 * 60  # 15 minutes — keep bytes for View/Download
-_UPLOAD_FILE_CACHE_MAX = 40
-_UPLOAD_FILE_QUEUE_MAX = 12  # multiple files per chat Send → one log row each
+_UPLOAD_FILE_CACHE_MAX = 80
+_UPLOAD_FILE_QUEUE_MAX = 32  # any count of files on one Send (images/docs/zips)
 # Only treat "latest upload" as this Send's file if the upload was this recent.
 # Prevents typed prompts from becoming "[FILE UPLOAD] attachment" after an old pick.
 _UPLOAD_LATEST_MATCH_TTL = 10 * 60  # align with temp file View TTL / upload cache (was 5m)
+_MULTI_FILE_VISION_MAX = 12  # images sent together to Guard Bot on one Send
 
 
 def _fetch_json(url: str, timeout: float | None = None) -> dict | None:
@@ -3581,9 +3582,13 @@ def _scan_upload_for_rules(
     client_ip: str = "",
     url: str = "",
     method: str = "",
+    skip_backend: bool = False,
+    extra_context: str = "",
 ) -> tuple[str, bool, str, str, str, list[str], bool, str]:
     """Scan file bytes on Send only — extract by type, then apply Guard Rules (+ AI bot if configured).
-    Returns (..., scan_evaluated, scan_eval_error)."""
+    Returns (..., scan_evaluated, scan_eval_error).
+    skip_backend=True: extract + local regex only (multi-file combined eval).
+    extra_context: caption/other text merged into local regex + backend evaluate."""
     scanned = ""
     rule_hit = False
     rule_name = ""
@@ -3604,10 +3609,13 @@ def _scan_upload_for_rules(
         except Exception as e:
             print(f"[UnifAI Proxy] upload vision images failed (allowed): {e}")
             upload_images = []
-        if scanned:
-            excerpt = re.sub(r"\s+", " ", scanned).strip()[:180]
+        eval_blob = "\n\n".join(
+            x for x in ((extra_context or "").strip(), (scanned or "").strip()) if x
+        ).strip()
+        if eval_blob:
+            excerpt = re.sub(r"\s+", " ", eval_blob).strip()[:180]
             try:
-                rule_hit, rule_name, rule_action = match_guard_rules_on_text(scanned)
+                rule_hit, rule_name, rule_action = match_guard_rules_on_text(eval_blob)
             except Exception as e:
                 print(f"[UnifAI Proxy] local file regex failed (allowed): {e}")
                 rule_hit, rule_name, rule_action = False, "", ""
@@ -3617,15 +3625,19 @@ def _scan_upload_for_rules(
         # Backend: regex + bot on extracted text / vision images (when any active rules exist).
         has_regex = bool(get_guard_rules())
         run_backend = bool(
-            platform and domain and (scanned or upload_images) and (has_ai_bot_rules() or has_regex)
+            (not skip_backend)
+            and platform
+            and domain
+            and (eval_blob or upload_images)
+            and (has_ai_bot_rules() or has_regex)
         )
         if run_backend:
             try:
                 allowed, rt, action, _, _, eval_err = send_to_backend(
-                    platform, domain, (scanned or "")[:50_000], client_ip, url, method or "POST",
+                    platform, domain, (eval_blob or scanned or "")[:50_000], client_ip, url, method or "POST",
                     upload_images=upload_images,
                     evaluation_only=True,
-                    extracted_text=(scanned or "")[:50_000],
+                    extracted_text=(eval_blob or scanned or "")[:50_000],
                 )
                 if eval_err:
                     scan_eval_error = str(eval_err).strip()
@@ -3862,7 +3874,7 @@ def enforce_file_send_policy(
     content_type: str = "",
     file_name_hint: str = "",
     path: str = "",
-) -> tuple[bool, str, str, int]:
+) -> tuple[bool, str, str, int, bool]:
     """
     On chat Send with a real attached file (any monitored AI domain):
       - Block Upload ON  → block on Send only (file may attach in UI first)
@@ -3871,7 +3883,10 @@ def enforce_file_send_policy(
           REDACT       → log Redacted, allow Send (+ chat notice when possible)
           no match     → Allowed
 
-    Returns (should_block, block_message, redact_notice, files_processed).
+    Multi-file + caption: ALL files (any count) + typed text are evaluated together
+    once, then each file is logged with the shared verdict.
+
+    Returns (should_block, block_message, redact_notice, files_processed, caption_consumed).
     """
     has_attach = (
         chat_carries_attachment(raw_text)
@@ -3886,7 +3901,7 @@ def enforce_file_send_policy(
         cached_list = take_recent_confident_caches_for_send(domain)
 
     if not has_attach and not cached_list:
-        return False, "", "", 0
+        return False, "", "", 0, False
 
     if not cached_list and has_attach:
         inline_bytes, inline_ct, inline_name = extract_inline_attachment_bytes(raw_text or "")
@@ -3896,6 +3911,7 @@ def enforce_file_send_policy(
                 "content_type": inline_ct or content_type,
                 "raw_bytes": inline_bytes,
                 "ts": time.time(),
+                "cache_uid": f"inline|{time.time():.6f}",
             }]
 
     # Cache miss but Send clearly carries file/voice — never fail-open for Block Upload.
@@ -3925,7 +3941,7 @@ def enforce_file_send_policy(
                 )
                 if ok:
                     mark_duplicate_event(domain, dedupe_key)
-            return True, msg, "", 0
+            return True, msg, "", 0, False
 
         # Voice/transcript or caption text still get regex+bot even without file bytes.
         transcript = _extract_transcript_fields_from_json(raw_text or "")
@@ -3958,6 +3974,7 @@ def enforce_file_send_policy(
                             rule_action = "REDACT"
                 except Exception as e:
                     print(f"[UnifAI Proxy] transcript/caption scan failed (allowed): {e}")
+            cap_done = bool(caption)
             if rule_hit and rule_action == "BLOCK":
                 msg = _security_reply_text(rule_name, "") or f"Blocked by Guard Rule ({rule_name})"
                 dedupe_key = f"upload-send-block-nocache|{rule_name}|{hint}"
@@ -3983,7 +4000,7 @@ def enforce_file_send_policy(
                     )
                     if ok:
                         mark_duplicate_event(domain, dedupe_key)
-                return True, msg, "", 1
+                return True, msg, "", 1, cap_done
             if rule_hit and rule_action == "REDACT":
                 notice = _warning_for_rule_name(rule_name) or "UnifAI Guard redaction policy."
                 dedupe_key = f"upload-send-redact-nocache|{rule_name}|{hint}"
@@ -4005,7 +4022,7 @@ def enforce_file_send_policy(
                         },
                     )
                     mark_duplicate_event(domain, dedupe_key)
-                return False, "", notice, 1
+                return False, "", notice, 1, cap_done
             dedupe_key = f"upload-send-allow-nocache|{hint}|{scan_text[:40]}"
             if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
                 post_upload_intercept(
@@ -4020,49 +4037,281 @@ def enforce_file_send_policy(
                     scan_guard={"cache_miss": True},
                 )
                 mark_duplicate_event(domain, dedupe_key)
-            return False, "", "", 1
+            return False, "", "", 1, cap_done
 
-        return False, "", "", 0
+        return False, "", "", 0, False
 
-    # One log row per unique filename on a single Send (ChatGPT may match the same cache twice).
+    # Dedup by cache_uid ONLY — many ChatGPT/Claude images share name "attachment".
     deduped: list[dict] = []
-    seen_names: set[str] = set()
+    seen_uids: set[str] = set()
     for entry in cached_list:
-        name_key = ((entry.get("file_name") or "").strip().lower() or f"__{id(entry)}")
-        if name_key in seen_names:
+        uid = str(entry.get("cache_uid") or id(entry))
+        if uid in seen_uids:
             continue
-        seen_names.add(name_key)
+        seen_uids.add(uid)
         deduped.append(entry)
-    cached_list = deduped
+    cached_list = deduped[:_UPLOAD_FILE_QUEUE_MAX]
+
+    caption = ""
+    try:
+        from_body = extract_prompt_universal(
+            (raw_text or "").encode("utf-8", errors="ignore"),
+            content_type or "",
+            host,
+            url,
+        )
+        if (
+            from_body
+            and looks_like_user_prompt(from_body)
+            and len(from_body.strip()) <= 500
+            and not _looks_like_document_body_dump(from_body)
+        ):
+            caption = from_body.strip()
+    except Exception:
+        caption = ""
 
     get_control_settings()
-    should_block = False
-    block_msg = ""
-    redact_notice = ""
+    block_all = controls_active("block_upload")
+    base_upload_msg = (get_control_settings().get("upload_warning") or "").strip() or "Upload block"
+
+    file_rows: list[dict] = []
+    all_images: list[str] = []
+    text_parts: list[str] = []
+    if caption:
+        text_parts.append(f"USER_CAPTION:\n{caption}")
+
     hint = (file_name_hint or "").strip()
-    processed = 0
     for i, cached in enumerate(cached_list):
-        per_hint = (cached.get("file_name") or "").strip() or (hint if i == 0 else "")
-        sb, msg, rn = _process_one_cached_file_on_send(
-            cached=cached,
+        fname = (cached.get("file_name") or "").strip() or (hint if i == 0 else "") or "attachment"
+        if fname.lower() in _FAKE_UPLOAD_NAMES:
+            fname = "attachment" if len(cached_list) == 1 else f"attachment-{i + 1}"
+        cached_bytes = cached.get("raw_bytes") or b""
+        if not isinstance(cached_bytes, (bytes, bytearray)):
+            cached_bytes = b""
+        cached_ct = (cached.get("content_type") or content_type or "").strip()
+        scanned, local_hit, local_name, local_action, excerpt, upload_images, _, _ = _scan_upload_for_rules(
+            bytes(cached_bytes),
+            cached_ct,
+            raw_text or "",
+            fname,
+            cached,
             platform=platform,
             domain=domain,
-            host=host,
             client_ip=client_ip,
             url=url,
             method=method,
-            raw_text=raw_text,
-            content_type=content_type,
-            file_name_hint=per_hint,
-            has_attach=has_attach,
+            skip_backend=True,
+            extra_context=caption,
         )
-        processed += 1
-        if sb:
-            should_block = True
-            block_msg = msg or block_msg
-        if rn:
-            redact_notice = rn
-    return should_block, block_msg, redact_notice, processed
+        for img in upload_images or []:
+            if len(all_images) >= _MULTI_FILE_VISION_MAX:
+                break
+            if img and img not in all_images:
+                all_images.append(img)
+        if scanned:
+            text_parts.append(f"[FILE:{fname}]\n{scanned}")
+        file_rows.append({
+            "file_label": fname,
+            "cached_bytes": bytes(cached_bytes),
+            "cached_ct": cached_ct,
+            "scanned": scanned or "",
+            "excerpt": excerpt or "",
+            "upload_images": upload_images or [],
+            "local_hit": bool(local_hit),
+            "local_name": local_name or "",
+            "local_action": (local_action or "").upper(),
+            "cache_uid": str(cached.get("cache_uid") or id(cached)),
+        })
+
+    combined_text = "\n\n".join(text_parts).strip()
+    rule_hit = False
+    rule_name = ""
+    rule_action = ""
+    for row in file_rows:
+        if row["local_hit"]:
+            rule_hit = True
+            rule_name = row["local_name"] or rule_name
+            act = row["local_action"]
+            if act == "WARN":
+                act = "REDACT"
+            if act == "BLOCK" or rule_action != "BLOCK":
+                rule_action = act or rule_action
+    if combined_text:
+        try:
+            h, n, a = match_guard_rules_on_text(combined_text)
+            a = (a or "").upper()
+            if a == "WARN":
+                a = "REDACT"
+            if h:
+                rule_hit = True
+                if a == "BLOCK" or not rule_action:
+                    rule_name, rule_action = n or rule_name, a or rule_action
+                elif not rule_name:
+                    rule_name, rule_action = n, a
+        except Exception as e:
+            print(f"[UnifAI Proxy] combined multi-file regex failed (allowed): {e}")
+
+    scan_evaluated = False
+    scan_eval_error = ""
+    has_regex = bool(get_guard_rules())
+    if platform and domain and (combined_text or all_images) and (has_ai_bot_rules() or has_regex):
+        try:
+            eval_prompt = combined_text or (caption if caption else f"[FILE UPLOAD] {len(file_rows)} file(s)")
+            allowed, rt, action, _, _, eval_err = send_to_backend(
+                platform,
+                domain,
+                eval_prompt[:50_000],
+                client_ip,
+                url,
+                method or "POST",
+                upload_images=all_images[:_MULTI_FILE_VISION_MAX],
+                evaluation_only=True,
+                extracted_text=(combined_text or "")[:50_000],
+            )
+            if eval_err:
+                scan_eval_error = str(eval_err).strip()
+                scan_evaluated = False
+                print(f"[UnifAI Proxy] multi-file combined eval_error: {scan_eval_error}")
+            else:
+                scan_evaluated = True
+                rule_hit, rule_name, rule_action = _merge_file_scan_backend(
+                    rule_hit, rule_name, rule_action, allowed, rt, action or "",
+                )
+                rule_action = (rule_action or "").upper()
+                if rule_action == "WARN":
+                    rule_action = "REDACT"
+        except Exception as e:
+            scan_eval_error = str(e).strip()[:300] or "multi-file backend scan failed"
+            print(f"[UnifAI Proxy] multi-file combined eval failed (allowed): {e}")
+
+    labels = [r["file_label"] for r in file_rows]
+    if len(labels) <= 4:
+        labels_str = ", ".join(labels)
+    else:
+        labels_str = ", ".join(labels[:4]) + f" (+{len(labels) - 4} more)"
+    caption_bit = f" | {caption}" if caption else ""
+    n_files = len(file_rows)
+    count_bit = f"{n_files} files: " if n_files > 1 else ""
+    has_scan_content = bool(combined_text.strip() or all_images)
+    block_for_rule = bool(rule_hit and rule_action == "BLOCK" and (has_scan_content or block_all))
+    redact_for_rule = bool(rule_hit and rule_action == "REDACT" and not block_all and has_scan_content)
+    scan_guard = _file_scan_guard_metadata(
+        combined_text,
+        all_images,
+        rule_hit,
+        rule_name,
+        rule_action,
+        scan_evaluated=scan_evaluated,
+        scan_eval_error=scan_eval_error,
+    )
+    scan_guard["multi_file_count"] = n_files
+    if caption:
+        scan_guard["user_caption"] = caption[:500]
+
+    should_block = False
+    block_msg = ""
+    redact_notice = ""
+
+    if block_all or block_for_rule:
+        should_block = True
+        blocked_reason = "Block Upload" if block_all else (rule_name or "Guard Rule (file content)")
+        if block_all:
+            status = "Blocked (Block Upload)"
+            block_msg = base_upload_msg
+        else:
+            rule_warn = _warning_for_rule_name(rule_name)
+            left = (rule_warn or base_upload_msg).strip() or "Upload block"
+            status = f"Blocked ({rule_name or 'policy'})"
+            block_msg = f"{left} -- {rule_name}" if rule_name else left
+        for idx, row in enumerate(file_rows):
+            tag = _upload_log_tag(row["file_label"], row["cached_ct"], row["cached_bytes"])
+            prompt_log = f"{tag} {count_bit}{labels_str}{caption_bit} — {status}"
+            if n_files > 1:
+                prompt_log = f"{tag} {row['file_label']} ({idx + 1}/{n_files}){caption_bit} — {status}"
+            dedupe_key = f"upload-send-block|{blocked_reason}|{row['cache_uid']}"
+            if is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                continue
+            print(f"[UnifAI Proxy] FILE SEND BLOCKED | {client_ip} → {host} | {row['file_label']} | multi={n_files}")
+            ok = post_upload_intercept(
+                platform=platform,
+                prompt=prompt_log,
+                client_ip=client_ip,
+                domain=domain,
+                url=url,
+                method=method,
+                file_name=row["file_label"],
+                is_blocked=True,
+                blocked_reason=blocked_reason,
+                raw_bytes=row["cached_bytes"],
+                content_type=row["cached_ct"],
+                extracted_text=combined_text or row["scanned"],
+                upload_images=all_images if idx == 0 else row["upload_images"],
+                scan_guard=scan_guard,
+            )
+            if ok:
+                mark_duplicate_event(domain, dedupe_key)
+        return True, block_msg, "", n_files, bool(caption)
+
+    if redact_for_rule:
+        redact_notice = _redact_notice_for_rule(rule_name)
+        status = f"Redacted ({rule_name or 'policy'})"
+        for idx, row in enumerate(file_rows):
+            tag = _upload_log_tag(row["file_label"], row["cached_ct"], row["cached_bytes"])
+            prompt_log = f"{tag} {row['file_label']} ({idx + 1}/{n_files}){caption_bit} — {status}" if n_files > 1 else f"{tag} {row['file_label']}{caption_bit} — {status}"
+            dedupe_key = f"upload-send-redact|{rule_name}|{row['cache_uid']}"
+            if is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+                continue
+            print(f"[UnifAI Proxy] FILE SEND REDACTED | {client_ip} → {host} | {row['file_label']} | multi={n_files}")
+            ok = post_upload_intercept(
+                platform=platform,
+                prompt=prompt_log,
+                client_ip=client_ip,
+                domain=domain,
+                url=url,
+                method=method,
+                file_name=row["file_label"],
+                is_blocked=False,
+                raw_bytes=row["cached_bytes"],
+                content_type=row["cached_ct"],
+                extracted_text=combined_text or row["scanned"],
+                upload_images=all_images if idx == 0 else row["upload_images"],
+                scan_guard=scan_guard,
+            )
+            if ok:
+                mark_duplicate_event(domain, dedupe_key)
+        return False, "", redact_notice, n_files, bool(caption)
+
+    status = "Allowed"
+    for idx, row in enumerate(file_rows):
+        tag = _upload_log_tag(row["file_label"], row["cached_ct"], row["cached_bytes"])
+        if n_files > 1:
+            prompt_log = f"{tag} {row['file_label']} ({idx + 1}/{n_files}){caption_bit} — {status}"
+        else:
+            prompt_log = f"{tag} {row['file_label']}{caption_bit} — {status}"
+        dedupe_key = f"upload-send-allowed|{row['cache_uid']}"
+        if is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+            continue
+        print(f"[UnifAI Proxy] FILE SEND ALLOWED | {client_ip} → {host} | {prompt_log}")
+        ok = post_upload_intercept(
+            platform=platform,
+            prompt=prompt_log,
+            client_ip=client_ip,
+            domain=domain,
+            url=url,
+            method=method,
+            file_name=row["file_label"],
+            is_blocked=False,
+            raw_bytes=row["cached_bytes"],
+            content_type=row["cached_ct"],
+            extracted_text=combined_text or row["scanned"],
+            upload_images=all_images if idx == 0 else row["upload_images"],
+            scan_guard=scan_guard,
+        )
+        if ok:
+            mark_duplicate_event(domain, dedupe_key)
+        else:
+            print(f"[UnifAI Proxy WARNING] Allowed file log failed to post | {row['file_label']}")
+    return False, "", "", n_files, bool(caption)
 
 
 def _upload_log_tag(file_name: str = "", content_type: str = "", raw_bytes: bytes = b"") -> str:
@@ -7046,9 +7295,9 @@ class BrowserAIInterceptor:
         raw_text: str,
         content_type: str,
         path: str,
-    ) -> tuple[bool, int]:
-        """Scan attached/cached files on Send. Returns (blocked, files_processed)."""
-        should_block_file, file_block_msg, redact_notice, n_processed = enforce_file_send_policy(
+    ) -> tuple[bool, int, bool]:
+        """Scan attached/cached files on Send. Returns (blocked, files_processed, caption_consumed)."""
+        should_block_file, file_block_msg, redact_notice, n_processed, caption_consumed = enforce_file_send_policy(
             platform=platform,
             domain=domain,
             host=flow.request.pretty_host,
@@ -7068,7 +7317,7 @@ class BrowserAIInterceptor:
             make_blocked_response(
                 flow, "Block Upload", flow.request.pretty_host, reply_text=file_block_msg,
             )
-            return True, n_processed
+            return True, n_processed, caption_consumed
         if redact_notice:
             caption = extract_prompt_universal(
                 flow.request.content or b"", content_type, host=flow.request.pretty_host, url=flow.request.url,
@@ -7083,7 +7332,7 @@ class BrowserAIInterceptor:
                     print(f"[UnifAI Proxy Warning] FILE REDACT inject miss | {domain}")
             except Exception as e:
                 print(f"[UnifAI Proxy Warning] FILE REDACT inject failed: {e}")
-        return False, n_processed
+        return False, n_processed, caption_consumed
 
     def _log_attachment_send_caption(
         self,
@@ -7307,15 +7556,16 @@ class BrowserAIInterceptor:
         # ── File Send: scan cached bytes; then still apply caption Guard Rules ──
         # Any admin Target Website — attachment markers OR pending upload cache.
         if _file_policy_applies_on_send(path, raw_text, raw_bytes, domain=domain, host=host):
-            blocked, n_processed = self._file_send_maybe_block(
+            blocked, n_processed, caption_consumed = self._file_send_maybe_block(
                 flow, domain, platform, client_ip, raw_text, content_type, path,
             )
             if blocked:
                 return
             if n_processed > 0:
-                # File logged/scanned — still enforce regex/AI rules on a short user caption.
+                # Caption already evaluated with all files — avoid duplicate predict row.
                 if (
-                    has_prompt
+                    not caption_consumed
+                    and has_prompt
                     and peek_prompt
                     and len((peek_prompt or "").strip()) <= 320
                     and not _looks_like_document_body_dump(peek_prompt)
@@ -7360,14 +7610,14 @@ class BrowserAIInterceptor:
 
         # File attached + Send (fallback path when extract missed on first pass)
         if _file_policy_applies_on_send(path, raw_text, raw_bytes, domain=domain, host=host):
-            blocked, n_processed = self._file_send_maybe_block(
+            blocked, n_processed, caption_consumed = self._file_send_maybe_block(
                 flow, domain, platform, client_ip, raw_text, content_type, path,
             )
             if blocked:
                 return
-            if n_processed > 0:
-                # Caption rules still apply when extract finds short user text below.
-                pass
+            if n_processed > 0 and caption_consumed:
+                # Combined multi-file+caption already predicted — skip duplicate text path.
+                return
             # If no cache processed, continue so prompt evaluate can still block.
 
         prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=flow.request.url)
@@ -7589,7 +7839,7 @@ class BrowserAIInterceptor:
         if _file_policy_applies_on_send(
             ws_path, content, content.encode("utf-8", errors="ignore"), domain=domain, host=host,
         ):
-            should_block_file, file_block_msg, n_processed = enforce_file_send_policy(
+            should_block_file, file_block_msg, _redact_notice, n_processed, caption_consumed = enforce_file_send_policy(
                 platform=platform,
                 domain=domain,
                 host=host,
@@ -7610,7 +7860,9 @@ class BrowserAIInterceptor:
                         pass
                 inject_websocket_reply(flow, host, file_block_msg)
                 return
-            # Cache miss: fall through to prompt evaluate. Cache hit: allow caption below.
+            if n_processed > 0 and caption_consumed:
+                return
+            # Cache miss: fall through to prompt evaluate. Cache hit without caption: allow below.
 
         # Copilot/Edge image or file frames must not fall through as garbled text prompts.
         if (

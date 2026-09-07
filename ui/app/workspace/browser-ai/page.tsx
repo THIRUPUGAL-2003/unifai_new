@@ -189,11 +189,6 @@ function GuardBotOutsourceModelPicker({
 				searchPlaceholder="Search catalog models..."
 				data-testid="browser-ai-guard-bot-outsource-model"
 			/>
-			{String(value || "").toLowerCase().includes(":free") || /code/i.test(String(value || "")) || /reasoner|reasoning|deepseek-r1|thinking/i.test(String(value || "")) ? (
-				<p className="text-[11px] text-amber-400">
-					This model may reject Guard chat evaluate (e.g. 422) or return empty text. Prefer a chat model that matches your API key (e.g. deepseek-chat), or use Download → llama3.2.
-				</p>
-			) : null}
 		</>
 	);
 }
@@ -400,14 +395,14 @@ function logHasStoredAttachment(log: BrowserAILogEntry | null | undefined) {
 
 function logAttachmentLabel(log: BrowserAILogEntry) {
 	const name = (log.attachment_name || "").trim();
-	if (name && name.toLowerCase() !== "attachment") return name;
 	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
-	// [FILE UPLOAD] name.pdf — message   OR   name.pdf - message
+	// [FILE UPLOAD] name (1/2) | caption — Allowed
 	const m = full.match(/^\[(?:FILE|VOICE) UPLOAD\]\s+(.+?)(?:\s+[—–-]\s+|\s+--\s+|$)/i);
 	if (m?.[1]) {
 		const label = m[1].trim();
-		if (label && label.toLowerCase() !== "attachment") return label;
+		if (label) return label;
 	}
+	if (name && name.toLowerCase() !== "attachment") return name;
 	return name || "attachment";
 }
 
