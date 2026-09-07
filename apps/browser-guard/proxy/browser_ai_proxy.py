@@ -856,7 +856,7 @@ def decide_prompt_locally(prompt: str) -> tuple[bool, str, str, str, str]:
         action = (r.get("action") or "BLOCK").upper()
         if action == "WARN":
             action = "REDACT"
-        # BLOCK before REDACT — no product/phone heuristics.
+        # BLOCK before REDACT — admin rules only.
         return (0 if action == "BLOCK" else 1,)
 
     rules.sort(key=_prio)
@@ -898,7 +898,6 @@ def is_noise_host(host: str) -> bool:
         return True
     # Explicit noise hosts
     if h.startswith(NOISE_HOST_PREFIXES):
-        # Allow a.claude.ai? Actually a.claude.ai was challenge - keep blocked
         return True
     if "cdn-cgi" in h or h.startswith("count."):
         return True
@@ -1064,16 +1063,35 @@ def _is_google_wire_blob(text: str) -> bool:
     return False
 
 
+def _is_typed_numeric_prompt(text: str) -> bool:
+    """User-typed digits / numeric IDs — keep as prompts (do not classify as opaque wire)."""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if t.isdigit():
+        return True
+    # Formatted numbers: +91 98765-43210, (555) 123-4567
+    if re.fullmatch(r"\+?[\d\s\-().]{3,24}", t):
+        digits = sum(1 for c in t if c.isdigit())
+        return digits >= 3 and digits >= (len(re.sub(r"\s", "", t)) // 2)
+    return False
+
+
 def _is_opaque_wire_blob(text: str) -> bool:
     """Encoded wire/session tokens (Copilot/Bing base64url, Gemini blobs) — not typed chat."""
+    t = (text or "").strip()
+    if _is_typed_numeric_prompt(t):
+        return False
     if _is_google_wire_blob(text):
         return True
-    t = (text or "").strip()
     if not t or len(t) < 8:
         return False
     # Single-token opaque blobs (no whitespace)
     if " " not in t and "\n" not in t and len(t) >= 20:
         if re.fullmatch(r"[A-Za-z0-9_\-+/=]+", t):
+            # Mostly-digit IDs are user prompts, not session tokens.
+            if t.isdigit() or sum(1 for c in t if c.isdigit()) >= int(len(t) * 0.85):
+                return False
             if "/" in t or "+" in t or t.endswith("="):
                 return True
             if len(t) >= 32 and not re.search(r"[aeiouAEIOU]{2}", t):
@@ -1547,7 +1565,7 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
 
     # Filter tokens and RPC IDs when text has no spaces.
-    # Digit-only text is a valid user prompt (phone, IDs, math). Do not drop it.
+    # Digit-only text is a valid user prompt (IDs, math, OTPs). Do not drop it.
     if " " not in t:
         # Gemini session / client tokens: _05Zravx, _a1B2c3d4
         if re.fullmatch(r"_[0-9A-Za-z]{4,24}", t):
@@ -1626,6 +1644,8 @@ def _is_internal_wire_text(text: str) -> bool:
     t = (text or "").strip()
     if not t:
         return True
+    if _is_typed_numeric_prompt(t):
+        return False
     low = t.lower()
     if low in {
         "turn exchange complete", "fetch socket url", "ping", "pong",
@@ -1639,14 +1659,17 @@ def _is_internal_wire_text(text: str) -> bool:
     if " " not in t and re.fullmatch(r"[a-z]+(?:_[a-z0-9]+){2,}", low):
         return True
     # Short wire fragments: B-mvY..., J12'54M, U}2T), 7cZ.
+    # Keep mostly-digit tokens (formatted IDs) — not opaque wire.
     if len(t) <= 14 and " " not in t:
         special = sum(1 for c in t if not c.isalnum() and c not in "._-'")
+        digits = sum(1 for c in t if c.isdigit())
+        if digits >= 3 and special <= 2 and all(c.isdigit() or c in "+#*-(). " for c in t):
+            return False
         if special >= 1 and len(t) <= 10:
             return True
         if special >= 2:
             return True
         letters = sum(1 for c in t if c.isalpha())
-        digits = sum(1 for c in t if c.isdigit())
         if letters and digits and special and len(t) <= 12:
             return True
     return False
@@ -1876,7 +1899,7 @@ def _should_intercept_extracted_prompt(
         ):
             return False
         # Require a bit more substance for non-confident shapes to avoid telemetry false hits.
-        if len(text) < 2 and not text.isdigit():
+        if len(text) < 2 and not text.isdigit() and not _is_typed_numeric_prompt(text):
             return False
         # Pure JSON wire blobs that aren't platform chat shapes → skip predict
         body = (raw_text or "").lstrip()
@@ -1884,9 +1907,10 @@ def _should_intercept_extracted_prompt(
             if not _path_has_chat_marker(path) and not is_chat_path(path, host, raw_text):
                 return False
 
-    # Skip rapid prefix growth while typing on ANY chat path (not only /prepare).
-    # Final Enter/Send usually has a short pause → still predicts.
-    if is_composer_typing_draft(domain, text):
+    # Typing debounce only for non-Send peeks. Finished Enter/Send must always predict.
+    if confident:
+        _composer_draft.pop(domain, None)
+    elif is_composer_typing_draft(domain, text):
         return False
     if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
         return False
@@ -6083,7 +6107,11 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
             return pplx_prompt
 
         if _looks_like_chatgpt_body(text, body_bytes):
-            return extract_chatgpt_prompt(text, body_bytes)
+            chatgpt_got = extract_chatgpt_prompt(text, body_bytes)
+            if chatgpt_got:
+                return chatgpt_got
+            # Fall through — some ChatGPT wires look like conversation JSON but need
+            # generic message/content walk (otherwise Claude works and ChatGPT misses).
 
         # URL-encoded form bodies (Copilot / misc — not Gemini)
         if "application/x-www-form-urlencoded" in ct or (
@@ -7234,8 +7262,10 @@ class BrowserAIInterceptor:
         # ChatGPT/Perplexity: skip only in-progress draft bodies, not finished submits.
         if is_unsubmitted_chat_body(path, raw_text):
             return
-        # Keystroke growth spam (same as early path) — pause before Send still predicts.
-        if is_composer_typing_draft(domain, prompt):
+        # Keystroke growth spam — finished Send must still predict.
+        if _is_confident_chat_send(path, raw_text, raw_bytes):
+            _composer_draft.pop(domain, None)
+        elif is_composer_typing_draft(domain, prompt):
             return
 
         # Collapse browser double-fire — MUST still enforce the same guard decision
@@ -7473,7 +7503,9 @@ class BrowserAIInterceptor:
 
         if is_unsubmitted_chat_body(flow.request.path, content):
             return
-        if is_composer_typing_draft(domain, prompt):
+        if _is_confident_chat_send(flow.request.path, content, content.encode("utf-8", errors="ignore")):
+            _composer_draft.pop(domain, None)
+        elif is_composer_typing_draft(domain, prompt):
             return
 
         if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
