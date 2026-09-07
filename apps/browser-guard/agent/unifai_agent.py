@@ -330,8 +330,11 @@ def run_health_check(proxy_port: int | None = None) -> dict:
     checks: dict[str, bool] = {}
     details: list[str] = []
 
-    targets = _http_get_text(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets", "application/json", timeout=6)
+    targets = _http_get_text(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets?for=agent", "application/json", timeout=45)
     checks["backend_targets"] = bool(targets and "targets" in targets)
+    if not checks["backend_targets"]:
+        targets = _http_get_text(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets", "application/json", timeout=45)
+        checks["backend_targets"] = bool(targets and "targets" in targets)
     if not checks["backend_targets"]:
         details.append("backend targets unreachable")
 
@@ -1032,7 +1035,17 @@ def _http_get_text(url: str, accept: str, timeout: int = 10) -> str | None:
 
 def check_backend() -> bool:
     """Return True only when Browser AI API is reachable (not just /health)."""
-    targets = _http_get_text(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets", "application/json", timeout=8)
+    targets = _http_get_text(
+        f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets?for=agent",
+        "application/json",
+        timeout=45,
+    )
+    if not (targets and ("targets" in targets or targets.strip().startswith("{"))):
+        targets = _http_get_text(
+            f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets",
+            "application/json",
+            timeout=45,
+        )
     if targets and ("targets" in targets or targets.strip().startswith("{")):
         print(f"[UnifAI Guard] Backend Browser AI API OK: {UNIFAI_BACKEND_URL}")
         return True
@@ -1045,7 +1058,17 @@ def check_backend() -> bool:
 
 
 def build_pac_from_targets(proxy_addr: str) -> str | None:
-    body = _http_get_text(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets", "application/json")
+    body = _http_get_text(
+        f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets?for=agent",
+        "application/json",
+        timeout=45,
+    )
+    if not body:
+        body = _http_get_text(
+            f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets",
+            "application/json",
+            timeout=45,
+        )
     if not body:
         return None
     try:

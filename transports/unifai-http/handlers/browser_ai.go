@@ -141,6 +141,30 @@ func (h *BrowserAIHandler) getRules(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
 	}
+	forAgent := strings.EqualFold(string(ctx.QueryArgs().Peek("for")), "agent")
+	if forAgent {
+		out := make([]map[string]any, 0, len(rules))
+		for _, r := range rules {
+			if !r.Active {
+				continue
+			}
+			out = append(out, map[string]any{
+				"id":              r.ID,
+				"name":            r.Name,
+				"rule_type":       r.RuleType,
+				"pattern":         r.Pattern,
+				"action":          r.Action,
+				"severity":        r.Severity,
+				"warning_message": r.WarningMessage,
+				"bot_provider":    r.BotProvider,
+				"bot_model":       r.BotModel,
+				"bot_prompt":      r.BotPrompt,
+				"active":          true,
+			})
+		}
+		SendJSON(ctx, map[string]any{"rules": out})
+		return
+	}
 	SendJSON(ctx, map[string]any{"rules": rules})
 }
 
@@ -311,6 +335,23 @@ func (h *BrowserAIHandler) getTargets(ctx *fasthttp.RequestCtx) {
 	targets, err := h.manager.GetTargets(ctx)
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+	forAgent := strings.EqualFold(string(ctx.QueryArgs().Peek("for")), "agent")
+	if forAgent {
+		out := make([]map[string]any, 0, len(targets))
+		for _, t := range targets {
+			out = append(out, map[string]any{
+				"id":            t.ID,
+				"domain":        t.Domain,
+				"platform_name": t.PlatformName,
+				"monitored":     t.Monitored,
+				"block_site":    t.BlockSite,
+				"parent_id":     t.ParentID,
+				"host_role":     t.HostRole,
+			})
+		}
+		SendJSON(ctx, map[string]any{"targets": out})
 		return
 	}
 	SendJSON(ctx, map[string]any{"targets": targets})

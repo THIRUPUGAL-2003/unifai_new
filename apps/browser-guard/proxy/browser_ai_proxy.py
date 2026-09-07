@@ -35,8 +35,11 @@ UNIFAI_BACKEND_URL = os.getenv("UNIFAI_BACKEND_URL", "https://unifaiv2.dev-yp.co
 UNIFAI_AGENT_ID = os.getenv("UNIFAI_AGENT_ID", "")
 UNIFAI_AGENT_HOSTNAME = os.getenv("UNIFAI_AGENT_HOSTNAME", "")
 
-# Cache refresh interval in seconds (targets / rules / controls)
-CACHE_TTL = 1
+# Cache refresh interval in seconds (targets / rules / controls).
+# Keep >= fetch time: large target lists (~1.5k domains) can take several seconds.
+CACHE_TTL = 30
+# Backend GET timeout — must exceed slow /targets and /rules responses (often 5–10s).
+_BACKEND_FETCH_TIMEOUT = 45
 
 # Default fallback domains if backend is temporarily unreachable
 # Default fallback is EMPTY — only admin-added Target Websites are monitored.
@@ -124,7 +127,6 @@ CHAT_PATH_MARKERS = [
     "/generate_response", "/generate-response", "/user_message",
     "/rpc/chat", "/gateway/chat", "/assistant", "/bots/", "/bot/",
     "/inference", "/predict", "/respond", "/reply",
-]
     # Gemini generate APIs (StreamGenerate is the real chat submit; batchexecute is mostly RPC noise)
     "/streamgenerate", "/streamgeneratecontent", "/generatecontent", "/_$stream",
     "bardfrontendservice", "/bardchatui", "/_/bard",
@@ -206,18 +208,18 @@ _UPLOAD_FILE_QUEUE_MAX = 12  # multiple files per chat Send → one log row each
 _UPLOAD_LATEST_MATCH_TTL = 5 * 60  # 5 min — upload then Send without matching id still binds
 
 
-def _fetch_json(url: str) -> dict | None:
+def _fetch_json(url: str, timeout: float | None = None) -> dict | None:
     """Generic GET JSON fetch from backend."""
     try:
         req = urllib.request.Request(url, headers={"Accept": "application/json"}, method="GET")
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with urllib.request.urlopen(req, timeout=timeout or _BACKEND_FETCH_TIMEOUT) as resp:
             if resp.status == 200:
                 raw = resp.read().decode("utf-8")
                 if raw.lstrip().lower().startswith("<!doctype") or raw.lstrip().lower().startswith("<html"):
                     return None
                 return json.loads(raw)
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[UnifAI Proxy] backend GET failed | {url.split('?', 1)[0]} | {e}")
     return None
 
 
@@ -314,7 +316,12 @@ def get_target_domains() -> dict:
     if now - _domains_fetched_at < CACHE_TTL:
         return _cached_domains
 
-    data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets")
+    # Always stamp fetch time (success or fail) so a slow/failed GET cannot
+    # stampede on every request and leave domains empty forever (timeout < payload time).
+    _domains_fetched_at = now
+    data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets?for=agent")
+    if data is None:
+        data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets")
     if data is not None:
         targets = data.get("targets", [])
         new_map = {}
@@ -337,11 +344,12 @@ def get_target_domains() -> dict:
         _cached_blocked = new_blocked
         _cached_roles = new_roles
         _cached_families = _build_target_families(targets)
-        _domains_fetched_at = now
         print(
             f"[UnifAI Proxy] Refreshed {len(new_map)} target domains "
             f"({len(new_blocked)} full-site locks, {len(_cached_families)} upload families) from backend."
         )
+    elif not _cached_domains:
+        print("[UnifAI Proxy] WARNING: target domains empty — monitoring idle until backend targets fetch succeeds.")
 
     return _cached_domains
 
@@ -402,7 +410,10 @@ def get_guard_rules() -> list:
     if now - _rules_fetched_at < CACHE_TTL:
         return _cached_rules
 
-    data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/rules")
+    _rules_fetched_at = now
+    data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/rules?for=agent")
+    if data is None:
+        data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/rules")
     if data is not None:
         rules = data.get("rules", [])
         compiled = []
@@ -443,11 +454,12 @@ def get_guard_rules() -> list:
         _cached_rules = compiled
         _cached_rule_catalog = catalog
         _cached_has_ai_bot = has_ai_bot
-        _rules_fetched_at = now
         print(f"[UnifAI Proxy] Refreshed {len(compiled)} regex rules, {len(catalog)} active rules from backend.")
         return _cached_rules
 
     # Backend unreachable: keep last cache (may be empty). Do not invent rules.
+    if not _cached_rules:
+        print("[UnifAI Proxy] WARNING: guard rules empty — regex DLP idle until backend rules fetch succeeds.")
     return _cached_rules
 
 
@@ -517,6 +529,7 @@ def get_control_settings() -> dict:
     if now - _controls_fetched_at < CACHE_TTL and _cached_controls:
         return _cached_controls
 
+    _controls_fetched_at = now
     data = _fetch_json(f"{UNIFAI_BACKEND_URL}/api/browser-ai/controls")
     if data and isinstance(data.get("controls"), dict):
         c = data["controls"]
@@ -525,7 +538,6 @@ def get_control_settings() -> dict:
             "block_upload": bool(c.get("block_upload", False)),
             "upload_warning": (c.get("upload_warning") or "").strip(),
         }
-        _controls_fetched_at = now
         _controls_from_backend = True
         print(
             "[UnifAI Proxy] Controls refreshed | "
