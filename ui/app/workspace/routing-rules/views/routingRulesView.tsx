@@ -5,6 +5,7 @@
 
 import { Button } from "@/components/ui/button";
 import { useDebouncedValue } from "@/hooks/useDebounce";
+import { getErrorMessage } from "@/lib/store";
 import { useGetRoutingRulesQuery } from "@/lib/store/apis/routingRulesApi";
 import { RoutingRule } from "@/lib/types/routingRules";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
@@ -41,7 +42,7 @@ export function RoutingRulesView() {
 	const canUpdate = useRbac(RbacResource.RoutingRules, RbacOperation.Update);
 
 	// API
-	const { data: rulesData, isLoading } = useGetRoutingRulesQuery(
+	const { data: rulesData, isLoading, isError, error, isFetching, refetch } = useGetRoutingRulesQuery(
 		{
 			limit: PAGE_SIZE,
 			offset,
@@ -54,12 +55,13 @@ export function RoutingRulesView() {
 
 	const rules = rulesData?.rules || [];
 	const totalCount = rulesData?.total_count || 0;
+	const loading = isLoading || (!rulesData && isFetching);
 
 	// Snap offset back when total shrinks past current page (e.g. delete last item on last page)
 	useEffect(() => {
 		if (!rulesData || offset < totalCount) return;
 		setOffset(totalCount === 0 ? 0 : Math.floor((totalCount - 1) / PAGE_SIZE) * PAGE_SIZE);
-	}, [totalCount, offset]);
+	}, [totalCount, offset, rulesData]);
 
 	const handleCreateNew = () => {
 		setEditingRule(null);
@@ -102,8 +104,20 @@ export function RoutingRulesView() {
 
 	const hasActiveFilters = debouncedSearch;
 
+	if (isError && !loading) {
+		return (
+			<div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+				<p className="text-destructive text-sm font-medium">Failed to load routing rules</p>
+				{error ? <p className="text-muted-foreground max-w-md text-xs">{getErrorMessage(error)}</p> : null}
+				<Button type="button" variant="outline" size="sm" onClick={() => refetch()} data-testid="routing-rules-retry-btn">
+					Retry
+				</Button>
+			</div>
+		);
+	}
+
 	// True empty state: no rules at all (not just filtered to zero)
-	if (!isLoading && totalCount === 0 && !hasActiveFilters) {
+	if (!loading && totalCount === 0 && !hasActiveFilters) {
 		return (
 			<>
 				<RoutingRulesEmptyState onAddClick={handleCreateNew} canCreate={canCreate} />
@@ -118,7 +132,10 @@ export function RoutingRulesView() {
 			<div className="mb-4 flex items-center justify-between">
 				<div>
 					<h1 className="text-foreground text-lg font-semibold">Routing Rules</h1>
-					<p className="text-muted-foreground text-sm">Manage CEL-based routing rules for intelligent request routing across providers</p>
+					<p className="text-muted-foreground text-sm">
+						CEL rules pick providers/models. Use Complexity Router for{" "}
+						<code className="bg-muted rounded px-1 text-xs">complexity_tier</code>; use Circuit Breaker for header-signal failover.
+					</p>
 				</div>
 				<div className="flex items-center gap-2">
 					<Button variant="outline" size="sm" asChild className="gap-2">
@@ -128,7 +145,7 @@ export function RoutingRulesView() {
 						</Link>
 					</Button>
 					{canCreate && (
-						<Button data-testid="create-routing-rule-btn" onClick={handleCreateNew} disabled={isLoading} className="gap-2">
+						<Button data-testid="create-routing-rule-btn" onClick={handleCreateNew} disabled={loading} className="gap-2">
 							<Plus className="h-4 w-4" />
 							<span className="hidden sm:inline">New Rule</span>
 						</Button>
@@ -139,7 +156,7 @@ export function RoutingRulesView() {
 			<RoutingRulesTable
 				rules={rules}
 				totalCount={totalCount}
-				isLoading={isLoading}
+				isLoading={loading}
 				onEdit={handleEdit}
 				onRowClick={handleRowClick}
 				canDelete={canDelete}

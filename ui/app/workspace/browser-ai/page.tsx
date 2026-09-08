@@ -3714,7 +3714,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<div>
 									<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
 									<CardDescription>
-										Chrome, Edge, Brave, Opera, Vivaldi, and Firefox — same Guard behavior. Fully quit & reopen after install. Safari is macOS-only.
+										Chrome, Edge, Brave, Opera, Vivaldi, and Firefox — same Guard behavior. Fully quit & reopen after install.
 									</CardDescription>
 								</div>
 								<div className="flex items-center gap-2">
@@ -4029,7 +4029,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									<div>
 										<CardTitle className="text-lg">Employee Setup Package</CardTitle>
 										<CardDescription>
-											One ZIP for Windows and macOS Guard (same product, OS-specific installer).
+											Windows Guard setup ZIP for employee laptops.
 										</CardDescription>
 									</div>
 								</div>
@@ -4041,9 +4041,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 						</CardHeader>
 						<CardContent className="pt-0">
 							<p className="text-sm text-muted-foreground">
-								ZIP may include <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> (Windows)
-								and/or <code className="bg-black/40 px-1 rounded">UnifAI_Guard_macOS.zip</code> (Mac app).
-								Backend URL is already baked into each package.
+								ZIP includes <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> and/or{" "}
+								<code className="bg-black/40 px-1 rounded">UnifAI_Guard.exe</code>. Backend URL is already baked in.
 							</p>
 							{setupPackageError ? <p className="mt-3 text-sm text-red-400">{setupPackageError}</p> : null}
 						</CardContent>
@@ -4052,7 +4051,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 					<Card className="bg-card border-border">
 						<CardHeader>
 							<CardTitle className="text-lg">Install Steps</CardTitle>
-							<CardDescription>Download the ZIP, pick the installer for the employee OS, and run it.</CardDescription>
+							<CardDescription>Download the ZIP and run the Windows installer on the employee laptop.</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<div className="space-y-4">
@@ -4078,22 +4077,10 @@ type RelatedHostEntry = { host: string; role: HostRole };
 							<div className="space-y-4">
 								<div className="flex items-center gap-2 font-semibold">
 									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">3</span>
-									<span>Mac laptop</span>
-								</div>
-								<p className="text-xs text-muted-foreground pl-8">
-									Extract <code className="bg-black/40 px-1 rounded">UnifAI_Guard_macOS.zip</code>, open Terminal in that folder, run{" "}
-									<code className="bg-black/40 px-1 rounded">./install_macos.sh</code>. See{" "}
-									<code className="bg-black/40 px-1 rounded">START_HERE_MAC.txt</code>. Quit &amp; reopen browsers, then test a monitored site.
-								</p>
-							</div>
-
-							<div className="space-y-4">
-								<div className="flex items-center gap-2 font-semibold">
-									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">4</span>
 									<span>Open monitored AI websites and verify logs</span>
 								</div>
 								<p className="text-xs text-muted-foreground pl-8">
-									Fully quit browsers, reopen, visit ChatGPT / Gemini / Claude / Copilot / DeepSeek, send a test prompt.
+									Fully quit browsers, reopen, visit a monitored AI site, send a test prompt.
 									Confirm in Prompt Logs and Agents.
 								</p>
 							</div>
@@ -4102,8 +4089,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<p className="font-semibold text-foreground">ZIP contents (when built &amp; deployed)</p>
 								<ul className="list-disc pl-5 text-muted-foreground space-y-1">
 									<li><code>UnifAI_Guard_Setup.exe</code> — Windows employee installer</li>
-									<li><code>UnifAI_Guard_macOS.zip</code> — Mac setup (<code>./install_macos.sh</code> on the Mac)</li>
-									<li><code>MAC_INSTALL.txt</code> / <code>START_HERE_MAC.txt</code> — Mac install notes</li>
+									<li><code>UnifAI_Guard.exe</code> — portable / latest build (when included)</li>
+									<li><code>INSTALL_WINDOWS.txt</code> / <code>VERSION.txt</code></li>
 								</ul>
 							</div>
 						</CardContent>

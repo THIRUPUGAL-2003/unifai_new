@@ -7,7 +7,14 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { DOCS } from "@/lib/constants/docs";
 import { IS_ENTERPRISE } from "@/lib/constants/config";
-import { getErrorMessage, useGetCoreConfigQuery, useUpdateCoreConfigMutation } from "@/lib/store";
+import {
+	getErrorMessage,
+	useGetCoreConfigQuery,
+	useGetSMTPConfigQuery,
+	useTestSMTPConfigMutation,
+	useUpdateCoreConfigMutation,
+	useUpdateSMTPConfigMutation,
+} from "@/lib/store";
 import { AuthConfig, CoreConfig, DefaultCoreConfig } from "@/lib/types/config";
 import { SecretVar } from "@/lib/types/schemas";
 import { parseArrayFromText } from "@/lib/utils/array";
@@ -17,9 +24,10 @@ import { useGetAuthTypeQuery } from "@enterprise/lib/store/apis/scimApi";
 import { AlertTriangle, Loader2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Input } from "@/components/ui/input";
 
 const PASSWORD_REQUIREMENTS = [
-	{ label: "at least 12 characters", test: (password: string) => password.length >= 12 },
+	{ label: "at least 8 characters", test: (password: string) => password.length >= 8 },
 	{ label: "one uppercase letter", test: (password: string) => /[A-Z]/.test(password) },
 	{ label: "one lowercase letter", test: (password: string) => /[a-z]/.test(password) },
 	{ label: "one number", test: (password: string) => /\d/.test(password) },
@@ -35,11 +43,27 @@ export default function SecurityView() {
 	const hasSettingsUpdateAccess = useRbac(RbacResource.Settings, RbacOperation.Update);
 	const { data: unifaiConfig } = useGetCoreConfigQuery({ fromDB: true });
 	const { data: authType, isLoading: authTypeLoading, error: authTypeError } = useGetAuthTypeQuery(undefined, { skip: !IS_ENTERPRISE });
+	const { data: smtpData } = useGetSMTPConfigQuery();
+	const [updateSMTP, { isLoading: isSavingSMTP }] = useUpdateSMTPConfigMutation();
+	const [testSMTP, { isLoading: isTestingSMTP }] = useTestSMTPConfigMutation();
 	const config = unifaiConfig?.client_config;
 	const [updateCoreConfig, { isLoading }] = useUpdateCoreConfigMutation();
 	const [localConfig, setLocalConfig] = useState<CoreConfig>(DefaultCoreConfig);
 	const showPasswordSection = !IS_ENTERPRISE || (!authTypeLoading && !authTypeError && authType?.type !== "sso");
 	const passwordInputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+
+	const [smtpForm, setSmtpForm] = useState({
+		enabled: false,
+		host: "",
+		port: 587,
+		username: "",
+		password: "",
+		from_email: "",
+		from_name: "UnifAI",
+		use_tls: true,
+		notify_on_login: false,
+		notify_on_user_create: true,
+	});
 
 	const [localValues, setLocalValues] = useState<{
 		allowed_origins: string;
@@ -74,6 +98,34 @@ export default function SecurityView() {
 			setAuthConfig(unifaiConfig.auth_config);
 		}
 	}, [config, unifaiConfig]);
+
+	useEffect(() => {
+		if (!smtpData) return;
+		setSmtpForm({
+			enabled: smtpData.enabled,
+			host: smtpData.host || "",
+			port: smtpData.port || 587,
+			username: smtpData.username || "",
+			password: "",
+			from_email: smtpData.from_email || "",
+			from_name: smtpData.from_name || "UnifAI",
+			use_tls: smtpData.use_tls,
+			notify_on_login: smtpData.notify_on_login,
+			notify_on_user_create: smtpData.notify_on_user_create,
+		});
+	}, [smtpData]);
+
+	const handleSaveSMTP = async () => {
+		try {
+			await updateSMTP({
+				...smtpForm,
+				password: smtpForm.password || "<redacted>",
+			}).unwrap();
+			toast.success("SMTP settings saved");
+		} catch (error) {
+			toast.error(getErrorMessage(error));
+		}
+	};
 
 	const hasChanges = useMemo(() => {
 		if (!config) return false;
@@ -219,6 +271,129 @@ export default function SecurityView() {
 			</div>
 
 			<div className="space-y-4">
+				<div className="space-y-4 rounded-sm border p-4">
+					<div className="flex items-center justify-between gap-4">
+						<div>
+							<h3 className="text-sm font-medium">Email / SMTP</h3>
+							<p className="text-muted-foreground text-sm">
+								Used for welcome emails, login notices, and password-reset OTP. Passwords are stored encrypted in Postgres.
+							</p>
+						</div>
+						<Switch
+							checked={smtpForm.enabled}
+							onCheckedChange={(enabled) => setSmtpForm((f) => ({ ...f, enabled }))}
+							disabled={!hasSettingsUpdateAccess}
+						/>
+					</div>
+					<div className="grid gap-3 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label>SMTP host</Label>
+							<Input
+								placeholder="smtp.gmail.com"
+								value={smtpForm.host}
+								onChange={(e) => setSmtpForm((f) => ({ ...f, host: e.target.value }))}
+								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label>Port</Label>
+							<Input
+								type="number"
+								value={smtpForm.port}
+								onChange={(e) => setSmtpForm((f) => ({ ...f, port: Number(e.target.value) || 587 }))}
+								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label>SMTP username / mail ID</Label>
+							<Input
+								placeholder="you@company.com"
+								value={smtpForm.username}
+								onChange={(e) => setSmtpForm((f) => ({ ...f, username: e.target.value }))}
+								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label>SMTP password</Label>
+							<Input
+								type="password"
+								placeholder={smtpData?.password ? "•••••••• (leave blank to keep)" : "App password"}
+								value={smtpForm.password}
+								onChange={(e) => setSmtpForm((f) => ({ ...f, password: e.target.value }))}
+								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label>From email</Label>
+							<Input
+								placeholder="noreply@company.com"
+								value={smtpForm.from_email}
+								onChange={(e) => setSmtpForm((f) => ({ ...f, from_email: e.target.value }))}
+								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
+							/>
+						</div>
+						<div className="space-y-2">
+							<Label>From name</Label>
+							<Input
+								value={smtpForm.from_name}
+								onChange={(e) => setSmtpForm((f) => ({ ...f, from_name: e.target.value }))}
+								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
+							/>
+						</div>
+					</div>
+					<div className="flex flex-wrap items-center gap-4">
+						<div className="flex items-center gap-2">
+							<Switch
+								checked={smtpForm.use_tls}
+								onCheckedChange={(use_tls) => setSmtpForm((f) => ({ ...f, use_tls }))}
+								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
+							/>
+							<Label>Use TLS / STARTTLS</Label>
+						</div>
+						<div className="flex items-center gap-2">
+							<Switch
+								checked={smtpForm.notify_on_user_create}
+								onCheckedChange={(notify_on_user_create) => setSmtpForm((f) => ({ ...f, notify_on_user_create }))}
+								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
+							/>
+							<Label>Email on user create</Label>
+						</div>
+						<div className="flex items-center gap-2">
+							<Switch
+								checked={smtpForm.notify_on_login}
+								onCheckedChange={(notify_on_login) => setSmtpForm((f) => ({ ...f, notify_on_login }))}
+								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
+							/>
+							<Label>Email on login</Label>
+						</div>
+					</div>
+					<p className="text-muted-foreground text-xs">
+						Login security: after 3 wrong passwords the account waits 20 minutes. Reset password uses a 6-digit email OTP (15 min).
+					</p>
+					<div className="flex justify-end gap-2">
+						<Button
+							type="button"
+							variant="outline"
+							disabled={!hasSettingsUpdateAccess || isTestingSMTP || !smtpForm.enabled}
+							onClick={() => {
+								void (async () => {
+									try {
+										const res = await testSMTP({ to: smtpForm.from_email || smtpForm.username }).unwrap();
+										toast.success(`Test email sent to ${res.to || "inbox"}`);
+									} catch (error) {
+										toast.error(getErrorMessage(error));
+									}
+								})();
+							}}
+						>
+							{isTestingSMTP ? "Testing..." : "Send test email"}
+						</Button>
+						<Button type="button" disabled={!hasSettingsUpdateAccess || isSavingSMTP} onClick={() => void handleSaveSMTP()}>
+							{isSavingSMTP ? "Saving..." : "Save SMTP"}
+						</Button>
+					</div>
+				</div>
+
 				{/* Password Protect the Dashboard */}
 				{IS_ENTERPRISE && authTypeLoading ? (
 					<div className="flex items-center justify-center rounded-sm border p-8" data-testid="security-auth-type-loading">
@@ -276,7 +451,7 @@ export default function SecurityView() {
 										onChange={(value) => handleAuthFieldChange("admin_password", value)}
 									/>
 									<p className="text-muted-foreground text-xs">
-										Use at least 12 characters with uppercase, lowercase, number, and special character. Env var references are accepted.
+										Use at least 8 characters with uppercase, lowercase, number, and special character. Env var references are accepted.
 									</p>
 									{passwordError ? (
 										<p id="admin-password-error" className="text-destructive text-xs" role="alert">

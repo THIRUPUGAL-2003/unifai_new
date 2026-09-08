@@ -1,8 +1,7 @@
 import { Button } from "@/components/ui/button";
+import { DOCS } from "@/lib/constants/docs";
 import { Building } from "lucide-react";
 import { ArrowUpRight } from "lucide-react";
-
-const TEAMS_DOCS_URL = "";
 
 interface TeamsEmptyStateProps {
 	onAddClick: () => void;
@@ -26,7 +25,7 @@ export function TeamsEmptyState({ onAddClick, canCreate = true }: TeamsEmptyStat
 						aria-label="Read more about teams (opens in new tab)"
 						data-testid="team-button-read-more"
 						onClick={() => {
-							window.open(`${TEAMS_DOCS_URL}?utm_source=bfd`, "_blank", "noopener,noreferrer");
+							window.open(`${DOCS.governance}?utm_source=bfd`, "_blank", "noopener,noreferrer");
 						}}
 					>
 						Read more <ArrowUpRight className="text-muted-foreground h-3 w-3" />

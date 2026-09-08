@@ -546,15 +546,6 @@ func browserAISetupCandidates() map[string][]string {
 			filepath.Join("apps", "browser-guard", "dist", "UnifAI_Guard.exe"),
 			filepath.Join("release", "UnifAI_Guard.exe"),
 		},
-		"UnifAI_Guard_macOS.zip": {
-			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_macOS.zip"),
-			filepath.Join("release", "UnifAI_Guard_macOS.zip"),
-		},
-		"MAC_INSTALL.txt": {
-			filepath.Join("apps", "browser-guard", "release", "MAC_INSTALL.txt"),
-			filepath.Join("apps", "browser-guard", "MAC_INSTALL.txt"),
-			filepath.Join("release", "MAC_INSTALL.txt"),
-		},
 		"INSTALL_WINDOWS.txt": {
 			filepath.Join("apps", "browser-guard", "release", "INSTALL_WINDOWS.txt"),
 			filepath.Join("release", "INSTALL_WINDOWS.txt"),
@@ -642,21 +633,15 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 	if exeOK {
 		assets = append(assets, zipAsset{name: "UnifAI_Guard.exe", path: exePath})
 	}
-	for _, name := range []string{"UnifAI_Guard_macOS.zip", "MAC_INSTALL.txt", "INSTALL_WINDOWS.txt", "VERSION.txt"} {
+	for _, name := range []string{"INSTALL_WINDOWS.txt", "VERSION.txt"} {
 		if path, ok := findFirstExisting(browserAISetupCandidates()[name]); ok {
 			assets = append(assets, zipAsset{name: name, path: path})
 		}
 	}
 
 	hasWindows := setupOK || exeOK
-	hasMac := false
-	for _, a := range assets {
-		if a.name == "UnifAI_Guard_macOS.zip" {
-			hasMac = true
-		}
-	}
-	if !hasWindows && !hasMac {
-		SendError(ctx, fasthttp.StatusNotFound, "No Guard installer on server — add UnifAI_Guard.exe / UnifAI_Guard_Setup.exe (Windows) and/or UnifAI_Guard_macOS.zip (Mac) under apps/browser-guard/release/")
+	if !hasWindows {
+		SendError(ctx, fasthttp.StatusNotFound, "No Guard installer on server — add UnifAI_Guard.exe / UnifAI_Guard_Setup.exe under apps/browser-guard/release/")
 		return
 	}
 	if len(assets) == 0 {

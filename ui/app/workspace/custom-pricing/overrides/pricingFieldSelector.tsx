@@ -80,9 +80,14 @@ export function PricingFieldSelector({ values, errors, selectedRequestTypes, onC
 		() =>
 			PRICING_GROUPS.map((group) => {
 				const fields = PRICING_FIELDS.filter((f) => {
-					if (f.group !== group.key) return false;
-					if (activeCategories === null) return true;
-					return (f.requestTypeGroups as readonly string[]).some((rg) => activeCategories.has(rg as GroupKey));
+					if (activeCategories === null) {
+						// No request-type filter: keep each field in its primary group only.
+						return f.group === group.key;
+					}
+					if (!activeCategories.has(group.key)) return false;
+					// When filtering by request type, show fields that apply to that category
+					// (even if their primary group label is "chat").
+					return (f.requestTypeGroups as readonly string[]).includes(group.key);
 				});
 				return { ...group, fields };
 			}).filter((g) => g.fields.length > 0),

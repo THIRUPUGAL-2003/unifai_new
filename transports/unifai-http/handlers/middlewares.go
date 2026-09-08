@@ -928,6 +928,8 @@ func (m *AuthMiddleware) APIMiddleware() schemas.UnifAIHTTPMiddleware {
 		"/api/session/is-auth-enabled",
 		"/api/session/login",
 		"/api/session/register",
+		"/api/session/forgot-password",
+		"/api/session/reset-password",
 		"/api/oauth/callback",
 		"/health",
 		"/login",

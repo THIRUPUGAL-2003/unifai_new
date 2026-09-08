@@ -1,8 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { Route } from "lucide-react";
-import { ArrowUpRight } from "lucide-react";
-
-const ROUTING_RULES_DOCS_URL = "";
 
 interface RoutingRulesEmptyStateProps {
 	onAddClick: () => void;
@@ -21,8 +18,8 @@ export function RoutingRulesEmptyState({ onAddClick, canCreate = true }: Routing
 			<div className="flex flex-col gap-1">
 				<h1 className="text-muted-foreground text-xl font-medium">Routing rules direct requests using CEL conditions</h1>
 				<div className="text-muted-foreground mx-auto mt-2 max-w-[600px] text-sm font-normal">
-					Create CEL-based rules to route requests by model, provider, budget, or custom attributes. Control which provider or model handles
-					each request.
+					Create CEL-based rules to route requests by model, provider, budget, or custom attributes. Pair with Complexity Router using{" "}
+					<code className="bg-muted rounded px-1 text-xs">complexity_tier</code>.
 				</div>
 				<div className="mx-auto mt-6 flex flex-row flex-wrap items-center justify-center gap-2">
 					<Button

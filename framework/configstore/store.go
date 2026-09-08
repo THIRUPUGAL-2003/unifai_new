@@ -388,6 +388,17 @@ type ConfigStore interface {
 	GetAuthConfig(ctx context.Context) (*AuthConfig, error)
 	UpdateAuthConfig(ctx context.Context, config *AuthConfig) error
 
+	// SMTP + login security
+	GetSMTPConfig(ctx context.Context) (*tables.TableSMTPConfig, error)
+	UpdateSMTPConfig(ctx context.Context, config *tables.TableSMTPConfig) error
+	GetLoginLockout(ctx context.Context, usernameKey string) (*tables.TableLoginLockout, error)
+	UpsertLoginLockout(ctx context.Context, row *tables.TableLoginLockout) error
+	ClearLoginLockout(ctx context.Context, usernameKey string) error
+	CreatePasswordResetOTP(ctx context.Context, row *tables.TablePasswordResetOTP) error
+	GetLatestPasswordResetOTP(ctx context.Context, username string) (*tables.TablePasswordResetOTP, error)
+	MarkPasswordResetOTPUsed(ctx context.Context, id uint) error
+	GetUserByEmail(ctx context.Context, email string) (*tables.TableUser, error)
+
 	// Proxy config CRUD
 	GetProxyConfig(ctx context.Context) (*tables.GlobalProxyConfig, error)
 	UpdateProxyConfig(ctx context.Context, config *tables.GlobalProxyConfig) error

@@ -53,6 +53,8 @@ export default function OverviewTab({ hasAccess }: OverviewTabProps) {
 	const [statsMap, setStatsMap] = useState<Map<string, LogStats>>(new Map());
 	const [modelsUsedMap, setModelsUsedMap] = useState<Map<string, string[]>>(new Map());
 	const [isLoadingModels, setIsLoadingModels] = useState(true);
+	const [statsPartialFailure, setStatsPartialFailure] = useState(false);
+	const [modelsPartialFailure, setModelsPartialFailure] = useState(false);
 
 	const {
 		data: providers,
@@ -62,7 +64,7 @@ export default function OverviewTab({ hasAccess }: OverviewTabProps) {
 	} = useGetProvidersQuery(undefined, { skip: !hasAccess });
 	const { data: modelsData } = useGetModelsQuery({ unfiltered: true, limit: 1000 }, { skip: !hasAccess });
 
-	const [triggerGlobalStats, { data: globalStats }] = useLazyGetLogsStatsQuery();
+	const [triggerGlobalStats, { data: globalStats, isError: globalStatsError }] = useLazyGetLogsStatsQuery();
 	const [triggerStats] = useLazyGetLogsStatsQuery();
 	const [triggerModelHistogram] = useLazyGetLogsModelHistogramQuery();
 	const [triggerProviderKeys] = useLazyGetProviderKeysQuery();
@@ -79,30 +81,31 @@ export default function OverviewTab({ hasAccess }: OverviewTabProps) {
 		let cancelled = false;
 		const now = new Date().toISOString();
 		const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+		setStatsPartialFailure(false);
 
 		Promise.all(
 			providers.map((p) =>
 				triggerStats({ filters: { providers: [p.name], start_time: dayAgo, end_time: now } })
 					.unwrap()
-					.then((stats) => [p.name, stats] as const)
-					.catch(
-						() =>
-							[
-								p.name,
-								{
-									total_requests: 0,
-									success_rate: 0,
-									user_facing_success_rate: 0,
-									average_latency: 0,
-									user_facing_total_requests: 0,
-									total_tokens: 0,
-									total_cost: 0,
-								},
-							] as const,
-					),
+					.then((stats) => ({ name: p.name, stats, ok: true as const }))
+					.catch(() => ({
+						name: p.name,
+						stats: {
+							total_requests: 0,
+							success_rate: 0,
+							user_facing_success_rate: 0,
+							average_latency: 0,
+							user_facing_total_requests: 0,
+							total_tokens: 0,
+							total_cost: 0,
+						} satisfies LogStats,
+						ok: false as const,
+					})),
 			),
 		).then((results) => {
-			if (!cancelled) setStatsMap(new Map(results));
+			if (cancelled) return;
+			setStatsMap(new Map(results.map((r) => [r.name, r.stats])));
+			setStatsPartialFailure(results.some((r) => !r.ok));
 		});
 		return () => {
 			cancelled = true;
@@ -113,26 +116,32 @@ export default function OverviewTab({ hasAccess }: OverviewTabProps) {
 		if (!providers || providers.length === 0) return;
 		let cancelled = false;
 		setIsLoadingModels(true);
+		setModelsPartialFailure(false);
 		const now = new Date().toISOString();
 		const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
 		Promise.all(
-			providers.map(async (p): Promise<[string, string[]]> => {
+			providers.map(async (p): Promise<{ name: string; models: string[]; ok: boolean }> => {
+				let histOk = true;
 				const [models, keys] = await Promise.all([
 					triggerModelHistogram({ filters: { providers: [p.name], start_time: monthAgo, end_time: now } })
 						.unwrap()
 						.then((data) => data.models ?? [])
-						.catch(() => []),
+						.catch(() => {
+							histOk = false;
+							return [] as string[];
+						}),
 					triggerProviderKeys(p.name)
 						.unwrap()
-						.catch(() => []),
+						.catch(() => [] as ModelProviderKey[]),
 				]);
 
-				return [p.name, getDisplayModels(models, buildAliasDisplayMap(keys))];
+				return { name: p.name, models: getDisplayModels(models, buildAliasDisplayMap(keys)), ok: histOk };
 			}),
 		).then((results) => {
 			if (!cancelled) {
-				setModelsUsedMap(new Map(results));
+				setModelsUsedMap(new Map(results.map((r) => [r.name, r.models])));
+				setModelsPartialFailure(results.some((r) => !r.ok));
 				setIsLoadingModels(false);
 			}
 		});
@@ -195,16 +204,26 @@ export default function OverviewTab({ hasAccess }: OverviewTabProps) {
 	}
 
 	return (
-		<ModelCatalogTable
-			rows={filteredRows}
-			providers={(providers ?? []).map((p) => p.name)}
-			providerFilter={providerFilter}
-			onProviderFilterChange={setProviderFilter}
-			totalProviders={(providers ?? []).length}
-			totalModels={modelsData?.total ?? 0}
-			totalRequests24h={globalStats?.total_requests ?? 0}
-			totalCost24h={globalStats?.total_cost ?? 0}
-			isLoadingModels={isLoadingModels}
-		/>
+		<>
+			{(statsPartialFailure || modelsPartialFailure || globalStatsError) && (
+				<div
+					className="border-amber-500/40 bg-amber-500/10 text-amber-900 dark:text-amber-100 mb-4 rounded-md border px-3 py-2 text-xs"
+					data-testid="model-catalog-overview-partial-warning"
+				>
+					Some usage stats could not be loaded and may show as zero. Refresh the page or check Logs permissions.
+				</div>
+			)}
+			<ModelCatalogTable
+				rows={filteredRows}
+				providers={(providers ?? []).map((p) => p.name)}
+				providerFilter={providerFilter}
+				onProviderFilterChange={setProviderFilter}
+				totalProviders={(providers ?? []).length}
+				totalModels={modelsData?.total ?? 0}
+				totalRequests24h={globalStats?.total_requests ?? 0}
+				totalCost24h={globalStats?.total_cost ?? 0}
+				isLoadingModels={isLoadingModels}
+			/>
+		</>
 	);
 }

@@ -30,11 +30,12 @@ import {
 import { cn } from "@/lib/utils";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { ExternalLink, LoaderCircle, RotateCcw, Save } from "lucide-react";
+import { ExternalLink, GitBranch, LoaderCircle, RotateCcw, Save } from "lucide-react";
 import { type ChangeEvent, type ClipboardEvent, type DragEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { Controller, useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
+import { Link } from "@tanstack/react-router";
 
 type TierBoundaryKey = keyof TierBoundaries;
 
@@ -343,17 +344,37 @@ export default function ComplexityRouterPage() {
 					<div className="space-y-1.5">
 						<h1 className="text-2xl font-semibold tracking-tight">Complexity Router</h1>
 						<p className="text-muted-foreground max-w-2xl text-sm leading-relaxed">
-							Tune how incoming requests are classified into four tiers. Thresholds and keyword lists feed the{" "}
-							<code className="bg-muted rounded-sm px-1 py-0.5 font-mono text-xs">complexity_tier</code> field that routing rules can
-							target.
+							Tune how incoming requests are classified into four tiers. This page does not route traffic by itself — thresholds and keyword
+							lists feed the <code className="bg-muted rounded-sm px-1 py-0.5 font-mono text-xs">complexity_tier</code> field that{" "}
+							<strong>Routing Rules</strong> can target.
 						</p>
 					</div>
-					<Button asChild variant="outline" size="sm" className="w-fit shrink-0" data-testid="complexity-router-docs-link">
-						<a href={DOCS.complexityRouter} target="_blank" rel="noopener noreferrer">
-							<ExternalLink className="size-3.5" />
-							Docs
-						</a>
-					</Button>
+					<div className="flex shrink-0 flex-wrap gap-2">
+						<Button asChild variant="outline" size="sm" className="w-fit" data-testid="complexity-router-routing-rules-link">
+							<Link to="/workspace/routing-rules">
+								<GitBranch className="size-3.5" />
+								Routing Rules
+							</Link>
+						</Button>
+						<Button asChild variant="outline" size="sm" className="w-fit shrink-0" data-testid="complexity-router-docs-link">
+							<a href={DOCS.complexityRouter} target="_blank" rel="noopener noreferrer">
+								<ExternalLink className="size-3.5" />
+								Docs
+							</a>
+						</Button>
+					</div>
+				</div>
+
+				<div
+					className="bg-muted/40 text-muted-foreground rounded-sm border px-4 py-3 text-xs leading-relaxed"
+					data-testid="complexity-router-cel-hint"
+				>
+					<p className="text-foreground mb-1 font-medium">Connect with a Routing Rule</p>
+					<p>
+						Example CEL:{" "}
+						<code className="bg-background rounded px-1 py-0.5 font-mono text-[11px]">complexity_tier == &quot;REASONING&quot;</code> → send
+						to your strong model. Create that rule under Routing Rules after saving these tiers.
+					</p>
 				</div>
 
 				{/* ── Complexity Spectrum ── */}

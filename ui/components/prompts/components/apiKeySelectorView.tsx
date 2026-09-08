@@ -48,7 +48,10 @@ export function ApiKeySelectorView({
 
 	return (
 		<div className="flex flex-col gap-2">
-			<Label className="text-muted-foreground text-xs font-medium uppercase">Virtual key/ API Key</Label>
+			<Label className="text-muted-foreground text-xs font-medium uppercase">Virtual key / API Key</Label>
+			<p className="text-muted-foreground text-[11px] leading-snug">
+				Uses Models providers &amp; Governance virtual keys. Routing, budgets, and pricing overrides apply when you pick a VK or provider key.
+			</p>
 			<Combobox
 				value={value}
 				onValueChange={(v) => onValueChange(v)}

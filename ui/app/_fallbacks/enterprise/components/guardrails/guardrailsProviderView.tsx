@@ -24,7 +24,7 @@ function validateProviderForm(provider: Partial<GuardrailProvider> | null, patte
 }
 
 export default function GuardrailsProviderView() {
-	const { data: config, isLoading } = useGetGuardrailsConfigQuery();
+	const { data: config, isLoading, isError, error, refetch } = useGetGuardrailsConfigQuery();
 	const [updateConfig] = useUpdateGuardrailsConfigMutation();
 
 	const [isModalOpen, setIsModalOpen] = useState(false);
@@ -52,6 +52,18 @@ export default function GuardrailsProviderView() {
 	const formError = useMemo(() => validateProviderForm(editingProvider, patternText), [editingProvider, patternText]);
 
 	if (isLoading) return <div className="p-4">Loading providers...</div>;
+
+	if (isError) {
+		return (
+			<div className="flex flex-col items-center justify-center gap-3 p-10 text-center">
+				<p className="text-destructive text-sm font-medium">Failed to load guardrails providers</p>
+				{error ? <p className="text-muted-foreground max-w-md text-xs">{getErrorMessage(error)}</p> : null}
+				<Button type="button" variant="outline" size="sm" onClick={() => refetch()} data-testid="guardrails-providers-retry-btn">
+					Retry
+				</Button>
+			</div>
+		);
+	}
 
 	const handleDeleteProvider = async (providerId: number) => {
 		if (!config) return;
@@ -138,7 +150,13 @@ export default function GuardrailsProviderView() {
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-2xl font-bold tracking-tight">Guardrail Providers</h1>
-					<p className="text-muted-foreground mt-1">Configure backend providers like Regex matchers to evaluate rules.</p>
+					<p className="text-muted-foreground mt-1">
+						Regex scanners used by Rules. Create a provider here, then attach it under{" "}
+						<a href="/workspace/guardrails/configuration" className="text-primary underline underline-offset-2">
+							Rules
+						</a>
+						. Runs on UnifAI LLM gateway traffic — separate from Browser AI desktop Guard.
+					</p>
 				</div>
 				<Button onClick={openCreateProvider} data-testid="guardrails-create-provider-button">
 					<Plus className="mr-2 h-4 w-4" />

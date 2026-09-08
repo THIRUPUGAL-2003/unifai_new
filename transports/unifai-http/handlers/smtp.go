@@ -1,0 +1,263 @@
+package handlers
+
+import (
+	"crypto/rand"
+	"encoding/json"
+	"fmt"
+	"math/big"
+	"strings"
+	"time"
+
+	"github.com/fasthttp/router"
+	"github.com/unifai/unifai/core/schemas"
+	"github.com/unifai/unifai/framework/configstore"
+	"github.com/unifai/unifai/framework/configstore/tables"
+	"github.com/unifai/unifai/framework/mailer"
+	"github.com/unifai/unifai/transports/unifai-http/lib"
+	"github.com/valyala/fasthttp"
+)
+
+const (
+	loginMaxFailedAttempts = 3
+	loginLockoutDuration   = 20 * time.Minute
+	passwordResetOTPTTL    = 15 * time.Minute
+)
+
+// SMTPHandler manages SMTP settings used for auth emails.
+type SMTPHandler struct {
+	store *lib.Config
+}
+
+func NewSMTPHandler(store *lib.Config) *SMTPHandler {
+	return &SMTPHandler{store: store}
+}
+
+func (h *SMTPHandler) RegisterRoutes(r *router.Router, middlewares ...schemas.UnifAIHTTPMiddleware) {
+	r.GET("/api/smtp-config", lib.ChainMiddlewares(h.getSMTPConfig, middlewares...))
+	r.PUT("/api/smtp-config", lib.ChainMiddlewares(h.updateSMTPConfig, middlewares...))
+	r.POST("/api/smtp-config/test", lib.ChainMiddlewares(h.testSMTPConfig, middlewares...))
+}
+
+type smtpConfigPayload struct {
+	Enabled            bool   `json:"enabled"`
+	Host               string `json:"host"`
+	Port               int    `json:"port"`
+	Username           string `json:"username"`
+	Password           string `json:"password"`
+	FromEmail          string `json:"from_email"`
+	FromName           string `json:"from_name"`
+	UseTLS             bool   `json:"use_tls"`
+	NotifyOnLogin      bool   `json:"notify_on_login"`
+	NotifyOnUserCreate bool   `json:"notify_on_user_create"`
+}
+
+func (h *SMTPHandler) requireStore(ctx *fasthttp.RequestCtx) configstore.ConfigStore {
+	if h.store == nil || h.store.ConfigStore == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store not available")
+		return nil
+	}
+	return h.store.ConfigStore
+}
+
+func (h *SMTPHandler) getSMTPConfig(ctx *fasthttp.RequestCtx) {
+	store := h.requireStore(ctx)
+	if store == nil {
+		return
+	}
+	row, err := store.GetSMTPConfig(ctx)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+	if row == nil {
+		SendJSON(ctx, smtpConfigPayload{Port: 587, UseTLS: true, NotifyOnUserCreate: true})
+		return
+	}
+	SendJSON(ctx, smtpConfigPayload{
+		Enabled:            row.Enabled,
+		Host:               row.Host,
+		Port:               row.Port,
+		Username:           row.Username,
+		Password:           "<redacted>",
+		FromEmail:          row.FromEmail,
+		FromName:           row.FromName,
+		UseTLS:             row.UseTLS,
+		NotifyOnLogin:      row.NotifyOnLogin,
+		NotifyOnUserCreate: row.NotifyOnUserCreate,
+	})
+}
+
+func (h *SMTPHandler) updateSMTPConfig(ctx *fasthttp.RequestCtx) {
+	store := h.requireStore(ctx)
+	if store == nil {
+		return
+	}
+	var payload smtpConfigPayload
+	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "invalid payload")
+		return
+	}
+	if payload.Enabled {
+		if strings.TrimSpace(payload.Host) == "" {
+			SendError(ctx, fasthttp.StatusBadRequest, "SMTP host is required")
+			return
+		}
+		if strings.TrimSpace(payload.FromEmail) == "" && strings.TrimSpace(payload.Username) == "" {
+			SendError(ctx, fasthttp.StatusBadRequest, "From email or SMTP username is required")
+			return
+		}
+	}
+	if payload.Port <= 0 {
+		payload.Port = 587
+	}
+
+	existing, err := store.GetSMTPConfig(ctx)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+	password := payload.Password
+	if password == "" || strings.EqualFold(password, "<redacted>") || strings.Contains(password, "*") {
+		if existing != nil {
+			password = existing.Password
+		} else {
+			password = ""
+		}
+	}
+
+	row := &tables.TableSMTPConfig{
+		Enabled:            payload.Enabled,
+		Host:               strings.TrimSpace(payload.Host),
+		Port:               payload.Port,
+		Username:           strings.TrimSpace(payload.Username),
+		Password:           password,
+		FromEmail:          strings.TrimSpace(payload.FromEmail),
+		FromName:           strings.TrimSpace(payload.FromName),
+		UseTLS:             payload.UseTLS,
+		NotifyOnLogin:      payload.NotifyOnLogin,
+		NotifyOnUserCreate: payload.NotifyOnUserCreate,
+		EncryptionStatus:   tables.EncryptionStatusPlainText,
+	}
+	if err := store.UpdateSMTPConfig(ctx, row); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{"status": "ok"})
+}
+
+func (h *SMTPHandler) testSMTPConfig(ctx *fasthttp.RequestCtx) {
+	store := h.requireStore(ctx)
+	if store == nil {
+		return
+	}
+	var payload struct {
+		To string `json:"to"`
+	}
+	_ = json.Unmarshal(ctx.PostBody(), &payload)
+	row, err := store.GetSMTPConfig(ctx)
+	if err != nil || row == nil || !row.Enabled {
+		SendError(ctx, fasthttp.StatusBadRequest, "enable and save SMTP settings first")
+		return
+	}
+	to := strings.TrimSpace(payload.To)
+	if to == "" {
+		to = row.FromEmail
+	}
+	if to == "" {
+		to = row.Username
+	}
+	if err := mailer.Send(smtpToMailer(row), mailer.Message{
+		To:      to,
+		Subject: "UnifAI SMTP test",
+		Body:    "This is a test email from UnifAI Security → SMTP settings.",
+	}); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("SMTP test failed: %v", err))
+		return
+	}
+	SendJSON(ctx, map[string]any{"status": "ok", "to": to})
+}
+
+func smtpToMailer(row *tables.TableSMTPConfig) mailer.Config {
+	if row == nil {
+		return mailer.Config{}
+	}
+	return mailer.Config{
+		Enabled:   row.Enabled,
+		Host:      row.Host,
+		Port:      row.Port,
+		Username:  row.Username,
+		Password:  row.Password,
+		FromEmail: row.FromEmail,
+		FromName:  row.FromName,
+		UseTLS:    row.UseTLS,
+	}
+}
+
+func sendAuthEmail(store configstore.ConfigStore, ctx *fasthttp.RequestCtx, to, subject, body string) error {
+	if store == nil || strings.TrimSpace(to) == "" {
+		return fmt.Errorf("no recipient")
+	}
+	row, err := store.GetSMTPConfig(ctx)
+	if err != nil {
+		return err
+	}
+	if row == nil || !row.Enabled {
+		return fmt.Errorf("SMTP is not configured")
+	}
+	return mailer.Send(smtpToMailer(row), mailer.Message{To: to, Subject: subject, Body: body})
+}
+
+func loginUsernameKey(username string) string {
+	return strings.ToLower(strings.TrimSpace(username))
+}
+
+func checkLoginLockout(store configstore.ConfigStore, ctx *fasthttp.RequestCtx, username string) (locked bool, retryAfter time.Duration, err error) {
+	row, err := store.GetLoginLockout(ctx, loginUsernameKey(username))
+	if err != nil || row == nil || row.LockedUntil == nil {
+		return false, 0, err
+	}
+	if time.Now().Before(*row.LockedUntil) {
+		return true, time.Until(*row.LockedUntil), nil
+	}
+	return false, 0, nil
+}
+
+func recordLoginFailure(store configstore.ConfigStore, ctx *fasthttp.RequestCtx, username string) (locked bool, retryAfter time.Duration) {
+	key := loginUsernameKey(username)
+	now := time.Now()
+	row, _ := store.GetLoginLockout(ctx, key)
+	if row == nil {
+		row = &tables.TableLoginLockout{UsernameKey: key}
+	}
+	if row.LockedUntil != nil && now.Before(*row.LockedUntil) {
+		return true, time.Until(*row.LockedUntil)
+	}
+	// Fresh window after lockout expired.
+	if row.LockedUntil != nil && now.After(*row.LockedUntil) {
+		row.FailedCount = 0
+		row.LockedUntil = nil
+	}
+	row.FailedCount++
+	row.LastFailedAt = &now
+	if row.FailedCount >= loginMaxFailedAttempts {
+		until := now.Add(loginLockoutDuration)
+		row.LockedUntil = &until
+		row.FailedCount = 0
+		_ = store.UpsertLoginLockout(ctx, row)
+		return true, loginLockoutDuration
+	}
+	_ = store.UpsertLoginLockout(ctx, row)
+	return false, 0
+}
+
+func clearLoginFailures(store configstore.ConfigStore, ctx *fasthttp.RequestCtx, username string) {
+	_ = store.ClearLoginLockout(ctx, loginUsernameKey(username))
+}
+
+func generateOTP6() (string, error) {
+	n, err := rand.Int(rand.Reader, big.NewInt(1000000))
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%06d", n.Int64()), nil
+}

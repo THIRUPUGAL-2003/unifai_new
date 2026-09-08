@@ -1,8 +1,7 @@
 import { Button } from "@/components/ui/button";
+import { DOCS } from "@/lib/constants/docs";
 import { WalletCards } from "lucide-react";
 import { ArrowUpRight } from "lucide-react";
-
-const CUSTOMERS_DOCS_URL = "";
 
 interface CustomersEmptyStateProps {
 	onAddClick: () => void;
@@ -26,7 +25,7 @@ export function CustomersEmptyState({ onAddClick, canCreate = true }: CustomersE
 						aria-label="Read more about customers (opens in new tab)"
 						data-testid="customer-button-read-more"
 						onClick={() => {
-							window.open(`${CUSTOMERS_DOCS_URL}?utm_source=bfd`, "_blank", "noopener,noreferrer");
+							window.open(`${DOCS.governance}?utm_source=bfd`, "_blank", "noopener,noreferrer");
 						}}
 					>
 						Read more <ArrowUpRight className="text-muted-foreground h-3 w-3" />

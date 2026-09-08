@@ -2388,11 +2388,22 @@ func (s *RDBConfigStore) GetVectorStoreConfig(ctx context.Context) (*vectorstore
 		}
 		return nil, err
 	}
-	return &vectorstore.Config{
+	cfg := &vectorstore.Config{
 		Enabled: vectorStoreTableConfig.Enabled,
-		Config:  vectorStoreTableConfig.Config,
 		Type:    vectorstore.VectorStoreType(vectorStoreTableConfig.Type),
-	}, nil
+	}
+	if vectorStoreTableConfig.Config != nil && *vectorStoreTableConfig.Config != "" {
+		raw := fmt.Sprintf(
+			`{"enabled":%t,"type":%q,"config":%s}`,
+			vectorStoreTableConfig.Enabled,
+			vectorStoreTableConfig.Type,
+			*vectorStoreTableConfig.Config,
+		)
+		if err := json.Unmarshal([]byte(raw), cfg); err != nil {
+			return nil, fmt.Errorf("unmarshal vector store config: %w", err)
+		}
+	}
+	return cfg, nil
 }
 
 // UpdateVectorStoreConfig updates the vector store configuration in the database.
@@ -2502,6 +2513,22 @@ func (s *RDBConfigStore) GetUserByID(ctx context.Context, id string) (*tables.Ta
 func (s *RDBConfigStore) GetUserByUsername(ctx context.Context, username string) (*tables.TableUser, error) {
 	var user tables.TableUser
 	if err := s.DB().WithContext(ctx).First(&user, "username = ?", username).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &user, nil
+}
+
+// GetUserByEmail retrieves a user by email (case-insensitive trim match via exact stored value).
+func (s *RDBConfigStore) GetUserByEmail(ctx context.Context, email string) (*tables.TableUser, error) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil, ErrNotFound
+	}
+	var user tables.TableUser
+	if err := s.DB().WithContext(ctx).Where("LOWER(email) = LOWER(?)", email).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
@@ -5482,6 +5509,96 @@ func (s *RDBConfigStore) UpdateAuthConfig(ctx context.Context, config *AuthConfi
 		}
 		return nil
 	})
+}
+
+// GetSMTPConfig returns the single SMTP settings row (or nil).
+func (s *RDBConfigStore) GetSMTPConfig(ctx context.Context) (*tables.TableSMTPConfig, error) {
+	var row tables.TableSMTPConfig
+	if err := s.DB().WithContext(ctx).First(&row).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &row, nil
+}
+
+// UpdateSMTPConfig replaces the SMTP settings row.
+func (s *RDBConfigStore) UpdateSMTPConfig(ctx context.Context, config *tables.TableSMTPConfig) error {
+	return s.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Session(&gorm.Session{AllowGlobalUpdate: true}).Delete(&tables.TableSMTPConfig{}).Error; err != nil {
+			return err
+		}
+		if config == nil {
+			return nil
+		}
+		config.ID = 0
+		config.UpdatedAt = time.Now()
+		if config.CreatedAt.IsZero() {
+			config.CreatedAt = time.Now()
+		}
+		return tx.Create(config).Error
+	})
+}
+
+// GetLoginLockout returns lockout state for a username key.
+func (s *RDBConfigStore) GetLoginLockout(ctx context.Context, usernameKey string) (*tables.TableLoginLockout, error) {
+	var row tables.TableLoginLockout
+	if err := s.DB().WithContext(ctx).First(&row, "username_key = ?", usernameKey).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &row, nil
+}
+
+// UpsertLoginLockout creates or updates lockout state.
+func (s *RDBConfigStore) UpsertLoginLockout(ctx context.Context, row *tables.TableLoginLockout) error {
+	row.UpdatedAt = time.Now()
+	var existing tables.TableLoginLockout
+	err := s.DB().WithContext(ctx).First(&existing, "username_key = ?", row.UsernameKey).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return s.DB().WithContext(ctx).Create(row).Error
+	}
+	if err != nil {
+		return err
+	}
+	row.ID = existing.ID
+	return s.DB().WithContext(ctx).Save(row).Error
+}
+
+// ClearLoginLockout removes lockout state after successful login.
+func (s *RDBConfigStore) ClearLoginLockout(ctx context.Context, usernameKey string) error {
+	return s.DB().WithContext(ctx).Where("username_key = ?", usernameKey).Delete(&tables.TableLoginLockout{}).Error
+}
+
+// CreatePasswordResetOTP stores a new OTP row.
+func (s *RDBConfigStore) CreatePasswordResetOTP(ctx context.Context, row *tables.TablePasswordResetOTP) error {
+	return s.DB().WithContext(ctx).Create(row).Error
+}
+
+// GetLatestPasswordResetOTP returns the newest unused, non-expired OTP for a username.
+func (s *RDBConfigStore) GetLatestPasswordResetOTP(ctx context.Context, username string) (*tables.TablePasswordResetOTP, error) {
+	var row tables.TablePasswordResetOTP
+	err := s.DB().WithContext(ctx).
+		Where("username = ? AND used = ? AND expires_at > ?", username, false, time.Now()).
+		Order("created_at DESC").
+		First(&row).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+// MarkPasswordResetOTPUsed marks an OTP as consumed.
+func (s *RDBConfigStore) MarkPasswordResetOTPUsed(ctx context.Context, id uint) error {
+	return s.DB().WithContext(ctx).Model(&tables.TablePasswordResetOTP{}).Where("id = ?", id).Updates(map[string]any{
+		"used": true,
+	}).Error
 }
 
 // GetProxyConfig retrieves the proxy configuration from the database.

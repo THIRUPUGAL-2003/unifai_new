@@ -648,38 +648,7 @@ export const governanceApi = baseApi.injectEndpoints({
 				method: "POST",
 				body: data,
 			}),
-			async onQueryStarted(_arg, { dispatch, getState, queryFulfilled }) {
-				try {
-					const { data } = await queryFulfilled;
-					const created = data.pricing_override;
-					const queries = (getState() as any).api.queries;
-					for (const entry of Object.values(queries) as any[]) {
-						if (entry?.endpointName !== "getPricingOverrides" || entry?.status !== "fulfilled") continue;
-						const args: PricingOverrideQueryArgs = entry.originalArgs ?? {};
-						const matchesQuery =
-							(!args.scopeKind || args.scopeKind === created.scope_kind) &&
-							(!args.virtualKeyID || args.virtualKeyID === created.virtual_key_id) &&
-							(!args.providerID || args.providerID === created.provider_id) &&
-							(!args.providerKeyID || args.providerKeyID === created.provider_key_id) &&
-							(!args.search || created.name?.toLowerCase().includes(args.search.toLowerCase()));
-						if (!matchesQuery) continue;
-						dispatch(
-							governanceApi.util.updateQueryData("getPricingOverrides", entry.originalArgs, (draft) => {
-								if (!draft.pricing_overrides) draft.pricing_overrides = [];
-								if (!args.offset || args.offset === 0) {
-									draft.pricing_overrides.unshift(created);
-									draft.count = (draft.count || 0) + 1;
-									draft.total_count = (draft.total_count || 0) + 1;
-								} else {
-									draft.total_count = (draft.total_count || 0) + 1;
-								}
-							}),
-						);
-					}
-				} catch {
-					// Mutation failed
-				}
-			},
+			invalidatesTags: ["PricingOverrides"],
 		}),
 
 		updatePricingOverride: builder.mutation<

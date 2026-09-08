@@ -23,6 +23,8 @@ import (
 	"github.com/unifai/unifai/framework/encrypt"
 	"github.com/unifai/unifai/framework/modelcatalog"
 	"github.com/unifai/unifai/plugins/compat"
+	"github.com/unifai/unifai/plugins/semanticcache"
+	"github.com/unifai/unifai/framework/vectorstore"
 	"github.com/unifai/unifai/transports/unifai-http/lib"
 	"github.com/valyala/fasthttp"
 )
@@ -64,8 +66,8 @@ func getPasswordPolicyFailures(password string) []string {
 		}
 	}
 
-	if len(password) < 12 {
-		failures = append(failures, "at least 12 characters")
+	if len(password) < 8 {
+		failures = append(failures, "at least 8 characters")
 	}
 	if !hasUppercase {
 		failures = append(failures, "one uppercase letter")
@@ -122,6 +124,8 @@ func (h *ConfigHandler) RegisterRoutes(r *router.Router, middlewares ...schemas.
 	r.GET("/api/version", lib.ChainMiddlewares(h.getVersion, middlewares...))
 	r.GET("/api/proxy-config", lib.ChainMiddlewares(h.getProxyConfig, middlewares...))
 	r.PUT("/api/proxy-config", lib.ChainMiddlewares(h.updateProxyConfig, middlewares...))
+	r.GET("/api/vector-store-config", lib.ChainMiddlewares(h.getVectorStoreConfig, middlewares...))
+	r.PUT("/api/vector-store-config", lib.ChainMiddlewares(h.updateVectorStoreConfig, middlewares...))
 	r.POST("/api/pricing/force-sync", lib.ChainMiddlewares(h.forceSyncPricing, middlewares...))
 }
 
@@ -923,6 +927,92 @@ func (h *ConfigHandler) forceSyncPricing(ctx *fasthttp.RequestCtx) {
 	SendJSON(ctx, map[string]any{
 		"status":  "success",
 		"message": "pricing synced successfully",
+	})
+}
+
+// getVectorStoreConfig handles GET /api/vector-store-config.
+func (h *ConfigHandler) getVectorStoreConfig(ctx *fasthttp.RequestCtx) {
+	cfg, err := h.store.GetVectorStoreConfigRedacted(ctx)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to get vector store config: %v", err))
+		return
+	}
+	connected := h.store.VectorStore != nil
+	if cfg == nil {
+		SendJSON(ctx, map[string]any{
+			"enabled":   false,
+			"type":      "qdrant",
+			"config":    map[string]any{},
+			"connected": connected,
+		})
+		return
+	}
+	SendJSON(ctx, map[string]any{
+		"enabled":   cfg.Enabled,
+		"type":      cfg.Type,
+		"config":    cfg.Config,
+		"connected": connected,
+	})
+}
+
+// updateVectorStoreConfig handles PUT /api/vector-store-config — connect/save like provider keys.
+func (h *ConfigHandler) updateVectorStoreConfig(ctx *fasthttp.RequestCtx) {
+	var payload vectorstore.Config
+	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("invalid vector store payload: %v", err))
+		return
+	}
+
+	var existing *vectorstore.Config
+	if h.store.ConfigStore != nil {
+		var err error
+		existing, err = h.store.ConfigStore.GetVectorStoreConfig(ctx)
+		if err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to load existing vector store config: %v", err))
+			return
+		}
+	}
+	merged := lib.MergeVectorStoreSecrets(&payload, existing)
+
+	if merged.Enabled {
+		switch merged.Type {
+		case vectorstore.VectorStoreTypeWeaviate, vectorstore.VectorStoreTypeQdrant, vectorstore.VectorStoreTypePinecone, vectorstore.VectorStoreTypeRedis:
+		default:
+			SendError(ctx, fasthttp.StatusBadRequest, "vector store type must be weaviate, qdrant, pinecone, or redis")
+			return
+		}
+		if merged.Config == nil {
+			SendError(ctx, fasthttp.StatusBadRequest, "vector store config is required when enabled")
+			return
+		}
+	}
+
+	if err := h.store.ApplyVectorStoreConfig(ctx, merged); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
+		return
+	}
+
+	// semantic_cache holds the VectorStore from Init — reload so it picks up the new connection.
+	if h.configManager != nil && h.store.ConfigStore != nil {
+		pluginRow, err := h.store.ConfigStore.GetPlugin(ctx, semanticcache.PluginName)
+		if err == nil && pluginRow != nil && pluginRow.Enabled {
+			if err := h.configManager.ReloadPlugin(ctx, semanticcache.PluginName, pluginRow.Path, pluginRow.Config, pluginRow.Placement, pluginRow.Order); err != nil {
+				SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("vector store saved but cache plugin reload failed: %v", err))
+				return
+			}
+		} else if h.store.VectorStore == nil {
+			if _, findErr := lib.FindPluginAs[*semanticcache.Plugin](h.store, semanticcache.PluginName); findErr == nil {
+				_ = h.configManager.RemovePlugin(ctx, semanticcache.PluginName)
+			}
+		}
+	}
+
+	redacted := lib.RedactVectorStoreConfig(merged)
+	SendJSON(ctx, map[string]any{
+		"enabled":   redacted.Enabled,
+		"type":      redacted.Type,
+		"config":    redacted.Config,
+		"connected": h.store.VectorStore != nil,
 	})
 }
 

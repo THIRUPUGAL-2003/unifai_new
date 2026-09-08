@@ -85,6 +85,7 @@ export default function MCPServersPage() {
 		data: mcpClientsData,
 		error,
 		isLoading,
+		isError,
 		refetch,
 	} = useGetMCPClientsQuery(
 		{
@@ -130,6 +131,18 @@ export default function MCPServersPage() {
 
 	if (isLoading) {
 		return <FullPageLoader />;
+	}
+
+	if (isError) {
+		return (
+			<div className="mx-auto flex h-[calc(100dvh-50px)] w-full max-w-7xl flex-col items-center justify-center gap-3 text-center">
+				<p className="text-destructive text-sm font-medium">Failed to load MCP servers</p>
+				{error ? <p className="text-muted-foreground max-w-md text-xs">{getErrorMessage(error)}</p> : null}
+				<button type="button" className="text-sm underline" data-testid="mcp-registry-retry-btn" onClick={() => refetch()}>
+					Retry
+				</button>
+			</div>
+		);
 	}
 
 	const handleSearchChange = (value: string) => void setUrlState({ search: value, offset: 0 });

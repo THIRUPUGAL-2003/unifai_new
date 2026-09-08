@@ -598,7 +598,8 @@ export default function AppSidebar() {
 		hasBusinessUnitsAccess ||
 		hasRbacAccess ||
 		hasAccessProfilesAccess ||
-		hasGovernanceLegacyAccess;
+		hasGovernanceLegacyAccess ||
+		hasAuditLogsAccess;
 	const { data: coreConfig } = useGetCoreConfigQuery({});
 	const isDbConnected = coreConfig?.is_db_connected ?? false;
 	const envLabel = coreConfig?.env_label ?? null;
@@ -667,7 +668,7 @@ export default function AppSidebar() {
 						title: "Model Catalog",
 						url: "/workspace/model-catalog",
 						icon: LayoutGrid,
-						description: "Overview of providers, keys, and usage",
+						description: "Providers, usage overview, and model attributes",
 						hasAccess: hasModelProvidersAccess,
 					},
 					{
@@ -681,28 +682,28 @@ export default function AppSidebar() {
 						title: "Budgets & Limits",
 						url: "/workspace/model-limits",
 						icon: Wallet,
-						description: "Model limits",
+						description: "Per-model budgets and rate limits",
 						hasAccess: hasGovernanceLegacyAccess,
 					},
 					{
 						title: "Routing Rules",
 						url: "/workspace/routing-rules",
 						icon: Network,
-						description: "Intelligent routing rules",
+						description: "CEL rules for provider/model selection",
 						hasAccess: hasRoutingRulesAccess,
 					},
 					{
 						title: "Complexity Router",
 						url: "/workspace/complexity-router",
 						icon: GitCompareArrows,
-						description: "Complexity tier routing",
+						description: "Sets complexity_tier for Routing Rules",
 						hasAccess: hasRoutingRulesAccess,
 					},
 					{
 						title: "Circuit Breaker",
 						url: "/workspace/circuit-breaker",
 						icon: CircuitBoard,
-						description: "Automatic fallback when primary endpoints fail",
+						description: "Header-signal failover (not CEL routing)",
 						hasAccess: hasCircuitBreakerAccess,
 					},
 					{

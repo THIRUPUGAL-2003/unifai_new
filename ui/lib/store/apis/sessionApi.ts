@@ -47,6 +47,22 @@ export const sessionApi = baseApi.injectEndpoints({
 			invalidatesTags: ["Sessions", "Config"],
 		}),
 
+		forgotPassword: builder.mutation<{ message: string }, { username?: string; email?: string }>({
+			query: (body) => ({
+				url: "/session/forgot-password",
+				method: "POST",
+				body,
+			}),
+		}),
+
+		resetPassword: builder.mutation<{ message: string }, { username: string; otp: string; new_password: string }>({
+			query: (body) => ({
+				url: "/session/reset-password",
+				method: "POST",
+				body,
+			}),
+		}),
+
 		// Logout endpoint
 		logout: builder.mutation<LogoutResponse, void>({
 			async queryFn(_arg, _api, _extraOptions, baseQuery) {
@@ -81,4 +97,5 @@ export const sessionApi = baseApi.injectEndpoints({
 	}),
 });
 
-export const { useIsAuthEnabledQuery, useLoginMutation, useLogoutMutation } = sessionApi;
+export const { useIsAuthEnabledQuery, useLoginMutation, useLogoutMutation, useForgotPasswordMutation, useResetPasswordMutation } =
+	sessionApi;

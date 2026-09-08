@@ -1,11 +1,11 @@
-import { createFileRoute } from "@tanstack/react-router";
 import { NoPermissionView } from "@/components/noPermissionView";
+import { createFileRoute } from "@tanstack/react-router";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import MCPSettingsPage from "./page";
 
 function RouteComponent() {
-	// MCP Settings is under MCP Gateway — require MCPGateway update only (not Settings AND).
-	const hasMCPGatewayAccess = useRbac(RbacResource.MCPGateway, RbacOperation.Update);
+	// Allow View to open the page; Save remains gated by Update in the form.
+	const hasMCPGatewayAccess = useRbac(RbacResource.MCPGateway, RbacOperation.View);
 	if (!hasMCPGatewayAccess) {
 		return <NoPermissionView entity="MCP gateway settings" />;
 	}

@@ -27,8 +27,14 @@ export default function SignupPage() {
 			return;
 		}
 
-		if (password.length < 8) {
-			setErrorMessage("Password must be at least 8 characters long");
+		const policyFails: string[] = [];
+		if (password.length < 8) policyFails.push("at least 8 characters");
+		if (!/[A-Z]/.test(password)) policyFails.push("one uppercase letter");
+		if (!/[a-z]/.test(password)) policyFails.push("one lowercase letter");
+		if (!/\d/.test(password)) policyFails.push("one number");
+		if (!/[^A-Za-z0-9]/.test(password)) policyFails.push("one special character");
+		if (policyFails.length > 0) {
+			setErrorMessage("Password must include " + policyFails.join(", "));
 			return;
 		}
 

@@ -1,4 +1,4 @@
-import { UnifAIConfig, GlobalProxyConfig, LatestReleaseResponse } from "@/lib/types/config";
+import { UnifAIConfig, GlobalProxyConfig, LatestReleaseResponse, VectorStoreConfigResponse } from "@/lib/types/config";
 import axios from "axios";
 import { baseApi } from "./baseApi";
 
@@ -62,6 +62,75 @@ export const configApi = baseApi.injectEndpoints({
 			invalidatesTags: ["Config"],
 		}),
 
+		getVectorStoreConfig: builder.query<VectorStoreConfigResponse, void>({
+			query: () => ({
+				url: "/vector-store-config",
+			}),
+			providesTags: ["CacheConfig"],
+		}),
+
+		updateVectorStoreConfig: builder.mutation<
+			VectorStoreConfigResponse,
+			{ enabled: boolean; type: string; config: Record<string, unknown> }
+		>({
+			query: (data) => ({
+				url: "/vector-store-config",
+				method: "PUT",
+				body: data,
+			}),
+			invalidatesTags: ["Config", "CacheConfig"],
+		}),
+
+		getSMTPConfig: builder.query<
+			{
+				enabled: boolean;
+				host: string;
+				port: number;
+				username: string;
+				password: string;
+				from_email: string;
+				from_name: string;
+				use_tls: boolean;
+				notify_on_login: boolean;
+				notify_on_user_create: boolean;
+			},
+			void
+		>({
+			query: () => ({ url: "/smtp-config" }),
+			providesTags: ["Config"],
+		}),
+
+		updateSMTPConfig: builder.mutation<
+			{ status: string },
+			{
+				enabled: boolean;
+				host: string;
+				port: number;
+				username: string;
+				password: string;
+				from_email: string;
+				from_name: string;
+				use_tls: boolean;
+				notify_on_login: boolean;
+				notify_on_user_create: boolean;
+			}
+		>({
+			query: (data) => ({
+				url: "/smtp-config",
+				method: "PUT",
+				body: data,
+			}),
+			invalidatesTags: ["Config"],
+		}),
+
+		testSMTPConfig: builder.mutation<{ status: string; to?: string }, { to?: string }>({
+			query: (data) => ({
+				url: "/smtp-config/test",
+				method: "POST",
+				body: data,
+			}),
+		}),
+
 		// Force a pricing sync immediately
 		forcePricingSync: builder.mutation<null, void>({
 			query: () => ({
@@ -107,6 +176,11 @@ export const {
 	useGetCoreConfigQuery,
 	useUpdateCoreConfigMutation,
 	useUpdateProxyConfigMutation,
+	useGetVectorStoreConfigQuery,
+	useUpdateVectorStoreConfigMutation,
+	useGetSMTPConfigQuery,
+	useUpdateSMTPConfigMutation,
+	useTestSMTPConfigMutation,
 	useForcePricingSyncMutation,
 	useUpdateClientMetadataMutation,
 	useLazyGetCoreConfigQuery,

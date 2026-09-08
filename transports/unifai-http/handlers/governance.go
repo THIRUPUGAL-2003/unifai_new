@@ -4375,6 +4375,10 @@ func (h *GovernanceHandler) createPricingOverride(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid patch")
 		return
 	}
+	if string(patchJSON) == "{}" || string(patchJSON) == "null" {
+		SendError(ctx, fasthttp.StatusBadRequest, "patch must include at least one pricing field")
+		return
+	}
 
 	now := time.Now()
 	override := configstoreTables.TablePricingOverride{
@@ -4487,6 +4491,10 @@ func (h *GovernanceHandler) updatePricingOverride(ctx *fasthttp.RequestCtx) {
 		b, err := sonic.Marshal(req.Patch)
 		if err != nil {
 			SendError(ctx, fasthttp.StatusBadRequest, "Invalid patch")
+			return
+		}
+		if string(b) == "{}" || string(b) == "null" {
+			SendError(ctx, fasthttp.StatusBadRequest, "patch must include at least one pricing field")
 			return
 		}
 		pricingPatchJSON = string(b)

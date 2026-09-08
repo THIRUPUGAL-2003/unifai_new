@@ -17,10 +17,11 @@ var _ schemas.LLMPlugin = (*GuardrailsPlugin)(nil)
 
 type GuardrailsPlugin struct {
 	config *Config
-	
+	logger schemas.Logger
+
 	// Pre-compiled CEL programs mapped by rule ID
 	celPrograms map[int]cel.Program
-	
+
 	// Initialized providers mapped by their ID
 	providers map[int]Provider
 }
@@ -36,6 +37,7 @@ type Provider interface {
 func Init(ctx context.Context, config *Config, logger schemas.Logger) (schemas.BasePlugin, error) {
 	plugin := &GuardrailsPlugin{
 		config:      config,
+		logger:      logger,
 		celPrograms: make(map[int]cel.Program),
 		providers:   make(map[int]Provider),
 	}
@@ -153,7 +155,9 @@ func (p *GuardrailsPlugin) PreLLMHook(ctx *schemas.UnifAIContext, req *schemas.U
 
 		out, _, err := prg.Eval(vars)
 		if err != nil {
-			// Log error but don't block on evaluation failures
+			if p.logger != nil {
+				p.logger.Warn("guardrail CEL eval failed for rule %d (%s): %v", rule.ID, rule.Name, err)
+			}
 			continue
 		}
 
@@ -199,6 +203,9 @@ func (p *GuardrailsPlugin) PostLLMHook(ctx *schemas.UnifAIContext, resp *schemas
 
 		out, _, evalErr := prg.Eval(vars)
 		if evalErr != nil {
+			if p.logger != nil {
+				p.logger.Warn("guardrail CEL eval failed for rule %d (%s): %v", rule.ID, rule.Name, evalErr)
+			}
 			continue
 		}
 

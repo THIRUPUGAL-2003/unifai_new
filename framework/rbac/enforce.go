@@ -11,9 +11,11 @@ import (
 type PermissionSet map[string]map[string]bool
 
 // PathRequirement is the RBAC check for an HTTP route.
+// When AnyOfResources is set, permission on any listed resource (same Operation) is enough.
 type PathRequirement struct {
-	Resource  string
-	Operation string
+	Resource       string
+	Operation      string
+	AnyOfResources []string
 }
 
 // ResolvePermissions loads the permission set for a role name.
@@ -133,7 +135,12 @@ func readRequirement(path string) *PathRequirement {
 	case strings.HasPrefix(path, "/api/governance"):
 		return &PathRequirement{Resource: "Governance", Operation: "View"}
 	case strings.HasPrefix(path, "/api/guardrails"):
-		return &PathRequirement{Resource: "GuardrailsConfig", Operation: "View"}
+		// Shared /api/guardrails/config blob; Rules UI uses GuardrailsConfig, Providers UI uses GuardrailsProviders.
+		return &PathRequirement{
+			Resource:       "GuardrailsConfig",
+			Operation:      "View",
+			AnyOfResources: []string{"GuardrailsConfig", "GuardrailsProviders"},
+		}
 	case strings.HasPrefix(path, "/api/prompt-repo"):
 		return &PathRequirement{Resource: "PromptRepository", Operation: "View"}
 	case strings.HasPrefix(path, "/api/prompt-deployments"):
@@ -142,7 +149,7 @@ func readRequirement(path string) *PathRequirement {
 		return &PathRequirement{Resource: "SkillsRepository", Operation: "View"}
 	case strings.HasPrefix(path, "/api/providers"), strings.HasPrefix(path, "/api/keys"), strings.HasPrefix(path, "/api/models"):
 		return &PathRequirement{Resource: "ModelProvider", Operation: "View"}
-	case strings.HasPrefix(path, "/api/config"):
+	case strings.HasPrefix(path, "/api/config"), strings.HasPrefix(path, "/api/proxy-config"), strings.HasPrefix(path, "/api/vector-store-config"), strings.HasPrefix(path, "/api/smtp-config"):
 		return &PathRequirement{Resource: "Settings", Operation: "View"}
 	default:
 		return nil
@@ -185,7 +192,11 @@ func writeRequirement(method, path string) *PathRequirement {
 	case strings.HasPrefix(path, "/api/governance"):
 		return &PathRequirement{Resource: "Governance", Operation: op}
 	case strings.HasPrefix(path, "/api/guardrails"):
-		return &PathRequirement{Resource: "GuardrailsConfig", Operation: op}
+		return &PathRequirement{
+			Resource:       "GuardrailsConfig",
+			Operation:      op,
+			AnyOfResources: []string{"GuardrailsConfig", "GuardrailsProviders"},
+		}
 	case strings.HasPrefix(path, "/api/prompt-repo"):
 		return &PathRequirement{Resource: "PromptRepository", Operation: op}
 	case strings.HasPrefix(path, "/api/prompt-deployments"):
@@ -194,7 +205,7 @@ func writeRequirement(method, path string) *PathRequirement {
 		return &PathRequirement{Resource: "SkillsRepository", Operation: op}
 	case strings.HasPrefix(path, "/api/providers"), strings.HasPrefix(path, "/api/keys"):
 		return &PathRequirement{Resource: "ModelProvider", Operation: op}
-	case strings.HasPrefix(path, "/api/config"):
+	case strings.HasPrefix(path, "/api/config"), strings.HasPrefix(path, "/api/proxy-config"), strings.HasPrefix(path, "/api/vector-store-config"), strings.HasPrefix(path, "/api/smtp-config"):
 		return &PathRequirement{Resource: "Settings", Operation: "Update"}
 	default:
 		return nil

@@ -550,6 +550,16 @@ export interface UnifAIConfig {
 	env_label?: string;
 }
 
+export type VectorStoreType = "weaviate" | "qdrant" | "pinecone" | "redis";
+
+/** Dashboard shape for GET/PUT /api/vector-store-config (secrets may be redacted). */
+export interface VectorStoreConfigResponse {
+	enabled: boolean;
+	type: VectorStoreType;
+	config: Record<string, unknown>;
+	connected: boolean;
+}
+
 export interface CompatConfig {
 	convert_text_to_chat: boolean;
 	convert_chat_to_responses: boolean;

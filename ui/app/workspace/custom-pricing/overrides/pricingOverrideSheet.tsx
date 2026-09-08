@@ -680,7 +680,12 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 			}
 		}
 
-		if (hasErrors || jsonError) return;
+		if (hasErrors || jsonError) {
+			if (jsonError) {
+				toast.error("Fix the pricing JSON before saving", { description: jsonError });
+			}
+			return;
+		}
 
 		const { patch } = buildPatchFromForm(data);
 		let scopedVirtualKeyID: string | undefined;

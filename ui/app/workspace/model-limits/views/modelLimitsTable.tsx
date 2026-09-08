@@ -125,6 +125,9 @@ interface ModelLimitsTableProps {
 	limit: number;
 	onOffsetChange: (offset: number) => void;
 	isLoading?: boolean;
+	isError?: boolean;
+	errorMessage?: string;
+	onRetry?: () => void;
 }
 
 export default function ModelLimitsTable({
@@ -142,6 +145,9 @@ export default function ModelLimitsTable({
 	limit,
 	onOffsetChange,
 	isLoading = false,
+	isError = false,
+	errorMessage,
+	onRetry,
 }: ModelLimitsTableProps) {
 	const navigate = useNavigate();
 	const [showModelLimitSheet, setShowModelLimitSheet] = useState(false);
@@ -191,6 +197,21 @@ export default function ModelLimitsTable({
 
 	const hasActiveFilters = debouncedSearch || scope || provider;
 
+	// Never treat a failed/unauthorized load as "no limits".
+	if (isError && !isLoading) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center gap-3 text-center">
+				<p className="text-destructive text-sm font-medium">Failed to load model limits</p>
+				{errorMessage ? <p className="text-muted-foreground max-w-md text-xs">{errorMessage}</p> : null}
+				{onRetry ? (
+					<Button type="button" variant="outline" size="sm" onClick={onRetry} data-testid="model-limits-retry-btn">
+						Retry
+					</Button>
+				) : null}
+			</div>
+		);
+	}
+
 	// True empty state: no model limits at all (not just filtered to zero).
 	// Suppress while the initial load is in flight so we don't flash the empty
 	// state before the API responds.
@@ -238,9 +259,9 @@ export default function ModelLimitsTable({
 			<div className="flex flex-col overflow-y-auto">
 				<div className="mb-4 flex items-center justify-between">
 					<div>
-						<h1 className="text-lg font-semibold">Model Limits</h1>
+						<h1 className="text-lg font-semibold">Budgets &amp; Limits</h1>
 						<p className="text-muted-foreground text-sm">
-							Configure budgets and rate limits at the model level. For provider-specific limits, visit each provider&apos;s settings.
+							Configure budgets and rate limits at the model level. For provider-wide limits, open a provider under Model Providers.
 						</p>
 					</div>
 					<Button onClick={handleAddModelLimit} disabled={!hasCreateAccess} data-testid="model-limits-button-create">

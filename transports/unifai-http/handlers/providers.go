@@ -1325,7 +1325,7 @@ func (h *ProviderHandler) upsertModelCatalogEntries(ctx *fasthttp.RequestCtx) {
 	if err := h.modelsManager.UpsertModelPricingAttributes(ctx, payload); err != nil {
 		msg := err.Error()
 		if strings.Contains(msg, "no pricing row") {
-			SendError(ctx, fasthttp.StatusBadRequest, msg)
+			SendError(ctx, fasthttp.StatusBadRequest, "no pricing row for this model/provider — open Model Settings and run Force Sync (or wait for pricing sync), then retry")
 			return
 		}
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to upsert catalog entries: %v", err))

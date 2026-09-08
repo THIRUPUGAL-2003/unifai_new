@@ -35,7 +35,6 @@ import {
 	ArrowDown,
 	ArrowUp,
 	ArrowUpDown,
-	ArrowUpRight,
 	BookOpenText,
 	Check,
 	ChevronDown,
@@ -55,8 +54,6 @@ import {
 import { useState } from "react";
 import { toast } from "sonner";
 import { PAGE_SIZE, formatDateShort, useDebouncedValue } from "./helpers";
-
-const SKILLS_REPOSITORY_DOCS_URL = "";
 
 // ---------- MarketplacePopover ----------
 

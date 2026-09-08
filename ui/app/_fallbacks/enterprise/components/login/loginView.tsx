@@ -1,29 +1,53 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getErrorMessage, useLoginMutation } from "@/lib/store/apis";
+import { getErrorMessage, useForgotPasswordMutation, useLoginMutation, useResetPasswordMutation } from "@/lib/store/apis";
 import { resolvePostLoginPath } from "@/lib/utils/workspaceAccess";
 import { Activity, Eye, EyeOff, Globe, Lock, Shield, ShieldAlert, Upload } from "lucide-react";
 import { useState } from "react";
 
+type AuthMode = "login" | "forgot" | "reset";
+
 export default function LoginView() {
+	const [mode, setMode] = useState<AuthMode>("login");
 	const [username, setUsername] = useState("");
 	const [password, setPassword] = useState("");
+	const [otp, setOtp] = useState("");
+	const [newPassword, setNewPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
 	const [errorMessage, setErrorMessage] = useState("");
+	const [infoMessage, setInfoMessage] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [login, { isLoading: isLoggingIn }] = useLoginMutation();
+	const [forgotPassword, { isLoading: isSendingOtp }] = useForgotPasswordMutation();
+	const [resetPassword, { isLoading: isResetting }] = useResetPasswordMutation();
 
 	const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
 		setIsLoading(true);
 		e.preventDefault();
 		setErrorMessage("");
+		setInfoMessage("");
 		try {
-			const result = await login({ username, password }).unwrap();
-			const params = new URLSearchParams(window.location.search);
-			const goto = params.get("goto");
-			const target = resolvePostLoginPath({ role: result.role }, goto);
-			window.location.assign(target);
+			if (mode === "login") {
+				const result = await login({ username, password }).unwrap();
+				const params = new URLSearchParams(window.location.search);
+				const goto = params.get("goto");
+				const target = resolvePostLoginPath({ role: result.role }, goto);
+				window.location.assign(target);
+				return;
+			}
+			if (mode === "forgot") {
+				const result = await forgotPassword({ username }).unwrap();
+				setInfoMessage(result.message || "If an account matches, a one-time code was sent by email");
+				setMode("reset");
+				return;
+			}
+			const result = await resetPassword({ username, otp, new_password: newPassword }).unwrap();
+			setInfoMessage(result.message || "Password updated. Sign in with your new password.");
+			setMode("login");
+			setPassword("");
+			setOtp("");
+			setNewPassword("");
 		} catch (error) {
 			setErrorMessage(getErrorMessage(error));
 		} finally {
@@ -152,14 +176,27 @@ export default function LoginView() {
 					<section className="flex items-center justify-center lg:col-span-5">
 						<div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#10131c]/80 p-8 shadow-[0_30px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
 							<div className="mb-6 space-y-2">
-								<h2 className="text-3xl font-bold text-white">Sign In</h2>
-								<p className="text-sm leading-6 text-[#8b949e]">Access the Guard control plane for your organization.</p>
+								<h2 className="text-3xl font-bold text-white">
+									{mode === "login" ? "Sign In" : mode === "forgot" ? "Forgot password" : "Reset password"}
+								</h2>
+								<p className="text-sm leading-6 text-[#8b949e]">
+									{mode === "login"
+										? "Access the Guard control plane for your organization."
+										: mode === "forgot"
+											? "Enter your username. We will email a one-time code if SMTP is configured."
+											: "Enter the OTP from email and choose a new password."}
+								</p>
 							</div>
 
 							{errorMessage && (
 								<div className="bg-destructive/10 border-destructive/20 text-destructive mb-4 flex items-center gap-2.5 rounded-lg border p-3 text-sm">
 									<ShieldAlert className="h-4 w-4 shrink-0" />
 									<span>{errorMessage}</span>
+								</div>
+							)}
+							{infoMessage && (
+								<div className="mb-4 rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+									{infoMessage}
 								</div>
 							)}
 
@@ -180,38 +217,113 @@ export default function LoginView() {
 									/>
 								</div>
 
-								<div className="space-y-2">
-									<Label htmlFor="password" className="text-xs font-semibold tracking-wider text-white uppercase">
-										Password
-									</Label>
-									<div className="relative">
-										<Input
-											id="password"
-											type={showPassword ? "text" : "password"}
-											placeholder="Enter your password"
-											value={password}
-											onChange={(e) => setPassword(e.target.value)}
-											required
-											className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 pr-10 text-sm text-white focus:border-[#45f3ff]"
-											autoComplete="current-password"
-										/>
-										<button
-											type="button"
-											onClick={() => setShowPassword(!showPassword)}
-											className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500 hover:text-white"
-										>
-											{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-										</button>
+								{mode === "login" && (
+									<div className="space-y-2">
+										<Label htmlFor="password" className="text-xs font-semibold tracking-wider text-white uppercase">
+											Password
+										</Label>
+										<div className="relative">
+											<Input
+												id="password"
+												type={showPassword ? "text" : "password"}
+												placeholder="Enter your password"
+												value={password}
+												onChange={(e) => setPassword(e.target.value)}
+												required
+												className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 pr-10 text-sm text-white focus:border-[#45f3ff]"
+												autoComplete="current-password"
+											/>
+											<button
+												type="button"
+												onClick={() => setShowPassword(!showPassword)}
+												className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500 hover:text-white"
+											>
+												{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+											</button>
+										</div>
 									</div>
-								</div>
+								)}
+
+								{mode === "reset" && (
+									<>
+										<div className="space-y-2">
+											<Label htmlFor="otp" className="text-xs font-semibold tracking-wider text-white uppercase">
+												OTP code
+											</Label>
+											<Input
+												id="otp"
+												type="text"
+												inputMode="numeric"
+												placeholder="6-digit code"
+												value={otp}
+												onChange={(e) => setOtp(e.target.value)}
+												required
+												className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 text-sm text-white focus:border-[#45f3ff]"
+											/>
+										</div>
+										<div className="space-y-2">
+											<Label htmlFor="new-password" className="text-xs font-semibold tracking-wider text-white uppercase">
+												New password
+											</Label>
+											<Input
+												id="new-password"
+												type="password"
+												placeholder="New password"
+												value={newPassword}
+												onChange={(e) => setNewPassword(e.target.value)}
+												required
+												className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 text-sm text-white focus:border-[#45f3ff]"
+												autoComplete="new-password"
+											/>
+										</div>
+									</>
+								)}
 
 								<Button
 									type="submit"
 									className="mt-2 h-11 w-full bg-[#45f3ff] font-bold text-[#0b0c10] shadow-[0_0_24px_rgba(69,243,255,0.28)] hover:bg-[#45f3ff]/90"
-									disabled={isLoading || isLoggingIn}
+									disabled={isLoading || isLoggingIn || isSendingOtp || isResetting}
 								>
-									{isLoading || isLoggingIn ? "Signing in..." : "Sign In"}
+									{mode === "login"
+										? isLoading || isLoggingIn
+											? "Signing in..."
+											: "Sign In"
+										: mode === "forgot"
+											? isSendingOtp
+												? "Sending..."
+												: "Send OTP"
+											: isResetting
+												? "Updating..."
+												: "Update password"}
 								</Button>
+
+								<div className="pt-1 text-center text-xs text-[#8b949e]">
+									{mode === "login" ? (
+										<button
+											type="button"
+											className="text-[#45f3ff] underline-offset-2 hover:underline"
+											onClick={() => {
+												setMode("forgot");
+												setErrorMessage("");
+												setInfoMessage("");
+											}}
+										>
+											Forgot password?
+										</button>
+									) : (
+										<button
+											type="button"
+											className="text-[#45f3ff] underline-offset-2 hover:underline"
+											onClick={() => {
+												setMode("login");
+												setErrorMessage("");
+												setInfoMessage("");
+											}}
+										>
+											Back to sign in
+										</button>
+									)}
+								</div>
 							</form>
 						</div>
 					</section>

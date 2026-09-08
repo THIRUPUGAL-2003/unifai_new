@@ -9,6 +9,7 @@ import { ProviderLabels, ProviderName } from "@/lib/constants/logs";
 import { getErrorMessage, ModelDetails, useUpsertModelCatalogEntriesMutation } from "@/lib/store";
 import { KnownProvider } from "@/lib/types/config";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
+import { Link } from "@tanstack/react-router";
 import { Plus, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -113,7 +114,15 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 			toast.success("Attributes saved");
 			handleClose();
 		} catch (err) {
-			toast.error(getErrorMessage(err));
+			const msg = getErrorMessage(err);
+			if (/no pricing row/i.test(msg)) {
+				toast.error(
+					"No pricing row for this model yet. Open Model Settings → Force Sync (or wait for pricing sync), then save again.",
+					{ duration: 9000 },
+				);
+			} else {
+				toast.error(msg);
+			}
 		}
 	};
 
@@ -132,8 +141,12 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 				<SheetHeader className="flex flex-col items-start p-0 px-8 py-4" headerClassName="mb-0 sticky -top-4 bg-card z-10">
 					<SheetTitle>Edit Model Attributes</SheetTitle>
 					<SheetDescription>
-						Update the description and other attributes for this model. These attributes are stored on the pricing row and preserved across
-						the pricing sync.
+						Update the description and other attributes for this model. Attributes are stored on the pricing row and kept across pricing
+						sync. If save fails with &quot;no pricing row&quot;, run Force Sync under{" "}
+						<Link to="/workspace/custom-pricing" className="text-primary underline underline-offset-2">
+							Model Settings
+						</Link>
+						.
 					</SheetDescription>
 				</SheetHeader>
 

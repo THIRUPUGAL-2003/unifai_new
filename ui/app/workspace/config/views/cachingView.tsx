@@ -3,6 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ModelMultiselect } from "@/components/ui/modelMultiselect";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SecretVarInput } from "@/components/ui/secretVarInput";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProviderIconType, RenderProviderIcon } from "@/lib/constants/icons";
@@ -13,14 +14,103 @@ import {
 	useGetCoreConfigQuery,
 	useGetPluginsQuery,
 	useGetProvidersQuery,
+	useGetVectorStoreConfigQuery,
 	useUpdatePluginMutation,
+	useUpdateVectorStoreConfigMutation,
 } from "@/lib/store";
-import { CacheConfig, EditorCacheConfig, ModelProvider, ModelProviderName } from "@/lib/types/config";
+import { CacheConfig, EditorCacheConfig, ModelProvider, ModelProviderName, VectorStoreType } from "@/lib/types/config";
 import { SEMANTIC_CACHE_PLUGIN } from "@/lib/types/plugins";
+import { SecretVar } from "@/lib/types/schemas";
 import { cn } from "@/lib/utils";
 import { Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+const emptySecret = (): SecretVar => ({ value: "" });
+
+const asSecret = (raw: unknown): SecretVar => {
+	if (raw && typeof raw === "object" && ("value" in raw || "ref" in raw || "type" in raw)) {
+		const o = raw as SecretVar;
+		return { value: o.value ?? "", ref: o.ref ?? "", type: o.type };
+	}
+	if (typeof raw === "string") return { value: raw };
+	return emptySecret();
+};
+
+const secretSet = (s?: SecretVar) => Boolean(s?.value?.trim() || s?.ref?.trim());
+
+type VectorStoreFormState = {
+	enabled: boolean;
+	type: VectorStoreType;
+	scheme: string;
+	host: SecretVar;
+	port: SecretVar;
+	apiKey: SecretVar;
+	indexHost: SecretVar;
+	addr: SecretVar;
+	username: SecretVar;
+	password: SecretVar;
+};
+
+const defaultVectorForm = (): VectorStoreFormState => ({
+	enabled: true,
+	type: "qdrant",
+	scheme: "http",
+	host: emptySecret(),
+	port: { value: "6334" },
+	apiKey: emptySecret(),
+	indexHost: emptySecret(),
+	addr: emptySecret(),
+	username: emptySecret(),
+	password: emptySecret(),
+});
+
+const buildVectorStorePayload = (form: VectorStoreFormState) => {
+	switch (form.type) {
+		case "weaviate":
+			return {
+				scheme: form.scheme || "http",
+				host: form.host,
+				api_key: secretSet(form.apiKey) ? form.apiKey : undefined,
+			};
+		case "qdrant":
+			return {
+				host: form.host,
+				port: form.port,
+				api_key: secretSet(form.apiKey) ? form.apiKey : undefined,
+			};
+		case "pinecone":
+			return {
+				api_key: form.apiKey,
+				index_host: form.indexHost,
+			};
+		case "redis":
+			return {
+				addr: form.addr,
+				username: secretSet(form.username) ? form.username : undefined,
+				password: secretSet(form.password) ? form.password : undefined,
+			};
+	}
+};
+
+const validateVectorForm = (form: VectorStoreFormState): string | null => {
+	if (!form.enabled) return null;
+	switch (form.type) {
+		case "weaviate":
+			if (!secretSet(form.host)) return "Weaviate host is required (e.g. localhost:8080).";
+			return null;
+		case "qdrant":
+			if (!secretSet(form.host)) return "Qdrant host is required.";
+			return null;
+		case "pinecone":
+			if (!secretSet(form.apiKey)) return "Pinecone API key is required.";
+			if (!secretSet(form.indexHost)) return "Pinecone index host is required.";
+			return null;
+		case "redis":
+			if (!secretSet(form.addr)) return "Redis address is required (e.g. localhost:6379).";
+			return null;
+	}
+};
 
 // The local cache plugin runs in one of two modes. Direct-only is purely
 // hash-based, no embedding provider needed; perfect for exact-replay
@@ -117,8 +207,14 @@ const validateForSave = (config: EditorCacheConfig, mode: CacheMode): string | n
 };
 
 export default function CachingView() {
-	const { data: unifaiConfig, isLoading: configLoading, error: configError } = useGetCoreConfigQuery({ fromDB: true });
+	const { data: unifaiConfig, isLoading: configLoading, error: configError, refetch: refetchCoreConfig } = useGetCoreConfigQuery({
+		fromDB: true,
+	});
 	const isVectorStoreEnabled = unifaiConfig?.is_cache_connected ?? false;
+
+	const { data: vectorStoreData, isLoading: vectorStoreLoading } = useGetVectorStoreConfigQuery();
+	const [updateVectorStore, { isLoading: isSavingVectorStore }] = useUpdateVectorStoreConfigMutation();
+	const [vectorForm, setVectorForm] = useState<VectorStoreFormState>(defaultVectorForm);
 
 	// Local cache state lives on the plugin row keyed by SEMANTIC_CACHE_PLUGIN.
 	// No dedicated /local-cache-config endpoint exists — the plugins API is
@@ -139,6 +235,23 @@ export default function CachingView() {
 	const [serverCacheConfig, setServerCacheConfig] = useState<EditorCacheConfig>(defaultDirectConfig);
 	const [mode, setMode] = useState<CacheMode>("direct");
 
+	useEffect(() => {
+		if (!vectorStoreData) return;
+		const cfg = (vectorStoreData.config || {}) as Record<string, unknown>;
+		setVectorForm({
+			enabled: vectorStoreData.enabled,
+			type: vectorStoreData.type || "qdrant",
+			scheme: typeof cfg.scheme === "string" ? cfg.scheme : "http",
+			host: asSecret(cfg.host),
+			port: asSecret(cfg.port ?? "6334"),
+			apiKey: asSecret(cfg.api_key),
+			indexHost: asSecret(cfg.index_host),
+			addr: asSecret(cfg.addr),
+			username: asSecret(cfg.username),
+			password: asSecret(cfg.password),
+		});
+	}, [vectorStoreData]);
+
 	// Hydrate from the plugin row once it lands. If the plugin doesn't exist
 	// yet (first-time setup), keep the default direct-only seed so the user
 	// can start typing before any save.
@@ -156,6 +269,25 @@ export default function CachingView() {
 			toast.error(`Failed to load providers: ${getErrorMessage(providersError as any)}`);
 		}
 	}, [providersError]);
+
+	const handleSaveVectorStore = async () => {
+		const err = validateVectorForm(vectorForm);
+		if (err) {
+			toast.error(err);
+			return;
+		}
+		try {
+			const result = await updateVectorStore({
+				enabled: vectorForm.enabled,
+				type: vectorForm.type,
+				config: vectorForm.enabled ? buildVectorStorePayload(vectorForm) : {},
+			}).unwrap();
+			await refetchCoreConfig();
+			toast.success(result.connected ? "Vector store connected" : "Vector store disconnected");
+		} catch (error) {
+			toast.error(`Failed to save vector store: ${getErrorMessage(error)}`);
+		}
+	};
 
 	// Surface validation problems inline rather than only on Save click.
 	const validationError = useMemo(() => validateForSave(cacheConfig, mode), [cacheConfig, mode]);
@@ -260,7 +392,9 @@ export default function CachingView() {
 	};
 
 	const cachingActive = enabledOnServer && isVectorStoreEnabled;
-	const isLoading = configLoading || pluginsLoading;
+	const canToggleOn = isVectorStoreEnabled;
+	const canToggleOff = enabledOnServer;
+	const isLoading = configLoading || pluginsLoading || vectorStoreLoading;
 
 	return (
 		<div className="mx-auto w-full max-w-4xl space-y-6">
@@ -272,14 +406,170 @@ export default function CachingView() {
 				</p>
 			</div>
 
-			{!isLoading && !isVectorStoreEnabled && (
-				<div className="rounded-md border border-amber-800/50 bg-amber-950/20 p-4 space-y-2">
-					<p className="text-sm font-medium text-amber-200">Vector store not connected</p>
-					<p className="text-muted-foreground text-sm leading-relaxed">
-						Local Cache needs a vector store (Weaviate or Qdrant) configured in <code className="text-xs">config.json</code> under{" "}
-						<code className="text-xs">vector_store</code>, then a UnifAI restart. Until then the Enable toggle stays off — this is expected,
-						not a broken page.
-					</p>
+			{!isLoading && !vectorStoreLoading && (
+				<div className="bg-card space-y-4 rounded-md border p-4">
+					<div className="flex items-start justify-between gap-4">
+						<div>
+							<h3 className="text-sm font-semibold">Vector store connection</h3>
+							<p className="text-muted-foreground mt-1 text-xs">
+								Add host / API key here (like Model Providers). Save connects live — no manual{" "}
+								<code className="text-xs">config.json</code> edit needed. Supports Weaviate, Qdrant, Pinecone, and Redis.
+							</p>
+						</div>
+						<div className="flex items-center gap-2">
+							<Switch
+								id="vector-store-enabled"
+								checked={vectorForm.enabled}
+								onCheckedChange={(checked) => setVectorForm((f) => ({ ...f, enabled: checked }))}
+								data-testid="vector-store-enabled-switch"
+							/>
+							<Label htmlFor="vector-store-enabled" className="text-sm whitespace-nowrap">
+								Connect
+							</Label>
+						</div>
+					</div>
+
+					{isVectorStoreEnabled || vectorStoreData?.connected ? (
+						<p className="text-xs font-medium text-emerald-600">Connected — Local Cache Enable is available below.</p>
+					) : (
+						<p className="text-xs text-amber-700 dark:text-amber-200">Not connected — save a valid store to unlock Enable Caching.</p>
+					)}
+
+					<div className="grid gap-4 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Label>Store type</Label>
+							<Select
+								value={vectorForm.type}
+								onValueChange={(value: VectorStoreType) => setVectorForm((f) => ({ ...f, type: value }))}
+								disabled={!vectorForm.enabled}
+							>
+								<SelectTrigger data-testid="vector-store-type-select">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="qdrant">Qdrant</SelectItem>
+									<SelectItem value="weaviate">Weaviate</SelectItem>
+									<SelectItem value="pinecone">Pinecone</SelectItem>
+									<SelectItem value="redis">Redis</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+
+						{vectorForm.type === "weaviate" && (
+							<div className="space-y-2">
+								<Label>Scheme</Label>
+								<Select
+									value={vectorForm.scheme}
+									onValueChange={(scheme) => setVectorForm((f) => ({ ...f, scheme }))}
+									disabled={!vectorForm.enabled}
+								>
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="http">http</SelectItem>
+										<SelectItem value="https">https</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+						)}
+
+						{(vectorForm.type === "qdrant" || vectorForm.type === "weaviate") && (
+							<div className="space-y-2">
+								<Label>{vectorForm.type === "weaviate" ? "Host (host:port)" : "Host"}</Label>
+								<SecretVarInput
+									placeholder={vectorForm.type === "weaviate" ? "localhost:8080" : "localhost"}
+									value={vectorForm.host}
+									onChange={(host) => setVectorForm((f) => ({ ...f, host }))}
+									disabled={!vectorForm.enabled}
+									data-testid="vector-store-host-input"
+								/>
+							</div>
+						)}
+
+						{vectorForm.type === "qdrant" && (
+							<div className="space-y-2">
+								<Label>gRPC port</Label>
+								<SecretVarInput
+									placeholder="6334"
+									value={vectorForm.port}
+									onChange={(port) => setVectorForm((f) => ({ ...f, port }))}
+									disabled={!vectorForm.enabled}
+								/>
+							</div>
+						)}
+
+						{(vectorForm.type === "qdrant" || vectorForm.type === "weaviate" || vectorForm.type === "pinecone") && (
+							<div className="space-y-2">
+								<Label>API key {vectorForm.type !== "pinecone" ? "(optional)" : ""}</Label>
+								<SecretVarInput
+									placeholder="API key or env.MY_KEY"
+									type="password"
+									value={vectorForm.apiKey}
+									onChange={(apiKey) => setVectorForm((f) => ({ ...f, apiKey }))}
+									disabled={!vectorForm.enabled}
+									redactNonEnvValue
+									data-testid="vector-store-api-key-input"
+								/>
+							</div>
+						)}
+
+						{vectorForm.type === "pinecone" && (
+							<div className="space-y-2">
+								<Label>Index host</Label>
+								<SecretVarInput
+									placeholder="xxxx.svc.pinecone.io"
+									value={vectorForm.indexHost}
+									onChange={(indexHost) => setVectorForm((f) => ({ ...f, indexHost }))}
+									disabled={!vectorForm.enabled}
+								/>
+							</div>
+						)}
+
+						{vectorForm.type === "redis" && (
+							<>
+								<div className="space-y-2">
+									<Label>Address (host:port)</Label>
+									<SecretVarInput
+										placeholder="localhost:6379"
+										value={vectorForm.addr}
+										onChange={(addr) => setVectorForm((f) => ({ ...f, addr }))}
+										disabled={!vectorForm.enabled}
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label>Username (optional)</Label>
+									<SecretVarInput
+										value={vectorForm.username}
+										onChange={(username) => setVectorForm((f) => ({ ...f, username }))}
+										disabled={!vectorForm.enabled}
+									/>
+								</div>
+								<div className="space-y-2">
+									<Label>Password (optional)</Label>
+									<SecretVarInput
+										type="password"
+										value={vectorForm.password}
+										onChange={(password) => setVectorForm((f) => ({ ...f, password }))}
+										disabled={!vectorForm.enabled}
+										redactNonEnvValue
+									/>
+								</div>
+							</>
+						)}
+					</div>
+
+					<div className="flex justify-end">
+						<Button
+							type="button"
+							onClick={() => void handleSaveVectorStore()}
+							disabled={isSavingVectorStore}
+							data-testid="vector-store-save-btn"
+						>
+							{isSavingVectorStore ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+							Save &amp; connect
+						</Button>
+					</div>
 				</div>
 			)}
 
@@ -317,9 +607,14 @@ export default function CachingView() {
 							id="enable-caching"
 							data-testid="caching-enable-switch"
 							size="md"
-							checked={cachingActive}
-							disabled={!isVectorStoreEnabled || isSaving}
-							onCheckedChange={handleToggle}
+							checked={enabledOnServer}
+							disabled={isSaving || (enabledOnServer ? !canToggleOff : !canToggleOn)}
+							onCheckedChange={(checked) => {
+								if (checked && !cacheConfig.default_cache_key?.trim()) {
+									toast.message("Set a Default Cache Key (or send x-uf-cache-key on requests), otherwise cache hits stay at zero.");
+								}
+								void handleToggle(checked);
+							}}
 						/>
 					</div>
 
@@ -329,7 +624,13 @@ export default function CachingView() {
 						</div>
 					) : (
 						<>
-							<div className={cn("space-y-4", !cachingActive && "pointer-events-none opacity-50")} aria-disabled={!cachingActive}>
+							{!cachingActive && (
+								<p className="text-muted-foreground text-xs">
+									Configure settings below, then enable caching when the vector store is connected
+									{enabledOnServer && !isVectorStoreEnabled ? " (plugin is on but store is disconnected — disable or reconnect)." : "."}
+								</p>
+							)}
+							<div className="space-y-4">
 								{/* Mode picker. Direct-only is first-class. */}
 								<div className="space-y-2">
 									<Label className="text-sm font-medium">Cache Mode</Label>
@@ -557,6 +858,12 @@ export default function CachingView() {
 												Fallback partition key used when a request doesn&apos;t set <b>x-uf-cache-key</b>. Cache keys isolate entries: same
 												key ↔ shared cache pool. Leave blank to <b>disable caching</b> for any request that doesn&apos;t send the header.
 											</p>
+											{!cacheConfig.default_cache_key?.trim() && (
+												<p className="text-amber-800 dark:text-amber-200 text-xs font-medium">
+													No default key set — without <code className="text-[11px]">x-uf-cache-key</code> on the request, caching will not
+													run.
+												</p>
+											)}
 										</div>
 									</div>
 								</div>

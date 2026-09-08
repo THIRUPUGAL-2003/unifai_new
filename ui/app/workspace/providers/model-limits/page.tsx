@@ -1,5 +1,2 @@
-import ModelLimitsView from "@/app/workspace/model-limits/views/modelLimitsView";
-
-export default function ProvidersModelLimitsPage() {
-	return <ModelLimitsView />;
-}
+/** Legacy alias — redirects to canonical Budgets & Limits page. */
+export { default } from "@/app/workspace/model-limits/page";

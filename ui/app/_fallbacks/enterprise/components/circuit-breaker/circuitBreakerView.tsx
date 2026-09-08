@@ -176,7 +176,8 @@ export default function CircuitBreakerView() {
 						Circuit Breaker
 					</h1>
 					<p className="text-muted-foreground mt-1 text-sm">
-						Trip a primary provider+model to a fallback when a response header signal matches.
+						Trip a primary provider+model to a fallback when a response header signal matches. This is runtime failover — for CEL-based
+						selection use Routing Rules instead.
 					</p>
 				</div>
 				<Button
@@ -364,10 +365,14 @@ export default function CircuitBreakerView() {
 						<div className="space-y-1">
 							<Label>Header value (optional)</Label>
 							<Input
-								placeholder="Leave empty to trip when the header exists"
+								placeholder="Exact value required when set — empty means any non-empty header value"
 								value={form.condition.signals[0]?.header_value || ""}
 								onChange={(e) => updatePrimarySignal({ header_value: e.target.value })}
 							/>
+							<p className="text-muted-foreground text-xs">
+								Runtime trips only when the named response header is present with a non-empty value. If you set a value, it must match
+								exactly. For CEL-based model selection use Routing Rules instead of Circuit Breaker.
+							</p>
 						</div>
 						<div className="space-y-1">
 							<Label>Default cooldown</Label>

@@ -29,6 +29,9 @@ export default function ModelLimitsView() {
 		data: modelConfigsData,
 		error: modelConfigsError,
 		isLoading: isModelConfigsLoading,
+		isError: isModelConfigsError,
+		isFetching: isModelConfigsFetching,
+		refetch,
 	} = useGetModelConfigsQuery(
 		{
 			limit: PAGE_SIZE,
@@ -49,9 +52,9 @@ export default function ModelLimitsView() {
 	useEffect(() => {
 		if (!modelConfigsData || offset < totalCount) return;
 		setOffset(totalCount === 0 ? 0 : Math.floor((totalCount - 1) / PAGE_SIZE) * PAGE_SIZE);
-	}, [totalCount, offset]);
+	}, [totalCount, offset, modelConfigsData]);
 
-	// Handle query errors
+	// Handle query errors (toast once per error identity)
 	useEffect(() => {
 		if (modelConfigsError) {
 			toast.error(`Failed to load model configs: ${getErrorMessage(modelConfigsError)}`);
@@ -73,7 +76,10 @@ export default function ModelLimitsView() {
 			offset={offset}
 			limit={PAGE_SIZE}
 			onOffsetChange={setOffset}
-			isLoading={isModelConfigsLoading}
+			isLoading={isModelConfigsLoading || (!modelConfigsData && isModelConfigsFetching)}
+			isError={isModelConfigsError}
+			errorMessage={modelConfigsError ? getErrorMessage(modelConfigsError) : undefined}
+			onRetry={() => refetch()}
 		/>
 	);
 }

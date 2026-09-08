@@ -883,7 +883,20 @@ export default function VirtualKeySheet({ virtualKey, teams, customers, defaultT
 					<SheetDescription>
 						{isEditing
 							? "Update the virtual key configuration and permissions."
-							: "Create a new virtual key with specific permissions, budgets, and rate limits."}
+							: "Create a new virtual key with specific permissions, budgets, and rate limits."}{" "}
+						{isEditing && virtualKey?.id ? (
+							<>
+								Custom cost rates:{" "}
+								<a
+									href={`/workspace/custom-pricing/overrides?scope_kind=virtual_key&virtual_key_id=${encodeURIComponent(virtualKey.id)}`}
+									className="text-primary underline underline-offset-2"
+									data-testid="vk-pricing-overrides-link"
+								>
+									Pricing Overrides for this key
+								</a>
+								.
+							</>
+						) : null}
 					</SheetDescription>
 				</SheetHeader>
 

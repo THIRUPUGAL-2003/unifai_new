@@ -1,8 +1,5 @@
 import { Button } from "@/components/ui/button";
 import { Wallet } from "lucide-react";
-import { ArrowUpRight } from "lucide-react";
-
-const MODEL_LIMITS_DOCS_URL = "";
 
 interface ModelLimitsEmptyStateProps {
 	onAddClick: () => void;
@@ -18,7 +15,7 @@ export function ModelLimitsEmptyState({ onAddClick, canCreate = true }: ModelLim
 			<div className="flex flex-col gap-1">
 				<h1 className="text-muted-foreground text-xl font-medium">Budgets and rate limits at the model level</h1>
 				<div className="text-muted-foreground mx-auto mt-2 max-w-[600px] text-sm font-normal">
-					Set spending caps and rate limits per model. For provider-specific limits, configure each provider in Model providers.
+					Set spending caps and rate limits per model. For provider-wide limits, open a provider under Model Providers.
 				</div>
 				<div className="mx-auto mt-6 flex flex-row flex-wrap items-center justify-center gap-2">
 					<Button

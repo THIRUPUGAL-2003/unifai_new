@@ -19,7 +19,7 @@ export default function ModelCatalogView() {
 						Overview
 					</TabsTrigger>
 					<TabsTrigger value="attributes" data-testid="model-catalog-tab-attributes">
-						Models
+						Attributes
 					</TabsTrigger>
 				</TabsList>
 				<TabsContent value="overview" className="min-h-0 overflow-auto">

@@ -1,13 +1,13 @@
 import { Button } from "@/components/ui/button";
-import { ArrowUpRight, SlidersHorizontal } from "lucide-react";
-
-const PRICING_OVERRIDES_DOCS_URL = "";
+import { Link } from "@tanstack/react-router";
+import { SlidersHorizontal } from "lucide-react";
 
 interface PricingOverridesEmptyStateProps {
 	onCreateClick: () => void;
+	canCreate?: boolean;
 }
 
-export function PricingOverridesEmptyState({ onCreateClick }: PricingOverridesEmptyStateProps) {
+export function PricingOverridesEmptyState({ onCreateClick, canCreate = true }: PricingOverridesEmptyStateProps) {
 	return (
 		<div
 			className="flex min-h-[80vh] w-full flex-col items-center justify-center gap-4 py-16 text-center"
@@ -19,20 +19,20 @@ export function PricingOverridesEmptyState({ onCreateClick }: PricingOverridesEm
 			<div className="flex flex-col gap-1">
 				<h1 className="text-muted-foreground text-xl font-medium">Pricing overrides customize cost tracking per scope</h1>
 				<div className="text-muted-foreground mx-auto mt-2 max-w-[600px] text-sm font-normal">
-					Define custom per-token prices for specific providers, keys, or virtual keys to accurately reflect your negotiated rates.
+					Define custom per-token prices for specific providers, keys, or virtual keys to accurately reflect your negotiated rates. Base
+					catalog prices still come from{" "}
+					<Link to="/workspace/custom-pricing" className="text-primary underline underline-offset-2">
+						Model Settings
+					</Link>{" "}
+					sync.
 				</div>
 				<div className="mx-auto mt-6 flex flex-row flex-wrap items-center justify-center gap-2">
 					<Button
-						variant="outline"
-						aria-label="Read more about pricing overrides (opens in new tab)"
-						data-testid="pricing-overrides-button-read-more"
-						onClick={() => {
-							window.open(`${PRICING_OVERRIDES_DOCS_URL}?utm_source=bfd`, "_blank", "noopener,noreferrer");
-						}}
+						aria-label="Create your first pricing override"
+						data-testid="pricing-override-create-btn"
+						onClick={onCreateClick}
+						disabled={!canCreate}
 					>
-						Read more <ArrowUpRight className="text-muted-foreground h-3 w-3" />
-					</Button>
-					<Button aria-label="Create your first pricing override" data-testid="pricing-override-create-btn" onClick={onCreateClick}>
 						Create Override
 					</Button>
 				</div>

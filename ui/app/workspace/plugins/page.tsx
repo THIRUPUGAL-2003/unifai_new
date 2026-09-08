@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { setSelectedPlugin, useAppDispatch, useAppSelector, useGetPluginsQuery } from "@/lib/store";
+import { getErrorMessage, setSelectedPlugin, useAppDispatch, useAppSelector, useGetPluginsQuery } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { ListOrdered, PlusIcon, Puzzle } from "lucide-react";
@@ -14,7 +14,7 @@ export default function PluginsPage() {
 	const dispatch = useAppDispatch();
 	const hasCreatePluginAccess = useRbac(RbacResource.Plugins, RbacOperation.Create);
 	const hasUpdatePluginAccess = useRbac(RbacResource.Plugins, RbacOperation.Update);
-	const { data: plugins, isLoading } = useGetPluginsQuery();
+	const { data: plugins, isLoading, isError, error, refetch } = useGetPluginsQuery();
 	const selectedPlugin = useAppSelector((state) => state.plugin.selectedPlugin);
 	const [selectedPluginId, setSelectedPluginId] = useQueryState("plugin");
 	const customPlugins = useMemo(() => plugins?.filter((plugin) => plugin.isCustom), [plugins]);
@@ -45,6 +45,18 @@ export default function PluginsPage() {
 		}
 		setSelectedPluginId(selectedPlugin?.name ?? "");
 	}, [customPlugins]);
+
+	if (isError && !isLoading) {
+		return (
+			<div className="mx-auto flex min-h-[50vh] w-full max-w-7xl flex-col items-center justify-center gap-3 text-center">
+				<p className="text-destructive text-sm font-medium">Failed to load plugins</p>
+				{error ? <p className="text-muted-foreground max-w-md text-xs">{getErrorMessage(error)}</p> : null}
+				<Button type="button" variant="outline" size="sm" onClick={() => refetch()} data-testid="plugins-retry-btn">
+					Retry
+				</Button>
+			</div>
+		);
+	}
 
 	if (customPlugins?.length === 0 && !isLoading) {
 		return (

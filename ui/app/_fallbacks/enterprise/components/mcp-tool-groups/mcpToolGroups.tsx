@@ -218,7 +218,9 @@ export default function MCPToolGroups() {
 									<Badge variant="secondary">{group.tools?.length || 0} tool pattern(s)</Badge>
 								</TableCell>
 								<TableCell>
-									<Badge variant="outline">{group.virtual_key_ids?.length ? `${group.virtual_key_ids.length} key(s)` : "All keys"}</Badge>
+									<Badge variant="outline">
+										{group.virtual_key_ids?.length ? `${group.virtual_key_ids.length} key(s)` : "No keys (restricted)"}
+									</Badge>
 								</TableCell>
 								<TableCell>
 									<Switch checked={group.enabled} onCheckedChange={() => void toggle(group)} />

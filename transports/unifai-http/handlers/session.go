@@ -38,6 +38,8 @@ func (h *SessionHandler) RegisterRoutes(r *router.Router, middlewares ...schemas
 	r.GET("/api/session/is-auth-enabled", lib.ChainMiddlewares(h.isAuthEnabled, middlewares...))
 	r.POST("/api/session/ws-ticket", lib.ChainMiddlewares(h.issueWSTicket, middlewares...))
 	r.POST("/api/session/register", lib.ChainMiddlewares(h.register, middlewares...))
+	r.POST("/api/session/forgot-password", lib.ChainMiddlewares(h.forgotPassword, middlewares...))
+	r.POST("/api/session/reset-password", lib.ChainMiddlewares(h.resetPassword, middlewares...))
 	r.GET("/api/session/users", lib.ChainMiddlewares(h.getUsers, middlewares...))
 	r.POST("/api/session/users", lib.ChainMiddlewares(h.createUser, middlewares...))
 	r.PUT("/api/session/users/{id}", lib.ChainMiddlewares(h.updateUser, middlewares...))
@@ -150,9 +152,20 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	payload.Username = strings.TrimSpace(payload.Username)
+	if locked, retryAfter, err := checkLoginLockout(h.configStore, ctx, payload.Username); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to check login lockout")
+		return
+	} else if locked {
+		mins := int(retryAfter.Minutes()) + 1
+		SendError(ctx, fasthttp.StatusTooManyRequests, fmt.Sprintf("Too many failed login attempts. Try again in about %d minutes", mins))
+		return
+	}
+
 	// Verify credentials
 	sessionRole := "admin"
 	sessionUsername := payload.Username
+	notifyEmail := ""
 
 	dbUser, err := h.configStore.GetUserByUsername(ctx, payload.Username)
 	if err == nil && dbUser != nil {
@@ -169,21 +182,39 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 		}
 		compare, err := encrypt.CompareHash(dbUser.Password, payload.Password)
 		if err != nil || !compare {
+			if locked, retryAfter := recordLoginFailure(h.configStore, ctx, payload.Username); locked {
+				mins := int(retryAfter.Minutes()) + 1
+				SendError(ctx, fasthttp.StatusTooManyRequests, fmt.Sprintf("Too many failed login attempts. Account locked for about %d minutes", mins))
+				return
+			}
 			SendError(ctx, fasthttp.StatusUnauthorized, "Invalid username or password")
 			return
 		}
 		sessionRole = dbUser.Role
+		notifyEmail = dbUser.Email
 	} else {
 		if payload.Username != authConfig.AdminUserName.GetValue() {
+			if locked, retryAfter := recordLoginFailure(h.configStore, ctx, payload.Username); locked {
+				mins := int(retryAfter.Minutes()) + 1
+				SendError(ctx, fasthttp.StatusTooManyRequests, fmt.Sprintf("Too many failed login attempts. Account locked for about %d minutes", mins))
+				return
+			}
 			SendError(ctx, fasthttp.StatusUnauthorized, "Invalid username or password")
 			return
 		}
 		compare, err := encrypt.CompareHash(authConfig.AdminPassword.GetValue(), payload.Password)
 		if err != nil || !compare {
+			if locked, retryAfter := recordLoginFailure(h.configStore, ctx, payload.Username); locked {
+				mins := int(retryAfter.Minutes()) + 1
+				SendError(ctx, fasthttp.StatusTooManyRequests, fmt.Sprintf("Too many failed login attempts. Account locked for about %d minutes", mins))
+				return
+			}
 			SendError(ctx, fasthttp.StatusUnauthorized, "Invalid username or password")
 			return
 		}
 	}
+
+	clearLoginFailures(h.configStore, ctx, payload.Username)
 
 	// Creating a new session
 	token := uuid.New().String()
@@ -215,6 +246,11 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 		cookie.SetSecure(true)
 	}
 	ctx.Response.Header.SetCookie(cookie)
+
+	if smtpRow, _ := h.configStore.GetSMTPConfig(ctx); smtpRow != nil && smtpRow.Enabled && smtpRow.NotifyOnLogin && notifyEmail != "" {
+		_ = sendAuthEmail(h.configStore, ctx, notifyEmail, "UnifAI login notice",
+			fmt.Sprintf("Hello %s,\n\nYour UnifAI account just signed in successfully.\n\nIf this was not you, reset your password immediately.\n", sessionUsername))
+	}
 
 	SendJSON(ctx, map[string]any{
 		"message": "Login successful",
@@ -406,6 +442,10 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Username and password are required")
 		return
 	}
+	if failures := getPasswordPolicyFailures(payload.Password); len(failures) > 0 {
+		SendError(ctx, fasthttp.StatusBadRequest, "Password must include "+strings.Join(failures, ", "))
+		return
+	}
 	if payload.Role != "admin" && payload.Role != "user" {
 		payload.Role = "user"
 	}
@@ -441,6 +481,21 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 			return
 		}
 		existing.Password = ""
+		if payload.Email != "" || existing.Email != "" {
+			emailTo := payload.Email
+			if emailTo == "" {
+				emailTo = existing.Email
+			}
+			if smtpRow, _ := h.configStore.GetSMTPConfig(ctx); smtpRow != nil && smtpRow.Enabled && smtpRow.NotifyOnUserCreate {
+				body := fmt.Sprintf(
+					"Hello %s,\n\nYour UnifAI account is ready.\n\nUsername: %s\nTemporary password: %s\n\nSign in, then use Forgot password if you need to reset it.\n",
+					payload.Username, payload.Username, payload.Password,
+				)
+				if err := sendAuthEmail(h.configStore, ctx, emailTo, "Your UnifAI account", body); err != nil {
+					logger.Warn("user updated but welcome email failed username=%s: %v", payload.Username, err)
+				}
+			}
+		}
 		SendJSON(ctx, existing)
 		return
 	}
@@ -476,7 +531,144 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 	}
 
 	user.Password = ""
+	if payload.Email != "" {
+		if smtpRow, _ := h.configStore.GetSMTPConfig(ctx); smtpRow != nil && smtpRow.Enabled && smtpRow.NotifyOnUserCreate {
+			body := fmt.Sprintf(
+				"Hello %s,\n\nYour UnifAI account was created.\n\nUsername: %s\nTemporary password: %s\n\nSign in, then change your password (Forgot password → email OTP) if needed.\n",
+				payload.Username, payload.Username, payload.Password,
+			)
+			if err := sendAuthEmail(h.configStore, ctx, payload.Email, "Your UnifAI account", body); err != nil {
+				logger.Warn("user created but welcome email failed username=%s: %v", payload.Username, err)
+			}
+		}
+	}
 	SendJSON(ctx, user)
+}
+
+// forgotPassword emails a 6-digit OTP when the account has an email on file.
+func (h *SessionHandler) forgotPassword(ctx *fasthttp.RequestCtx) {
+	if h.configStore == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store not available")
+		return
+	}
+	var payload struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+	}
+	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	payload.Username = strings.TrimSpace(payload.Username)
+	payload.Email = strings.TrimSpace(payload.Email)
+
+	// Always return the same message to avoid account enumeration.
+	generic := map[string]any{"message": "If an account matches, a one-time code was sent by email"}
+
+	var user *tables.TableUser
+	if payload.Username != "" {
+		if u, err := h.configStore.GetUserByUsername(ctx, payload.Username); err == nil {
+			user = u
+		}
+	}
+	if user == nil && payload.Email != "" {
+		if u, err := h.configStore.GetUserByEmail(ctx, payload.Email); err == nil {
+			user = u
+		}
+	}
+	if user == nil || !user.IsApproved() || strings.TrimSpace(user.Email) == "" {
+		SendJSON(ctx, generic)
+		return
+	}
+
+	otp, err := generateOTP6()
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to generate OTP")
+		return
+	}
+	hash, err := encrypt.Hash(otp)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to store OTP")
+		return
+	}
+	row := &tables.TablePasswordResetOTP{
+		Username:  user.Username,
+		Email:     user.Email,
+		OTPHash:   hash,
+		ExpiresAt: time.Now().Add(passwordResetOTPTTL),
+		CreatedAt: time.Now(),
+	}
+	if err := h.configStore.CreatePasswordResetOTP(ctx, row); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to store OTP")
+		return
+	}
+	body := fmt.Sprintf(
+		"Hello %s,\n\nYour UnifAI password reset code is: %s\n\nIt expires in %d minutes. If you did not request this, ignore this email.\n",
+		user.Username, otp, int(passwordResetOTPTTL.Minutes()),
+	)
+	if err := sendAuthEmail(h.configStore, ctx, user.Email, "UnifAI password reset code", body); err != nil {
+		logger.Warn("password reset OTP email failed username=%s: %v", user.Username, err)
+		SendError(ctx, fasthttp.StatusBadRequest, "Could not send email. Ask an admin to configure SMTP in Settings → Security.")
+		return
+	}
+	SendJSON(ctx, generic)
+}
+
+// resetPassword verifies OTP and sets a new password.
+func (h *SessionHandler) resetPassword(ctx *fasthttp.RequestCtx) {
+	if h.configStore == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store not available")
+		return
+	}
+	var payload struct {
+		Username    string `json:"username"`
+		OTP         string `json:"otp"`
+		NewPassword string `json:"new_password"`
+	}
+	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	payload.Username = strings.TrimSpace(payload.Username)
+	payload.OTP = strings.TrimSpace(payload.OTP)
+	if payload.Username == "" || payload.OTP == "" || payload.NewPassword == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "Username, OTP, and new password are required")
+		return
+	}
+	if failures := getPasswordPolicyFailures(payload.NewPassword); len(failures) > 0 {
+		SendError(ctx, fasthttp.StatusBadRequest, "Password must include "+strings.Join(failures, ", "))
+		return
+	}
+
+	user, err := h.configStore.GetUserByUsername(ctx, payload.Username)
+	if err != nil || user == nil || !user.IsApproved() {
+		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid OTP or username")
+		return
+	}
+	otpRow, err := h.configStore.GetLatestPasswordResetOTP(ctx, user.Username)
+	if err != nil || otpRow == nil {
+		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid or expired OTP")
+		return
+	}
+	ok, err := encrypt.CompareHash(otpRow.OTPHash, payload.OTP)
+	if err != nil || !ok {
+		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid or expired OTP")
+		return
+	}
+	hashed, err := encrypt.Hash(payload.NewPassword)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to hash password")
+		return
+	}
+	user.Password = hashed
+	user.UpdatedAt = time.Now()
+	if err := h.configStore.UpdateUser(ctx, user); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to update password")
+		return
+	}
+	_ = h.configStore.MarkPasswordResetOTPUsed(ctx, otpRow.ID)
+	clearLoginFailures(h.configStore, ctx, user.Username)
+	SendJSON(ctx, map[string]any{"message": "Password updated. You can sign in now."})
 }
 
 // updateUser handles PUT /api/session/users/{id} - Update user (Admin only)
@@ -522,6 +714,10 @@ func (h *SessionHandler) updateUser(ctx *fasthttp.RequestCtx) {
 		existingUser.Status = *payload.Status
 	}
 	if payload.Password != "" {
+		if failures := getPasswordPolicyFailures(payload.Password); len(failures) > 0 {
+			SendError(ctx, fasthttp.StatusBadRequest, "Password must include "+strings.Join(failures, ", "))
+			return
+		}
 		hashedPassword, err := encrypt.Hash(payload.Password)
 		if err != nil {
 			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to hash password")
@@ -594,8 +790,8 @@ func (h *SessionHandler) register(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Username and password are required")
 		return
 	}
-	if len(payload.Password) < 8 {
-		SendError(ctx, fasthttp.StatusBadRequest, "Password must be at least 8 characters long")
+	if failures := getPasswordPolicyFailures(payload.Password); len(failures) > 0 {
+		SendError(ctx, fasthttp.StatusBadRequest, "Password must include "+strings.Join(failures, ", "))
 		return
 	}
 	if payload.Role != "admin" && payload.Role != "user" {

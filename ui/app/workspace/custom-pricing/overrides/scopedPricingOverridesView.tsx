@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdownMenu";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PIN_SHADOW_RIGHT } from "@/components/table/columnPinning";
 import { useDebouncedValue } from "@/hooks/useDebounce";
@@ -26,7 +27,8 @@ import {
 } from "@/lib/store";
 import { useGetAllKeysQuery } from "@/lib/store/apis/providersApi";
 import { PricingOverride, PricingOverrideScopeKind } from "@/lib/types/governance";
-import { useLocation } from "@tanstack/react-router";
+import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
+import { Link, useLocation } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Edit, MoreHorizontal, Plus, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -37,10 +39,14 @@ function PricingOverrideActionsMenu({
 	row,
 	onEdit,
 	onDelete,
+	canUpdate = true,
+	canDelete = true,
 }: {
 	row: PricingOverride;
 	onEdit: (row: PricingOverride) => void;
 	onDelete: (row: PricingOverride) => void;
+	canUpdate?: boolean;
+	canDelete?: boolean;
 }) {
 	const [isOpen, setIsOpen] = useState(false);
 
@@ -61,6 +67,7 @@ function PricingOverrideActionsMenu({
 				<DropdownMenuItem
 					data-testid={`pricing-override-edit-btn-${row.id}`}
 					className="cursor-pointer"
+					disabled={!canUpdate}
 					onSelect={(e) => {
 						e.preventDefault();
 						onEdit(row);
@@ -74,6 +81,7 @@ function PricingOverrideActionsMenu({
 					data-testid={`pricing-override-delete-btn-${row.id}`}
 					variant="destructive"
 					className="cursor-pointer"
+					disabled={!canDelete}
 					onSelect={(e) => {
 						e.preventDefault();
 						onDelete(row);
@@ -105,12 +113,19 @@ function parseScopeKind(value: string | null): ScopeFilter {
 }
 
 // Returns the top-level scope label: "Global" or the virtual key name.
-function scopeLabel(override: PricingOverride, _virtualKeyMap: Map<string, string>): string {
+function scopeLabel(override: PricingOverride, virtualKeyMap: Map<string, string>): string {
 	const scopeKind = resolveScopeKind(override);
 	if (override.virtual_key_id && scopeKind.startsWith("virtual_key")) {
-		return "Virtual Key";
+		return virtualKeyMap.get(override.virtual_key_id) || "Virtual Key";
 	}
-	return "Global";
+	switch (scopeKind) {
+		case "provider":
+			return "Provider";
+		case "provider_key":
+			return "Provider Key";
+		default:
+			return "Global";
+	}
 }
 
 // Returns the key label for the override, or "-" when no specific key is scoped.
@@ -165,6 +180,9 @@ const PAGE_SIZE = 25;
 export default function ScopedPricingOverridesView() {
 	const location = useLocation();
 	const searchParams = useMemo(() => new URLSearchParams(location.searchStr), [location.searchStr]);
+	const canUpdate = useRbac(RbacResource.Settings, RbacOperation.Update);
+	const canCreate = useRbac(RbacResource.Settings, RbacOperation.Create) || canUpdate;
+	const canDelete = useRbac(RbacResource.Settings, RbacOperation.Delete) || canUpdate;
 
 	const [scopeKind, setScopeKind] = useState<ScopeFilter>(() => parseScopeKind(searchParams.get("scope_kind")));
 	const [virtualKeyID, setVirtualKeyID] = useState(() => (searchParams.get("virtual_key_id") || "").trim());
@@ -200,7 +218,7 @@ export default function ScopedPricingOverridesView() {
 		[scopeKind, virtualKeyID, providerID, providerKeyID, offset, debouncedSearch],
 	);
 
-	const { data, isLoading, error } = useGetPricingOverridesQuery(queryArgs);
+	const { data, isLoading, error, refetch, isError } = useGetPricingOverridesQuery(queryArgs);
 
 	// Snap offset back when total shrinks past current page
 	const totalCount = data?.total_count ?? 0;
@@ -281,10 +299,22 @@ export default function ScopedPricingOverridesView() {
 
 	const hasActiveFilters = debouncedSearch || scopeKind !== "all" || virtualKeyID || providerID || providerKeyID;
 
+	if (isError && !isLoading) {
+		return (
+			<div className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+				<p className="text-destructive text-sm font-medium">Failed to load pricing overrides</p>
+				{error ? <p className="text-muted-foreground max-w-md text-xs">{getErrorMessage(error)}</p> : null}
+				<Button type="button" variant="outline" size="sm" onClick={() => refetch()} data-testid="pricing-overrides-retry-btn">
+					Retry
+				</Button>
+			</div>
+		);
+	}
+
 	if (!isLoading && !error && totalCount === 0 && !hasActiveFilters) {
 		return (
 			<>
-				<PricingOverridesEmptyState onCreateClick={openCreateDrawer} />
+				<PricingOverridesEmptyState onCreateClick={openCreateDrawer} canCreate={canCreate} />
 				<PricingOverrideSheet
 					open={isDrawerOpen}
 					onOpenChange={setIsDrawerOpen}
@@ -301,33 +331,78 @@ export default function ScopedPricingOverridesView() {
 				<div>
 					<h2 className="text-lg font-semibold tracking-tight">Pricing Overrides</h2>
 					<p className="text-muted-foreground text-sm">
-						Set custom rates for any model across global or virtual key scopes, optionally narrowed to a specific provider or key
+						Custom rates by global / provider / virtual key scope. Base catalog prices come from{" "}
+						<Link to="/workspace/custom-pricing" className="text-primary underline underline-offset-2">
+							Model Settings
+						</Link>{" "}
+						sync; overrides apply at cost calculation time.
 					</p>
 				</div>
-				<Button data-testid="pricing-override-create-btn" onClick={openCreateDrawer} className="gap-2">
+				<Button data-testid="pricing-override-create-btn" onClick={openCreateDrawer} className="gap-2" disabled={!canCreate}>
 					<Plus className="h-4 w-4" />
 					<span className="hidden sm:inline">New Override</span>
 				</Button>
 			</div>
 
-			{/* Search */}
-			<div className="relative mb-4 max-w-sm">
-				<Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-				<Input
-					aria-label="Search pricing overrides by name"
-					placeholder="Search by name..."
-					value={search}
-					onChange={(e) => setSearch(e.target.value)}
-					className="pl-9"
-					data-testid="pricing-overrides-search-input"
-				/>
+			{/* Search + scope filters */}
+			<div className="mb-4 flex flex-wrap items-center gap-3">
+				<div className="relative min-w-[220px] flex-1">
+					<Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+					<Input
+						aria-label="Search pricing overrides by name"
+						placeholder="Search by name..."
+						value={search}
+						onChange={(e) => setSearch(e.target.value)}
+						className="pl-9"
+						data-testid="pricing-overrides-search-input"
+					/>
+				</div>
+				<Select
+					value={scopeKind}
+					onValueChange={(v) => {
+						const next = parseScopeKind(v);
+						setScopeKind(next);
+						if (!next.startsWith("virtual_key")) setVirtualKeyID("");
+					}}
+				>
+					<SelectTrigger className="w-[200px]" data-testid="pricing-overrides-filter-scope">
+						<SelectValue placeholder="Scope" />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectItem value="all">All scopes</SelectItem>
+						<SelectItem value="global">Global</SelectItem>
+						<SelectItem value="provider">Provider</SelectItem>
+						<SelectItem value="provider_key">Provider Key</SelectItem>
+						<SelectItem value="virtual_key">Virtual Key</SelectItem>
+						<SelectItem value="virtual_key_provider">VK + Provider</SelectItem>
+						<SelectItem value="virtual_key_provider_key">VK + Provider Key</SelectItem>
+					</SelectContent>
+				</Select>
+				{scopeKind.startsWith("virtual_key") ? (
+					<Select
+						value={virtualKeyID || "all"}
+						onValueChange={(v) => {
+							setVirtualKeyID(v === "all" ? "" : v);
+						}}
+					>
+						<SelectTrigger className="w-[200px]" data-testid="pricing-overrides-filter-vk">
+							<SelectValue placeholder="Virtual key" />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="all">All virtual keys</SelectItem>
+							{virtualKeys.map((vk) => (
+								<SelectItem key={vk.id} value={vk.id}>
+									{vk.name}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				) : null}
 			</div>
 
 			<div className="mb-2 overflow-hidden rounded-sm border">
 				{isLoading ? (
 					<div className="p-4 text-sm">Loading overrides...</div>
-				) : error ? (
-					<div className="p-4 text-sm text-red-500">Failed to load pricing overrides. Please try refreshing the page.</div>
 				) : (
 					<Table containerClassName="h-full overflow-auto">
 						<TableHeader className="bg-muted sticky top-0 z-10">
@@ -351,7 +426,12 @@ export default function ScopedPricingOverridesView() {
 								</TableRow>
 							) : (
 								rows.map((row) => (
-									<TableRow key={row.id} className="group hover:bg-muted/50 cursor-pointer transition-colors">
+									<TableRow
+										key={row.id}
+										className="group hover:bg-muted/50 cursor-pointer transition-colors"
+										onClick={() => canUpdate && openEditDrawer(row)}
+										data-testid={`pricing-override-row-${row.id}`}
+									>
 										<TableCell>{row.name || "-"}</TableCell>
 										<TableCell>
 											<Badge variant="secondary">{scopeLabel(row, virtualKeyMap)}</Badge>
@@ -375,7 +455,13 @@ export default function ScopedPricingOverridesView() {
 											onClick={(e) => e.stopPropagation()}
 										>
 											<div className="flex items-center justify-center">
-												<PricingOverrideActionsMenu row={row} onEdit={openEditDrawer} onDelete={setDeleteTarget} />
+												<PricingOverrideActionsMenu
+													row={row}
+													onEdit={openEditDrawer}
+													onDelete={setDeleteTarget}
+													canUpdate={canUpdate}
+													canDelete={canDelete}
+												/>
 											</div>
 										</TableCell>
 									</TableRow>

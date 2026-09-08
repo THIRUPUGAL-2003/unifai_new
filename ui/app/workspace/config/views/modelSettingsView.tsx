@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { getErrorMessage, useForcePricingSyncMutation, useGetCoreConfigQuery, useUpdateCoreConfigMutation } from "@/lib/store";
 import { DefaultCoreConfig } from "@/lib/types/config";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
@@ -215,19 +216,28 @@ export default function ModelSettingsView() {
 					{errors.routing_chain_max_depth && <p className="text-destructive text-sm">{errors.routing_chain_max_depth.message}</p>}
 				</div>
 
-				<div className="flex justify-end gap-2 pt-2">
-					<Button
-						variant="outline"
-						type="button"
-						onClick={handleForceSync}
-						disabled={isForceSyncing || isLoading || hasChanges || !hasSettingsUpdateAccess}
-						data-testid="pricing-force-sync-btn"
+				<div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+					<Link
+						to="/workspace/custom-pricing/overrides"
+						className="text-primary text-sm underline underline-offset-2"
+						data-testid="model-settings-pricing-overrides-link"
 					>
-						{isForceSyncing ? "Syncing..." : "Force Sync Now"}
-					</Button>
-					<Button type="submit" disabled={!hasChanges || isLoading || !hasSettingsUpdateAccess} data-testid="model-settings-save-btn">
-						{isLoading ? "Saving..." : "Save Changes"}
-					</Button>
+						Manage Pricing Overrides
+					</Link>
+					<div className="flex justify-end gap-2">
+						<Button
+							variant="outline"
+							type="button"
+							onClick={handleForceSync}
+							disabled={isForceSyncing || isLoading || hasChanges || !hasSettingsUpdateAccess}
+							data-testid="pricing-force-sync-btn"
+						>
+							{isForceSyncing ? "Syncing..." : "Force Sync Now"}
+						</Button>
+						<Button type="submit" disabled={!hasChanges || isLoading || !hasSettingsUpdateAccess} data-testid="model-settings-save-btn">
+							{isLoading ? "Saving..." : "Save Changes"}
+						</Button>
+					</div>
 				</div>
 			</form>
 		</div>

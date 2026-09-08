@@ -96,7 +96,7 @@ export default function MCPLibraryPage() {
 		[debouncedSearch, filters, urlState.offset],
 	);
 
-	const { data: libraryData, error: libraryError, isFetching, refetch } = useGetMCPLibraryQuery(queryParams);
+	const { data: libraryData, error: libraryError, isFetching, isError: isLibraryError, refetch } = useGetMCPLibraryQuery(queryParams);
 
 	const servers = useMemo(() => libraryData?.servers || [], [libraryData?.servers]);
 	const totalCount = libraryData?.total_count || 0;
@@ -160,7 +160,7 @@ export default function MCPLibraryPage() {
 
 	const hasActiveFilters =
 		filters.categories.length > 0 || filters.connection_types.length > 0 || filters.auth_types.length > 0 || filters.tags.length > 0;
-	const isCatalogEmpty = !isFetching && totalCount === 0 && !debouncedSearch && !hasActiveFilters;
+	const isCatalogEmpty = !isFetching && !isLibraryError && totalCount === 0 && !debouncedSearch && !hasActiveFilters;
 
 	return (
 		<div className="dark:bg-card no-padding-parent no-border-parent h-[calc(100dvh_-_16px)]">
@@ -257,6 +257,17 @@ export default function MCPLibraryPage() {
 								) : (
 									<MCPLibraryServersTableSkeleton />
 								)
+							) : isLibraryError ? (
+								<div
+									className="flex min-h-[50vh] w-full flex-col items-center justify-center gap-3 py-16 text-center"
+									data-testid="mcp-library-error-state"
+								>
+									<p className="text-destructive text-sm font-medium">Failed to load MCP library</p>
+									{libraryError ? <p className="text-muted-foreground max-w-md text-xs">{getErrorMessage(libraryError)}</p> : null}
+									<Button type="button" variant="outline" size="sm" onClick={() => refetch()} data-testid="mcp-library-retry-btn">
+										Retry
+									</Button>
+								</div>
 							) : servers.length === 0 ? (
 								<div
 									className="flex min-h-[80vh] w-full flex-col items-center justify-center gap-4 py-16 text-center"

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bytedance/sonic"
 	"github.com/unifai/unifai/core/schemas"
 	"github.com/unifai/unifai/framework/configstore"
 	configstoreTables "github.com/unifai/unifai/framework/configstore/tables"
@@ -235,6 +236,10 @@ func (s *Store) applyPricingOverrides(model string, requestType schemas.RequestT
 		return pricing, false
 	}
 	if patch := custom.resolve(model, mode, scopes); patch != nil {
+		raw, _ := sonic.Marshal(*patch)
+		if len(raw) == 0 || string(raw) == "{}" || string(raw) == "null" {
+			return pricing, false
+		}
 		return patchPricing(pricing, *patch), true
 	}
 	return pricing, false

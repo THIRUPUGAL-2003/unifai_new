@@ -1,9 +1,2 @@
-import { RoutingRulesView } from "@/app/workspace/routing-rules/views/routingRulesView";
-
-export default function ProvidersRoutingRulesPage() {
-	return (
-		<div className="mx-auto w-full max-w-7xl">
-			<RoutingRulesView />
-		</div>
-	);
-}
+/** Legacy alias — redirects to canonical Routing Rules page. */
+export { RoutingRulesView } from "@/app/workspace/routing-rules/views/routingRulesView";

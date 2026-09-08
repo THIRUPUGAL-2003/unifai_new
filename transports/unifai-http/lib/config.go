@@ -1096,6 +1096,18 @@ func initStores(ctx context.Context, config *Config, configData *ConfigData, con
 				logger.Warn("failed to update vector store config: %v", err)
 			}
 		}
+	} else if config.ConfigStore != nil {
+		// UI-saved vector store lives in DB when config.json omits the section.
+		dbVS, dbErr := config.ConfigStore.GetVectorStoreConfig(ctx)
+		if dbErr != nil {
+			logger.Warn("failed to load vector store config from db: %v", dbErr)
+		} else if dbVS != nil && dbVS.Enabled {
+			logger.Info("connecting to vectorstore from config store")
+			config.VectorStore, err = vectorstore.NewVectorStore(ctx, dbVS, logger)
+			if err != nil {
+				logger.Fatal("failed to connect to vector store from db: %v", err)
+			}
+		}
 	}
 	return nil
 }
@@ -6204,7 +6216,7 @@ func (c *Config) autoDetectProviders(ctx context.Context) {
 	}
 }
 
-// GetVectorStoreConfigRedacted retrieves the vector store configuration with password redacted for safe external exposure
+// GetVectorStoreConfigRedacted retrieves the vector store configuration with secrets redacted for safe external exposure.
 func (c *Config) GetVectorStoreConfigRedacted(ctx context.Context) (*vectorstore.Config, error) {
 	var err error
 	var vectorStoreConfig *vectorstore.Config
@@ -6217,22 +6229,260 @@ func (c *Config) GetVectorStoreConfigRedacted(ctx context.Context) (*vectorstore
 	if vectorStoreConfig == nil {
 		return nil, nil
 	}
-	if vectorStoreConfig.Type == vectorstore.VectorStoreTypeWeaviate {
-		weaviateConfig, ok := vectorStoreConfig.Config.(*vectorstore.WeaviateConfig)
-		if !ok {
-			return nil, fmt.Errorf("failed to cast vector store config to weaviate config")
-		}
-		// Create a copy to avoid modifying the original
-		redactedWeaviateConfig := *weaviateConfig
-		// Redact password if it exists
-		if redactedWeaviateConfig.APIKey != nil {
-			redactedWeaviateConfig.APIKey = redactedWeaviateConfig.APIKey.Redacted()
-		}
-		redactedVectorStoreConfig := *vectorStoreConfig
-		redactedVectorStoreConfig.Config = &redactedWeaviateConfig
-		return &redactedVectorStoreConfig, nil
+	return RedactVectorStoreConfig(vectorStoreConfig), nil
+}
+
+// RedactVectorStoreConfig returns a copy with API keys / passwords redacted.
+func RedactVectorStoreConfig(cfg *vectorstore.Config) *vectorstore.Config {
+	if cfg == nil {
+		return nil
 	}
-	return nil, nil
+	out := *cfg
+	switch cfg.Type {
+	case vectorstore.VectorStoreTypeWeaviate:
+		wc, ok := asWeaviateConfig(cfg.Config)
+		if !ok {
+			return &out
+		}
+		copyCfg := wc
+		if copyCfg.Host != nil {
+			copyCfg.Host = copyCfg.Host.Redacted()
+		}
+		if copyCfg.APIKey != nil {
+			copyCfg.APIKey = copyCfg.APIKey.Redacted()
+		}
+		out.Config = copyCfg
+	case vectorstore.VectorStoreTypeQdrant:
+		qc, ok := asQdrantConfig(cfg.Config)
+		if !ok {
+			return &out
+		}
+		copyCfg := qc
+		copyCfg.Host = *copyCfg.Host.Redacted()
+		copyCfg.Port = *copyCfg.Port.Redacted()
+		copyCfg.APIKey = *copyCfg.APIKey.Redacted()
+		out.Config = copyCfg
+	case vectorstore.VectorStoreTypePinecone:
+		pc, ok := asPineconeConfig(cfg.Config)
+		if !ok {
+			return &out
+		}
+		copyCfg := pc
+		copyCfg.APIKey = *copyCfg.APIKey.Redacted()
+		copyCfg.IndexHost = *copyCfg.IndexHost.Redacted()
+		out.Config = copyCfg
+	case vectorstore.VectorStoreTypeRedis:
+		rc, ok := asRedisConfig(cfg.Config)
+		if !ok {
+			return &out
+		}
+		copyCfg := rc
+		if copyCfg.Addr != nil {
+			copyCfg.Addr = copyCfg.Addr.Redacted()
+		}
+		if copyCfg.Username != nil {
+			copyCfg.Username = copyCfg.Username.Redacted()
+		}
+		if copyCfg.Password != nil {
+			copyCfg.Password = copyCfg.Password.Redacted()
+		}
+		out.Config = copyCfg
+	}
+	return &out
+}
+
+func asWeaviateConfig(v any) (vectorstore.WeaviateConfig, bool) {
+	switch t := v.(type) {
+	case vectorstore.WeaviateConfig:
+		return t, true
+	case *vectorstore.WeaviateConfig:
+		if t == nil {
+			return vectorstore.WeaviateConfig{}, false
+		}
+		return *t, true
+	default:
+		return vectorstore.WeaviateConfig{}, false
+	}
+}
+
+func asQdrantConfig(v any) (vectorstore.QdrantConfig, bool) {
+	switch t := v.(type) {
+	case vectorstore.QdrantConfig:
+		return t, true
+	case *vectorstore.QdrantConfig:
+		if t == nil {
+			return vectorstore.QdrantConfig{}, false
+		}
+		return *t, true
+	default:
+		return vectorstore.QdrantConfig{}, false
+	}
+}
+
+func asPineconeConfig(v any) (vectorstore.PineconeConfig, bool) {
+	switch t := v.(type) {
+	case vectorstore.PineconeConfig:
+		return t, true
+	case *vectorstore.PineconeConfig:
+		if t == nil {
+			return vectorstore.PineconeConfig{}, false
+		}
+		return *t, true
+	default:
+		return vectorstore.PineconeConfig{}, false
+	}
+}
+
+func asRedisConfig(v any) (vectorstore.RedisConfig, bool) {
+	switch t := v.(type) {
+	case vectorstore.RedisConfig:
+		return t, true
+	case *vectorstore.RedisConfig:
+		if t == nil {
+			return vectorstore.RedisConfig{}, false
+		}
+		return *t, true
+	default:
+		return vectorstore.RedisConfig{}, false
+	}
+}
+
+func preserveSecretPtr(incoming, existing *schemas.SecretVar) *schemas.SecretVar {
+	if incoming == nil || incoming.ShouldPreserveStored() {
+		return existing
+	}
+	return incoming
+}
+
+func preserveSecretValue(incoming, existing schemas.SecretVar) schemas.SecretVar {
+	if incoming.ShouldPreserveStored() {
+		return existing
+	}
+	return incoming
+}
+
+// MergeVectorStoreSecrets keeps previously stored API keys when the UI sends redacted placeholders.
+func MergeVectorStoreSecrets(incoming, existing *vectorstore.Config) *vectorstore.Config {
+	if incoming == nil {
+		return existing
+	}
+	if existing == nil || existing.Type != incoming.Type {
+		return incoming
+	}
+	merged := *incoming
+	switch incoming.Type {
+	case vectorstore.VectorStoreTypeWeaviate:
+		in, okIn := asWeaviateConfig(incoming.Config)
+		ex, okEx := asWeaviateConfig(existing.Config)
+		if okIn && okEx {
+			in.Host = preserveSecretPtr(in.Host, ex.Host)
+			in.APIKey = preserveSecretPtr(in.APIKey, ex.APIKey)
+			merged.Config = in
+		}
+	case vectorstore.VectorStoreTypeQdrant:
+		in, okIn := asQdrantConfig(incoming.Config)
+		ex, okEx := asQdrantConfig(existing.Config)
+		if okIn && okEx {
+			in.Host = preserveSecretValue(in.Host, ex.Host)
+			in.Port = preserveSecretValue(in.Port, ex.Port)
+			in.APIKey = preserveSecretValue(in.APIKey, ex.APIKey)
+			merged.Config = in
+		}
+	case vectorstore.VectorStoreTypePinecone:
+		in, okIn := asPineconeConfig(incoming.Config)
+		ex, okEx := asPineconeConfig(existing.Config)
+		if okIn && okEx {
+			in.APIKey = preserveSecretValue(in.APIKey, ex.APIKey)
+			in.IndexHost = preserveSecretValue(in.IndexHost, ex.IndexHost)
+			merged.Config = in
+		}
+	case vectorstore.VectorStoreTypeRedis:
+		in, okIn := asRedisConfig(incoming.Config)
+		ex, okEx := asRedisConfig(existing.Config)
+		if okIn && okEx {
+			in.Addr = preserveSecretPtr(in.Addr, ex.Addr)
+			in.Username = preserveSecretPtr(in.Username, ex.Username)
+			in.Password = preserveSecretPtr(in.Password, ex.Password)
+			merged.Config = in
+		}
+	}
+	return &merged
+}
+
+// PersistVectorStoreConfig writes vector_store to config.json when a config file path is configured.
+func (c *Config) PersistVectorStoreConfig(cfg *vectorstore.Config) error {
+	if c.configPath == "" {
+		return nil
+	}
+
+	var root map[string]json.RawMessage
+	data, err := os.ReadFile(c.configPath)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("read config file: %w", err)
+		}
+		root = map[string]json.RawMessage{}
+	} else if err := json.Unmarshal(data, &root); err != nil {
+		return fmt.Errorf("parse config file: %w", err)
+	}
+
+	if cfg == nil || !cfg.Enabled {
+		delete(root, "vector_store")
+	} else {
+		section, err := json.Marshal(cfg)
+		if err != nil {
+			return fmt.Errorf("marshal vector store config: %w", err)
+		}
+		root["vector_store"] = section
+	}
+
+	out, err := json.MarshalIndent(root, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal config file: %w", err)
+	}
+	out = append(out, '\n')
+	if err := os.WriteFile(c.configPath, out, 0644); err != nil {
+		return fmt.Errorf("write config file: %w", err)
+	}
+	return nil
+}
+
+// ApplyVectorStoreConfig connects (or disconnects) the live vector store, persists config, and updates memory.
+func (c *Config) ApplyVectorStoreConfig(ctx context.Context, cfg *vectorstore.Config) error {
+	if cfg == nil {
+		cfg = &vectorstore.Config{Enabled: false}
+	}
+
+	var newStore vectorstore.VectorStore
+	if cfg.Enabled {
+		store, err := vectorstore.NewVectorStore(ctx, cfg, logger)
+		if err != nil {
+			return fmt.Errorf("connect vector store: %w", err)
+		}
+		pingCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		if err := store.Ping(pingCtx); err != nil {
+			_ = store.Close(ctx, "")
+			return fmt.Errorf("vector store ping failed: %w", err)
+		}
+		newStore = store
+	}
+
+	old := c.VectorStore
+	c.VectorStore = newStore
+	if old != nil {
+		_ = old.Close(ctx, "")
+	}
+
+	if c.ConfigStore != nil {
+		if err := c.ConfigStore.UpdateVectorStoreConfig(ctx, cfg); err != nil {
+			return fmt.Errorf("persist vector store to db: %w", err)
+		}
+	}
+	if err := c.PersistVectorStoreConfig(cfg); err != nil {
+		return fmt.Errorf("persist vector store to config file: %w", err)
+	}
+	return nil
 }
 
 // ValidateCustomProvider validates the custom provider configuration

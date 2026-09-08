@@ -49,7 +49,7 @@ function validateRuleForm(
 }
 
 export default function GuardrailsConfigurationView() {
-	const { data: config, isLoading } = useGetGuardrailsConfigQuery();
+	const { data: config, isLoading, isError, error, refetch } = useGetGuardrailsConfigQuery();
 	const { data: promptsData } = useGetPromptsQuery();
 	const [updateConfig] = useUpdateGuardrailsConfigMutation();
 
@@ -105,12 +105,24 @@ export default function GuardrailsConfigurationView() {
 
 	if (isLoading) return <div className="p-4">Loading guardrails configuration...</div>;
 
+	if (isError) {
+		return (
+			<div className="flex flex-col items-center justify-center gap-3 p-10 text-center">
+				<p className="text-destructive text-sm font-medium">Failed to load guardrails rules</p>
+				{error ? <p className="text-muted-foreground max-w-md text-xs">{getErrorMessage(error)}</p> : null}
+				<Button type="button" variant="outline" size="sm" onClick={() => refetch()} data-testid="guardrails-rules-retry-btn">
+					Retry
+				</Button>
+			</div>
+		);
+	}
+
 	const handleToggleGuardrails = async (checked: boolean) => {
 		if (!config) return;
 		const updatedRules = rules.map((r) => ({ ...r, enabled: checked }));
 		try {
 			await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
-			toast.success(checked ? "Guardrails enabled" : "Guardrails disabled");
+			toast.success(checked ? "All rules enabled" : "All rules disabled");
 		} catch (error) {
 			toast.error(getErrorMessage(error));
 		}
@@ -183,13 +195,30 @@ export default function GuardrailsConfigurationView() {
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-2xl font-bold tracking-tight">Guardrails Rules</h1>
-					<p className="text-muted-foreground mt-1">Configure global rules to inspect AI prompts and responses.</p>
+					<p className="text-muted-foreground mt-1">
+						Rules run on the <strong>LLM gateway</strong> (chat/completions via UnifAI) — not Browser AI desktop Guard, and not
+						virtual-key scoped. CEL matches model/prompt → linked Providers (regex) block input and/or output.
+					</p>
+					<p className="text-muted-foreground mt-2 text-xs">
+						Flow: add a{" "}
+						<a href="/workspace/guardrails/providers" className="text-primary underline underline-offset-2">
+							Provider
+						</a>{" "}
+						→ create a Rule that selects it → optionally scope to{" "}
+						<a href="/workspace/prompt-repo" className="text-primary underline underline-offset-2">
+							Prompt Repository
+						</a>{" "}
+						IDs. Use the per-rule On switch or Enable all below.
+					</p>
+					<p className="text-muted-foreground mt-1 text-xs">
+						Limits: string chat messages only (not multimodal blocks / Responses API); streaming output is not blocked.
+					</p>
 				</div>
 				<div className="flex items-center gap-4">
 					<div className="flex items-center gap-2">
 						<Switch id="guardrails-enabled" checked={isEnabled} onCheckedChange={handleToggleGuardrails} />
 						<Label htmlFor="guardrails-enabled" className="font-medium">
-							Enable Guardrails
+							Enable all rules
 						</Label>
 					</div>
 					<Button onClick={openCreateRule} data-testid="guardrails-create-rule-button">
@@ -203,6 +232,7 @@ export default function GuardrailsConfigurationView() {
 				<Table>
 					<TableHeader>
 						<TableRow>
+							<TableHead className="w-[70px]">On</TableHead>
 							<TableHead>Rule Name</TableHead>
 							<TableHead>Description</TableHead>
 							<TableHead>Apply To</TableHead>
@@ -214,7 +244,7 @@ export default function GuardrailsConfigurationView() {
 					<TableBody>
 						{rules.length === 0 ? (
 							<TableRow>
-								<TableCell colSpan={6} className="text-muted-foreground h-32 text-center">
+								<TableCell colSpan={7} className="text-muted-foreground h-32 text-center">
 									<div className="flex flex-col items-center justify-center">
 										<ShieldAlert className="text-muted-foreground/50 mb-2 h-8 w-8" />
 										<p>No guardrail rules configured yet.</p>
@@ -224,6 +254,25 @@ export default function GuardrailsConfigurationView() {
 						) : (
 							rules.map((rule) => (
 								<TableRow key={rule.id}>
+									<TableCell>
+										<Switch
+											checked={rule.enabled}
+											aria-label={`Toggle rule ${rule.name}`}
+											data-testid={`guardrails-rule-enabled-${rule.id}`}
+											onCheckedChange={(checked) => {
+												void (async () => {
+													if (!config) return;
+													const updatedRules = rules.map((r) => (r.id === rule.id ? { ...r, enabled: checked } : r));
+													try {
+														await updateConfig({ ...config, guardrail_rules: updatedRules }).unwrap();
+														toast.success(checked ? "Rule enabled" : "Rule disabled");
+													} catch (err) {
+														toast.error(getErrorMessage(err));
+													}
+												})();
+											}}
+										/>
+									</TableCell>
 									<TableCell className="font-medium">{rule.name}</TableCell>
 									<TableCell>{rule.description}</TableCell>
 									<TableCell className="capitalize">{rule.apply_to}</TableCell>
