@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getApiBaseUrl } from "@/lib/utils/port";
+import { DOCS } from "@/lib/constants/docs";
 
 export default function LandingPage() {
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -106,10 +107,22 @@ console.log(response.choices[0].message.content);`
 					<div className="hidden md:flex items-center gap-8 text-sm font-medium">
 						<a href="#features" className="hover:text-[#45f3ff] transition-colors">Features</a>
 						<a href="#code" className="hover:text-[#45f3ff] transition-colors">Quickstart</a>
-						<a href="#architecture" className="hover:text-[#45f3ff] transition-colors">Architecture</a>
-						<Link to="/workspace/docs" className="hover:text-[#45f3ff] transition-colors flex items-center gap-1">
+						<a
+							href={DOCS.architecture}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="hover:text-[#45f3ff] transition-colors flex items-center gap-1"
+						>
+							Architecture <ExternalLink className="h-3 w-3" />
+						</a>
+						<a
+							href={DOCS.home}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="hover:text-[#45f3ff] transition-colors flex items-center gap-1"
+						>
 							Docs <ExternalLink className="h-3 w-3" />
-						</Link>
+						</a>
 					</div>
 
 					<div className="hidden md:flex items-center gap-4">
@@ -149,10 +162,24 @@ console.log(response.choices[0].message.content);`
 					<div className="md:hidden border-b border-[#1f2833]/60 bg-[#0b0c10]/95 backdrop-blur-lg px-6 py-6 space-y-4 animate-in fade-in slide-in-from-top-5 duration-200">
 						<a href="#features" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-lg hover:text-[#45f3ff]">Features</a>
 						<a href="#code" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-lg hover:text-[#45f3ff]">Quickstart</a>
-						<a href="#architecture" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-lg hover:text-[#45f3ff]">Architecture</a>
-						<Link to="/workspace/docs" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-lg hover:text-[#45f3ff] flex items-center gap-1.5">
+						<a
+							href={DOCS.architecture}
+							target="_blank"
+							rel="noopener noreferrer"
+							onClick={() => setMobileMenuOpen(false)}
+							className="block py-2 text-lg hover:text-[#45f3ff] flex items-center gap-1.5"
+						>
+							Architecture <ExternalLink className="h-4 w-4" />
+						</a>
+						<a
+							href={DOCS.home}
+							target="_blank"
+							rel="noopener noreferrer"
+							onClick={() => setMobileMenuOpen(false)}
+							className="block py-2 text-lg hover:text-[#45f3ff] flex items-center gap-1.5"
+						>
 							Docs <ExternalLink className="h-4 w-4" />
-						</Link>
+						</a>
 						<div className="h-px bg-[#1f2833]/60 my-4" />
 						{isLoggedIn ? (
 							<Button
@@ -229,12 +256,14 @@ console.log(response.choices[0].message.content);`
 								Get Started Instantly
 								<ArrowRight className="h-5 w-5 ml-2" />
 							</Button>
-							<Link
-								to="/workspace/docs"
+							<a
+								href={DOCS.home}
+								target="_blank"
+								rel="noopener noreferrer"
 								className="w-full sm:w-auto h-12 px-8 flex items-center justify-center border border-[#1f2833] bg-[#0b0c10]/40 hover:bg-[#1f2833]/30 font-semibold text-white rounded-lg text-base transition-colors"
 							>
 								Read the Docs
-							</Link>
+							</a>
 						</>
 					)}
 				</div>

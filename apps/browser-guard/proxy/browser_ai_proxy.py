@@ -174,9 +174,17 @@ _UNIVERSAL_PROMPT_KEYS = (
 DEDUPE_TTL = 4.0
 # Longer window for upload/download blocks (ChatGPT fires many file API calls)
 BLOCK_DEDUPE_TTL = 30
-# Typing: ignore rapid prefix growth so Prompt Logs / predict do not spam every keystroke.
-COMPOSER_DRAFT_TTL = 0.45
-COMPOSER_DRAFT_MAX_GROW = 4
+# Typing/request bursts (Grok/Copilot/…): Observe every keystroke request, Commit once.
+# Same rule for ALL admin Target Websites — not per-domain hardcode.
+COMPOSER_DRAFT_TTL = 0.55
+COMPOSER_DRAFT_MAX_GROW = 8
+# Adaptive quiet window before predict (keystroke HTTP looks like "Send" on many AIs).
+COMPOSER_STABILITY_HOLD = 0.55
+COMPOSER_STABILITY_HOLD_SHORT = 1.05  # len <= 12 (h→hi, digit drip)
+COMPOSER_STABILITY_HOLD_TINY = 1.35   # len <= 3 (single chars / "hi")
+COMPOSER_HOLD_MAX_LEN = 120
+# If a longer prefix-related string appears within this window, shorter never commits.
+COMPOSER_PREFIX_WINDOW = 2.5
 
 # ─────────────────────────────────────────────
 # In-memory Caches
@@ -201,7 +209,8 @@ _recent_prompts: dict = {}  # key -> timestamp
 # domain|prompt -> (ts, decision_tuple) so ChatGPT double-fire cannot bypass a BLOCK
 _recent_decisions: dict = {}
 _eval_inflight: dict = {}  # key -> threading.Event — coalesce parallel evaluates
-_composer_draft: dict = {}  # domain -> (prompt, timestamp) while user is still typing
+_composer_draft: dict = {}  # domain -> (prompt, timestamp) — latest observed composer text
+_composer_lock = threading.Lock()
 _cached_controls: dict = {
     "enabled": False,
     "block_upload": False,
@@ -1925,7 +1934,7 @@ def _should_intercept_extracted_prompt(
         if _is_ide_non_chat_noise(text, domain=domain) or _is_ide_non_chat_noise(text, domain=host):
             if not _is_digit_heavy_user_text(text) and not _is_typed_numeric_prompt(text):
                 return False
-        _composer_draft.pop(domain, None)
+        # Draft coalesce happens at commit (wait_if_composer_unstable) — do not mutate here.
         if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
             return False
         return True
@@ -1955,8 +1964,6 @@ def _should_intercept_extracted_prompt(
     if body.startswith(("{", "[")) and not _looks_like_chatgpt_body(body, raw_bytes):
         if not _path_has_chat_marker(path) and not is_chat_path(path, host, raw_text):
             return False
-    if is_composer_typing_draft(domain, text):
-        return False
     if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
         return False
     return True
@@ -2195,31 +2202,148 @@ def is_unsubmitted_chat_body(path: str, body: str) -> bool:
     return False
 
 
-def is_composer_typing_draft(domain: str, prompt: str) -> bool:
-    """Skip rapid in-composer growth so predict does not fire on every keystroke.
+def _composer_hold_seconds(text: str) -> float:
+    n = len((text or "").strip())
+    if n <= 3:
+        return COMPOSER_STABILITY_HOLD_TINY
+    if n <= 12:
+        return COMPOSER_STABILITY_HOLD_SHORT
+    return COMPOSER_STABILITY_HOLD
 
-    Final Enter/Send usually pauses ≥ COMPOSER_DRAFT_TTL → treated as real submit.
-    """
+
+def _composer_related(a: str, b: str) -> bool:
+    """True when one string is a typing prefix/extension of the other."""
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if a.startswith(b) or b.startswith(a):
+        return True
+    # Small edit distance growth (typo fix) within max grow window
+    if abs(len(a) - len(b)) <= COMPOSER_DRAFT_MAX_GROW and (a[:3] == b[:3] if len(a) >= 3 and len(b) >= 3 else False):
+        return True
+    return False
+
+
+def note_composer_observation(domain: str, prompt: str) -> None:
+    """Observe phase: remember latest composer text for this Target family key."""
+    text = (prompt or "").strip()
+    if not text or not domain:
+        return
+    with _composer_lock:
+        _composer_draft[domain] = (text, time.time())
+
+
+def is_composer_typing_draft(domain: str, prompt: str) -> bool:
+    """True when this fragment is clearly mid-edit vs the latest observation."""
     text = (prompt or "").strip()
     if not text or not domain:
         return False
     now = time.time()
-    prev = _composer_draft.get(domain)
-    _composer_draft[domain] = (text, now)
+    with _composer_lock:
+        prev = _composer_draft.get(domain)
+        _composer_draft[domain] = (text, now)
     if not prev:
         return False
     prev_text, prev_ts = prev
-    elapsed = now - prev_ts
-    if elapsed >= COMPOSER_DRAFT_TTL:
+    elapsed = now - float(prev_ts)
+    if elapsed >= COMPOSER_PREFIX_WINDOW:
         return False
     if text == prev_text:
         return False
-    # Growing or shrinking by a few chars = still typing.
-    if text.startswith(prev_text) and 1 <= (len(text) - len(prev_text)) <= COMPOSER_DRAFT_MAX_GROW:
+    # Shorter than latest related text → stale keystroke request (skip).
+    if prev_text.startswith(text) and len(prev_text) > len(text):
         return True
+    # We just grew from prev within window — still typing; commit waits for quiet.
+    if text.startswith(prev_text) and 1 <= (len(text) - len(prev_text)) <= COMPOSER_DRAFT_MAX_GROW:
+        return False
     if prev_text.startswith(text) and 1 <= (len(prev_text) - len(text)) <= COMPOSER_DRAFT_MAX_GROW:
         return True
     return False
+
+
+def wait_if_composer_unstable(domain: str, prompt: str) -> str | None:
+    """Commit phase for ALL monitored domains.
+
+    Many AI sites (Grok, Copilot, …) POST every keystroke as a chat-shaped request.
+    We OBSERVE those, but COMMIT predict only after the composer text is quiet
+    for an adaptive hold — so "h" then "hi" becomes one predict: "hi".
+
+    Returns final text to evaluate, or None if this request was superseded.
+    """
+    text = (prompt or "").strip()
+    if not text or not domain:
+        return text or None
+
+    note_composer_observation(domain, text)
+
+    # Very long pastes / finished essays: still brief check for supersede, then go.
+    hold = _composer_hold_seconds(text)
+    if len(text) > COMPOSER_HOLD_MAX_LEN:
+        hold = min(hold, 0.25)
+
+    deadline = time.time() + hold
+    while time.time() < deadline:
+        time.sleep(0.05)
+        with _composer_lock:
+            cur = _composer_draft.get(domain)
+        if not cur:
+            break
+        cur_text, cur_ts = cur
+        cur_text = (cur_text or "").strip()
+        if not cur_text:
+            break
+
+        if cur_text != text:
+            if _composer_related(cur_text, text):
+                if len(cur_text) > len(text):
+                    # Longer typing won — drop this stale keystroke request.
+                    return None
+                # We grew (or matched longer stored) — follow the latest string.
+                text = cur_text
+                hold = _composer_hold_seconds(text)
+                deadline = max(deadline, time.time() + hold * 0.65)
+                continue
+            # Unrelated new prompt — stop waiting; evaluate what we have.
+            break
+
+        # Same text: commit once it has been quiet long enough.
+        quiet = time.time() - float(cur_ts)
+        need = _composer_hold_seconds(text)
+        if quiet >= need * 0.85 or quiet >= COMPOSER_DRAFT_TTL:
+            break
+
+    with _composer_lock:
+        cur = _composer_draft.get(domain)
+    if cur:
+        cur_text = (cur[0] or "").strip()
+        if cur_text and cur_text != text and _composer_related(cur_text, text):
+            if len(cur_text) > len(text):
+                return None
+            text = cur_text
+
+    # Final guard: never commit a proper prefix of the live composer within PREFIX_WINDOW.
+    with _composer_lock:
+        cur = _composer_draft.get(domain)
+    if cur:
+        cur_text, cur_ts = cur
+        cur_text = (cur_text or "").strip()
+        if (
+            cur_text
+            and text != cur_text
+            and cur_text.startswith(text)
+            and len(cur_text) > len(text)
+            and (time.time() - float(cur_ts)) <= COMPOSER_PREFIX_WINDOW
+        ):
+            return None
+
+    return text
+
+
+def clear_composer_state(domain: str) -> None:
+    if domain:
+        with _composer_lock:
+            _composer_draft.pop(domain, None)
 
 
 def _parts_to_text(parts) -> str | None:
@@ -3522,31 +3646,57 @@ def extract_attachment_filename_from_send(raw_text: str) -> str:
 
 
 def extract_inline_attachment_bytes(raw_text: str) -> tuple[bytes, str, str]:
-    """Pull inline base64 file/image bytes from a chat Send body for rule scanning."""
-    if not raw_text:
+    """Pull the first inline base64 file/image from a chat Send body."""
+    all_inlines = extract_all_inline_attachment_bytes(raw_text)
+    if not all_inlines:
         return b"", "", ""
+    return all_inlines[0]
+
+
+def extract_all_inline_attachment_bytes(raw_text: str) -> list[tuple[bytes, str, str]]:
+    """Pull ALL inline base64 file/image payloads (Gemini multi-image Send)."""
+    if not raw_text:
+        return []
     import base64
 
-    mime = ""
-    m_mime = re.search(r'"(?:mime_type|mimeType|media_type|content_type)"\s*:\s*"([^"]+)"', raw_text, re.I)
-    if m_mime:
-        mime = (m_mime.group(1) or "").strip()
-    fname = extract_attachment_filename_from_send(raw_text)
+    out: list[tuple[bytes, str, str]] = []
+    seen: set[str] = set()
+    fname_base = extract_attachment_filename_from_send(raw_text) or "attachment"
 
-    for pat in (
+    # Prefer structured inline_data / fileData blocks, then generic large base64 fields.
+    patterns = (
+        r'"(?:inline_data|inlineData|fileData|file_data)"\s*:\s*\{[^}]{0,400}?"(?:mime_type|mimeType|media_type)"\s*:\s*"([^"]+)"[^}]{0,400}?"(?:data|bytes)"\s*:\s*"([A-Za-z0-9+/=\s\\]{80,})"',
         r'"(?:data|bytes|content|image|binary|base64)"\s*:\s*"([A-Za-z0-9+/=\s\\]{200,})"',
-    ):
-        m = re.search(pat, raw_text)
-        if not m:
-            continue
-        blob = (m.group(1) or "").replace("\\n", "").replace("\\r", "").replace(" ", "")
-        if len(blob) < 200:
-            continue
-        try:
-            data = base64.b64decode(blob, validate=False)
-        except Exception:
-            continue
-        if len(data) >= 32:
+    )
+    for pi, pat in enumerate(patterns):
+        for mi, m in enumerate(re.finditer(pat, raw_text, re.I | re.DOTALL)):
+            if pi == 0:
+                mime = (m.group(1) or "").strip()
+                blob = (m.group(2) or "")
+            else:
+                mime = ""
+                blob = (m.group(1) or "")
+                m_mime = re.search(
+                    r'"(?:mime_type|mimeType|media_type|content_type)"\s*:\s*"([^"]+)"',
+                    raw_text[max(0, m.start() - 180): m.start() + 40],
+                    re.I,
+                )
+                if m_mime:
+                    mime = (m_mime.group(1) or "").strip()
+            blob = blob.replace("\\n", "").replace("\\r", "").replace(" ", "")
+            if len(blob) < 80:
+                continue
+            # Dedup identical payloads (same image referenced twice).
+            sig = blob[:64] + f"|{len(blob)}"
+            if sig in seen:
+                continue
+            try:
+                data = base64.b64decode(blob, validate=False)
+            except Exception:
+                continue
+            if len(data) < 32:
+                continue
+            seen.add(sig)
             if not mime:
                 if data[:5] == b"%PDF-":
                     mime = "application/pdf"
@@ -3556,8 +3706,29 @@ def extract_inline_attachment_bytes(raw_text: str) -> tuple[bytes, str, str]:
                     mime = "image/jpeg"
                 elif data[:8] == b"\x89PNG\r\n\x1a\n":
                     mime = "image/png"
-            return data[:20 * 1024 * 1024], mime, fname
-    return b"", "", ""
+                elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+                    mime = "image/webp"
+                else:
+                    mime = "application/octet-stream"
+            ext = {
+                "image/jpeg": "jpg",
+                "image/png": "png",
+                "image/webp": "webp",
+                "image/gif": "gif",
+                "application/pdf": "pdf",
+            }.get(mime.lower().split(";")[0].strip(), "bin")
+            fname = fname_base if len(out) == 0 and fname_base not in ("attachment", "file", "") else f"image_{len(out) + 1}.{ext}"
+            if len(out) == 0 and "." not in fname_base and fname_base not in ("attachment", "file", ""):
+                fname = f"{fname_base}.{ext}"
+            elif len(out) == 0 and fname_base in ("attachment", "file", ""):
+                fname = f"image_1.{ext}"
+            out.append((data[:20 * 1024 * 1024], mime, fname))
+            if len(out) >= _UPLOAD_FILE_QUEUE_MAX:
+                return out
+        if out and pi == 0:
+            # Structured blocks found — don't also re-scan generic fields (duplicates).
+            return out
+    return out
 
 
 def _domain_has_pending_upload_cache(domain: str) -> bool:
@@ -4171,15 +4342,27 @@ def enforce_file_send_policy(
         return False, "", "", 0, False
 
     if not cached_list and has_attach:
-        inline_bytes, inline_ct, inline_name = extract_inline_attachment_bytes(raw_text or "")
-        if inline_bytes:
-            cached_list = [{
-                "file_name": inline_name or "attachment",
-                "content_type": inline_ct or content_type,
-                "raw_bytes": inline_bytes,
-                "ts": time.time(),
-                "cache_uid": f"inline|{time.time():.6f}",
-            }]
+        inlines = extract_all_inline_attachment_bytes(raw_text or "")
+        if inlines:
+            cached_list = []
+            for idx, (inline_bytes, inline_ct, inline_name) in enumerate(inlines):
+                cached_list.append({
+                    "file_name": inline_name or f"attachment_{idx + 1}",
+                    "content_type": inline_ct or content_type,
+                    "raw_bytes": inline_bytes,
+                    "ts": time.time(),
+                    "cache_uid": f"inline|{time.time():.6f}|{idx}|{len(inline_bytes)}",
+                })
+        else:
+            inline_bytes, inline_ct, inline_name = extract_inline_attachment_bytes(raw_text or "")
+            if inline_bytes:
+                cached_list = [{
+                    "file_name": inline_name or "attachment",
+                    "content_type": inline_ct or content_type,
+                    "raw_bytes": inline_bytes,
+                    "ts": time.time(),
+                    "cache_uid": f"inline|{time.time():.6f}",
+                }]
 
     # Cache miss but Send clearly carries file/voice — never fail-open for Block Upload.
     if not cached_list and has_attach:
@@ -4429,7 +4612,15 @@ def enforce_file_send_policy(
     scan_evaluated = False
     scan_eval_error = ""
     has_regex = bool(get_guard_rules())
-    if platform and domain and (combined_text or all_images) and (has_ai_bot_rules() or has_regex):
+    # Instant path: local regex already BLOCK → skip slow AI Guard Bot (same as typed prompts).
+    need_backend = (
+        platform
+        and domain
+        and (combined_text or all_images)
+        and (has_ai_bot_rules() or has_regex)
+        and not (rule_hit and (rule_action or "").upper() == "BLOCK")
+    )
+    if need_backend:
         try:
             eval_prompt = combined_text or (caption if caption else f"[FILE UPLOAD] {len(file_rows)} file(s)")
             allowed, rt, action, _, _, eval_err = send_to_backend(
@@ -4458,6 +4649,8 @@ def enforce_file_send_policy(
         except Exception as e:
             scan_eval_error = str(e).strip()[:300] or "multi-file backend scan failed"
             print(f"[UnifAI Proxy] multi-file combined eval failed (allowed): {e}")
+    elif rule_hit and (rule_action or "").upper() == "BLOCK":
+        scan_evaluated = True
 
     labels = [r["file_label"] for r in file_rows]
     if len(labels) <= 4:
@@ -7916,11 +8109,13 @@ class BrowserAIInterceptor:
         # ChatGPT/Perplexity: skip only in-progress draft bodies, not finished submits.
         if is_unsubmitted_chat_body(path, raw_text):
             return
-        # Keystroke growth spam — finished Send must still predict.
-        if _is_confident_chat_send(path, raw_text, raw_bytes):
-            _composer_draft.pop(domain, None)
-        elif is_composer_typing_draft(domain, prompt):
+        # Keystroke HTTP bursts (all sites): observe → quiet → one commit.
+        if is_composer_typing_draft(domain, prompt):
             return
+        stable = wait_if_composer_unstable(domain, prompt)
+        if stable is None:
+            return
+        prompt = stable
 
         # Collapse browser double-fire — MUST still enforce the same guard decision
         # (silent return here previously let the 2nd request bypass BLOCK).
@@ -7930,6 +8125,7 @@ class BrowserAIInterceptor:
 
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
         mark_duplicate_event(domain, prompt)
+        clear_composer_state(domain)
 
         allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
             platform=platform,
@@ -8158,10 +8354,12 @@ class BrowserAIInterceptor:
 
         if is_unsubmitted_chat_body(flow.request.path, content):
             return
-        if _is_confident_chat_send(flow.request.path, content, ws_bytes):
-            _composer_draft.pop(domain, None)
-        elif is_composer_typing_draft(domain, prompt):
+        if is_composer_typing_draft(domain, prompt):
             return
+        stable = wait_if_composer_unstable(domain, prompt)
+        if stable is None:
+            return
+        prompt = stable
 
         if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
             decision = get_remembered_guard_decision(domain, prompt)
@@ -8193,6 +8391,7 @@ class BrowserAIInterceptor:
         client_ip = get_client_ip(flow)
         print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
         mark_duplicate_event(domain, prompt)
+        clear_composer_state(domain)
 
         allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
             platform=platform,
