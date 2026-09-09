@@ -3,7 +3,7 @@
   "servers": [
     {
       "name": "GitHub",
-      "description": "Official GitHub MCP ΓÇö repos, issues, PRs, and code search via GitHub Copilot MCP.",
+      "description": "Official GitHub MCP — repos, issues, PRs, and code search via GitHub Copilot MCP.",
       "category": "Developer Tools",
       "connection_type": "http",
       "connection_url": "https://api.githubcopilot.com/mcp/",
@@ -20,7 +20,7 @@
     },
     {
       "name": "Notion",
-      "description": "Official Notion MCP ΓÇö search and edit pages and databases in your workspace.",
+      "description": "Official Notion MCP — search and edit pages and databases in your workspace.",
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.notion.com/mcp",
@@ -37,7 +37,7 @@
     },
     {
       "name": "Stripe",
-      "description": "Official Stripe MCP ΓÇö customers, subscriptions, payments, and billing tools.",
+      "description": "Official Stripe MCP — customers, subscriptions, payments, and billing tools.",
       "category": "Finance",
       "connection_type": "http",
       "connection_url": "https://mcp.stripe.com/",
@@ -54,7 +54,7 @@
     },
     {
       "name": "Supabase",
-      "description": "Official Supabase MCP ΓÇö manage projects, run SQL, and inspect schemas.",
+      "description": "Official Supabase MCP — manage projects, run SQL, and inspect schemas.",
       "category": "Developer Tools",
       "connection_type": "http",
       "connection_url": "https://mcp.supabase.com/mcp",
@@ -71,7 +71,7 @@
     },
     {
       "name": "Linear",
-      "description": "Official Linear MCP ΓÇö issues, cycles, and project backlog over SSE.",
+      "description": "Official Linear MCP — issues, cycles, and project backlog over SSE.",
       "category": "Developer Tools",
       "connection_type": "sse",
       "connection_url": "https://mcp.linear.app/sse",
@@ -88,7 +88,7 @@
     },
     {
       "name": "Slack",
-      "description": "Official Slack MCP ΓÇö search workspace, read threads, and post updates.",
+      "description": "Official Slack MCP — search workspace, read threads, and post updates.",
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.slack.com/mcp",
@@ -105,7 +105,7 @@
     },
     {
       "name": "Sentry",
-      "description": "Official Sentry MCP ΓÇö error tracking, issues, and monitoring context.",
+      "description": "Official Sentry MCP — error tracking, issues, and monitoring context.",
       "category": "Observability",
       "connection_type": "http",
       "connection_url": "https://mcp.sentry.dev/mcp",
@@ -122,7 +122,7 @@
     },
     {
       "name": "Figma",
-      "description": "Official Figma MCP ΓÇö design context, components, and Code Connect.",
+      "description": "Official Figma MCP — design context, components, and Code Connect.",
       "category": "Design",
       "connection_type": "http",
       "connection_url": "https://mcp.figma.com/mcp",
@@ -139,7 +139,7 @@
     },
     {
       "name": "Vercel",
-      "description": "Official Vercel MCP ΓÇö projects, deployments, and docs for your Vercel account.",
+      "description": "Official Vercel MCP — projects, deployments, and docs for your Vercel account.",
       "category": "Developer Tools",
       "connection_type": "http",
       "connection_url": "https://mcp.vercel.com",
@@ -156,7 +156,7 @@
     },
     {
       "name": "Cloudflare",
-      "description": "Official Cloudflare MCP ΓÇö Workers, DNS, and account tooling.",
+      "description": "Official Cloudflare MCP — Workers, DNS, and account tooling.",
       "category": "Developer Tools",
       "connection_type": "http",
       "connection_url": "https://mcp.cloudflare.com/mcp",
@@ -173,7 +173,7 @@
     },
     {
       "name": "Neon",
-      "description": "Official Neon MCP ΓÇö serverless Postgres projects, branches, and SQL.",
+      "description": "Official Neon MCP — serverless Postgres projects, branches, and SQL.",
       "category": "Developer Tools",
       "connection_type": "http",
       "connection_url": "https://mcp.neon.tech/mcp",
@@ -190,7 +190,7 @@
     },
     {
       "name": "HubSpot",
-      "description": "Official HubSpot MCP ΓÇö CRM contacts, companies, and deals (OAuth).",
+      "description": "Official HubSpot MCP — CRM contacts, companies, and deals (OAuth).",
       "category": "CRM",
       "connection_type": "http",
       "connection_url": "https://mcp.hubspot.com",
@@ -207,7 +207,7 @@
     },
     {
       "name": "Atlassian",
-      "description": "Official Atlassian MCP ΓÇö Jira and Confluence context for agents.",
+      "description": "Official Atlassian MCP — Jira and Confluence context for agents.",
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.atlassian.com/v1/mcp",
@@ -225,7 +225,7 @@
     },
     {
       "name": "Context7",
-      "description": "Upstash Context7 MCP ΓÇö live, version-specific library docs for coding agents.",
+      "description": "Upstash Context7 MCP — live, version-specific library docs for coding agents.",
       "category": "Developer Tools",
       "connection_type": "http",
       "connection_url": "https://mcp.context7.com/mcp",
@@ -242,7 +242,7 @@
     },
     {
       "name": "Filesystem",
-      "description": "Official MCP filesystem server ΓÇö read/write local files (stdio). Set path via install args if needed.",
+      "description": "Official MCP filesystem server — read/write local files (stdio). Set path via install args if needed.",
       "category": "Developer Tools",
       "connection_type": "stdio",
       "stdio_config": {
@@ -266,7 +266,7 @@
     },
     {
       "name": "Brave Search",
-      "description": "Official Brave Search MCP ΓÇö web search via Brave Search API (stdio).",
+      "description": "Official Brave Search MCP — web search via Brave Search API (stdio).",
       "category": "Search",
       "connection_type": "stdio",
       "stdio_config": {
@@ -292,7 +292,7 @@
     },
     {
       "name": "Playwright",
-      "description": "Official Playwright MCP ΓÇö browser automation and web testing tools (stdio).",
+      "description": "Official Playwright MCP — browser automation and web testing tools (stdio).",
       "category": "Automation",
       "connection_type": "stdio",
       "stdio_config": {
@@ -315,7 +315,7 @@
     },
     {
       "name": "Exa",
-      "description": "Exa MCP ΓÇö neural web search and content retrieval for agents (stdio).",
+      "description": "Exa MCP — neural web search and content retrieval for agents (stdio).",
       "category": "Search",
       "connection_type": "stdio",
       "stdio_config": {
@@ -340,7 +340,7 @@
     },
     {
       "name": "Tavily",
-      "description": "Tavily MCP ΓÇö AI search API for agents (stdio).",
+      "description": "Tavily MCP — AI search API for agents (stdio).",
       "category": "Search",
       "connection_type": "stdio",
       "stdio_config": {
@@ -365,7 +365,7 @@
     },
     {
       "name": "Hugging Face",
-      "description": "Hugging Face MCP ΓÇö models, datasets, and Spaces tooling (remote).",
+      "description": "Hugging Face MCP — models, datasets, and Spaces tooling (remote).",
       "category": "AI",
       "connection_type": "http",
       "connection_url": "https://huggingface.co/mcp",
@@ -382,7 +382,7 @@
     },
     {
       "name": "PostHog",
-      "description": "PostHog MCP ΓÇö product analytics and feature flags (stdio).",
+      "description": "PostHog MCP — product analytics and feature flags (stdio).",
       "category": "Observability",
       "connection_type": "stdio",
       "stdio_config": {
@@ -407,7 +407,7 @@
     },
     {
       "name": "Shopify",
-      "description": "Shopify Dev MCP ΓÇö storefront and Admin API tooling for Shopify apps (stdio).",
+      "description": "Shopify Dev MCP — storefront and Admin API tooling for Shopify apps (stdio).",
       "category": "E-commerce",
       "connection_type": "stdio",
       "stdio_config": {
@@ -428,7 +428,7 @@
     },
     {
       "name": "Twilio",
-      "description": "Twilio MCP ΓÇö messaging and communications APIs (stdio).",
+      "description": "Twilio MCP — messaging and communications APIs (stdio).",
       "category": "Communications",
       "connection_type": "stdio",
       "stdio_config": {
@@ -454,7 +454,7 @@
     },
     {
       "name": "PayPal",
-      "description": "PayPal MCP ΓÇö payments and commerce APIs (stdio).",
+      "description": "PayPal MCP — payments and commerce APIs (stdio).",
       "category": "Finance",
       "connection_type": "stdio",
       "stdio_config": {
@@ -478,7 +478,7 @@
     },
     {
       "name": "GitLab",
-      "description": "GitLab MCP ΓÇö projects, MRs, and issues (stdio).",
+      "description": "GitLab MCP — projects, MRs, and issues (stdio).",
       "category": "Developer Tools",
       "connection_type": "stdio",
       "stdio_config": {
@@ -503,7 +503,7 @@
     },
     {
       "name": "Asana",
-      "description": "Asana MCP ΓÇö tasks and projects (stdio).",
+      "description": "Asana MCP — tasks and projects (stdio).",
       "category": "Productivity",
       "connection_type": "stdio",
       "stdio_config": {
@@ -526,7 +526,7 @@
     },
     {
       "name": "ClickUp",
-      "description": "ClickUp MCP ΓÇö tasks and workspaces (stdio).",
+      "description": "ClickUp MCP — tasks and workspaces (stdio).",
       "category": "Productivity",
       "connection_type": "stdio",
       "stdio_config": {
@@ -550,7 +550,7 @@
     },
     {
       "name": "Todoist",
-      "description": "Todoist MCP ΓÇö personal task management (stdio).",
+      "description": "Todoist MCP — personal task management (stdio).",
       "category": "Productivity",
       "connection_type": "stdio",
       "stdio_config": {
@@ -612,7 +612,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=propick.ae&sz=128"
     },
     {
-      "name": "hood. ΓÇö .hood name service",
+      "name": "hood. — .hood name service",
       "description": "Resolve .hood names on Robinhood Chain   forward/reverse, text records, availability & pricing.",
       "category": "General",
       "connection_type": "http",
@@ -780,7 +780,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=advisorsai.ai&sz=128"
     },
     {
-      "name": "One-Page Readiness Check ΓÇö 10 Signals, Arabic or English",
+      "name": "One-Page Readiness Check — 10 Signals, Arabic or English",
       "description": "Ten machine-readable signals on one public page: the top miss if any, and a receipt we re-verify.",
       "category": "General",
       "connection_type": "http",
@@ -790,7 +790,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=advisorsai.ai&sz=128"
     },
     {
-      "name": "AdWeave ΓÇö Meta Ads MCP Server",
+      "name": "AdWeave — Meta Ads MCP Server",
       "description": "Meta Ads MCP server with 47 tools for campaigns, creatives, audiences, and insights.",
       "category": "General",
       "connection_type": "http",
@@ -1082,7 +1082,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=agentroam.ai&sz=128"
     },
     {
-      "name": "AgentTrust ΓÇö Identity & Trust for A2A Agents",
+      "name": "AgentTrust — Identity & Trust for A2A Agents",
       "description": "Identity, trust, and A2A orchestration for autonomous AI agents. Official A2A partner.",
       "category": "AI",
       "connection_type": "stdio",
@@ -1481,7 +1481,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=app.ai-advisors.ai&sz=128"
     },
     {
-      "name": "AI∩╛ëπéóπé½πâ¬Γÿå Agent Trust Receipt",
+      "name": "AIﾉアカリ☆ Agent Trust Receipt",
       "description": "Read-only Remote MCP for externally grounded AI agent trust receipts.",
       "category": "AI",
       "connection_type": "http",
@@ -1491,7 +1491,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=ai-akari.ai&sz=128"
     },
     {
-      "name": "AI∩╛ëπéóπé½πâ¬Γÿå One-Minute Akari",
+      "name": "AIﾉアカリ☆ One-Minute Akari",
       "description": "A free one-minute reset for people, delivered by AI, with no account or personal data.",
       "category": "General",
       "connection_type": "http",
@@ -1501,7 +1501,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=ai-akari.ai&sz=128"
     },
     {
-      "name": "AI-Portal ΓÇö Enterprise GenAI Briefing",
+      "name": "AI-Portal — Enterprise GenAI Briefing",
       "description": "Live AI data for agents: model releases, regulations (EU AI Act), GenAI glossary, daily news.",
       "category": "AI",
       "connection_type": "http",
@@ -1521,7 +1521,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=mcp.airshelf.ai&sz=128"
     },
     {
-      "name": "AIS Gateway ΓÇö CVE prioritization + Agent Flight Recorder for AI agents",
+      "name": "AIS Gateway — CVE prioritization + Agent Flight Recorder for AI agents",
       "description": "Daily CVE priorities (KEV+EPSS) + Agent Flight Recorder: dead-man alerts & resume for AI agents",
       "category": "AI",
       "connection_type": "http",
@@ -1591,7 +1591,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=mcp.ambix.ai&sz=128"
     },
     {
-      "name": "Analytics Legends ΓÇö SAP Analytics Intelligence",
+      "name": "Analytics Legends — SAP Analytics Intelligence",
       "description": "AI agent for SAP analytics: firms, day rates, contract radar, news, concepts, studies",
       "category": "AI",
       "connection_type": "http",
@@ -2015,7 +2015,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=awardcast.ai&sz=128"
     },
     {
-      "name": "AwrAIter ΓÇö Telegram channels",
+      "name": "AwrAIter — Telegram channels",
       "description": "Telegram channels you administer: analytics, content plans, scheduled publishing. No userbot",
       "category": "General",
       "connection_type": "http",
@@ -2205,7 +2205,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=mcp-server-295985738387.europe-west1.run.app&sz=128"
     },
     {
-      "name": "Bareun ΓÇö Korean NLP & Spell/Grammar Checking",
+      "name": "Bareun — Korean NLP & Spell/Grammar Checking",
       "description": "Korean NLP MCP server: morphological analysis, tokenization, spell & grammar checking (Bareun)",
       "category": "General",
       "connection_type": "http",
@@ -2295,7 +2295,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=betterpost.ai&sz=128"
     },
     {
-      "name": "Bezal ΓÇö Local Business Intelligence for AI Agents",
+      "name": "Bezal — Local Business Intelligence for AI Agents",
       "description": "Search 7,000+ local service businesses across America by category, location, or keyword.",
       "category": "Search",
       "connection_type": "http",
@@ -2393,7 +2393,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=blast-radius.ai&sz=128"
     },
     {
-      "name": "Bloopo ΓÇö Make Ads",
+      "name": "Bloopo — Make Ads",
       "description": "Make ads from one sentence   finished video ads, UGC, product images, voiceover and brand kits.",
       "category": "General",
       "connection_type": "http",
@@ -2403,7 +2403,7 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=mcp.bloopo.ai&sz=128"
     },
     {
-      "name": "Bloopo ΓÇö AI Ad & Creative Studio",
+      "name": "Bloopo — AI Ad & Creative Studio",
       "description": "Turn one sentence into finished ads: video ads, UGC, product photos, voiceover, brand kits, A/B.",
       "category": "General",
       "connection_type": "http",
