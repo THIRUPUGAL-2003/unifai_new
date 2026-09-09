@@ -271,8 +271,66 @@ function sanitizeErrorText(raw: string): string {
 		return "Upstream returned a non-MCP response (HTML or oversized body) — use the real MCP endpoint URL from the provider docs, not a website homepage";
 	}
 
+	const mcpClean = sanitizeMCPConnectErrorText(text);
+	if (mcpClean) {
+		return mcpClean;
+	}
+
 	if (text.length > 280) {
 		return `${text.slice(0, 280).trim()}…`;
 	}
 	return text;
+}
+
+/** Collapse nested "failed to connect MCP client …" wrappers into one clear toast. */
+function sanitizeMCPConnectErrorText(text: string): string | null {
+	const lower = text.toLowerCase();
+	if (!lower.includes("mcp client") && !lower.includes("waiting for endpoint") && !lower.includes("mcp")) {
+		return null;
+	}
+	if (
+		!lower.includes("failed to connect") &&
+		!lower.includes("waiting for endpoint") &&
+		!lower.includes("timeout") &&
+		!lower.includes("connection refused")
+	) {
+		return null;
+	}
+
+	const nameMatch =
+		text.match(/failed to connect MCP client\s+'([^']+)'/i) || text.match(/failed to connect MCP client\s+([A-Za-z0-9_.-]+)/i);
+	const name = nameMatch?.[1]?.trim() || "";
+
+	let root = text;
+	for (let i = 0; i < 8; i++) {
+		const next = root
+			.replace(/(?:failed to connect MCP client(?:\s+'[^']+'|\s+[A-Za-z0-9_.-]+)?\s*:\s*)+/gi, "")
+			.replace(/failed to start MCP client transport(?: after \d+ retries)?\s*:\s*/gi, "")
+			.trim();
+		if (next === root) break;
+		root = next;
+	}
+
+	const rootLower = root.toLowerCase();
+	let detail = root;
+	if (rootLower.includes("waiting for endpoint") || (rootLower.includes("timeout") && rootLower.includes("endpoint"))) {
+		detail =
+			"endpoint timed out — check the MCP URL is reachable, the server is running, and auth (if required) is configured";
+	} else if (rootLower.includes("connection refused")) {
+		detail = "connection refused — nothing is listening at that host/port";
+	} else if (rootLower.includes("no such host") || rootLower.includes("name resolution")) {
+		detail = "DNS lookup failed — check the MCP hostname";
+	} else if (rootLower.includes("deadline exceeded") || rootLower.includes("context deadline")) {
+		detail = "connection timed out — check the MCP URL, network, and authentication";
+	} else if (root.length > 220) {
+		detail = `${root.slice(0, 220).trim()}…`;
+	}
+
+	if (name) {
+		return `Could not connect to MCP client "${name}": ${detail}`;
+	}
+	if (detail !== text) {
+		return detail.charAt(0).toUpperCase() + detail.slice(1);
+	}
+	return null;
 }

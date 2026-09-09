@@ -49,6 +49,15 @@ func ClientSafeMCPConnectMessage(prefix string, err error) string {
 	if prefix == "" {
 		return detail
 	}
+	// Avoid "Failed to connect MCP client: Could not connect to MCP client …"
+	if strings.EqualFold(strings.TrimSpace(prefix), "Failed to connect MCP client") ||
+		strings.EqualFold(strings.TrimSpace(prefix), "Failed to reconnect MCP client") ||
+		strings.EqualFold(strings.TrimSpace(prefix), "Failed to register MCP client") {
+		if strings.HasPrefix(strings.ToLower(detail), "could not connect") ||
+			strings.HasPrefix(strings.ToLower(detail), "could not reconnect") {
+			return detail
+		}
+	}
 	return prefix + ": " + detail
 }
 
@@ -58,41 +67,118 @@ func sanitizeMCPUpstreamDetail(msg string) string {
 		return "unknown MCP connection error"
 	}
 
-	status, hasStatus := extractEmbeddedHTTPStatus(msg)
-	htmlish := looksLikeHTMLOrStatusPage(msg)
-	oversized := utf8.RuneCountInString(msg) > 400
+	clientName := extractMCPClientName(msg)
+	root := unwrapMCPConnectNoise(msg)
+
+	status, hasStatus := extractEmbeddedHTTPStatus(root)
+	htmlish := looksLikeHTMLOrStatusPage(root) || looksLikeHTMLOrStatusPage(msg)
+	oversized := utf8.RuneCountInString(root) > 400 || utf8.RuneCountInString(msg) > 400
 
 	if hasStatus && (htmlish || oversized) {
 		switch status {
 		case 401, 403:
-			return fmt.Sprintf("upstream returned HTTP %d (unauthorized) — switch Authentication to Headers or OAuth and add a valid API key / token", status)
+			return withMCPClientName(clientName, fmt.Sprintf("upstream returned HTTP %d (unauthorized) — switch Authentication to Headers or OAuth and add a valid API key / token", status))
 		case 404:
-			return "upstream returned HTTP 404 — this URL does not look like a valid MCP endpoint"
+			return withMCPClientName(clientName, "upstream returned HTTP 404 — this URL does not look like a valid MCP endpoint")
 		case 429:
-			return "upstream returned HTTP 429 (rate limited or blocked) — this URL is not a usable MCP endpoint, or authentication is required"
+			return withMCPClientName(clientName, "upstream returned HTTP 429 (rate limited or blocked) — this URL is not a usable MCP endpoint, or authentication is required")
 		default:
 			if status >= 400 {
-				return fmt.Sprintf("upstream returned HTTP %d — check the MCP server URL and authentication", status)
+				return withMCPClientName(clientName, fmt.Sprintf("upstream returned HTTP %d — check the MCP server URL and authentication", status))
 			}
 		}
 	}
 
 	if htmlish || oversized {
-		return "upstream returned a non-MCP response (HTML or oversized body) — use the real MCP endpoint URL from the provider docs, not a website homepage"
+		return withMCPClientName(clientName, "upstream returned a non-MCP response (HTML or oversized body) — use the real MCP endpoint URL from the provider docs, not a website homepage")
 	}
 
 	if hasStatus && status >= 400 {
 		switch status {
 		case 401, 403:
-			return fmt.Sprintf("upstream returned HTTP %d (unauthorized) — switch Authentication to Headers or OAuth and add a valid API key / token", status)
+			return withMCPClientName(clientName, fmt.Sprintf("upstream returned HTTP %d (unauthorized) — switch Authentication to Headers or OAuth and add a valid API key / token", status))
 		case 429:
-			return "upstream returned HTTP 429 (rate limited or blocked)"
+			return withMCPClientName(clientName, "upstream returned HTTP 429 (rate limited or blocked)")
 		default:
-			return fmt.Sprintf("upstream returned HTTP %d", status)
+			return withMCPClientName(clientName, fmt.Sprintf("upstream returned HTTP %d", status))
 		}
 	}
 
-	return truncateRunes(msg, 280)
+	if mapped := mapMCPRootCause(root); mapped != "" {
+		return withMCPClientName(clientName, mapped)
+	}
+
+	return withMCPClientName(clientName, truncateRunes(root, 220))
+}
+
+var (
+	mcpClientNameQuotedRe = regexp.MustCompile(`(?i)failed to connect MCP client\s+'([^']+)'`)
+	mcpClientNamePlainRe  = regexp.MustCompile(`(?i)failed to connect MCP client\s+([A-Za-z0-9_.-]+)`)
+	mcpConnectNoiseRe     = regexp.MustCompile(`(?i)(?:failed to connect MCP client(?:\s+'[^']+'|\s+[A-Za-z0-9_.-]+)?\s*:\s*)+`)
+	mcpTransportRetriesRe = regexp.MustCompile(`(?i)failed to start MCP client transport after \d+ retries:\s*`)
+)
+
+func extractMCPClientName(msg string) string {
+	if m := mcpClientNameQuotedRe.FindStringSubmatch(msg); len(m) == 2 {
+		return m[1]
+	}
+	if m := mcpClientNamePlainRe.FindStringSubmatch(msg); len(m) == 2 {
+		return m[1]
+	}
+	return ""
+}
+
+func unwrapMCPConnectNoise(msg string) string {
+	msg = strings.TrimSpace(msg)
+	// Peel nested "failed to connect MCP client …:" wrappers.
+	for i := 0; i < 8; i++ {
+		next := strings.TrimSpace(mcpConnectNoiseRe.ReplaceAllString(msg, ""))
+		next = strings.TrimSpace(mcpTransportRetriesRe.ReplaceAllString(next, ""))
+		if next == msg {
+			break
+		}
+		msg = next
+	}
+	return strings.TrimSpace(msg)
+}
+
+func mapMCPRootCause(root string) string {
+	lower := strings.ToLower(root)
+	switch {
+	case strings.Contains(lower, "waiting for endpoint"),
+		strings.Contains(lower, "timeout waiting"),
+		(strings.Contains(lower, "timeout") && strings.Contains(lower, "endpoint")):
+		return "endpoint timed out — check the MCP URL is reachable, the server is running, and auth (if required) is configured"
+	case strings.Contains(lower, "context deadline exceeded"),
+		strings.Contains(lower, "deadline exceeded"):
+		return "connection timed out — check the MCP URL, network, and authentication"
+	case strings.Contains(lower, "connection refused"):
+		return "connection refused — nothing is listening at that host/port"
+	case strings.Contains(lower, "no such host"),
+		strings.Contains(lower, "name resolution"):
+		return "DNS lookup failed — check the MCP hostname"
+	case strings.Contains(lower, "certificate"),
+		strings.Contains(lower, "x509"):
+		return "TLS/certificate error — check HTTPS settings for this MCP endpoint"
+	case strings.Contains(lower, "executable file not found"),
+		strings.Contains(lower, "command not found"),
+		strings.Contains(lower, "no such file"):
+		return "stdio command not found — install the MCP binary/npx package on the UnifAI host"
+	case strings.Contains(lower, "401"), strings.Contains(lower, "unauthorized"):
+		return "unauthorized — switch Authentication to Headers or OAuth and add a valid API key / token"
+	case strings.Contains(lower, "403"), strings.Contains(lower, "forbidden"):
+		return "forbidden — check API key permissions or OAuth scopes"
+	default:
+		return ""
+	}
+}
+
+func withMCPClientName(name, detail string) string {
+	detail = strings.TrimSpace(detail)
+	if name == "" {
+		return detail
+	}
+	return fmt.Sprintf("Could not connect to MCP client %q: %s", name, detail)
 }
 
 func extractEmbeddedHTTPStatus(msg string) (int, bool) {

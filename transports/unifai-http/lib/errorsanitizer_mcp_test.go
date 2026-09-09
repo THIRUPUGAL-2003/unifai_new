@@ -27,3 +27,20 @@ func TestClientSafeMCPConnectMessageAuthStatus(t *testing.T) {
 		t.Fatalf("expected auth guidance in %q", got)
 	}
 }
+
+func TestClientSafeMCPConnectMessageUnwrapsNestedTimeout(t *testing.T) {
+	raw := errors.New("failed to connect MCP client: failed to connect MCP client Weather_2: failed to connect MCP client Weather_2: failed to start MCP client transport after 5 retries: timeout waiting for endpoint")
+	got := ClientSafeMCPConnectMessage("Failed to connect MCP client", raw)
+	if strings.Count(strings.ToLower(got), "failed to connect") > 1 {
+		t.Fatalf("still nested: %q", got)
+	}
+	if !strings.Contains(got, "Weather_2") {
+		t.Fatalf("expected client name in %q", got)
+	}
+	if !strings.Contains(strings.ToLower(got), "timed out") && !strings.Contains(strings.ToLower(got), "timeout") {
+		t.Fatalf("expected timeout guidance in %q", got)
+	}
+	if strings.Contains(got, "after 5 retries") {
+		t.Fatalf("should not expose misleading retry noise: %q", got)
+	}
+}

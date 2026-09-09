@@ -5840,7 +5840,7 @@ func (c *Config) AddMCPClient(ctx context.Context, clientConfig *schemas.MCPClie
 	// Config with processed env vars
 	if err := c.client.AddMCPClient(ctx, clientConfig); err != nil {
 		c.MCPConfig.ClientConfigs = c.MCPConfig.ClientConfigs[:len(c.MCPConfig.ClientConfigs)-1]
-		return fmt.Errorf("failed to connect MCP client: %w", err)
+		return err
 	}
 	// Update MCP catalog pricing data for the new client
 	if c.MCPCatalog != nil && c.ConfigStore != nil {

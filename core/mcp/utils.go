@@ -189,8 +189,8 @@ func isTransientError(err error) bool {
 		"invalid config",
 		// Command execution errors
 		"executable file not found", "permission denied", "command failed",
-		// Timeout errors - if something times out, retrying won't help
-		"timeout", "deadline exceeded", "waiting for endpoint",
+		// Timeout / endpoint errors — retrying the same dead endpoint burns time
+		"timeout", "deadline exceeded", "waiting for endpoint", "i/o timeout",
 	}
 
 	for _, permanentErr := range permanentErrors {
@@ -204,8 +204,6 @@ func isTransientError(err error) bool {
 		// Network errors
 		"connection refused", "connection reset", "broken pipe",
 		"network is unreachable", "no route to host",
-		// Timeout errors
-		"timeout", "deadline exceeded", "i/o timeout",
 		// DNS errors
 		"no such host", "name resolution failed",
 		// HTTP errors
@@ -224,12 +222,12 @@ func isTransientError(err error) bool {
 		}
 	}
 
-	// Check for net.Error types (timeout-related errors)
+	// Check for net.Error types. Timeouts against a dead MCP endpoint should not
+	// burn the full retry budget — treat them as permanent for connect.
 	var netErr net.Error
 	if errors.As(err, &netErr) {
-		// Timeout errors are transient and should be retried
 		if netErr.Timeout() {
-			return true
+			return false
 		}
 	}
 
