@@ -72,9 +72,11 @@ const (
 	DefaultPricingTimeout         = datasheet.DefaultPricingTimeout
 	DefaultModelParametersTimeout = datasheet.DefaultModelParametersTimeout
 
-	DefaultMCPLibraryURL         = "https://getunifai.ai/mcp-library"
-	DefaultMCPLibraryFallbackURL = "file:///app/configs/mcp-library.json"
-	DefaultMCPLibraryTimeout     = 45 * time.Second
+	// DefaultMCPLibraryURL points at the bundled catalog. The historical
+	// https://getunifai.ai/mcp-library host no longer resolves (NXDOMAIN), so
+	// shipping the local file keeps Force Sync / first-boot working with logos.
+	DefaultMCPLibraryURL     = "file:///app/configs/mcp-library.json"
+	DefaultMCPLibraryTimeout = 45 * time.Second
 )
 
 // syncWorkerTickerPeriod is the fixed interval at which the background sync worker

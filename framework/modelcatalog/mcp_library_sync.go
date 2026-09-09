@@ -106,16 +106,6 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 		return fetchMCPLibrary(ctx, url)
 	})
 	if err != nil {
-		// Remote catalog unreachable — fall back to bundled local file (offline / air-gap).
-		fallback := DefaultMCPLibraryFallbackURL
-		if url != fallback {
-			if fbEntries, fbErr := fetchMCPLibrary(ctx, fallback); fbErr == nil {
-				entries = fbEntries
-				err = nil
-			}
-		}
-	}
-	if err != nil {
 		return 0, fmt.Errorf("failed to fetch MCP library from %s: %w", url, err)
 	}
 
@@ -136,8 +126,7 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 	}
 
 	// Upsert all entries in a single transaction, then prune remote rows that
-	// are no longer in the catalog (otherwise the DB accumulates forever and
-	// the UI shows hundreds more entries than mcp-library.json).
+	// are no longer in this catalog so the UI matches the configured source.
 	count := 0
 	err = store.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		seen := make(map[string]bool, len(entries))
@@ -166,7 +155,7 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 				Slug:               slug,
 				Name:               e.Name,
 				Description:        e.Description,
-				Category:           configstore.CanonicalMCPCategory(e.Category),
+				Category:           e.Category,
 				ConnectionType:     e.ConnectionType,
 				ConnectionURL:      e.ConnectionURL,
 				StdioConfig:        e.StdioConfig,
@@ -186,8 +175,6 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 			}
 			count++
 		}
-		// Prune remotes absent from this catalog. catalogSlugs includes protected
-		// names too so we don't wipe the world when every payload slug is custom.
 		if _, pruneErr := store.SoftDeleteStaleRemoteMCPLibraryEntries(ctx, catalogSlugs, tx); pruneErr != nil {
 			return fmt.Errorf("failed to prune stale remote MCP library entries: %w", pruneErr)
 		}
@@ -195,13 +182,6 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to sync MCP library to database: %w", err)
-	}
-
-	if _, dedupeErr := store.SoftDeleteDuplicateCustomMCPLibraryURLs(ctx); dedupeErr != nil {
-		return count, fmt.Errorf("MCP library synced (%d entries) but failed to dedupe custom URLs: %w", count, dedupeErr)
-	}
-	if _, normErr := store.NormalizeMCPLibraryCategories(ctx); normErr != nil {
-		return count, fmt.Errorf("MCP library synced (%d entries) but failed to normalize categories: %w", count, normErr)
 	}
 
 	return count, nil

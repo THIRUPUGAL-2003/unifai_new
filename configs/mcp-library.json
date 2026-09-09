@@ -1,2436 +1,1957 @@
 {
-  "lastUpdatedAt": "2026-09-04T14:48:47Z",
+  "lastUpdatedAt": "2026-09-09T19:41:54Z",
   "servers": [
     {
+      "name": "Adobe Journey Optimizer",
+      "description": "Adobe Journey Optimizer helps teams inspect, summarize, and troubleshoot journeys, campaigns, offers, and channel configurations. Its MCP connector turns AJO retrieve APIs into plain-language context for reviewing statuses, finding draft issues, and understanding orchestration portfolios.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://ajo-mcp.adobe.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "adobe",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/adobe-journey-optimizer",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/adobe.svg"
+    },
+    {
+      "name": "Adobe Marketing Agent",
+      "description": "Adobe Marketing Agent connects enterprise AI workflows with Adobe marketing systems such as Real-Time CDP, Journey Optimizer, and Customer Journey Analytics. It helps teams ask questions, surface campaign and audience insights, and take action from natural language.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://aep-ai-ama.adobe.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "adobe",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/adobe-marketing-agent",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/adobe.svg"
+    },
+    {
+      "name": "Ahrefs",
+      "description": "Ahrefs provides SEO and AI-search analytics for keyword research, backlink analysis, rank tracking, site audits, and brand visibility monitoring. Its MCP connector gives assistants data-backed search context for comparing competitors, finding opportunities, and diagnosing organic performance.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.ahrefs.com/mcp/mcp",
+      "auth_type": "oauth",
+      "publisher": "ahrefs",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ahrefs",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/ahrefs.svg"
+    },
+    {
+      "name": "Aiera",
+      "description": "Aiera is a financial events intelligence platform covering live earnings calls, transcripts, filings, and company publications. Its remote MCP server connects assistants to Aiera's event and document APIs so market-moving information can be searched and analyzed in conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp-pub.aiera.com/",
+      "auth_type": "oauth",
+      "publisher": "aiera",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/aiera",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp-pub.aiera.com&sz=128"
+    },
+    {
+      "name": "AirOps",
+      "description": "AirOps is a content operations platform for teams working on search and AI visibility. Its remote MCP server gives assistants access to workspaces, Brand Kits, and answer-engine optimization analytics for planning and improving content.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.airops.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "airops",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/airops",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.airops.com&sz=128"
+    },
+    {
+      "name": "Airtable",
+      "description": "Airtable brings structured operational data into AI-assisted work. Its MCP connector lets assistants query, analyze, create, and update records from Airtable bases so teams can use existing content, workflows, and internal data as context during a conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.airtable.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "airtable",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/airtable",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/airtable.svg"
+    },
+    {
+      "name": "Airwallex",
+      "description": "Airwallex provides payment and financial platform capabilities for developers building on its APIs. Its MCP server brings Airwallex documentation, API references, and sandbox testing context into assistant workflows for integration planning, troubleshooting, simulations, and go-live preparation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp-demo.airwallex.com/developer",
+      "auth_type": "oauth",
+      "publisher": "airwallex",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/airwallex",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/airwallex.svg"
+    },
+    {
+      "name": "Aiwyn Tax",
+      "description": "Aiwyn Tax uses Aiwyn tax-engine capabilities to estimate federal and state taxes from user-provided tax documents. Its MCP connector can help produce a 1040-oriented workflow while keeping the description focused on tax estimation rather than broad financial advice.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.columnapi.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "aiwyn",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/aiwyn-tax",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/aiwyn.svg"
+    },
+    {
+      "name": "AllTrails",
+      "description": "AllTrails helps people discover hikes, walks, and outdoor routes using curated trail information, community reviews, photos, ratings, and trip-planning context. Its MCP connector brings that outdoor discovery context into assistant workflows for comparing nearby routes and choosing an adventure before heading out.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://www.alltrails.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "alltrails",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/alltrails",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/alltrails.png"
+    },
+    {
+      "name": "Amplitude",
+      "description": "Amplitude is a behavior analytics and experimentation platform for product teams. Its MCP connector lets assistants search and analyze charts, dashboards, experiments, feature flags, and metrics so product data can inform trends, workflows, and decisions from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.amplitude.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "amplitude",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/amplitude",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/amplitude.svg"
+    },
+    {
+      "name": "Apollo.io",
+      "description": "Apollo.io is a sales intelligence and engagement platform with a large B2B contact and company database. Its remote MCP server lets assistants search prospects, enrich records, and work with sequences and deals using the data teams already manage in Apollo.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.apollo.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "apollo",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/apollo-io",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.apollo.io&sz=128"
+    },
+    {
+      "name": "Asana",
+      "description": "Asana is a collaborative work management platform for planning, assigning, and tracking tasks across projects and workspaces. Its official remote MCP server gives assistants account-backed project context, including task status, ownership, and workspace activity from the same system teams already use.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.asana.com/v2/mcp",
+      "auth_type": "oauth",
+      "publisher": "asana",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/asana",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/asana-logo.svg"
+    },
+    {
+      "name": "Atlassian",
+      "description": "Atlassian brings Jira, Confluence, and Compass into AI-assisted work through its remote MCP server. Teams can use the connection to reason over software issues, documentation, project context, and engineering-system information that already lives across Atlassian products.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.atlassian.com/v1/mcp/authv2",
+      "auth_type": "oauth",
+      "publisher": "atlassian",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/atlassian",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/atlassian.svg"
+    },
+    {
+      "name": "Attio",
+      "description": "Attio is a flexible, data-driven CRM for managing contacts, companies, deals, and workflows. Its remote MCP server gives assistants direct access to CRM records, notes, and tasks so customer context can be looked up, logged, and updated from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.attio.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "attio",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/attio",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.attio.com&sz=128"
+    },
+    {
+      "name": "Audible",
+      "description": "Audible helps users discover audiobook recommendations by genre, mood, topic, or other natural-language preferences. Its MCP connector gives assistants access to recommendation context while keeping availability and marketplace differences scoped to the user's region.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.audible.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "audible",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/audible",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.audible.com&sz=128"
+    },
+    {
+      "name": "Aura",
+      "description": "Aura provides company intelligence and workforce analytics for exploring employee headcount, hiring, attrition, corporate structure, and industry benchmarks. Its MCP connector gives assistants workforce context for due diligence, market research, and company-comparison workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.auraintelligence.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "aura",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/aura",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.auraintelligence.com&sz=128"
+    },
+    {
+      "name": "Aurora",
+      "description": "Aurora is a read-only Consilio connector for engagement, document, matter, and workspace data. It lets assistants search across entitled Consilio records, follow answers through related matters and documents, and cite source URLs while respecting existing access rights.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.ai.consilio.com",
+      "auth_type": "oauth",
+      "publisher": "aurora",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/aurora",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.ai.consilio.com&sz=128"
+    },
+    {
+      "name": "Autodesk Product Help",
+      "description": "Autodesk Product Help connects AI agents to Autodesk official product documentation across more than 110 products. The read-only MCP server helps assistants search, navigate, and retrieve trusted help content for product questions, onboarding, and support workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://developer.api.autodesk.com/knowledge/public/v1/mcp",
+      "auth_type": "oauth",
+      "publisher": "autodesk",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/autodesk-product-help",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/autodesk.png"
+    },
+    {
+      "name": "AWS Marketplace",
+      "description": "AWS Marketplace helps software buyers discover, evaluate, compare, and procure cloud solutions from the AWS Marketplace catalog. Its connector brings marketplace search, recommendations, shortlisting, and contextual solution insights into assistant-led buying workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://marketplace-mcp.us-east-1.api.aws/",
+      "auth_type": "oauth",
+      "publisher": "aws",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/aws-marketplace",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/aws_light.svg"
+    },
+    {
+      "name": "B12",
+      "description": "B12 is an AI-powered website builder for professional services businesses. Its remote MCP server lets assistants generate a complete, publishable website from a business name and description, then iterate on copy and design directly from chat.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://b12.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "b12",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/b12",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=b12.io&sz=128"
+    },
+    {
+      "name": "Bigdata.com",
+      "description": "Bigdata.com provides institutional-grade financial data covering global news, transcripts, and regulatory filings. Its MCP server combines entity-aware search with assistant reasoning so analysts can run due diligence and produce cited finance research from grounded sources.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.bigdata.com/",
+      "auth_type": "oauth",
+      "publisher": "bigdata",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/bigdata",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/bigdata.png"
+    },
+    {
+      "name": "Box",
+      "description": "Box is a secure content platform for storing, organizing, searching, and collaborating on business files. Its remote MCP server gives assistants governed access to file and folder context, Box AI capabilities, and document knowledge within the permissions already configured in Box.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.box.com",
+      "auth_type": "oauth",
+      "publisher": "box",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/box",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/box.png"
+    },
+    {
+      "name": "Calendly",
+      "description": "Calendly is a scheduling platform for booking meetings without back-and-forth email. Its remote MCP server lets assistants check availability, look up scheduled events, and manage booking links using the calendar setup users already maintain in Calendly.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.calendly.com",
+      "auth_type": "oauth",
+      "publisher": "calendly",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/calendly",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/calendly.svg"
+    },
+    {
+      "name": "Canva",
+      "description": "Canva is a visual communication platform for creating presentations, social graphics, documents, and brand assets. Its remote MCP server connects assistants to Canva designs, assets, exports, and comments so creative work can be discussed, revised, and prepared from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.canva.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "canva",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/canva",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/canva.svg"
+    },
+    {
+      "name": "Carta",
+      "description": "Carta connects cap table, investor, fund, accounting, and company financial data to AI-assisted private-capital workflows. Its MCP connector helps assistants analyze ownership, valuations, pro-forma rounds, exit scenarios, investment metrics, and fund performance without switching systems.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.app.carta.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "carta",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/carta",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/carta.png"
+    },
+    {
+      "name": "Clarify",
+      "description": "Clarify is a conversational CRM connector for retrieving, creating, and updating sales records. It helps assistants query deals, companies, people, meetings, tasks, and pipeline context while respecting real-time Clarify data and permissions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.clarify.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "clarify",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/clarify",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/clarify.png"
+    },
+    {
+      "name": "Clerk",
+      "description": "Clerk provides authentication, organization management, and billing implementation support for application developers. Its connector brings current SDK snippets, route-protection patterns, B2B organization examples, and framework-specific guidance into assistant coding workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.clerk.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "clerk",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/clerk",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/clerk-icon-light.svg"
+    },
+    {
+      "name": "ClickUp",
+      "description": "ClickUp is a project management and collaboration platform for tasks, docs, Chat, and team workflows. Its MCP connector gives assistants secure, real-time workspace context so AI agents can work with ClickUp data and support automation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.clickup.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "clickup",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/clickup",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/clickup.svg"
+    },
+    {
+      "name": "Cloudflare",
+      "description": "Cloudflare is an application, security, and developer platform spanning Workers, storage, networking, DNS, and account APIs. Its official MCP server gives assistants structured Cloudflare context for inspecting resources, planning infrastructure changes, and working across Cloudflare services.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.cloudflare.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "cloudflare",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/cloudflare",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/cloudflare.svg"
+    },
+    {
+      "name": "Cloudinary",
+      "description": "Cloudinary helps teams upload, manage, transform, deliver, and analyze image and video assets. Its MCP connector brings media-asset context into assistant workflows for working with visual content without leaving the connected Cloudinary environment.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://asset-management.mcp.cloudinary.com/sse",
+      "auth_type": "oauth",
+      "publisher": "cloudinary",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/cloudinary",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/cloudinary.svg"
+    },
+    {
+      "name": "CoinDesk",
+      "description": "CoinDesk Data and Indices provides real-time and historical digital asset market data, regulated indices, benchmarks, spot prices, derivatives data, and exchange metrics. Its connector gives assistants crypto-market context for trader, analyst, and research workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.coindesk.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "coindesk",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/coindesk",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/coindesk.png"
+    },
+    {
+      "name": "Context7",
+      "description": "Context7 provides up-to-date code examples and documentation for LLMs and AI code editors. Its MCP connector brings current library context into assistant workflows, reducing tab switching and helping generated code avoid outdated APIs, nonexistent methods, and stale implementation patterns.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.context7.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "context7",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/context7",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/context7.svg"
+    },
+    {
+      "name": "Coupler.io",
+      "description": "Coupler.io connects marketing, sales, finance, ecommerce, and other business data from hundreds of sources. Its connector lets assistants query Coupler.io data flows, transform raw platform metrics, and turn multi-channel information into analysis-ready business insight.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.coupler.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "coupler",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/coupler-io",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/coupler.png"
+    },
+    {
+      "name": "Craft",
+      "description": "Craft helps users create structured documents, manage tasks, and organize a personal knowledge base. Its connector gives assistants a persistent workspace for saving research, drafting content, tracking to-dos, and arranging information into folders.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.craft.do/my/mcp",
+      "auth_type": "oauth",
+      "publisher": "craft",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/craft",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/craft.png"
+    },
+    {
+      "name": "Crossbeam",
+      "description": "Crossbeam brings partner and account data into ecosystem-intelligence workflows. Its connector lets assistants surface overlaps, partner activity, warm paths, and co-sell opportunities so AI responses can reflect real-time partnership context.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.crossbeam.com",
+      "auth_type": "oauth",
+      "publisher": "crossbeam",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/crossbeam",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/crossbeam.png"
+    },
+    {
+      "name": "Crypto.com",
+      "description": "Crypto.com provides real-time cryptocurrency price quotes, order books, conversions, candlestick charts, and token-market information. Its connector gives assistants market context for crypto research, comparisons, and trading-oriented questions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.crypto.com/market-data/mcp",
+      "auth_type": "oauth",
+      "publisher": "crypto",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/crypto-com",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/crypto.png"
+    },
+    {
+      "name": "Enterpret",
+      "description": "Enterpret unifies customer feedback so teams can ask questions and understand themes across product, support, and customer channels. Its connector gives assistants feedback context for analysis, summaries, and decision support.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://wisdom-api.enterpret.com/server/mcp",
+      "auth_type": "oauth",
+      "publisher": "enterpret",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/enterpret",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/enterpret.png"
+    },
+    {
+      "name": "Era Context",
+      "description": "Era Context brings personal-finance context into assistant workflows. Its connector helps users reason over financial information, ask questions about money decisions, and organize personal finance tasks with connected account context.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.alphavantage.co",
+      "auth_type": "oauth",
+      "publisher": "era",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/era-context",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/era.png"
+    },
+    {
+      "name": "Eraser",
+      "description": "Eraser helps teams generate, manage, and update diagrams and technical files. Its connector lets assistants create and revise visual system artifacts so architecture, product, and engineering ideas can be captured from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.eraser.io/api/mcp",
+      "auth_type": "oauth",
+      "publisher": "eraser",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/eraser",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/eraser.png"
+    },
+    {
+      "name": "Exa",
+      "description": "Exa provides web search and code documentation search for AI workflows. Its connector gives assistants live retrieval context for finding relevant web pages, technical documentation, and source material when answers need grounded external information.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.exa.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "exa",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/exa",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/exa.png"
+    },
+    {
+      "name": "Excalidraw",
+      "description": "Excalidraw creates interactive hand-drawn diagrams from assistant conversations. Its MCP connector gives users a way to turn ideas, flows, and sketches into editable visual diagrams inside Excalidraw.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://excalidraw-mcp-app.vercel.app/mcp",
+      "auth_type": "oauth",
+      "publisher": "excalidraw",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/excalidraw-app-demo",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/excalidraw.png"
+    },
+    {
+      "name": "Expedia",
+      "description": "Expedia helps users plan trips, flights, hotels, and travel itineraries. Its connector brings travel search and booking context into assistant workflows so destinations, lodging, flights, and plans can be compared from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://www.expedia.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "expedia",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/expedia",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/expedia.png"
+    },
+    {
+      "name": "Figma",
+      "description": "Figma is a collaborative product design platform for interface design, prototyping, and developer handoff. Its remote MCP server brings files, designs, and Dev Mode context into assistant workflows so agents can understand visual work and relate it to implementation tasks.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.figma.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "figma",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/figma",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/figma.svg"
+    },
+    {
+      "name": "Fiscal.ai",
+      "description": "Fiscal.ai provides clean public-equity fundamental data for financial research. Its connector gives assistants structured company and market context for analysis, comparison, and investment-oriented questions grounded in financial datasets.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.fiscal.ai/mcp/sse",
+      "auth_type": "oauth",
+      "publisher": "fiscal",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/fiscal-ai",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/fiscal.png"
+    },
+    {
       "name": "GitHub",
-      "description": "Official GitHub MCP — repos, issues, PRs, and code search via GitHub Copilot MCP.",
-      "category": "Developer Tools",
+      "description": "GitHub is a collaboration platform for code, issues, pull requests, and project history. Its official remote MCP server gives assistants structured repository context for understanding source changes, reviews, development workflows, and the state of work across GitHub projects.",
+      "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.githubcopilot.com/mcp/",
       "auth_type": "oauth",
       "publisher": "github",
-      "icon_url": "/images/mcp-servers/github_light.svg",
-      "docs_url": "https://github.com/github/github-mcp-server",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/github",
       "tags": [
         "official",
-        "github",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/github_light.svg"
+    },
+    {
+      "name": "GitLab",
+      "description": "GitLab connects AI tools securely to repository, issue, merge request, and DevSecOps data. Its connector gives assistants GitLab project context for understanding code work, collaboration, security workflows, and delivery status.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://gitlab.com/api/v4/mcp",
+      "auth_type": "oauth",
+      "publisher": "gitlab",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/gitlab",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/gitlab.svg"
+    },
+    {
+      "name": "GoCardless",
+      "description": "GoCardless helps developers build payment API integrations for bank payments and payment workflows. Its connector brings GoCardless documentation and integration context into assistant workflows for implementation planning and troubleshooting.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.gocardless.com",
+      "auth_type": "oauth",
+      "publisher": "gocardless",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/gocardless",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/gocardless.png"
+    },
+    {
+      "name": "GoDaddy",
+      "description": "GoDaddy helps users search domains and check availability. Its connector gives assistants domain-discovery context so naming ideas, availability checks, and domain decisions can be explored conversationally.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.godaddy.com/v1/domains/mcp",
+      "auth_type": "oauth",
+      "publisher": "godaddy",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/godaddy",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/godaddy.svg"
+    },
+    {
+      "name": "Grain",
+      "description": "Grain turns meetings into insights, summaries, and next steps. Its connector brings meeting context into assistant workflows so users can find moments, understand decisions, and convert conversations into follow-up actions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.grain.com/_/mcp",
+      "auth_type": "oauth",
+      "publisher": "grain",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/grain",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/grain.png"
+    },
+    {
+      "name": "Granola",
+      "description": "Granola is an AI meeting notepad for capturing notes and context. Its connector gives assistants meeting memory for summaries, follow-ups, and understanding decisions across conversations.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.granola.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "granola",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/granola",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/granola-light.svg"
+    },
+    {
+      "name": "Granted",
+      "description": "Granted helps users discover grant opportunities. Its connector brings grant-search context into assistant workflows so users can explore funding options, compare opportunities, and plan applications from natural-language prompts.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://grantedai.com/api/mcp/mcp",
+      "auth_type": "oauth",
+      "publisher": "granted",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/granted",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/granted.png"
+    },
+    {
+      "name": "Harmonic",
+      "description": "Harmonic helps users discover, research, and enrich companies and people. Its connector gives assistants company and contact intelligence for market mapping, prospect research, and startup or business analysis.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.api.harmonic.ai",
+      "auth_type": "oauth",
+      "publisher": "harmonic",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/harmonic",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/harmonic.png"
+    },
+    {
+      "name": "Hex",
+      "description": "Hex is a data workspace for analysis, notebooks, and collaborative analytics. Its connector lets assistants answer questions with Hex agent context, helping users reason over data projects and analytical workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.hex.tech/mcp",
+      "auth_type": "oauth",
+      "publisher": "hex",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/hex",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/hex.png"
+    },
+    {
+      "name": "Honeycomb",
+      "description": "Honeycomb provides observability data and SLO context for engineering teams. Its connector helps assistants query telemetry, explore service behavior, and reason about reliability questions using Honeycomb data.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.honeycomb.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "honeycomb",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/honeycomb",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/honeycomb.png"
+    },
+    {
+      "name": "HubSpot",
+      "description": "HubSpot is a customer platform for CRM, marketing, sales, service, and operations teams. Its MCP server connects assistants to CRM objects, records, and HubSpot account data so customer workflows can be understood and acted on with service-backed context.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.hubspot.com",
+      "auth_type": "oauth",
+      "publisher": "hubspot",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/hubspot",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/hubspot.png"
+    },
+    {
+      "name": "Hugging Face",
+      "description": "Hugging Face connects assistants to the Hugging Face Hub and thousands of Gradio apps. Its connector brings model, dataset, Space, and app context into AI workflows for discovery, experimentation, and machine-learning research.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://huggingface.co/mcp",
+      "auth_type": "oauth",
+      "publisher": "hugging",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/hugging-face",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/hugging_face.svg"
+    },
+    {
+      "name": "Intercom",
+      "description": "Intercom connects assistants to customer-support and customer-communication data. Its connector gives AI workflows access to conversations, support context, and customer insights that can improve service analysis and follow-up.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.intercom.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "intercom",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/intercom",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/intercom.png"
+    },
+    {
+      "name": "Jam",
+      "description": "Jam captures screen recordings and automatic context for issue reports. Its connector gives assistants bug-report context, reproduction details, and recorded evidence for debugging and product-feedback workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.jam.dev/mcp",
+      "auth_type": "oauth",
+      "publisher": "jam",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/jam",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/jam.png"
+    },
+    {
+      "name": "Jotform",
+      "description": "Jotform helps users create forms and analyze submissions. Its connector gives assistants form-building and response-analysis context so teams can design collection workflows and understand submitted data from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.jotform.com/mcp-app",
+      "auth_type": "oauth",
+      "publisher": "jotform",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/jotform",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/jotform.png"
+    },
+    {
+      "name": "Krisp",
+      "description": "Krisp brings meeting transcripts and notes into assistant workflows. Its connector gives AI systems meeting context for summaries, follow-ups, decisions, and collaboration history.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.krisp.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "krisp",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/krisp",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/krisp.png"
+    },
+    {
+      "name": "Legal Data Hunter",
+      "description": "Legal Data Hunter searches millions of legal documents across many jurisdictions. Its connector gives assistants legal-data context for finding documents, comparing sources, and supporting research across a broad legal corpus.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://legaldatahunter.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "legal",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/legal-data-hunter",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/legal-data-hunter.png"
+    },
+    {
+      "name": "Linear",
+      "description": "Linear is built for product and engineering teams that track software issues, projects, comments, and cycles. Its remote MCP server gives assistants planning context for priorities, project status, feedback, and the work moving through a team's roadmap.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.linear.app/mcp",
+      "auth_type": "oauth",
+      "publisher": "linear",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/linear",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/linear.svg"
+    },
+    {
+      "name": "Lumin",
+      "description": "Lumin helps users manage documents, send signature requests, and convert Markdown to PDF. Its connector gives assistants document-workflow context for preparing files, handling signatures, and producing shareable outputs.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.luminpdf.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "lumin",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/lumin",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/lumin.png"
+    },
+    {
+      "name": "Magic Patterns",
+      "description": "Magic Patterns helps teams discuss and iterate on product interface designs. Its connector gives assistants design-workflow context for exploring UI ideas, revising concepts, and moving from conversation toward usable product screens.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.magicpatterns.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "magic",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/magic-patterns",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/magic-patterns.png"
+    },
+    {
+      "name": "MailerLite",
+      "description": "MailerLite turns email-marketing workflows into assistant-accessible tasks. Its connector brings campaign, subscriber, and email-marketing context into AI conversations for drafting, reviewing, and planning marketing work.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mailerlite.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "mailerlite",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mailerlite",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/mailerlite.png"
+    },
+    {
+      "name": "Malwarebytes",
+      "description": "Malwarebytes helps check links, phone numbers, and emails for scams. Its connector gives assistants security-screening context for evaluating suspicious messages, URLs, and contact details.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://scamguard.malwarebytes.com/claude/mcp",
+      "auth_type": "oauth",
+      "publisher": "malwarebytes",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/malwarebytes",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/malwarebytes.png"
+    },
+    {
+      "name": "Mem",
+      "description": "Mem is an AI notebook for notes, thoughts, and personal knowledge. Its connector gives assistants notebook context for recalling information, organizing ideas, and building a persistent knowledge workspace.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mem.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "mem",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mem",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/mem.png"
+    },
+    {
+      "name": "Mermaid Chart",
+      "description": "Mermaid Chart validates Mermaid syntax and renders diagrams as high-quality SVGs with interactive previews. Its connector gives assistants diagramming context for previewing, correcting, and iterating on Mermaid diagrams.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mermaid.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "mermaid",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mermaid-chart",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/mermaid-logo-light.svg"
+    },
+    {
+      "name": "Metaview",
+      "description": "Metaview is an AI platform for recruiting workflows. Its connector gives assistants interview, hiring, and recruiting context for summarizing conversations, supporting evaluation, and improving candidate-process visibility.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.metaview.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "metaview",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/metaview",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/metaview.png"
+    },
+    {
+      "name": "Microsoft Learn",
+      "description": "Microsoft Learn provides trusted Microsoft documentation for developers and IT teams. Its connector gives assistants current docs context for Microsoft products, implementation questions, and technical learning workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://learn.microsoft.com/api/mcp",
+      "auth_type": "oauth",
+      "publisher": "microsoft",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/microsoft-learn",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/microsoft.svg"
+    },
+    {
+      "name": "Mintlify",
+      "description": "Mintlify helps teams search, read, and edit documentation. Its connector gives assistants documentation context for answering docs questions, maintaining content, and updating developer-facing knowledge bases.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mintlify.com",
+      "auth_type": "oauth",
+      "publisher": "mintlify",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mintlify",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/mintlify.svg"
+    },
+    {
+      "name": "Miro",
+      "description": "Miro is a visual collaboration workspace for boards, brainstorming, and team alignment. Its connector lets assistants access and create Miro content so planning, diagrams, and collaborative artifacts can move through conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.miro.com/",
+      "auth_type": "oauth",
+      "publisher": "miro",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/miro",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/miro.png"
+    },
+    {
+      "name": "Mixpanel",
+      "description": "Mixpanel provides product analytics for querying, analyzing, and managing behavioral data. Its connector gives assistants Mixpanel context for exploring metrics, funnels, cohorts, and product usage questions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mixpanel.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "mixpanel",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mixpanel",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/mixpanel.png"
+    },
+    {
+      "name": "Monday",
+      "description": "monday.com helps teams manage projects, boards, and workflows. Its connector gives assistants workspace context for tracking work, understanding boards, and coordinating project activity from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.monday.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "monday",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/monday",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/monday.png"
+    },
+    {
+      "name": "Motion Creative Analytics",
+      "description": "Motion Creative Analytics helps teams analyze Meta ad creative and competitor ad libraries. Its connector gives assistants creative-performance context for reviewing ads, comparing competitors, and planning paid-social strategy.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://projects.motionapp.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "motion",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/motion",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/motion.svg"
+    },
+    {
+      "name": "Neon",
+      "description": "Neon is a serverless Postgres platform built around branching and developer workflows. Its remote MCP server connects assistants to Postgres projects, branches, SQL, and documentation so database environments and data-related tasks can be explored from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.neon.tech/mcp",
+      "auth_type": "oauth",
+      "publisher": "neon",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/neon",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/neon.svg"
+    },
+    {
+      "name": "Netlify",
+      "description": "Netlify helps teams create, deploy, manage, and secure websites. Its connector gives assistants deployment and site-management context for working with projects, builds, hosting, and modern web workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://netlify-mcp.netlify.app/mcp",
+      "auth_type": "oauth",
+      "publisher": "netlify",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/netlify",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/netlify.svg"
     },
     {
       "name": "Notion",
-      "description": "Official Notion MCP — search and edit pages and databases in your workspace.",
+      "description": "Notion is a flexible workspace for notes, projects, docs, databases, comments, and team knowledge. Its remote MCP server gives assistants workspace-search and database context, helping users reason over existing Notion content and organize work from the systems teams already maintain.",
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.notion.com/mcp",
       "auth_type": "oauth",
       "publisher": "notion",
-      "icon_url": "/images/mcp-servers/notion.svg",
-      "docs_url": "https://developers.notion.com/docs/mcp",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/notion",
       "tags": [
         "official",
-        "notion",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/notion.svg"
     },
     {
-      "name": "Stripe",
-      "description": "Official Stripe MCP — customers, subscriptions, payments, and billing tools.",
-      "category": "Finance",
+      "name": "Omni Analytics",
+      "description": "Omni Analytics lets users query data through a semantic model with natural language. Its connector gives assistants governed analytics context for answering business questions and exploring modeled data.",
+      "category": "Productivity",
       "connection_type": "http",
-      "connection_url": "https://mcp.stripe.com/",
+      "connection_url": "https://callbacks.omniapp.co/callback/mcp",
       "auth_type": "oauth",
-      "publisher": "stripe",
-      "icon_url": "/images/mcp-servers/stripe.svg",
-      "docs_url": "https://docs.stripe.com/mcp",
+      "publisher": "omni",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/omni-analytics",
       "tags": [
         "official",
-        "stripe",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/omni.png"
     },
     {
-      "name": "Supabase",
-      "description": "Official Supabase MCP — manage projects, run SQL, and inspect schemas.",
-      "category": "Developer Tools",
+      "name": "Orion by Gravity",
+      "description": "Orion by Gravity provides insights from an autonomous AI analyst. Its connector brings analytical context into assistant workflows for asking business questions, exploring findings, and understanding data-backed recommendations.",
+      "category": "Productivity",
       "connection_type": "http",
-      "connection_url": "https://mcp.supabase.com/mcp",
+      "connection_url": "https://g.runorion.com/mcp",
       "auth_type": "oauth",
-      "publisher": "supabase",
-      "icon_url": "/images/mcp-servers/supabase.svg",
-      "docs_url": "https://supabase.com/docs/guides/getting-started/mcp",
+      "publisher": "orion",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/orion",
       "tags": [
         "official",
-        "supabase",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/orion.png"
     },
     {
-      "name": "Linear",
-      "description": "Official Linear MCP — issues, cycles, and project backlog over SSE.",
-      "category": "Developer Tools",
-      "connection_type": "sse",
-      "connection_url": "https://mcp.linear.app/sse",
+      "name": "Otter.ai",
+      "description": "Otter.ai provides meeting intelligence through transcripts, summaries, and conversation records. Its connector gives assistants meeting context for extracting decisions, action items, and follow-up information.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.otter.ai/mcp",
       "auth_type": "oauth",
-      "publisher": "linear",
-      "icon_url": "/images/mcp-servers/linear.svg",
-      "docs_url": "https://linear.app/docs/mcp",
+      "publisher": "otter",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/otter-ai",
       "tags": [
         "official",
-        "linear",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/otter.png"
+    },
+    {
+      "name": "Parallel Search",
+      "description": "Parallel Search provides real-time web search and content extraction for search-grounded AI workflows. Its remote MCP server helps assistants retrieve current web context, inspect pages, and use extracted content when answering questions or researching topics that require fresh information.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://search.parallel.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "parallel",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/parallel",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/parallel.png"
+    },
+    {
+      "name": "PayPal",
+      "description": "PayPal provides access to payment-platform workflows and payment data. Its connector gives assistants PayPal context for working with payment operations, merchant questions, and transaction-related tasks.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.paypal.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "paypal",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/paypal",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/paypal.svg"
+    },
+    {
+      "name": "Peec AI",
+      "description": "Peec AI analyzes brand visibility across LLMs. Its connector gives assistants AI-search and brand-monitoring context for understanding how companies appear in model-generated answers and where visibility can improve.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.peec.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "peec",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/peec-ai",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/peec.png"
+    },
+    {
+      "name": "PlanetScale",
+      "description": "PlanetScale provides authenticated access to Postgres and MySQL databases. Its connector gives assistants database context for inspecting schema, understanding environments, and planning data-related work with connected database systems.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.pscale.dev/mcp/planetscale",
+      "auth_type": "oauth",
+      "publisher": "planetscale",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/planetscale",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/planetscale.svg"
+    },
+    {
+      "name": "PostHog",
+      "description": "PostHog is an open-source product analytics suite with events, session replay, feature flags, and experiments. Its remote MCP server lets assistants query analytics with natural language or HogQL, manage flags, and investigate product behavior conversationally.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.posthog.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "posthog",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/posthog",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/posthog.svg"
+    },
+    {
+      "name": "Postman",
+      "description": "Postman gives API context to coding agents and developer workflows. Its connector brings API definitions, documentation, and collaboration context into assistant work so agents can reason about integrations and implementation details.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.postman.com/minimal",
+      "auth_type": "oauth",
+      "publisher": "postman",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/postman",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/postman.svg"
+    },
+    {
+      "name": "Privacy.com",
+      "description": "Privacy.com helps users manage virtual cards and track spending patterns. Its connector gives assistants payment-card and transaction context for reviewing spend, understanding card usage, and managing financial controls.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.privacy.com",
+      "auth_type": "oauth",
+      "publisher": "privacy",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/privacy",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/privacy.png"
+    },
+    {
+      "name": "Pylon",
+      "description": "Pylon helps teams search and manage support issues. Its connector gives assistants support-workflow context for finding customer issues, tracking status, and coordinating responses across support operations.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.usepylon.com/",
+      "auth_type": "oauth",
+      "publisher": "pylon",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/pylon",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/pylon.png"
+    },
+    {
+      "name": "Quartr",
+      "description": "Quartr provides financial data and AI infrastructure for company research. Its connector gives assistants access to company information, financial context, and research signals used by analysts and investors.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.quartr.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "quartr",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/quartr",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/quartr.png"
+    },
+    {
+      "name": "Quo",
+      "description": "Quo surfaces call insights and missed opportunities. Its connector gives assistants conversation-intelligence context for reviewing calls, identifying follow-ups, and understanding where customer or sales interactions need attention.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.quo.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "quo",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/quo",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/quo.png"
+    },
+    {
+      "name": "Railway",
+      "description": "Railway is a developer platform for shipping applications, services, environments, and deployments. Its remote MCP server gives assistants project and deployment context for investigating app state, planning changes, and working across Railway environments.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.railway.com",
+      "auth_type": "oauth",
+      "publisher": "railway",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/railway",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/railway.svg"
+    },
+    {
+      "name": "Ramp",
+      "description": "Ramp connects spend, expense, card, and financial data to assistant workflows. Its connector helps users search, access, and analyze Ramp financial context so teams can understand spending and operational finance patterns.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://ramp-mcp-remote.ramp.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "ramp",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ramp",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/ramp.png"
+    },
+    {
+      "name": "Ramp Data",
+      "description": "Ramp Data provides spend analysis across a large network of business transaction data. Its connector gives assistants context for analyzing company spend, benchmarking patterns, and answering finance or procurement questions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.ramp.com/ramp-data/anthropic/mcp",
+      "auth_type": "oauth",
+      "publisher": "ramp",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ramp-data",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/ramp.png"
+    },
+    {
+      "name": "Rillet",
+      "description": "Rillet lets teams query live general-ledger and financial data in plain English. Its connector gives assistants accounting and finance context for understanding financials, investigating GL details, and answering operational questions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.rillet.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "rillet",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/rillet",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/rillet.png"
+    },
+    {
+      "name": "Sanity",
+      "description": "Sanity is a structured-content platform for creating, querying, and managing content. Its connector gives assistants project and content context for audits, document updates, release coordination, and schema or project setup.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.sanity.io",
+      "auth_type": "oauth",
+      "publisher": "sanity",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/sanity",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/sanity-light.svg"
+    },
+    {
+      "name": "Scite",
+      "description": "Scite delivers evidence-based answers grounded in peer-reviewed research and citation context. Its connector helps assistants verify scientific claims, surface supporting or disputing studies, and prioritize trustworthy research sources.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.scite.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "scite",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/scite",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/scite.png"
+    },
+    {
+      "name": "Semrush",
+      "description": "Semrush provides SEO, market data, traffic analytics, keyword intelligence, and brand visibility insight. Its connector gives assistants marketing data context for analysts, strategists, and growth teams working through natural-language questions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.semrush.com/claude/v1/mcp",
+      "auth_type": "oauth",
+      "publisher": "semrush",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/semrush",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/semrush.png"
+    },
+    {
+      "name": "Send",
+      "description": "Send helps users create shareable documents, one-pagers, decks, and presentations. Its connector lets assistants turn requested materials into published links, interactive pages, and trackable collateral for recipients.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://www.send.co/mcp",
+      "auth_type": "oauth",
+      "publisher": "send",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/send",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/send.png"
+    },
+    {
+      "name": "Sentry",
+      "description": "Sentry helps engineering teams retrieve, analyze, and debug application issues and errors. Its connector brings project, issue, Seer fix-run, and reliability context into assistant workflows for faster debugging and incident investigation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.sentry.dev/mcp",
+      "auth_type": "oauth",
+      "publisher": "sentry",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/sentry",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/sentry.svg"
+    },
+    {
+      "name": "Shapes",
+      "description": "Shapes connects assistants to live HR and people data, including headcount, attrition risk, compensation gaps, and time off. Its connector respects existing permissions while giving teams instant people-analytics context without switching tools.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.shapes.co/",
+      "auth_type": "oauth",
+      "publisher": "shapes",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/shapes",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/shapes.png"
+    },
+    {
+      "name": "Shopify",
+      "description": "Shopify helps merchants build, manage, and analyze online stores. Its connector brings store-management context into assistant workflows for products, inventory, discounts, orders, customers, and performance analytics.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://setup.shopify.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "shopify",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/shopify",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/shopify.svg"
+    },
+    {
+      "name": "Similarweb",
+      "description": "Similarweb provides real-time web, mobile app, and market intelligence data. Its connector gives assistants competitive context for traffic sources, keyword rankings, audience demographics, and industry benchmarking.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.similarweb.com",
+      "auth_type": "oauth",
+      "publisher": "similarweb",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/similarweb",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/similarweb.png"
     },
     {
       "name": "Slack",
-      "description": "Official Slack MCP — search workspace, read threads, and post updates.",
+      "description": "Slack is a collaboration hub for team messages, channels, users, and shared canvases. Its remote MCP server brings workspace communication context into assistant workflows, helping users find decisions, summarize discussions, and understand activity across channels.",
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.slack.com/mcp",
       "auth_type": "oauth",
       "publisher": "slack",
-      "icon_url": "/images/mcp-servers/slack.svg",
-      "docs_url": "https://docs.slack.dev/ai/slack-mcp-server/",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/slack",
       "tags": [
         "official",
-        "slack",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/slack.svg"
     },
     {
-      "name": "Sentry",
-      "description": "Official Sentry MCP — error tracking, issues, and monitoring context.",
-      "category": "Observability",
+      "name": "Splice",
+      "description": "Splice provides discovery and ideation tools for music creators using its catalog of royalty-free samples. Its MCP server helps assistants search sounds with natural language and build stacks of complementary sounds for new projects.",
+      "category": "Productivity",
       "connection_type": "http",
-      "connection_url": "https://mcp.sentry.dev/mcp",
+      "connection_url": "https://mcp.splice.com/mcp",
       "auth_type": "oauth",
-      "publisher": "sentry",
-      "icon_url": "/images/mcp-servers/sentry.svg",
-      "docs_url": "https://docs.sentry.io/product/sentry-mcp/",
+      "publisher": "splice",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/splice",
       "tags": [
         "official",
-        "sentry",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/splice.png"
     },
     {
-      "name": "Figma",
-      "description": "Official Figma MCP — design context, components, and Code Connect.",
-      "category": "Design",
+      "name": "Square",
+      "description": "Square is a commerce platform for transactions, merchants, customers, inventory, payments, and sales reporting. Its connector gives assistants business-operations context for payment data, point-of-sale workflows, financial reports, and customer profiles.",
+      "category": "Productivity",
       "connection_type": "http",
-      "connection_url": "https://mcp.figma.com/mcp",
+      "connection_url": "https://cdn.prod.website-files.com/68a44d4040f98a4adf2207b6/690ac122efac2533660b7814_Square%20MCP.jpg",
       "auth_type": "oauth",
-      "publisher": "figma",
-      "icon_url": "/images/mcp-servers/figma.svg",
-      "docs_url": "https://developers.figma.com/docs/figma-mcp-server/",
+      "publisher": "square",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/square",
       "tags": [
         "official",
-        "figma",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/square.png"
+    },
+    {
+      "name": "Stripe",
+      "description": "Stripe is a payments and financial infrastructure platform for payments, billing, customers, and developer documentation. Its remote MCP server gives assistants Stripe-backed account and implementation context for understanding customer workflows, billing questions, and payment-related tasks.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.stripe.com",
+      "auth_type": "oauth",
+      "publisher": "stripe",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/stripe",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/stripe.svg"
+    },
+    {
+      "name": "Supabase",
+      "description": "Supabase is an open source Firebase alternative built around Postgres, auth, storage, edge functions, and project tooling. Its remote MCP server connects assistants to project, database, and documentation context for working with application backends.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.supabase.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "supabase",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/supabase",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/supabase.svg"
+    },
+    {
+      "name": "Synthesize Bio",
+      "description": "Synthesize Bio generates and analyzes gene-expression data from a virtual human using natural-language experiment descriptions. Its connector gives assistants synthetic biology context for bulk and single-cell RNA-seq style workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.synthesize.bio/api/mcp",
+      "auth_type": "oauth",
+      "publisher": "synthesize",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/synthesize-bio",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/synthesize-bio.png"
+    },
+    {
+      "name": "Tavily",
+      "description": "Tavily gives AI agents real-time web access through search, extraction, and research APIs. Its connector helps assistants ground answers in live data, extract relevant content, and support production-agent workflows with security controls.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.tavily.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "tavily",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/tavily",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/tavily.png"
+    },
+    {
+      "name": "Ticket Tailor",
+      "description": "Ticket Tailor provides event organizers with tools for ticketing, orders, discounts, products, and box-office management. Its connector gives assistants event-operations context for managing ticket workflows and answering account questions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.tickettailor.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "ticket",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ticket-tailor",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/ticket-tailor.png"
+    },
+    {
+      "name": "Todoist",
+      "description": "Todoist helps users search, complete, and manage tasks and time-blocking workflows. Its connector gives assistants task context for productivity planning, status questions, and day-to-day work management inside Todoist.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://ai.todoist.net/mcp",
+      "auth_type": "oauth",
+      "publisher": "todoist",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/todoist",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/todoist.svg"
+    },
+    {
+      "name": "Tropic",
+      "description": "Tropic helps teams benchmark software and AI contract pricing against verified technology transactions. Its connector brings procurement and vendor-pricing context into assistant workflows for identifying savings opportunities and preparing negotiations.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.tropicapp.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "tropic",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/tropic",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/tropic.png"
+    },
+    {
+      "name": "Twilio",
+      "description": "Twilio provides APIs for voice, email, SMS, RCS, identity, customer data, contact center, and conversational AI workflows. Its connector surfaces specs and code patterns so assistants can support communications and customer-engagement development.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.twilio.com/docs",
+      "auth_type": "oauth",
+      "publisher": "twilio",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/twilio",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/twilio.svg"
+    },
+    {
+      "name": "Uber",
+      "description": "Uber provides real-time ride-option estimates, fares, ETAs, and product details for trips in the United States. Its connector gives assistants transportation context for comparing ride choices before handing booking actions to the official Uber app.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.uber.com/claude/rides-3p/mcp",
+      "auth_type": "oauth",
+      "publisher": "uber",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/uber",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/uber_light.svg"
+    },
+    {
+      "name": "Uber Eats",
+      "description": "Uber Eats helps users explore restaurants and dishes for local food delivery. Its connector brings restaurant, menu, dish, and delivery context into assistant workflows for finding meals and planning orders.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.ubereats.com/eats-claude/mcp",
+      "auth_type": "oauth",
+      "publisher": "uber",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/uber-eats",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/uber_light.svg"
+    },
+    {
+      "name": "Unthread",
+      "description": "Unthread helps teams search conversations, monitor SLAs, analyze support metrics, and manage support tickets. Its connector gives assistants a support-intelligence layer for helpdesk performance, triage, and workflow automation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.unthread.io/api/mcp",
+      "auth_type": "oauth",
+      "publisher": "unthread",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/unthread",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/unthread.png"
     },
     {
       "name": "Vercel",
-      "description": "Official Vercel MCP — projects, deployments, and docs for your Vercel account.",
-      "category": "Developer Tools",
+      "description": "Vercel is a cloud platform for deploying and scaling web applications, home of Next.js. Its official remote MCP server lets assistants search Vercel documentation, manage projects and deployments, and analyze logs from the account teams already ship with.",
+      "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.vercel.com",
       "auth_type": "oauth",
       "publisher": "vercel",
-      "icon_url": "/images/mcp-servers/vercel.svg",
-      "docs_url": "https://vercel.com/docs/mcp",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/vercel",
       "tags": [
         "official",
-        "vercel",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/vercel.svg"
     },
     {
-      "name": "Cloudflare",
-      "description": "Official Cloudflare MCP — Workers, DNS, and account tooling.",
-      "category": "Developer Tools",
+      "name": "WordPress.com",
+      "description": "WordPress.com lets users manage and create site content through an assistant conversation. Its connector gives permission-scoped access to posts, stats, drafts, pages, and comments while keeping site access limited to approved resources.",
+      "category": "Productivity",
       "connection_type": "http",
-      "connection_url": "https://mcp.cloudflare.com/mcp",
+      "connection_url": "https://public-api.wordpress.com/wpcom/v2/mcp/v1",
       "auth_type": "oauth",
-      "publisher": "cloudflare",
-      "icon_url": "/images/mcp-servers/cloudflare.svg",
-      "docs_url": "https://developers.cloudflare.com/agents/model-context-protocol/",
+      "publisher": "wordpress",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/wordpress-com",
       "tags": [
         "official",
-        "cloudflare",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/wordpress.svg"
     },
     {
-      "name": "Neon",
-      "description": "Official Neon MCP — serverless Postgres projects, branches, and SQL.",
-      "category": "Developer Tools",
+      "name": "Workable",
+      "description": "Workable supports recruiting and HR workflows across jobs, candidates, pipeline stages, reviews, requisitions, offers, and employee data. Its MCP server turns natural language into actions and insights across hiring and workforce operations.",
+      "category": "Productivity",
       "connection_type": "http",
-      "connection_url": "https://mcp.neon.tech/mcp",
+      "connection_url": "https://mcp.workable.com/mcp",
       "auth_type": "oauth",
-      "publisher": "neon",
-      "icon_url": "/images/mcp-servers/neon.svg",
-      "docs_url": "https://neon.com/docs/ai/neon-mcp-server",
+      "publisher": "workable",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/workable",
       "tags": [
         "official",
-        "neon",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/workable.png"
     },
     {
-      "name": "HubSpot",
-      "description": "Official HubSpot MCP — CRM contacts, companies, and deals (OAuth).",
-      "category": "CRM",
+      "name": "Zocks",
+      "description": "Zocks connects assistants to client conversation intelligence for financial advisors, including meeting insights, goals, concerns, and planning opportunities. Its connector helps surface tax, estate, and client-specific signals from interaction history.",
+      "category": "Productivity",
       "connection_type": "http",
-      "connection_url": "https://mcp.hubspot.com",
+      "connection_url": "https://mcp.zocks.io/v1/mcp",
       "auth_type": "oauth",
-      "publisher": "hubspot",
-      "icon_url": "/images/mcp-servers/hubspot.png",
-      "docs_url": "https://developers.hubspot.com/ai-tools/mcp",
+      "publisher": "zocks",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/zocks",
       "tags": [
         "official",
-        "hubspot",
         "remote",
         "oauth"
-      ]
+      ],
+      "icon_url": "/images/mcp-servers/zocks.png"
     },
     {
-      "name": "Atlassian",
-      "description": "Official Atlassian MCP — Jira and Confluence context for agents.",
+      "name": "ZoomInfo",
+      "description": "ZoomInfo provides go-to-market intelligence with verified B2B company and contact data. Its connector helps assistants search companies, identify stakeholders, enrich records with hundreds of data points, and build targeted account lists.",
       "category": "Productivity",
       "connection_type": "http",
-      "connection_url": "https://mcp.atlassian.com/v1/mcp",
+      "connection_url": "https://mcp.zoominfo.com/mcp",
       "auth_type": "oauth",
-      "publisher": "atlassian",
-      "icon_url": "/images/mcp-servers/atlassian.svg",
-      "docs_url": "https://www.atlassian.com/platform/remote-mcp-server",
+      "publisher": "zoominfo",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/zoominfo",
       "tags": [
         "official",
-        "atlassian",
-        "jira",
-        "confluence",
-        "oauth"
-      ]
-    },
-    {
-      "name": "Context7",
-      "description": "Upstash Context7 MCP — live, version-specific library docs for coding agents.",
-      "category": "Developer Tools",
-      "connection_type": "http",
-      "connection_url": "https://mcp.context7.com/mcp",
-      "auth_type": "none",
-      "publisher": "context7",
-      "icon_url": "/images/mcp-servers/context7.svg",
-      "docs_url": "https://context7.com",
-      "tags": [
-        "official",
-        "context7",
-        "docs",
-        "remote"
-      ]
-    },
-    {
-      "name": "Filesystem",
-      "description": "Official MCP filesystem server — read/write local files (stdio). Set path via install args if needed.",
-      "category": "Developer Tools",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@modelcontextprotocol/server-filesystem",
-          "."
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "modelcontextprotocol",
-      "icon_url": "/images/mcp-servers/filesystem.png",
-      "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/filesystem",
-      "tags": [
-        "official",
-        "filesystem",
-        "stdio",
-        "local"
-      ]
-    },
-    {
-      "name": "Brave Search",
-      "description": "Official Brave Search MCP — web search via Brave Search API (stdio).",
-      "category": "Search",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@modelcontextprotocol/server-brave-search"
-        ],
-        "envs": [
-          "BRAVE_API_KEY"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "brave",
-      "icon_url": "/images/mcp-servers/brave.png",
-      "docs_url": "https://github.com/modelcontextprotocol/servers/tree/main/src/brave-search",
-      "tags": [
-        "official",
-        "brave",
-        "search",
-        "stdio"
-      ]
-    },
-    {
-      "name": "Playwright",
-      "description": "Official Playwright MCP — browser automation and web testing tools (stdio).",
-      "category": "Automation",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@playwright/mcp@latest"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "playwright",
-      "icon_url": "/images/mcp-servers/playwright.png",
-      "docs_url": "https://github.com/microsoft/playwright-mcp",
-      "tags": [
-        "official",
-        "playwright",
-        "browser",
-        "stdio"
-      ]
-    },
-    {
-      "name": "Exa",
-      "description": "Exa MCP — neural web search and content retrieval for agents (stdio).",
-      "category": "Search",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "exa-mcp-server"
-        ],
-        "envs": [
-          "EXA_API_KEY"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "exa",
-      "icon_url": "/images/mcp-servers/exa.png",
-      "docs_url": "https://docs.exa.ai/reference/mcp-server",
-      "tags": [
-        "exa",
-        "search",
-        "stdio"
-      ]
-    },
-    {
-      "name": "Tavily",
-      "description": "Tavily MCP — AI search API for agents (stdio).",
-      "category": "Search",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "tavily-mcp"
-        ],
-        "envs": [
-          "TAVILY_API_KEY"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "tavily",
-      "icon_url": "/images/mcp-servers/tavily.png",
-      "docs_url": "https://docs.tavily.com/documentation/mcp",
-      "tags": [
-        "tavily",
-        "search",
-        "stdio"
-      ]
-    },
-    {
-      "name": "Hugging Face",
-      "description": "Hugging Face MCP — models, datasets, and Spaces tooling (remote).",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://huggingface.co/mcp",
-      "auth_type": "oauth",
-      "publisher": "huggingface",
-      "icon_url": "/images/mcp-servers/hugging_face.svg",
-      "docs_url": "https://huggingface.co/docs/hub/mcp",
-      "tags": [
-        "official",
-        "huggingface",
         "remote",
         "oauth"
-      ]
-    },
-    {
-      "name": "PostHog",
-      "description": "PostHog MCP — product analytics and feature flags (stdio).",
-      "category": "Observability",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@posthog/mcp"
-        ],
-        "envs": [
-          "POSTHOG_AUTH_HEADER"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "posthog",
-      "icon_url": "/images/mcp-servers/posthog.svg",
-      "docs_url": "https://posthog.com/docs/model-context-protocol",
-      "tags": [
-        "posthog",
-        "analytics",
-        "stdio"
-      ]
-    },
-    {
-      "name": "Shopify",
-      "description": "Shopify Dev MCP — storefront and Admin API tooling for Shopify apps (stdio).",
-      "category": "E-commerce",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@shopify/dev-mcp@latest"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "shopify",
-      "icon_url": "/images/mcp-servers/shopify.svg",
-      "docs_url": "https://shopify.dev/docs/apps/build/devmcp",
-      "tags": [
-        "shopify",
-        "stdio"
-      ]
-    },
-    {
-      "name": "Twilio",
-      "description": "Twilio MCP — messaging and communications APIs (stdio).",
-      "category": "Communications",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@twilio-alpha/mcp"
-        ],
-        "envs": [
-          "TWILIO_ACCOUNT_SID",
-          "TWILIO_API_KEY",
-          "TWILIO_API_SECRET"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "twilio",
-      "icon_url": "/images/mcp-servers/twilio.svg",
-      "docs_url": "https://www.twilio.com/docs/mcp",
-      "tags": [
-        "twilio",
-        "stdio"
-      ]
-    },
-    {
-      "name": "PayPal",
-      "description": "PayPal MCP — payments and commerce APIs (stdio).",
-      "category": "Finance",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@paypal/mcp"
-        ],
-        "envs": [
-          "PAYPAL_ACCESS_TOKEN"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "paypal",
-      "icon_url": "/images/mcp-servers/paypal.svg",
-      "docs_url": "https://developer.paypal.com/tools/mcp-server/",
-      "tags": [
-        "paypal",
-        "stdio"
-      ]
-    },
-    {
-      "name": "GitLab",
-      "description": "GitLab MCP — projects, MRs, and issues (stdio).",
-      "category": "Developer Tools",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@zereight/mcp-gitlab"
-        ],
-        "envs": [
-          "GITLAB_PERSONAL_ACCESS_TOKEN",
-          "GITLAB_API_URL"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "gitlab",
-      "icon_url": "/images/mcp-servers/gitlab.svg",
-      "docs_url": "https://docs.gitlab.com/user/gitlab_duo/model_context_protocol/",
-      "tags": [
-        "gitlab",
-        "stdio"
-      ]
-    },
-    {
-      "name": "Asana",
-      "description": "Asana MCP — tasks and projects (stdio).",
-      "category": "Productivity",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@roychri/mcp-server-asana"
-        ],
-        "envs": [
-          "ASANA_ACCESS_TOKEN"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "asana",
-      "icon_url": "/images/mcp-servers/asana-logo.svg",
-      "tags": [
-        "asana",
-        "stdio"
-      ]
-    },
-    {
-      "name": "ClickUp",
-      "description": "ClickUp MCP — tasks and workspaces (stdio).",
-      "category": "Productivity",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@taazkareem/clickup-mcp-server"
-        ],
-        "envs": [
-          "CLICKUP_API_KEY",
-          "CLICKUP_TEAM_ID"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "clickup",
-      "icon_url": "/images/mcp-servers/clickup.svg",
-      "tags": [
-        "clickup",
-        "stdio"
-      ]
-    },
-    {
-      "name": "Todoist",
-      "description": "Todoist MCP — personal task management (stdio).",
-      "category": "Productivity",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@abhiz123/todoist-mcp-server"
-        ],
-        "envs": [
-          "TODOIST_API_TOKEN"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "todoist",
-      "icon_url": "/images/mcp-servers/todoist.svg",
-      "tags": [
-        "todoist",
-        "stdio"
-      ]
-    },
-    {
-      "name": "inference.sh",
-      "description": "Run 150+ AI apps   image, video, audio, LLMs, 3D and more. Browse, execute, stream results.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://sh.inference.ac",
-      "auth_type": "none",
-      "publisher": "ac.inference.sh",
-      "icon_url": "https://www.google.com/s2/favicons?domain=sh.inference.ac&sz=128"
-    },
-    {
-      "name": "Docs Mcp",
-      "description": "Remote MCP server for Tandem docs, install guides, SDKs, workflows, and agent setup help.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://tandem.ac/mcp",
-      "auth_type": "none",
-      "publisher": "ac.tandem",
-      "icon_url": "https://www.google.com/s2/favicons?domain=tandem.ac&sz=128"
-    },
-    {
-      "name": "Inside Ads",
-      "description": "Telegram ad exchange: estimate reach and cost with no account, then create and run campaigns.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://app.inside.ad/api/mcp",
-      "auth_type": "none",
-      "publisher": "ad.inside",
-      "icon_url": "https://www.google.com/s2/favicons?domain=app.inside.ad&sz=128"
-    },
-    {
-      "name": "Propick Integration MCP",
-      "description": "Manage your real-estate stock on Propick (Dubai): bulk listing sync, lookups and run reports.",
-      "category": "Developer Tools",
-      "connection_type": "http",
-      "connection_url": "https://propick.ae/mcp",
-      "auth_type": "none",
-      "publisher": "ae.propick",
-      "icon_url": "https://www.google.com/s2/favicons?domain=propick.ae&sz=128"
-    },
-    {
-      "name": "hood. — .hood name service",
-      "description": "Resolve .hood names on Robinhood Chain   forward/reverse, text records, availability & pricing.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://www.hood.ag/api/mcp",
-      "auth_type": "none",
-      "publisher": "ag.hood",
-      "icon_url": "https://www.google.com/s2/favicons?domain=www.hood.ag&sz=128"
-    },
-    {
-      "name": "Goji",
-      "description": "AEO, SEO, web and brand answers from a Melbourne agency's published glossary, guides and pricing.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://mcp.goji.agency/mcp",
-      "auth_type": "none",
-      "publisher": "agency.goji",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.goji.agency&sz=128"
-    },
-    {
-      "name": "Pre-Trip compliance scanner",
-      "description": "Screen regulated-health marketing copy against source-cited rulesets, all 50 states.",
-      "category": "General",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "pretrip-mcp"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "agency.kesey",
-      "tags": [
-        "agency",
-        "kesey",
-        "pretrip"
-      ]
-    },
-    {
-      "name": "Trading",
-      "description": "AI-powered trading strategy development: backtesting, market data, and portfolio analysis",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.lona.agency/mcp",
-      "auth_type": "none",
-      "publisher": "agency.lona",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lona.agency&sz=128"
-    },
-    {
-      "name": "1325.AI",
-      "description": "Verified directory of 44,000+ Black-owned U.S. businesses. Search, maps, loyalty rewards.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://agoclnqfyinwjxdmjnns.supabase.co/functions/v1/mcp",
-      "auth_type": "headers",
-      "publisher": "ai.1325",
-      "required_header_keys": [
-        "Authorization",
-        "apikey"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=agoclnqfyinwjxdmjnns.supabase.co&sz=128"
-    },
-    {
-      "name": "aTars MCP",
-      "description": "Crypto market signals, technical indicators, and sentiment analysis for AI agents.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://mcp.aarna.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.aarna",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.aarna.ai&sz=128"
-    },
-    {
-      "name": "ABMeter",
-      "description": "Feature flagging and A/B testing platform with AI-first experimentation workflows.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.abmeter.ai",
-      "auth_type": "none",
-      "publisher": "ai.abmeter",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.abmeter.ai&sz=128"
-    },
-    {
-      "name": "Ideation",
-      "description": "Actwise Ideation helps founders benchmark startup and product ideas before they build.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://actwise.ai/ideation/mcp/v1",
-      "auth_type": "none",
-      "publisher": "ai.actwise",
-      "icon_url": "https://www.google.com/s2/favicons?domain=actwise.ai&sz=128"
-    },
-    {
-      "name": "AdAdvisor MCP Server",
-      "description": "Query Meta Ads performance data   accounts, campaigns, ad sets, ads, metrics & settings.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://api.adadvisor.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.adadvisor",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.adadvisor.ai&sz=128"
-    },
-    {
-      "name": "Adeu",
-      "description": "Automated DOCX Redlining Engine",
-      "category": "General",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "uvx",
-        "args": [
-          "adeu"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.adeu"
-    },
-    {
-      "name": "Beauty",
-      "description": "AI-native beauty ads, sponsored product discovery, and brand recommendations.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.adoraads.ai/beauty",
-      "auth_type": "none",
-      "publisher": "ai.adoraads",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.adoraads.ai&sz=128"
-    },
-    {
-      "name": "Google Ads",
-      "description": "Google Ads reporting and campaign management. Everything it creates starts paused.",
-      "category": "Developer Tools",
-      "connection_type": "http",
-      "connection_url": "https://mcp.adplane.ai",
-      "auth_type": "none",
-      "publisher": "ai.adplane",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.adplane.ai&sz=128"
-    },
-    {
-      "name": "Adside",
-      "description": "AI agents that manage paid ads on Meta, LinkedIn, and Google Ads from any MCP client.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://api.adside.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.adside",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.adside.ai&sz=128"
-    },
-    {
-      "name": "Advisors AI Service Navigator",
-      "description": "Read-only service discovery, public-page checks, and request-link preparation.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://advisorsai.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.advisorsai",
-      "icon_url": "https://www.google.com/s2/favicons?domain=advisorsai.ai&sz=128"
-    },
-    {
-      "name": "Advisors AI Store Readiness Check",
-      "description": "One read-only public-page readiness check with a signed, recheckable evidence receipt.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://advisorsai.ai/store-readiness-mcp",
-      "auth_type": "none",
-      "publisher": "ai.advisorsai",
-      "icon_url": "https://www.google.com/s2/favicons?domain=advisorsai.ai&sz=128"
-    },
-    {
-      "name": "One-Page Readiness Check — 10 Signals, Arabic or English",
-      "description": "Ten machine-readable signals on one public page: the top miss if any, and a receipt we re-verify.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://advisorsai.ai/store-readiness-mcp",
-      "auth_type": "none",
-      "publisher": "ai.advisorsai",
-      "icon_url": "https://www.google.com/s2/favicons?domain=advisorsai.ai&sz=128"
-    },
-    {
-      "name": "AdWeave — Meta Ads MCP Server",
-      "description": "Meta Ads MCP server with 47 tools for campaigns, creatives, audiences, and insights.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.adweave.ai/meta-ads-mcp",
-      "auth_type": "none",
-      "publisher": "ai.adweave",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.adweave.ai&sz=128"
-    },
-    {
-      "name": "Aether Wealth",
-      "description": "Aether Wealth MCP for AI assistants: trades, alerts, market data, macro calendar & indicators.",
-      "category": "Productivity",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@aetherwealth/mcp"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.aetherwealth",
-      "tags": [
-        "ai",
-        "aetherwealth",
-        "mcp"
-      ]
-    },
-    {
-      "name": "AFMR Discovery",
-      "description": "Read AFMR failure modes and discover scoped attestation and lift-evidence contracts.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://afmr.ai/api/rpc",
-      "auth_type": "none",
-      "publisher": "ai.afmr",
-      "icon_url": "https://www.google.com/s2/favicons?domain=afmr.ai&sz=128"
-    },
-    {
-      "name": "Agentberg",
-      "description": "Agent-to-agent trading intelligence exchange. Publish findings, vote on quality, earn reputation.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://agentberg.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentberg",
-      "icon_url": "https://www.google.com/s2/favicons?domain=agentberg.ai&sz=128"
-    },
-    {
-      "name": "AgentDM",
-      "description": "Agent-to-agent messaging platform using MCP for cross-model communication.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://api.agentdm.ai/api/v1/grid",
-      "auth_type": "none",
-      "publisher": "ai.agentdm",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentdm.ai&sz=128"
-    },
-    {
-      "name": "AgentDM: Agent to Agent Communication Platform",
-      "description": "Agent communication platform for agent to agent messaging via MCP. Messages, channels, skills.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://api.agentdm.ai/mcp/v1/grid",
-      "auth_type": "none",
-      "publisher": "ai.agentdm",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentdm.ai&sz=128"
-    },
-    {
-      "name": "Mcp",
-      "description": "Confidential compute and inference sold to agents over x402 USDC, plus an agent wallet over MCP.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://agentgates.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentgates",
-      "icon_url": "https://www.google.com/s2/favicons?domain=agentgates.ai&sz=128"
-    },
-    {
-      "name": "Agentic News",
-      "description": "AI-powered news intelligence   21 tools for personalized monitoring, briefings, and semantic search",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://api.agentic-news.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentic-news",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentic-news.ai&sz=128"
-    },
-    {
-      "name": "Affiliate Networks MCP",
-      "description": "Affiliate network reporting in your AI client. Bring your own keys. Most adapters experimental.",
-      "category": "Developer Tools",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "affiliate-networks-mcp"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agenticaffiliate",
-      "tags": [
-        "ai",
-        "agenticaffiliate",
-        "affiliate",
-        "networks",
-        "mcp"
-      ]
-    },
-    {
-      "name": "Agent Fabrication Network (UFP)",
-      "description": "Turn designs into shipped parts: quote 3D printing, CNC, and decals, then check out.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://agenticfabricationnetwork.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agenticfabricationnetwork",
-      "icon_url": "https://www.google.com/s2/favicons?domain=agenticfabricationnetwork.ai&sz=128"
-    },
-    {
-      "name": "Agentic Fabrication Network (AFN)",
-      "description": "Turn designs into shipped parts: quote 3D printing, CNC, and decals, then check out.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://agenticfabricationnetwork.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agenticfabricationnetwork",
-      "icon_url": "https://www.google.com/s2/favicons?domain=agenticfabricationnetwork.ai&sz=128"
-    },
-    {
-      "name": "Graffeo Coffee Roasting",
-      "description": "Live MCP catalog for Graffeo Coffee Roasting   North Beach SF specialty coffee since 1935.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://api.agenticshelf.ai/m/graffeo/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agenticshelf",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.agenticshelf.ai&sz=128"
-    },
-    {
-      "name": "Agentic Shelf",
-      "description": "Hosted MCP for e-commerce: live product catalog, stock, and pricing for AI agents.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://api.agenticshelf.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agenticshelf",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.agenticshelf.ai&sz=128"
-    },
-    {
-      "name": "PuroAir",
-      "description": "Live MCP catalog for PuroAir HEPA-14 air purifiers - real-time stock, pricing, and details.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://api.agenticshelf.ai/m/puroair/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agenticshelf",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.agenticshelf.ai&sz=128"
-    },
-    {
-      "name": "Agentic Terminal Directory",
-      "description": "Verified merchants accepting agentic payments on Lightning/L402/BOLT12/USDT   search, verify, pay.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://mcp.agenticterminal.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agenticterminal",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.agenticterminal.ai&sz=128"
-    },
-    {
-      "name": "Counterscript",
-      "description": "What pharmacies actually pay for prescriptions (CMS NADAC) plus fair-cash-price estimates.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://rx.agentlookups.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentlookups",
-      "icon_url": "https://www.google.com/s2/favicons?domain=rx.agentlookups.ai&sz=128"
-    },
-    {
-      "name": "CounterScript - Drug Price Benchmarks",
-      "description": "Free US drug-price benchmarks from federal data (CMS NADAC): a benchmark, not a price anyone owes.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://rx.agentlookups.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentlookups",
-      "icon_url": "https://www.google.com/s2/favicons?domain=rx.agentlookups.ai&sz=128"
-    },
-    {
-      "name": "GreenLight - Plug-in Solar Law Registry",
-      "description": "US plug-in solar (balcony solar) law registry with a daily UL 3700 certification watch.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://solar.agentlookups.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentlookups",
-      "icon_url": "https://www.google.com/s2/favicons?domain=solar.agentlookups.ai&sz=128"
-    },
-    {
-      "name": "Groundtruth",
-      "description": "Federal environmental records + address due-diligence layers near any US location. Tools",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://env.agentlookups.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentlookups",
-      "icon_url": "https://www.google.com/s2/favicons?domain=env.agentlookups.ai&sz=128"
-    },
-    {
-      "name": "GroundTruth - Environmental Records",
-      "description": "Federal environmental records near any US location, with dates and provenance; never a safety score.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://env.agentlookups.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentlookups",
-      "icon_url": "https://www.google.com/s2/favicons?domain=env.agentlookups.ai&sz=128"
-    },
-    {
-      "name": "Overassessed",
-      "description": "Maryland property-assessment fairness checks vs similar homes, with appeal windows and links.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://overassessed.agentlookups.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentlookups",
-      "icon_url": "https://www.google.com/s2/favicons?domain=overassessed.agentlookups.ai&sz=128"
-    },
-    {
-      "name": "Plumbline",
-      "description": "Free public-record contractor license checks across 34 US jurisdictions (2.7M records). Tool",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://contractors.agentlookups.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentlookups",
-      "icon_url": "https://www.google.com/s2/favicons?domain=contractors.agentlookups.ai&sz=128"
-    },
-    {
-      "name": "Plumbline - Contractor License Checks",
-      "description": "Free contractor-license checks from official state records; a no-match never proves unlicensed.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://contractors.agentlookups.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentlookups",
-      "icon_url": "https://www.google.com/s2/favicons?domain=contractors.agentlookups.ai&sz=128"
-    },
-    {
-      "name": "AgentMesh",
-      "description": "Be an agent on the AgentMesh network: find agents, hire them, be hired, and read your mesh inbox.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://api.agentmesh.ai/v1/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentmesh",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentmesh.ai&sz=128"
-    },
-    {
-      "name": "AgentPlaybooks",
-      "description": "Portable, vendor-neutral home for agent skills, MCP servers, personas, and memory.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://agentplaybooks.ai/api/mcp/manage",
-      "auth_type": "none",
-      "publisher": "ai.agentplaybooks",
-      "icon_url": "https://www.google.com/s2/favicons?domain=agentplaybooks.ai&sz=128"
-    },
-    {
-      "name": "Agentra",
-      "description": "Identity oracle and trust layer for autonomous AI agents. Bidirectional KYA and trust scoring.",
-      "category": "AI",
-      "connection_type": "sse",
-      "connection_url": "https://api.agentrapay.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentrapay",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.agentrapay.ai&sz=128"
-    },
-    {
-      "name": "AgentRoam",
-      "description": "Buy travel eSIMs, gift cards and mobile top-ups with crypto   user confirms before any order.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://agentroam.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.agentroam",
-      "icon_url": "https://www.google.com/s2/favicons?domain=agentroam.ai&sz=128"
-    },
-    {
-      "name": "AgentTrust — Identity & Trust for A2A Agents",
-      "description": "Identity, trust, and A2A orchestration for autonomous AI agents. Official A2A partner.",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agenttrust/mcp-server"
-        ],
-        "envs": [
-          "AGENTTRUST_API_KEY"
-        ]
-      },
-      "auth_type": "headers",
-      "required_header_keys": [
-        "AGENTTRUST_API_KEY"
-      ],
-      "publisher": "ai.agenttrust",
-      "tags": [
-        "ai",
-        "agenttrust",
-        "mcp",
-        "server"
-      ]
-    },
-    {
-      "name": "AgentUtility Agentops",
-      "description": "MCP server for the @agentutility agentops cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-agentops"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "agentops"
-      ]
-    },
-    {
-      "name": "AgentUtility Bestiary",
-      "description": "MCP server for the @agentutility bestiary cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-bestiary"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "bestiary"
-      ]
-    },
-    {
-      "name": "AgentUtility Browser Workflow",
-      "description": "MCP server for the @agentutility browser-workflow cluster   pay-per-call x402 tools, no API keys",
-      "category": "Automation",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-browser-workflow"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "browser",
-        "workflow"
-      ]
-    },
-    {
-      "name": "AgentUtility Compose",
-      "description": "MCP server for the @agentutility compose cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-compose"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "compose"
-      ]
-    },
-    {
-      "name": "AgentUtility Edge Finance",
-      "description": "MCP server for the @agentutility edge-finance cluster   pay-per-call x402 tools, no API keys, USDC",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-edge-finance"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "edge",
-        "finance"
-      ]
-    },
-    {
-      "name": "AgentUtility Edge Market",
-      "description": "MCP server for the @agentutility edge-market cluster   pay-per-call x402 tools, no API keys, USDC",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-edge-market"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "edge",
-        "market"
-      ]
-    },
-    {
-      "name": "AgentUtility Locale",
-      "description": "MCP server for the @agentutility locale cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-locale"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "locale"
-      ]
-    },
-    {
-      "name": "AgentUtility Matchpoint",
-      "description": "MCP server for the @agentutility matchpoint cluster   pay-per-call x402 tools, no API keys, USDC",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-matchpoint"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "matchpoint"
-      ]
-    },
-    {
-      "name": "AgentUtility Mediakit",
-      "description": "MCP server for the @agentutility mediakit cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-mediakit"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "mediakit"
-      ]
-    },
-    {
-      "name": "AgentUtility Model Router",
-      "description": "MCP server for the @agentutility model-router cluster   pay-per-call x402 tools, no API keys, USDC",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-model-router"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "model",
-        "router"
-      ]
-    },
-    {
-      "name": "AgentUtility Prooflayer",
-      "description": "MCP server for the @agentutility prooflayer cluster   pay-per-call x402 tools, no API keys, USDC",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-prooflayer"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "prooflayer"
-      ]
-    },
-    {
-      "name": "AgentUtility Retail",
-      "description": "MCP server for the @agentutility retail cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-retail"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "retail"
-      ]
-    },
-    {
-      "name": "AgentUtility Rollforge",
-      "description": "MCP server for the @agentutility rollforge cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-rollforge"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "rollforge"
-      ]
-    },
-    {
-      "name": "AgentUtility Statline",
-      "description": "MCP server for the @agentutility statline cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-statline"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "statline"
-      ]
-    },
-    {
-      "name": "AgentUtility Synthforge",
-      "description": "MCP server for the @agentutility synthforge cluster   pay-per-call x402 tools, no API keys, USDC",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-synthforge"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "synthforge"
-      ]
-    },
-    {
-      "name": "AgentUtility Web Probe",
-      "description": "MCP server for the @agentutility web-probe cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "Search",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-web-probe"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "web",
-        "probe"
-      ]
-    },
-    {
-      "name": "AgentUtility Wordmint",
-      "description": "MCP server for the @agentutility wordmint cluster   pay-per-call x402 tools, no API keys, USDC on",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@agentutility/mcp-wordmint"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.agentutility",
-      "tags": [
-        "ai",
-        "agentutility",
-        "mcp",
-        "wordmint"
-      ]
-    },
-    {
-      "name": "AI-Advisors",
-      "description": "Read-only AI search visibility data: citations, AEO audits, and advisor insights from AI-Advisors.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://app.ai-advisors.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.ai-advisors",
-      "icon_url": "https://www.google.com/s2/favicons?domain=app.ai-advisors.ai&sz=128"
-    },
-    {
-      "name": "AIﾉアカリ☆ Agent Trust Receipt",
-      "description": "Read-only Remote MCP for externally grounded AI agent trust receipts.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://ai-akari.ai/mcp-trust",
-      "auth_type": "none",
-      "publisher": "ai.ai-akari",
-      "icon_url": "https://www.google.com/s2/favicons?domain=ai-akari.ai&sz=128"
-    },
-    {
-      "name": "AIﾉアカリ☆ One-Minute Akari",
-      "description": "A free one-minute reset for people, delivered by AI, with no account or personal data.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://ai-akari.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.ai-akari",
-      "icon_url": "https://www.google.com/s2/favicons?domain=ai-akari.ai&sz=128"
-    },
-    {
-      "name": "AI-Portal — Enterprise GenAI Briefing",
-      "description": "Live AI data for agents: model releases, regulations (EU AI Act), GenAI glossary, daily news.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://www.ai-portal.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.ai-portal",
-      "icon_url": "https://www.google.com/s2/favicons?domain=www.ai-portal.ai&sz=128"
-    },
-    {
-      "name": "AirShelf Catalog",
-      "description": "Cross-vendor B2B catalog for AI agents: search, compare, find equivalents, request a quote.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://mcp.airshelf.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.airshelf",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.airshelf.ai&sz=128"
-    },
-    {
-      "name": "AIS Gateway — CVE prioritization + Agent Flight Recorder for AI agents",
-      "description": "Daily CVE priorities (KEV+EPSS) + Agent Flight Recorder: dead-man alerts & resume for AI agents",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://api.aislabs.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.aislabs",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.aislabs.ai&sz=128"
-    },
-    {
-      "name": "AlphaCreek MCP",
-      "description": "Access SEC filings efficiently, save time and tokens, and get cited answers.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.alphacreek.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.alphacreek",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.alphacreek.ai&sz=128"
-    },
-    {
-      "name": "AlphaCreek SEC Filings MCP",
-      "description": "Access SEC filings efficiently (10-K, 10-Q, etc), save time and tokens, and get cited answers.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.alphacreek.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.alphacreek",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.alphacreek.ai&sz=128"
-    },
-    {
-      "name": "AlpiX",
-      "description": "A pixel wars MCP server: ask your agent to collaboratively draw pixels in a huge square",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://alpix.alpic.ai",
-      "auth_type": "none",
-      "publisher": "ai.alpic.alpix",
-      "icon_url": "https://www.google.com/s2/favicons?domain=alpix.alpic.ai&sz=128"
-    },
-    {
-      "name": "Alpic",
-      "description": "Manage your projects, debug deployment, and check analytics for any MCP server you host with Alpic",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.alpic.ai",
-      "auth_type": "none",
-      "publisher": "ai.alpic.mcp",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.alpic.ai&sz=128"
-    },
-    {
-      "name": "Test Mcp Server",
-      "description": "Alpic Test MCP Server - great server!",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://test.alpic.ai/",
-      "auth_type": "none",
-      "publisher": "ai.alpic.test",
-      "icon_url": "https://www.google.com/s2/favicons?domain=test.alpic.ai&sz=128"
-    },
-    {
-      "name": "Ambix",
-      "description": "Your product team's shared strategic memory   an MCP server your AI tools reason over.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://mcp.ambix.ai",
-      "auth_type": "none",
-      "publisher": "ai.ambix",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.ambix.ai&sz=128"
-    },
-    {
-      "name": "Analytics Legends — SAP Analytics Intelligence",
-      "description": "AI agent for SAP analytics: firms, day rates, contract radar, news, concepts, studies",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://analyticslegends.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.analyticslegends",
-      "icon_url": "https://www.google.com/s2/favicons?domain=analyticslegends.ai&sz=128"
-    },
-    {
-      "name": "Anki MCP Server",
-      "description": "MCP server for Anki flashcards: adaptive review, notes, media, and deck management via AnkiConnect.",
-      "category": "General",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@ankimcp/anki-mcp-server"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.ankimcp",
-      "tags": [
-        "ai",
-        "ankimcp",
-        "anki",
-        "mcp",
-        "server"
-      ]
-    },
-    {
-      "name": "AnomalyArmor",
-      "description": "Data observability tools for engineering teams: alerts, freshness, schema drift, lineage, quality.",
-      "category": "Communication",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "uvx",
-        "args": [
-          "armor-mcp"
-        ],
-        "envs": [
-          "ARMOR_API_KEY"
-        ]
-      },
-      "auth_type": "headers",
-      "required_header_keys": [
-        "ARMOR_API_KEY"
-      ],
-      "publisher": "ai.anomalyarmor"
-    },
-    {
-      "name": "Anzenna",
-      "description": "MCP server for Anzenna",
-      "category": "General",
-      "connection_type": "sse",
-      "connection_url": "https://mcp.anzenna.ai/sse",
-      "auth_type": "none",
-      "publisher": "ai.anzenna",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.anzenna.ai&sz=128"
-    },
-    {
-      "name": "AppDeploy",
-      "description": "AppDeploy turns app ideas described in AI chat into live full-stack web applications",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://api-v2.appdeploy.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.appdeploy",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api-v2.appdeploy.ai&sz=128"
-    },
-    {
-      "name": "Seal",
-      "description": "Verify Seal AI decision receipts: signed evidence anyone can check, no account needed.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://app.aqta.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.aqta",
-      "icon_url": "https://www.google.com/s2/favicons?domain=app.aqta.ai&sz=128"
-    },
-    {
-      "name": "Arclan MCP Registry",
-      "description": "MCP server registry   validated by live handshake, scored on reliability, monitored continuously.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://arclan.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.arclan",
-      "icon_url": "https://www.google.com/s2/favicons?domain=arclan.ai&sz=128"
-    },
-    {
-      "name": "Enforcement Database",
-      "description": "Search Argus HQ public FDA enforcement data: warning letters, recalls, approvals, 483s.",
-      "category": "Data",
-      "connection_type": "http",
-      "connection_url": "https://argushq.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.argushq",
-      "icon_url": "https://www.google.com/s2/favicons?domain=argushq.ai&sz=128"
-    },
-    {
-      "name": "Arketo",
-      "description": "Draw your app's architecture on a live canvas and flag the bottlenecks and security gaps.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://arketo.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.arketo",
-      "icon_url": "https://www.google.com/s2/favicons?domain=arketo.ai&sz=128"
-    },
-    {
-      "name": "ARPI MCP",
-      "description": "AI-powered ECG analysis: submit ECG images and receive diagnosis reports from ARPI's ECG AI.",
-      "category": "Developer Tools",
-      "connection_type": "http",
-      "connection_url": "https://mcp.arpi.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.arpi",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.arpi.ai&sz=128"
-    },
-    {
-      "name": "Artidrop",
-      "description": "The publishing layer for AI agents. Turn HTML and Markdown into shareable URLs instantly via MCP.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://artidrop.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.artidrop",
-      "icon_url": "https://www.google.com/s2/favicons?domain=artidrop.ai&sz=128"
-    },
-    {
-      "name": "Askline",
-      "description": "Askline shows what ChatGPT says about a brand, then the SEO that feeds it.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://askline.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.askline",
-      "icon_url": "https://www.google.com/s2/favicons?domain=askline.ai&sz=128"
-    },
-    {
-      "name": "Catalog",
-      "description": "Miles' public credit-card catalog: facts, transfer partners, valuations. Keyless, read-only.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://api.askmiles.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.askmiles",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.askmiles.ai&sz=128"
-    },
-    {
-      "name": "AssetLog",
-      "description": "Search and manage AssetLog listings: vehicles, real estate, jobs, CVs, favorites, AI prompts.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://api.assetlog.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.assetlog",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.assetlog.ai&sz=128"
-    },
-    {
-      "name": "Supershopping",
-      "description": "AI    MCP                                        .",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://supershopping-mcp.atdev.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.atdev",
-      "icon_url": "https://www.google.com/s2/favicons?domain=supershopping-mcp.atdev.ai&sz=128"
-    },
-    {
-      "name": "Atlas Mcp",
-      "description": "AI-powered organic supply chain verification: certification, OFAC, FDA import checks.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://api.atlasverified.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.atlasverified",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.atlasverified.ai&sz=128"
-    },
-    {
-      "name": "Project Desk",
-      "description": "Agent-updated work tracker for builders directing AI across multiple projects.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://atlier.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.atlier",
-      "icon_url": "https://www.google.com/s2/favicons?domain=atlier.ai&sz=128"
-    },
-    {
-      "name": "Paseo",
-      "description": "Confidential AI execution with a post-quantum receipt on every job   verifiable by anyone.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://api.augmentev.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.augmentev",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.augmentev.ai&sz=128"
-    },
-    {
-      "name": "Travel World",
-      "description": "Agent-native travel platform: read-only flight and brand tools over MCP (bearer key required).",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://travel.augworlds.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.augworlds",
-      "icon_url": "https://www.google.com/s2/favicons?domain=travel.augworlds.ai&sz=128"
-    },
-    {
-      "name": "Auralogs",
-      "description": "Read-only access to Auralogs production logs: search logs, inspect errors, review AI analyses.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://mcp.auralogs.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.auralogs",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.auralogs.ai&sz=128"
-    },
-    {
-      "name": "AutEng MCP - Markdown Publishing & Document Share Links",
-      "description": "Publish markdown documents as public share links with mermaid diagram support. Built by AutEng.ai",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://auteng.ai/mcp/docs",
-      "auth_type": "none",
-      "publisher": "ai.auteng",
-      "icon_url": "https://www.google.com/s2/favicons?domain=auteng.ai&sz=128"
-    },
-    {
-      "name": "AutEng Document Publisher",
-      "description": "Publish markdown as a publicly shareable AutEng document",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://auteng.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.auteng",
-      "icon_url": "https://www.google.com/s2/favicons?domain=auteng.ai&sz=128"
-    },
-    {
-      "name": "Authoryze",
-      "description": "Payment infrastructure for AI agents: spending rules, approval flows, single-use virtual cards.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://authoryze.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.authoryze",
-      "icon_url": "https://www.google.com/s2/favicons?domain=authoryze.ai&sz=128"
-    },
-    {
-      "name": "Contextlayer Mcp",
-      "description": "Personal context management for AI assistants",
-      "category": "General",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@contextlayer/mcp"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.autoblocks",
-      "tags": [
-        "ai",
-        "autoblocks",
-        "contextlayer",
-        "mcp"
-      ]
-    },
-    {
-      "name": "Ctxl",
-      "description": "Personal context management for AI assistants",
-      "category": "General",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "ctxl"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.autoblocks",
-      "tags": [
-        "ai",
-        "autoblocks",
-        "ctxl"
-      ]
-    },
-    {
-      "name": "Ctxl Mcp",
-      "description": "Personal context management for AI assistants",
-      "category": "General",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "ctxl-mcp"
-        ]
-      },
-      "auth_type": "none",
-      "publisher": "ai.autoblocks",
-      "tags": [
-        "ai",
-        "autoblocks",
-        "ctxl",
-        "mcp"
-      ]
-    },
-    {
-      "name": "Computeback",
-      "description": "Agent marketplace: earn $NOMD on B2B work, spend on compute/voice/memory capabilities.",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "@autonomad1/computeback-mcp"
-        ],
-        "envs": [
-          "COMPUTEBACK_API_URL",
-          "BASE_RPC_URL",
-          "AGENT_DID",
-          "AGENT_HMAC_SECRET"
-        ]
-      },
-      "auth_type": "headers",
-      "required_header_keys": [
-        "COMPUTEBACK_API_URL",
-        "BASE_RPC_URL",
-        "AGENT_DID",
-        "AGENT_HMAC_SECRET"
-      ],
-      "publisher": "ai.autonomad",
-      "tags": [
-        "ai",
-        "autonomad",
-        "computeback"
-      ]
-    },
-    {
-      "name": "Travel",
-      "description": "AI travel agent   book flights, hotels, activities, and events worldwide via autonomad.ai.",
-      "category": "AI",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "autonomad-travel"
-        ],
-        "envs": [
-          "AUTONOMAD_API_URL",
-          "AUTONOMAD_AGENT_MODE"
-        ]
-      },
-      "auth_type": "headers",
-      "required_header_keys": [
-        "AUTONOMAD_API_URL",
-        "AUTONOMAD_AGENT_MODE"
-      ],
-      "publisher": "ai.autonomad",
-      "tags": [
-        "ai",
-        "autonomad",
-        "travel"
-      ]
-    },
-    {
-      "name": "Autoposting",
-      "description": "Schedule, generate and publish social posts to X, LinkedIn, Instagram, Threads and YouTube",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://app.autoposting.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.autoposting",
-      "icon_url": "https://www.google.com/s2/favicons?domain=app.autoposting.ai&sz=128"
-    },
-    {
-      "name": "AutoRFP.ai",
-      "description": "Search AutoRFP.ai projects, requirements, content library, and tags for Q&A and analytics.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://{api_host}/mcp",
-      "auth_type": "none",
-      "publisher": "ai.autorfp",
-      "icon_url": "https://www.google.com/s2/favicons?domain={api_host}&sz=128"
-    },
-    {
-      "name": "Auxen",
-      "description": "Provision private AI model endpoints on dedicated GPUs (Llama, Qwen, Mistral). Pay per minute.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://api.auxen.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.auxen",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.auxen.ai&sz=128"
-    },
-    {
-      "name": "Health",
-      "description": "Supplement research, biomarker effects, drug interactions, and brand quality data",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://aviado.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.aviado",
-      "icon_url": "https://www.google.com/s2/favicons?domain=aviado.ai&sz=128"
-    },
-    {
-      "name": "AwardCast Federal Contracts",
-      "description": "US federal contracting data: open solicitations, buying agencies, contractors, price history.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://awardcast.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.awardcast",
-      "icon_url": "https://www.google.com/s2/favicons?domain=awardcast.ai&sz=128"
-    },
-    {
-      "name": "AwrAIter — Telegram channels",
-      "description": "Telegram channels you administer: analytics, content plans, scheduled publishing. No userbot",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://awraiter.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.awraiter",
-      "icon_url": "https://www.google.com/s2/favicons?domain=awraiter.ai&sz=128"
-    },
-    {
-      "name": "Axon NeuroAutomata",
-      "description": "Protein analysis: ESM-2/ESMC embeddings, mutation scoring, landscape scans, ESMFold structure.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://mcp.neuroautomata.axonagentic.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.axonagentic",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.neuroautomata.axonagentic.ai&sz=128"
-    },
-    {
-      "name": "AI Media Studio",
-      "description": "Generate images, videos, voiceovers, and captions from a chat prompt.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://ai-media-studio.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=ai-media-studio.b77.ai&sz=128"
-    },
-    {
-      "name": "Apple Search Ads",
-      "description": "Manage Apple Ads campaigns and reporting in chat.",
-      "category": "Developer Tools",
-      "connection_type": "http",
-      "connection_url": "https://apple-search-ads.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=apple-search-ads.b77.ai&sz=128"
-    },
-    {
-      "name": "Chess Results",
-      "description": "Live chess tournament results and up-to-date player ratings in chat.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://chess-results.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=chess-results.b77.ai&sz=128"
-    },
-    {
-      "name": "Feedback",
-      "description": "Capture feature requests and bug reports from chat into a searchable, AI-categorized backlog.",
-      "category": "Developer Tools",
-      "connection_type": "http",
-      "connection_url": "https://feedback.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=feedback.b77.ai&sz=128"
-    },
-    {
-      "name": "Fibalo",
-      "description": "Query and add to your Fibalo bookkeeping: documents, bank transactions, suppliers, access.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://fibalo.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=fibalo.b77.ai&sz=128"
-    },
-    {
-      "name": "File Storage",
-      "description": "Upload files and get public CDN links in chat.",
-      "category": "Productivity",
-      "connection_type": "http",
-      "connection_url": "https://file-storage.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=file-storage.b77.ai&sz=128"
-    },
-    {
-      "name": "Google News",
-      "description": "Search and read the latest news in chat.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://google-news.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=google-news.b77.ai&sz=128"
-    },
-    {
-      "name": "Google Search Console",
-      "description": "Search rankings, clicks, and indexing for your site   in chat.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://google-search-console.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=google-search-console.b77.ai&sz=128"
-    },
-    {
-      "name": "Kinnovis Self-Storage",
-      "description": "Manage Kinnovis self-storage tariffs from chat.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://kinnovis-storage.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=kinnovis-storage.b77.ai&sz=128"
-    },
-    {
-      "name": "Knowledge Base",
-      "description": "A searchable knowledge base your assistant reads and writes.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://knowledge-base.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=knowledge-base.b77.ai&sz=128"
-    },
-    {
-      "name": "Nightscout",
-      "description": "Your Nightscout glucose data, conversational.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://nightscout.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=nightscout.b77.ai&sz=128"
-    },
-    {
-      "name": "SEO Content Factory",
-      "description": "Draft SEO blog articles from topic to ready-to-review post.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://seo-content-factory.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=seo-content-factory.b77.ai&sz=128"
-    },
-    {
-      "name": "Teamwork",
-      "description": "AI-first project management: plan epics, assign prioritized tasks, track team time.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://teamwork.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=teamwork.b77.ai&sz=128"
-    },
-    {
-      "name": "Time",
-      "description": "A live clock for your assistant.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://time.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=time.b77.ai&sz=128"
-    },
-    {
-      "name": "Web Analytics",
-      "description": "Ask about your website traffic in chat.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://web-analytics.b77.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.b77",
-      "icon_url": "https://www.google.com/s2/favicons?domain=web-analytics.b77.ai&sz=128"
-    },
-    {
-      "name": "Backengine Mcp",
-      "description": "Surface customer & prospect context from Slack, email, transcripts and tickets in any MCP client.",
-      "category": "Communication",
-      "connection_type": "http",
-      "connection_url": "https://mcp.backengine.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.backengine",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.backengine.ai&sz=128"
-    },
-    {
-      "name": "Inferventis MCP Server",
-      "description": "Loan & mortgage calculator, compound interest, ROI, crypto prices, FX conversion for AI agents.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://mcp-server-295985738387.europe-west1.run.app/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bankee",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp-server-295985738387.europe-west1.run.app&sz=128"
-    },
-    {
-      "name": "Bareun — Korean NLP & Spell/Grammar Checking",
-      "description": "Korean NLP MCP server: morphological analysis, tokenization, spell & grammar checking (Bareun)",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://api.bareun.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bareun",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.bareun.ai&sz=128"
-    },
-    {
-      "name": "Baselight",
-      "description": "Query Baselight's public catalog of 70,000+ datasets   finance, demographics, sports, and more.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://api.baselight.app/mcp",
-      "auth_type": "none",
-      "publisher": "ai.baselight",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.baselight.app&sz=128"
-    },
-    {
-      "name": "Basethread",
-      "description": "One shared context your team's AI tools read & write over MCP. No re-explaining. Free.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.basethread.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.basethread",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.basethread.ai&sz=128"
-    },
-    {
-      "name": "Bassethound",
-      "description": "Company intelligence for AI agents: a five-layer domain dossier in one keyless sniff_domain call.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://mcp.bassethound.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bassethound",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.bassethound.ai&sz=128"
-    },
-    {
-      "name": "BeatBandit MCP",
-      "description": "AI story development, screenplay editing, review, media, and export tools for BeatBandit projects.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://beatbandit.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.beatbandit",
-      "icon_url": "https://www.google.com/s2/favicons?domain=beatbandit.ai&sz=128"
-    },
-    {
-      "name": "Audit",
-      "description": "See how AI assistants answer about your brand",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.beket.ai/registry/mcp",
-      "auth_type": "none",
-      "publisher": "ai.beket",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.beket.ai&sz=128"
-    },
-    {
-      "name": "B4 Index",
-      "description": "Independent build-vs-buy index: score software categories BUILD/BUY/BRIDGE/BEWARE.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://b4-index.vercel.app/mcp",
-      "auth_type": "none",
-      "publisher": "ai.benroberts",
-      "icon_url": "https://www.google.com/s2/favicons?domain=b4-index.vercel.app&sz=128"
-    },
-    {
-      "name": "BetSlip Doctor",
-      "description": "Read, grade, and track a subscriber's betslips with preserved truth and no wager placement.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://api.betslipdoctor.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.betslipdoctor",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.betslipdoctor.ai&sz=128"
-    },
-    {
-      "name": "BetterPost",
-      "description": "Finds timely sources across news, social, and the web and writes posts worth publishing.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://betterpost.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.betterpost",
-      "icon_url": "https://www.google.com/s2/favicons?domain=betterpost.ai&sz=128"
-    },
-    {
-      "name": "Bezal — Local Business Intelligence for AI Agents",
-      "description": "Search 7,000+ local service businesses across America by category, location, or keyword.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://app.bezal.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bezal",
-      "icon_url": "https://www.google.com/s2/favicons?domain=app.bezal.ai&sz=128"
-    },
-    {
-      "name": "Bidclub",
-      "description": "Search 45+ investor podcasts and read transcripts, TL;DRs, digests   bilingual EN/  , keyless.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://bidclub.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bidclub",
-      "icon_url": "https://www.google.com/s2/favicons?domain=bidclub.ai&sz=128"
-    },
-    {
-      "name": "BidDeed MCP",
-      "description": "AI-powered foreclosure auction intelligence for Florida counties via MCP tools.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://biddeed.ai/api/mcp",
-      "auth_type": "none",
-      "publisher": "ai.biddeed",
-      "icon_url": "https://www.google.com/s2/favicons?domain=biddeed.ai&sz=128"
-    },
-    {
-      "name": "Biel.ai",
-      "description": "Query your product docs from AI tools. Source-cited answers from your indexed documentation.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.biel.ai/v2/{project_slug}/mcp",
-      "auth_type": "none",
-      "publisher": "ai.biel",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.biel.ai&sz=128"
-    },
-    {
-      "name": "Bitroad",
-      "description": "Marketplace for AI agents: buy goods and services under spending caps, with returns and disputes.",
-      "category": "AI",
-      "connection_type": "http",
-      "connection_url": "https://app.bitroad.ai/api/v1/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bitroad",
-      "icon_url": "https://www.google.com/s2/favicons?domain=app.bitroad.ai&sz=128"
-    },
-    {
-      "name": "BittleBits GEO Assistant",
-      "description": "GEO scores and content-rewrite suggestions for any web page, as MCP tools.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://bittlebits.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bittlebits",
-      "icon_url": "https://www.google.com/s2/favicons?domain=bittlebits.ai&sz=128"
-    },
-    {
-      "name": "BizMuse AI Music Video",
-      "description": "Create complete AI music videos from audio and reference images with the official BizMuse server.",
-      "category": "General",
-      "connection_type": "stdio",
-      "stdio_config": {
-        "command": "npx",
-        "args": [
-          "-y",
-          "bizmuse-mcp"
-        ],
-        "envs": [
-          "BIZMUSE_API_KEY",
-          "BIZMUSE_API_URL"
-        ]
-      },
-      "auth_type": "headers",
-      "required_header_keys": [
-        "BIZMUSE_API_KEY",
-        "BIZMUSE_API_URL"
-      ],
-      "publisher": "ai.bizmuse",
-      "tags": [
-        "ai",
-        "bizmuse",
-        "bizmuse"
-      ]
-    },
-    {
-      "name": "Blast Radius",
-      "description": "Blast Radius tools for AI strategy, diligence, and market updates.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://blast-radius.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.blast-radius",
-      "icon_url": "https://www.google.com/s2/favicons?domain=blast-radius.ai&sz=128"
-    },
-    {
-      "name": "Bloopo — Make Ads",
-      "description": "Make ads from one sentence   finished video ads, UGC, product images, voiceover and brand kits.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.bloopo.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bloopo",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.bloopo.ai&sz=128"
-    },
-    {
-      "name": "Bloopo — AI Ad & Creative Studio",
-      "description": "Turn one sentence into finished ads: video ads, UGC, product photos, voiceover, brand kits, A/B.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://mcp.bloopo.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bloopo",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.bloopo.ai&sz=128"
-    },
-    {
-      "name": "Web Search API for all your agents and LLMs",
-      "description": "Live web search, image search, topic filters and full-text fetch over our own crawled index.",
-      "category": "Search",
-      "connection_type": "http",
-      "connection_url": "https://mcp.blopus.ai/mcp/",
-      "auth_type": "none",
-      "publisher": "ai.blopus",
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.blopus.ai&sz=128"
-    },
-    {
-      "name": "BlueNexus Universal MCP",
-      "description": "Connect your AI to all your data - 200+ sources, intelligently filtered, compliance-ready.",
-      "category": "General",
-      "connection_type": "http",
-      "connection_url": "https://api.bluenexus.ai/mcp",
-      "auth_type": "none",
-      "publisher": "ai.bluenexus",
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.bluenexus.ai&sz=128"
+      "icon_url": "/images/mcp-servers/zoominfo.png"
     }
   ]
 }

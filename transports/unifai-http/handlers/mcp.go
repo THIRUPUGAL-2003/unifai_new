@@ -252,25 +252,6 @@ func (h *MCPHandler) getMCPLibrary(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Opportunistic cleanup of custom URL duplicates (Canva 2/3/…) and category
-	// spelling drift so the library UI stays clean even before the next sync.
-	deduped, dedupeErr := h.store.ConfigStore.SoftDeleteDuplicateCustomMCPLibraryURLs(ctx)
-	if dedupeErr != nil {
-		logger.Warn("failed to dedupe custom MCP library URLs: %v", dedupeErr)
-	}
-	normalized, normErr := h.store.ConfigStore.NormalizeMCPLibraryCategories(ctx)
-	if normErr != nil {
-		logger.Warn("failed to normalize MCP library categories: %v", normErr)
-	}
-	if deduped > 0 || normalized > 0 {
-		entries, totalCount, err = h.store.ConfigStore.GetMCPLibraryPaginated(ctx, params)
-		if err != nil {
-			logger.Error("failed to retrieve MCP library entries after cleanup: %v", err)
-			SendError(ctx, 500, "Failed to retrieve MCP library entries")
-			return
-		}
-	}
-
 	SendJSON(ctx, map[string]interface{}{
 		"servers":     entries,
 		"count":       len(entries),
