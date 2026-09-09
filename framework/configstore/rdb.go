@@ -1705,7 +1705,10 @@ func (s *RDBConfigStore) GetMCPLibraryPaginated(ctx context.Context, params MCPL
 		)
 	}
 	if len(params.Categories) > 0 {
-		baseQuery = baseQuery.Where("category IN ?", params.Categories)
+		expanded := MCPCategoryFilterValues(params.Categories)
+		if len(expanded) > 0 {
+			baseQuery = baseQuery.Where("category IN ?", expanded)
+		}
 	}
 	if len(params.ConnectionTypes) > 0 {
 		baseQuery = baseQuery.Where("connection_type IN ?", params.ConnectionTypes)
@@ -1793,9 +1796,12 @@ func (s *RDBConfigStore) GetMCPLibraryFilterData(ctx context.Context) (*MCPLibra
 		return nil
 	}
 
-	if err := distinct("category", &result.Categories); err != nil {
+	var rawCategories []string
+	if err := distinct("category", &rawCategories); err != nil {
 		return nil, err
 	}
+	result.Categories = DedupeCanonicalMCPCategories(rawCategories)
+	sort.Strings(result.Categories)
 	if err := distinct("connection_type", &result.ConnectionTypes); err != nil {
 		return nil, err
 	}
@@ -1884,12 +1890,130 @@ func (s *RDBConfigStore) UpsertMCPLibraryEntry(ctx context.Context, entry *table
 // CreateCustomMCPLibraryEntry inserts an org-internal ("custom") library row.
 // Source is forced to "custom" regardless of what the caller passed. The unique
 // slug index prevents duplicates; parseGormError maps that to ErrAlreadyExists.
+// Duplicate connection URLs (normalized) are rejected so catalog spam like
+// "Canva 2"/"Canva 3" pointing at the same endpoint cannot accumulate.
 func (s *RDBConfigStore) CreateCustomMCPLibraryEntry(ctx context.Context, entry *tables.TableMCPLibrary) error {
 	entry.Source = "custom"
+	entry.Category = CanonicalMCPCategory(entry.Category)
+	entry.ConnectionURL = strings.TrimSpace(entry.ConnectionURL)
+
+	if entry.ConnectionURL != "" {
+		if existing, err := s.GetMCPLibraryByConnectionURL(ctx, entry.ConnectionURL); err == nil && existing != nil {
+			return fmt.Errorf("MCP library entry with this connection URL already exists as %q %w", existing.Name, ErrAlreadyExists)
+		} else if err != nil && !errors.Is(err, ErrNotFound) {
+			return err
+		}
+	}
+
 	if err := s.DB().WithContext(ctx).Create(entry).Error; err != nil {
 		return s.parseGormError(err)
 	}
 	return nil
+}
+
+// GetMCPLibraryByConnectionURL finds a live library row with the same normalized
+// HTTP/SSE connection URL (trailing slashes and case ignored).
+func (s *RDBConfigStore) GetMCPLibraryByConnectionURL(ctx context.Context, rawURL string) (*tables.TableMCPLibrary, error) {
+	want := normalizeMCPConnectionURL(rawURL)
+	if want == "" {
+		return nil, ErrNotFound
+	}
+	var rows []tables.TableMCPLibrary
+	if err := s.DB().WithContext(ctx).
+		Where("deleted_at IS NULL").
+		Where("connection_url IS NOT NULL AND connection_url != ?", "").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if normalizeMCPConnectionURL(rows[i].ConnectionURL) == want {
+			return &rows[i], nil
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// SoftDeleteDuplicateCustomMCPLibraryURLs soft-deletes custom library rows that
+// share a normalized connection_url with an earlier keeper row. Remote rows are
+// preferred as keepers over custom ones. Returns the number of rows tombstoned.
+func (s *RDBConfigStore) SoftDeleteDuplicateCustomMCPLibraryURLs(ctx context.Context) (int, error) {
+	var rows []tables.TableMCPLibrary
+	if err := s.DB().WithContext(ctx).
+		Where("deleted_at IS NULL").
+		Where("connection_url IS NOT NULL AND connection_url != ?", "").
+		Order("id ASC").
+		Find(&rows).Error; err != nil {
+		return 0, err
+	}
+
+	type keeper struct {
+		id     uint
+		source string
+	}
+	keep := make(map[string]keeper, len(rows))
+	var toDelete []uint
+
+	for _, row := range rows {
+		norm := normalizeMCPConnectionURL(row.ConnectionURL)
+		if norm == "" {
+			continue
+		}
+		cur, exists := keep[norm]
+		if !exists {
+			keep[norm] = keeper{id: row.ID, source: row.Source}
+			continue
+		}
+		// Prefer remote keeper; if the new row is remote and the keeper is custom, swap.
+		if row.Source != "custom" && cur.source == "custom" {
+			toDelete = append(toDelete, cur.id)
+			keep[norm] = keeper{id: row.ID, source: row.Source}
+			continue
+		}
+		// Otherwise only soft-delete custom duplicates; leave conflicting remotes alone.
+		if row.Source == "custom" {
+			toDelete = append(toDelete, row.ID)
+		}
+	}
+
+	if len(toDelete) == 0 {
+		return 0, nil
+	}
+	now := time.Now()
+	result := s.DB().WithContext(ctx).
+		Model(&tables.TableMCPLibrary{}).
+		Where("id IN ? AND deleted_at IS NULL AND source = ?", toDelete, "custom").
+		Update("deleted_at", now)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return int(result.RowsAffected), nil
+}
+
+// NormalizeMCPLibraryCategories rewrites live library categories to their
+// canonical display labels (e.g. Communications → Communication, ai → AI).
+func (s *RDBConfigStore) NormalizeMCPLibraryCategories(ctx context.Context) (int, error) {
+	var rows []tables.TableMCPLibrary
+	if err := s.DB().WithContext(ctx).
+		Where("deleted_at IS NULL").
+		Where("category IS NOT NULL AND category != ?", "").
+		Find(&rows).Error; err != nil {
+		return 0, err
+	}
+	updated := 0
+	for _, row := range rows {
+		canon := CanonicalMCPCategory(row.Category)
+		if canon == "" || canon == row.Category {
+			continue
+		}
+		if err := s.DB().WithContext(ctx).
+			Model(&tables.TableMCPLibrary{}).
+			Where("id = ? AND deleted_at IS NULL", row.ID).
+			Update("category", canon).Error; err != nil {
+			return updated, err
+		}
+		updated++
+	}
+	return updated, nil
 }
 
 // SoftDeleteMCPLibraryEntry tombstones a library row by ID (sets deleted_at to

@@ -415,7 +415,7 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 				return;
 			}
 			const message = getErrorMessage(error);
-			const needsAuthHint = /401|unauthorized|authentication|auth/i.test(message);
+			const needsAuthHint = /\b401\b|\b403\b|unauthorized|authentication required|www-authenticate/i.test(message);
 			toast({
 				title: "Error",
 				description: needsAuthHint

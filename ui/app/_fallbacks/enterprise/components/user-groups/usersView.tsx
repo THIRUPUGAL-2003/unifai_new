@@ -147,12 +147,32 @@ export default function UsersView() {
 			toast.error("Username and password are required");
 			return;
 		}
+		if (!email.trim()) {
+			toast.error("Email is required so welcome mail / password-reset OTP can work");
+			return;
+		}
+		const policyFails: string[] = [];
+		if (password.length < 8) policyFails.push("at least 8 characters");
+		if (!/[A-Z]/.test(password)) policyFails.push("one uppercase letter");
+		if (!/[a-z]/.test(password)) policyFails.push("one lowercase letter");
+		if (!/\d/.test(password)) policyFails.push("one number");
+		if (!/[^A-Za-z0-9]/.test(password)) policyFails.push("one special character");
+		if (policyFails.length > 0) {
+			toast.error("Password must include " + policyFails.join(", "));
+			return;
+		}
 		try {
 			const created = await createUser({ ...userPayload(), password }).unwrap();
 			if (created?.id && role) {
 				await assignUserRole({ id: created.id, role_name: role }).unwrap();
 			}
-			toast.success("User created successfully");
+			if (created?.email_sent) {
+				toast.success("User created — welcome email sent (username + password)");
+			} else if (created?.email_error) {
+				toast.warning(`User created, but email failed: ${created.email_error}`);
+			} else {
+				toast.success("User created successfully (no welcome email — check SMTP / Email on user create)");
+			}
 			setIsCreateOpen(false);
 			resetForm();
 		} catch (err) {
@@ -487,9 +507,10 @@ export default function UsersView() {
 							/>
 						</div>
 						<div className="space-y-2">
-							<label className="text-muted-foreground text-sm font-medium">Email (Optional)</label>
+							<label className="text-muted-foreground text-sm font-medium">Email (required for welcome mail / OTP)</label>
 							<Input
 								type="email"
+								required
 								value={email}
 								onChange={(e) => setEmail(e.target.value)}
 								placeholder="e.g. janesmith@company.com"

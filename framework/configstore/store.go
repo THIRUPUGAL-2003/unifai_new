@@ -250,8 +250,15 @@ type ConfigStore interface {
 	GetMCPLibraryFilterData(ctx context.Context) (*MCPLibraryFilterData, error)
 	UpsertMCPLibraryEntry(ctx context.Context, entry *tables.TableMCPLibrary, tx ...*gorm.DB) error
 	// CreateCustomMCPLibraryEntry inserts an org-internal ("custom") library row.
-	// Returns ErrAlreadyExists when the slug collides with an existing entry.
+	// Returns ErrAlreadyExists when the slug or connection URL collides with an existing entry.
 	CreateCustomMCPLibraryEntry(ctx context.Context, entry *tables.TableMCPLibrary) error
+	// GetMCPLibraryByConnectionURL finds a live library row by normalized URL.
+	GetMCPLibraryByConnectionURL(ctx context.Context, rawURL string) (*tables.TableMCPLibrary, error)
+	// SoftDeleteDuplicateCustomMCPLibraryURLs tombstones custom rows that share a
+	// connection URL with an earlier keeper. Returns rows affected.
+	SoftDeleteDuplicateCustomMCPLibraryURLs(ctx context.Context) (int, error)
+	// NormalizeMCPLibraryCategories rewrites categories to canonical labels.
+	NormalizeMCPLibraryCategories(ctx context.Context) (int, error)
 	// SoftDeleteMCPLibraryEntry tombstones a library row by ID (sets deleted_at)
 	// so it is hidden from listings and never resurrected by the remote sync.
 	SoftDeleteMCPLibraryEntry(ctx context.Context, id uint) error

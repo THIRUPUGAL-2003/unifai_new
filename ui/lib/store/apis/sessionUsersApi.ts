@@ -11,6 +11,8 @@ export interface SessionUser {
 	allowed_prompt_repos?: string;
 	allowed_sections?: string;
 	created_at: string;
+	email_sent?: boolean;
+	email_error?: string;
 }
 
 export interface SessionUserPayload {

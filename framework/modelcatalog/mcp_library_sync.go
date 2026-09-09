@@ -167,7 +167,7 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 				Slug:               slug,
 				Name:               e.Name,
 				Description:        e.Description,
-				Category:           e.Category,
+				Category:           configstore.CanonicalMCPCategory(e.Category),
 				ConnectionType:     e.ConnectionType,
 				ConnectionURL:      e.ConnectionURL,
 				StdioConfig:        e.StdioConfig,
@@ -191,6 +191,13 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 	})
 	if err != nil {
 		return 0, fmt.Errorf("failed to sync MCP library to database: %w", err)
+	}
+
+	if _, dedupeErr := store.SoftDeleteDuplicateCustomMCPLibraryURLs(ctx); dedupeErr != nil {
+		return count, fmt.Errorf("MCP library synced (%d entries) but failed to dedupe custom URLs: %w", count, dedupeErr)
+	}
+	if _, normErr := store.NormalizeMCPLibraryCategories(ctx); normErr != nil {
+		return count, fmt.Errorf("MCP library synced (%d entries) but failed to normalize categories: %w", count, normErr)
 	}
 
 	return count, nil

@@ -252,6 +252,25 @@ func (h *MCPHandler) getMCPLibrary(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	// Opportunistic cleanup of custom URL duplicates (Canva 2/3/…) and category
+	// spelling drift so the library UI stays clean even before the next sync.
+	deduped, dedupeErr := h.store.ConfigStore.SoftDeleteDuplicateCustomMCPLibraryURLs(ctx)
+	if dedupeErr != nil {
+		logger.Warn("failed to dedupe custom MCP library URLs: %v", dedupeErr)
+	}
+	normalized, normErr := h.store.ConfigStore.NormalizeMCPLibraryCategories(ctx)
+	if normErr != nil {
+		logger.Warn("failed to normalize MCP library categories: %v", normErr)
+	}
+	if deduped > 0 || normalized > 0 {
+		entries, totalCount, err = h.store.ConfigStore.GetMCPLibraryPaginated(ctx, params)
+		if err != nil {
+			logger.Error("failed to retrieve MCP library entries after cleanup: %v", err)
+			SendError(ctx, 500, "Failed to retrieve MCP library entries")
+			return
+		}
+	}
+
 	SendJSON(ctx, map[string]interface{}{
 		"servers":     entries,
 		"count":       len(entries),
@@ -528,7 +547,7 @@ func (h *MCPHandler) reconnectMCPClient(ctx *fasthttp.RequestCtx) {
 			SendError(ctx, fasthttp.StatusBadRequest, err.Error())
 			return
 		}
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to reconnect MCP client: %v", err))
+		SendError(ctx, fasthttp.StatusInternalServerError, lib.ClientSafeMCPConnectMessage("Failed to reconnect MCP client", err))
 		return
 	}
 	SendJSON(ctx, map[string]any{
@@ -740,7 +759,7 @@ func (h *MCPHandler) addMCPClient(ctx *fasthttp.RequestCtx) {
 		// form so the verify path sees the same keys the schema declares.
 		tools, toolNameMapping, verifyErr := h.mcpManager.VerifyHeadersConnection(unifaiCtx, schemasConfig, canonUserHeaders)
 		if verifyErr != nil {
-			SendError(ctx, fasthttp.StatusUnprocessableEntity, fmt.Sprintf("Verification failed: %v", verifyErr))
+			SendError(ctx, fasthttp.StatusUnprocessableEntity, lib.ClientSafeMCPConnectMessage("Verification failed", verifyErr))
 			return
 		}
 		schemasConfig.DiscoveredTools = tools
@@ -758,7 +777,7 @@ func (h *MCPHandler) addMCPClient(ctx *fasthttp.RequestCtx) {
 			if delErr := h.store.ConfigStore.DeleteMCPClientConfig(ctx, schemasConfig.ID); delErr != nil {
 				logger.Error(fmt.Sprintf("Failed to roll back MCP client config after AddMCPClient failure: %v", delErr))
 			}
-			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to register MCP client: %v", err))
+			SendError(ctx, fasthttp.StatusInternalServerError, lib.ClientSafeMCPConnectMessage("Failed to register MCP client", err))
 			return
 		}
 
@@ -1014,7 +1033,7 @@ func (h *MCPHandler) addMCPClient(ctx *fasthttp.RequestCtx) {
 				return
 			}
 		}
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to connect MCP client: %v", err))
+		SendError(ctx, fasthttp.StatusInternalServerError, lib.ClientSafeMCPConnectMessage("Failed to connect MCP client", err))
 		return
 	}
 
@@ -1870,7 +1889,7 @@ func (h *MCPHandler) completeMCPClientOAuth(ctx *fasthttp.RequestCtx) {
 						return
 					}
 				}
-				SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to register MCP client: %v", err))
+				SendError(ctx, fasthttp.StatusInternalServerError, lib.ClientSafeMCPConnectMessage("Failed to register MCP client", err))
 				return
 			}
 		}
@@ -1920,7 +1939,7 @@ func (h *MCPHandler) completeMCPClientOAuth(ctx *fasthttp.RequestCtx) {
 				logger.Error(fmt.Sprintf("Failed to rollback MCP client DB update: %v. please restart unifai to keep core and database in sync", rollbackErr))
 			}
 			logger.Error(fmt.Sprintf("Failed to reconnect MCP client after OAuth DB update for client %s: %v", mcpClientConfig.ID, err))
-			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to reconnect MCP client with updated OAuth credentials: %v", err))
+			SendError(ctx, fasthttp.StatusInternalServerError, lib.ClientSafeMCPConnectMessage("Failed to reconnect MCP client with updated OAuth credentials", err))
 			return
 		}
 	} else {
@@ -1943,7 +1962,7 @@ func (h *MCPHandler) completeMCPClientOAuth(ctx *fasthttp.RequestCtx) {
 				}
 			}
 			logger.Error(fmt.Sprintf("[OAuth Complete] Failed to connect MCP client: %v", err))
-			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to connect MCP client: %v", err))
+			SendError(ctx, fasthttp.StatusInternalServerError, lib.ClientSafeMCPConnectMessage("Failed to connect MCP client", err))
 			return
 		}
 	}
@@ -2103,7 +2122,11 @@ func (h *MCPHandler) createMCPLibraryEntry(ctx *fasthttp.RequestCtx) {
 
 	if err := h.store.ConfigStore.CreateCustomMCPLibraryEntry(ctx, entry); err != nil {
 		if errors.Is(err, configstore.ErrAlreadyExists) {
-			SendError(ctx, fasthttp.StatusConflict, "an MCP library server with this name already exists")
+			msg := "an MCP library server with this name already exists"
+			if strings.Contains(err.Error(), "connection URL") {
+				msg = "an MCP library server with this connection URL already exists — open the existing entry instead of creating duplicates"
+			}
+			SendError(ctx, fasthttp.StatusConflict, msg)
 			return
 		}
 		logger.Error("failed to create custom MCP library entry: %v", err)

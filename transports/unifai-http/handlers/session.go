@@ -481,22 +481,25 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 			return
 		}
 		existing.Password = ""
-		if payload.Email != "" || existing.Email != "" {
-			emailTo := payload.Email
-			if emailTo == "" {
-				emailTo = existing.Email
-			}
-			if smtpRow, _ := h.configStore.GetSMTPConfig(ctx); smtpRow != nil && smtpRow.Enabled && smtpRow.NotifyOnUserCreate {
-				body := fmt.Sprintf(
-					"Hello %s,\n\nYour UnifAI account is ready.\n\nUsername: %s\nTemporary password: %s\n\nSign in, then use Forgot password if you need to reset it.\n",
-					payload.Username, payload.Username, payload.Password,
-				)
-				if err := sendAuthEmail(h.configStore, ctx, emailTo, "Your UnifAI account", body); err != nil {
-					logger.Warn("user updated but welcome email failed username=%s: %v", payload.Username, err)
-				}
-			}
+		emailTo := strings.TrimSpace(payload.Email)
+		if emailTo == "" {
+			emailTo = strings.TrimSpace(existing.Email)
 		}
-		SendJSON(ctx, existing)
+		emailSent, emailErr := trySendWelcomeEmail(h.configStore, ctx, payload.Username, emailTo, payload.Password)
+		SendJSON(ctx, map[string]any{
+			"id":                   existing.ID,
+			"username":             existing.Username,
+			"email":                existing.Email,
+			"role":                 existing.Role,
+			"status":               existing.Status,
+			"budget":               existing.Budget,
+			"rate_limit":           existing.RateLimit,
+			"allowed_prompt_repos": existing.AllowedPromptRepos,
+			"allowed_sections":     existing.AllowedSections,
+			"created_at":           existing.CreatedAt,
+			"email_sent":           emailSent,
+			"email_error":          emailErr,
+		})
 		return
 	}
 
@@ -531,18 +534,21 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 	}
 
 	user.Password = ""
-	if payload.Email != "" {
-		if smtpRow, _ := h.configStore.GetSMTPConfig(ctx); smtpRow != nil && smtpRow.Enabled && smtpRow.NotifyOnUserCreate {
-			body := fmt.Sprintf(
-				"Hello %s,\n\nYour UnifAI account was created.\n\nUsername: %s\nTemporary password: %s\n\nSign in, then change your password (Forgot password → email OTP) if needed.\n",
-				payload.Username, payload.Username, payload.Password,
-			)
-			if err := sendAuthEmail(h.configStore, ctx, payload.Email, "Your UnifAI account", body); err != nil {
-				logger.Warn("user created but welcome email failed username=%s: %v", payload.Username, err)
-			}
-		}
-	}
-	SendJSON(ctx, user)
+	emailSent, emailErr := trySendWelcomeEmail(h.configStore, ctx, payload.Username, payload.Email, payload.Password)
+	SendJSON(ctx, map[string]any{
+		"id":                   user.ID,
+		"username":             user.Username,
+		"email":                user.Email,
+		"role":                 user.Role,
+		"status":               user.Status,
+		"budget":               user.Budget,
+		"rate_limit":           user.RateLimit,
+		"allowed_prompt_repos": user.AllowedPromptRepos,
+		"allowed_sections":     user.AllowedSections,
+		"created_at":           user.CreatedAt,
+		"email_sent":           emailSent,
+		"email_error":          emailErr,
+	})
 }
 
 // forgotPassword emails a 6-digit OTP when the account has an email on file.

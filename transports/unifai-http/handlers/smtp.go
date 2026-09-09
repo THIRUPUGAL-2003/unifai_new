@@ -124,6 +124,10 @@ func (h *SMTPHandler) updateSMTPConfig(ctx *fasthttp.RequestCtx) {
 			password = ""
 		}
 	}
+	if payload.Enabled && strings.TrimSpace(password) == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "SMTP password is required when SMTP is enabled")
+		return
+	}
 
 	row := &tables.TableSMTPConfig{
 		Enabled:            payload.Enabled,
@@ -205,6 +209,33 @@ func sendAuthEmail(store configstore.ConfigStore, ctx *fasthttp.RequestCtx, to, 
 		return fmt.Errorf("SMTP is not configured")
 	}
 	return mailer.Send(smtpToMailer(row), mailer.Message{To: to, Subject: subject, Body: body})
+}
+
+func welcomeAccountEmailBody(username, email, password string) string {
+	return fmt.Sprintf(
+		"Hello %s,\n\nYour UnifAI account was created.\n\nEmail: %s\nUsername: %s\nTemporary password: %s\n\nSign in with this username and password. Use Forgot password on the login page if you need an OTP reset.\n",
+		username, email, username, password,
+	)
+}
+
+// trySendWelcomeEmail sends create-user mail when SMTP notify-on-create is on.
+// Returns (sent, errorMessage). Missing email / disabled SMTP is not an error.
+func trySendWelcomeEmail(store configstore.ConfigStore, ctx *fasthttp.RequestCtx, username, email, password string) (bool, string) {
+	email = strings.TrimSpace(email)
+	if email == "" || store == nil {
+		return false, ""
+	}
+	smtpRow, err := store.GetSMTPConfig(ctx)
+	if err != nil {
+		return false, err.Error()
+	}
+	if smtpRow == nil || !smtpRow.Enabled || !smtpRow.NotifyOnUserCreate {
+		return false, ""
+	}
+	if err := sendAuthEmail(store, ctx, email, "Your UnifAI account", welcomeAccountEmailBody(username, email, password)); err != nil {
+		return false, err.Error()
+	}
+	return true, ""
 }
 
 func loginUsernameKey(username string) string {

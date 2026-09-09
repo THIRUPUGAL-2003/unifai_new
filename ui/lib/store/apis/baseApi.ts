@@ -212,7 +212,7 @@ export const getErrorMessage = (error: unknown): string => {
 		return "An unexpected error occurred";
 	}
 	if (error instanceof Error) {
-		return error.message;
+		return sanitizeErrorText(error.message);
 	}
 	if (
 		typeof error === "object" &&
@@ -226,10 +226,53 @@ export const getErrorMessage = (error: unknown): string => {
 		"message" in error.data.error &&
 		typeof error.data.error.message === "string"
 	) {
-		return error.data.error.message.charAt(0).toUpperCase() + error.data.error.message.slice(1);
+		const message = error.data.error.message;
+		const capitalized = message.charAt(0).toUpperCase() + message.slice(1);
+		return sanitizeErrorText(capitalized);
 	}
 	if (typeof error === "object" && error && "message" in error && typeof error.message === "string") {
-		return error.message;
+		return sanitizeErrorText(error.message);
 	}
 	return "An unexpected error occurred";
 };
+
+/** Strip HTML / Cloudflare dumps and cap length so toasts stay readable. */
+function sanitizeErrorText(raw: string): string {
+	const text = (raw || "").trim();
+	if (!text) {
+		return "An unexpected error occurred";
+	}
+	const lower = text.toLowerCase();
+	const looksLikeHtml =
+		lower.includes("<!doctype") ||
+		lower.includes("<html") ||
+		lower.includes("<head") ||
+		lower.includes("<body") ||
+		lower.includes("<script") ||
+		lower.includes("cloudflare") ||
+		lower.includes("_status_page_config_") ||
+		lower.includes("429_title") ||
+		lower.includes("\\u003c") ||
+		lower.includes("\u003c");
+
+	const statusMatch = text.match(/(?:status|http)[^\d]{0,12}(\d{3})/i);
+	const status = statusMatch ? Number(statusMatch[1]) : NaN;
+
+	if (looksLikeHtml || text.length > 500) {
+		if (status === 429) {
+			return "Upstream returned HTTP 429 (rate limited or blocked) — this URL is not a usable MCP endpoint, or authentication is required";
+		}
+		if (status === 401 || status === 403) {
+			return `Upstream returned HTTP ${status} (unauthorized) — switch Authentication to Headers or OAuth and add a valid API key / token`;
+		}
+		if (Number.isFinite(status) && status >= 400) {
+			return `Upstream returned HTTP ${status} — check the MCP server URL and authentication`;
+		}
+		return "Upstream returned a non-MCP response (HTML or oversized body) — use the real MCP endpoint URL from the provider docs, not a website homepage";
+	}
+
+	if (text.length > 280) {
+		return `${text.slice(0, 280).trim()}…`;
+	}
+	return text;
+}

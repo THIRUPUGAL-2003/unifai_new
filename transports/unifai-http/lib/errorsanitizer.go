@@ -1,12 +1,18 @@
 package lib
 
 import (
+	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/unifai/unifai/core/schemas"
 )
 
 const ClientSafeInternalErrorMessage = "internal server error"
+
+var mcpHTTPStatusRe = regexp.MustCompile(`(?i)(?:status|http)[^\d]{0,12}(\d{3})`)
 
 // SanitizeUnifAIErrorForClient returns a copy safe to serialize to API clients.
 // Internal errors can contain stack traces or database details; keep those in logs only.
@@ -29,13 +35,145 @@ func SanitizeUnifAIErrorForClient(err *schemas.UnifAIError) *schemas.UnifAIError
 	return &sanitized
 }
 
+// ClientSafeMCPConnectMessage turns upstream MCP transport errors into a short
+// client-safe string. Cloudflare/HTML bodies (common on wrong URLs / 429s) must
+// never be forwarded into API toasts.
+func ClientSafeMCPConnectMessage(prefix string, err error) string {
+	if err == nil {
+		if prefix == "" {
+			return "MCP connection failed"
+		}
+		return prefix
+	}
+	detail := sanitizeMCPUpstreamDetail(err.Error())
+	if prefix == "" {
+		return detail
+	}
+	return prefix + ": " + detail
+}
+
+func sanitizeMCPUpstreamDetail(msg string) string {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return "unknown MCP connection error"
+	}
+
+	status, hasStatus := extractEmbeddedHTTPStatus(msg)
+	htmlish := looksLikeHTMLOrStatusPage(msg)
+	oversized := utf8.RuneCountInString(msg) > 400
+
+	if hasStatus && (htmlish || oversized) {
+		switch status {
+		case 401, 403:
+			return fmt.Sprintf("upstream returned HTTP %d (unauthorized) — switch Authentication to Headers or OAuth and add a valid API key / token", status)
+		case 404:
+			return "upstream returned HTTP 404 — this URL does not look like a valid MCP endpoint"
+		case 429:
+			return "upstream returned HTTP 429 (rate limited or blocked) — this URL is not a usable MCP endpoint, or authentication is required"
+		default:
+			if status >= 400 {
+				return fmt.Sprintf("upstream returned HTTP %d — check the MCP server URL and authentication", status)
+			}
+		}
+	}
+
+	if htmlish || oversized {
+		return "upstream returned a non-MCP response (HTML or oversized body) — use the real MCP endpoint URL from the provider docs, not a website homepage"
+	}
+
+	if hasStatus && status >= 400 {
+		switch status {
+		case 401, 403:
+			return fmt.Sprintf("upstream returned HTTP %d (unauthorized) — switch Authentication to Headers or OAuth and add a valid API key / token", status)
+		case 429:
+			return "upstream returned HTTP 429 (rate limited or blocked)"
+		default:
+			return fmt.Sprintf("upstream returned HTTP %d", status)
+		}
+	}
+
+	return truncateRunes(msg, 280)
+}
+
+func extractEmbeddedHTTPStatus(msg string) (int, bool) {
+	// Prefer the mcp-go phrasing: "request failed with status 429: ..."
+	lower := strings.ToLower(msg)
+	if idx := strings.Index(lower, "status "); idx >= 0 {
+		rest := msg[idx+len("status "):]
+		var n int
+		for i, r := range rest {
+			if r < '0' || r > '9' {
+				if i == 0 {
+					break
+				}
+				n, _ = strconv.Atoi(rest[:i])
+				if n >= 100 && n <= 599 {
+					return n, true
+				}
+				break
+			}
+			if i == len(rest)-1 {
+				n, _ = strconv.Atoi(rest)
+				if n >= 100 && n <= 599 {
+					return n, true
+				}
+			}
+		}
+	}
+	m := mcpHTTPStatusRe.FindStringSubmatch(msg)
+	if len(m) == 2 {
+		n, err := strconv.Atoi(m[1])
+		if err == nil && n >= 100 && n <= 599 {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
+func looksLikeHTMLOrStatusPage(msg string) bool {
+	lower := strings.ToLower(msg)
+	markers := []string{
+		"<!doctype",
+		"<html",
+		"<head",
+		"<body",
+		"<script",
+		"cloudflare",
+		"cf-ray",
+		"_status_page_config_",
+		"429_title",
+		"too many requests",
+		"error code 429",
+		"window.__",
+		"\u003chtml",
+		"\\u003c",
+	}
+	for _, m := range markers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
+}
+
+func truncateRunes(s string, max int) string {
+	if max <= 0 {
+		return ""
+	}
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	runes := []rune(s)
+	return strings.TrimSpace(string(runes[:max])) + "…"
+}
+
 func shouldHideErrorDetails(_ *schemas.UnifAIError, field *schemas.ErrorField) bool {
 	message := field.Message
 	if field.Error != nil {
 		message += " " + field.Error.Error()
 	}
 
-	return containsStackTrace(message) || containsSQLDetails(message)
+	return containsStackTrace(message) || containsSQLDetails(message) || looksLikeHTMLOrStatusPage(message)
 }
 
 func containsStackTrace(message string) bool {

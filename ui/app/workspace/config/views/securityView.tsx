@@ -116,6 +116,23 @@ export default function SecurityView() {
 	}, [smtpData]);
 
 	const handleSaveSMTP = async () => {
+		if (smtpForm.enabled && !smtpForm.host.trim()) {
+			toast.error("SMTP host is required");
+			return;
+		}
+		if (smtpForm.enabled && !smtpForm.password && !smtpData?.password) {
+			toast.error("SMTP password is required (Gmail: use an App Password)");
+			return;
+		}
+		if (
+			smtpForm.enabled &&
+			smtpForm.host.includes("gmail.com") &&
+			smtpForm.from_email &&
+			smtpForm.username &&
+			smtpForm.from_email.trim().toLowerCase() !== smtpForm.username.trim().toLowerCase()
+		) {
+			toast.message("Gmail tip: From email should usually match SMTP username, or send may fail.");
+		}
 		try {
 			await updateSMTP({
 				...smtpForm,
