@@ -429,7 +429,7 @@
     {
       "name": "Twilio",
       "description": "Twilio MCP — messaging and communications APIs (stdio).",
-      "category": "Communication",
+      "category": "Communications",
       "connection_type": "stdio",
       "stdio_config": {
         "command": "npx",
