@@ -1857,6 +1857,7 @@ var mcpLibrarySyncUpdateColumns = []string{
 	"tags",
 	"metadata",
 	"updated_at",
+	"deleted_at",
 }
 
 // UpsertMCPLibraryEntry creates or updates an MCP library catalog row, keyed by
@@ -1871,15 +1872,16 @@ func (s *RDBConfigStore) UpsertMCPLibraryEntry(ctx context.Context, entry *table
 	}
 	db := txDB.WithContext(ctx)
 
+	// Sync always resurrects live remote catalog rows (clears deleted_at). Custom
+	// rows stay protected via GetProtectedMCPLibrarySlugs + the WHERE below.
+	entry.DeletedAt = nil
+
 	if err := db.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "slug"}},
 		DoUpdates: clause.AssignmentColumns(mcpLibrarySyncUpdateColumns),
-		// Atomically protect custom/tombstoned rows: only overwrite an existing
-		// row if it is still a live remote row. This closes the TOCTOU race where
-		// a row turns custom or is soft-deleted between the snapshot taken by
-		// GetProtectedMCPLibrarySlugs and this upsert. INSERTs are unaffected.
+		// Only overwrite remote rows — never clobber org-custom entries.
 		Where: clause.Where{Exprs: []clause.Expression{
-			clause.Expr{SQL: "mcp_library.source = 'remote' AND mcp_library.deleted_at IS NULL"},
+			clause.Expr{SQL: "mcp_library.source = 'remote'"},
 		}},
 	}).Create(entry).Error; err != nil {
 		return s.parseGormError(err)
@@ -2107,12 +2109,13 @@ func (s *RDBConfigStore) DeleteMCPLibraryEntry(ctx context.Context, id uint) err
 }
 
 // GetProtectedMCPLibrarySlugs returns the slugs the remote sync must skip:
-// custom rows (any source != "remote") and soft-deleted rows (deleted_at set).
+// org-custom rows only. Soft-deleted remotes are allowed to be resurrected on
+// the next catalog sync (otherwise Force Sync after a wipe stays empty forever).
 func (s *RDBConfigStore) GetProtectedMCPLibrarySlugs(ctx context.Context) ([]string, error) {
 	var slugs []string
 	if err := s.DB().WithContext(ctx).
 		Model(&tables.TableMCPLibrary{}).
-		Where("source != 'remote' OR deleted_at IS NOT NULL").
+		Where("source != ?", "remote").
 		Pluck("slug", &slugs).Error; err != nil {
 		return nil, err
 	}
