@@ -26,6 +26,10 @@ export default function SignupPage() {
 			setErrorMessage("Passwords do not match");
 			return;
 		}
+		if (!email.trim()) {
+			setErrorMessage("Email is required");
+			return;
+		}
 
 		const policyFails: string[] = [];
 		if (password.length < 8) policyFails.push("at least 8 characters");

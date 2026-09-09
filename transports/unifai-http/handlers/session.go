@@ -354,6 +354,25 @@ func alreadyRegisteredMessage(existing *tables.TableUser) string {
 	}
 }
 
+// assertEmailAvailable rejects when another user already owns this email.
+// exceptUserID allows the same user to keep/update their own email.
+// Returns false after sending the HTTP error.
+func (h *SessionHandler) assertEmailAvailable(ctx *fasthttp.RequestCtx, email, exceptUserID string) bool {
+	email = strings.TrimSpace(strings.ToLower(email))
+	if email == "" || h.configStore == nil {
+		return true
+	}
+	other, err := h.configStore.GetUserByEmail(ctx, email)
+	if err != nil || other == nil {
+		return true
+	}
+	if exceptUserID != "" && other.ID == exceptUserID {
+		return true
+	}
+	SendError(ctx, fasthttp.StatusConflict, "This email is already registered with another account")
+	return false
+}
+
 // isAdmin checks if the current request session belongs to an admin.
 // When dashboard auth is disabled (or not configured), user-management APIs
 // stay usable in open mode — otherwise create/list users always 403 with no
@@ -434,7 +453,7 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	payload.Username = strings.TrimSpace(payload.Username)
-	payload.Email = strings.TrimSpace(payload.Email)
+	payload.Email = strings.TrimSpace(strings.ToLower(payload.Email))
 	if payload.Username == "" || payload.Password == "" {
 		SendError(ctx, fasthttp.StatusBadRequest, "Username and password are required")
 		return
@@ -460,6 +479,9 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 			return
 		}
 		// Admin create bypasses pending/denied — activate immediately.
+		if payload.Email != "" && !h.assertEmailAvailable(ctx, payload.Email, existing.ID) {
+			return
+		}
 		if payload.Email != "" {
 			existing.Email = payload.Email
 		}
@@ -497,6 +519,10 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 			"email_sent":           emailSent,
 			"email_error":          emailErr,
 		})
+		return
+	}
+
+	if payload.Email != "" && !h.assertEmailAvailable(ctx, payload.Email, "") {
 		return
 	}
 
@@ -722,7 +748,11 @@ func (h *SessionHandler) updateUser(ctx *fasthttp.RequestCtx) {
 		existingUser.Username = payload.Username
 	}
 	if payload.Email != nil {
-		existingUser.Email = strings.TrimSpace(*payload.Email)
+		newEmail := strings.TrimSpace(strings.ToLower(*payload.Email))
+		if newEmail != "" && !h.assertEmailAvailable(ctx, newEmail, existingUser.ID) {
+			return
+		}
+		existingUser.Email = newEmail
 	}
 	if payload.Status != nil && (*payload.Status == tables.UserStatusApproved || *payload.Status == tables.UserStatusPending || *payload.Status == tables.UserStatusRejected) {
 		existingUser.Status = *payload.Status
@@ -804,6 +834,10 @@ func (h *SessionHandler) register(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Username and password are required")
 		return
 	}
+	if payload.Email == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "Email is required")
+		return
+	}
 	if failures := getPasswordPolicyFailures(payload.Password); len(failures) > 0 {
 		SendError(ctx, fasthttp.StatusBadRequest, "Password must include "+strings.Join(failures, ", "))
 		return
@@ -825,6 +859,9 @@ func (h *SessionHandler) register(ctx *fasthttp.RequestCtx) {
 			return
 		}
 		// Denied users may request access again — send back to pending.
+		if !h.assertEmailAvailable(ctx, payload.Email, existing.ID) {
+			return
+		}
 		existing.Email = payload.Email
 		existing.Password = hashedPassword
 		existing.Role = payload.Role
@@ -841,6 +878,10 @@ func (h *SessionHandler) register(ctx *fasthttp.RequestCtx) {
 			"status":  existing.Status,
 			"role":    existing.Role,
 		})
+		return
+	}
+
+	if !h.assertEmailAvailable(ctx, payload.Email, "") {
 		return
 	}
 
