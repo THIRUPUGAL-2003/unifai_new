@@ -15,6 +15,13 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/klauspost/compress v1.18.6
 	github.com/mark3labs/mcp-go v0.43.2
+	github.com/pion/rtcp v1.2.16
+	github.com/pion/webrtc/v4 v4.2.9
+	github.com/prometheus/client_golang v1.23.2
+	github.com/prometheus/client_model v0.6.2
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
+	github.com/stretchr/testify v1.11.1
+	github.com/tidwall/gjson v1.18.0
 	github.com/unifai/unifai/core v1.6.2
 	github.com/unifai/unifai/framework v1.4.2
 	github.com/unifai/unifai/plugins/compat v0.1.24
@@ -27,13 +34,6 @@ require (
 	github.com/unifai/unifai/plugins/prompts v1.0.25
 	github.com/unifai/unifai/plugins/semanticcache v1.5.25
 	github.com/unifai/unifai/plugins/telemetry v1.5.25
-	github.com/pion/rtcp v1.2.16
-	github.com/pion/webrtc/v4 v4.2.9
-	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/client_model v0.6.2
-	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
-	github.com/stretchr/testify v1.11.1
-	github.com/tidwall/gjson v1.18.0
 	github.com/valyala/fasthttp v1.71.0
 	go.uber.org/automaxprocs v1.6.0
 	golang.org/x/sync v0.20.0
@@ -52,6 +52,7 @@ require (
 	cloud.google.com/go/monitoring v1.24.3 // indirect
 	cloud.google.com/go/storage v1.62.1 // indirect
 	dario.cat/mergo v1.0.2 // indirect
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
@@ -124,6 +125,7 @@ require (
 	github.com/go-openapi/swag/typeutils v0.25.4 // indirect
 	github.com/go-openapi/swag/yamlutils v0.25.4 // indirect
 	github.com/go-openapi/validate v0.25.1 // indirect
+	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/google/cel-go v0.28.1 // indirect
@@ -147,7 +149,6 @@ require (
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/mattn/go-sqlite3 v1.14.32 // indirect
-	github.com/unifai/unifai/plugins/mocker v1.5.25 // indirect
 	github.com/maximhq/maxim-go v0.2.1 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
 	github.com/oapi-codegen/runtime v1.1.1 // indirect
@@ -187,6 +188,7 @@ require (
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
+	github.com/unifai/unifai/plugins/mocker v1.5.25 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/weaviate/weaviate v1.36.5 // indirect
 	github.com/weaviate/weaviate-go-client/v5 v5.7.1 // indirect
@@ -225,6 +227,7 @@ require (
 	google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	gorm.io/driver/mysql v1.6.0 // indirect
 	gorm.io/driver/postgres v1.6.0 // indirect
 )
 
@@ -234,6 +237,7 @@ replace (
 	github.com/unifai/unifai/plugins/compat => ../plugins/compat
 	github.com/unifai/unifai/plugins/connectors => ../plugins/connectors
 	github.com/unifai/unifai/plugins/governance => ../plugins/governance
+	github.com/unifai/unifai/plugins/guardrails => ../plugins/guardrails
 	github.com/unifai/unifai/plugins/jsonparser => ../plugins/jsonparser
 	github.com/unifai/unifai/plugins/logging => ../plugins/logging
 	github.com/unifai/unifai/plugins/maxim => ../plugins/maxim
@@ -243,6 +247,4 @@ replace (
 	github.com/unifai/unifai/plugins/prompts => ../plugins/prompts
 	github.com/unifai/unifai/plugins/semanticcache => ../plugins/semanticcache
 	github.com/unifai/unifai/plugins/telemetry => ../plugins/telemetry
-	github.com/unifai/unifai/plugins/guardrails => ../plugins/guardrails
 )
-

@@ -975,9 +975,48 @@ func LoadConfig(ctx context.Context, configDirPath string) (*Config, error) {
 	return config, nil
 }
 
+// applyEnvDBTypeOverride lets operators switch engines with DB_TYPE in .env
+// without editing configs/config.json (postgres ↔ mysql/mariadb).
+// Connection fields still come from env.DB_HOST / DB_USER / … as today.
+func applyEnvDBTypeOverride(configData *ConfigData) {
+	if configData == nil {
+		return
+	}
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("DB_TYPE")))
+	var storeType configstore.ConfigStoreType
+	var logType logstore.LogStoreType
+	switch raw {
+	case "mysql", "mariadb":
+		storeType = configstore.ConfigStoreTypeMySQL
+		logType = logstore.LogStoreTypeMySQL
+	case "postgres", "postgresql":
+		storeType = configstore.ConfigStoreTypePostgres
+		logType = logstore.LogStoreTypePostgres
+	case "sqlite":
+		storeType = configstore.ConfigStoreTypeSQLite
+		logType = logstore.LogStoreTypeSQLite
+	default:
+		return
+	}
+	if configData.ConfigStoreConfig != nil && configData.ConfigStoreConfig.Enabled {
+		if configData.ConfigStoreConfig.Type != storeType {
+			logger.Info("DB_TYPE=%s → config_store.type override %q → %q", raw, configData.ConfigStoreConfig.Type, storeType)
+			configData.ConfigStoreConfig.Type = storeType
+		}
+	}
+	if configData.LogsStoreConfig != nil && configData.LogsStoreConfig.Enabled {
+		if configData.LogsStoreConfig.Type != logType {
+			logger.Info("DB_TYPE=%s → logs_store.type override %q → %q", raw, configData.LogsStoreConfig.Type, logType)
+			configData.LogsStoreConfig.Type = logType
+		}
+	}
+}
+
 // initStores initializes config, logs, and vector stores.
 // When config data sections are absent (nil), creates default SQLite stores for persistence.
 func initStores(ctx context.Context, config *Config, configData *ConfigData, configDBPath, logsDBPath string) error {
+	applyEnvDBTypeOverride(configData)
+
 	var err error
 	// Initialize config store
 	if configData.ConfigStoreConfig != nil && configData.ConfigStoreConfig.Enabled {

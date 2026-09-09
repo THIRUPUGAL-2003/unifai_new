@@ -11,7 +11,7 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_STYLE=${LOG_STYLE:-json}
       - SERVER_DOMAIN=${SERVER_DOMAIN:-https://unifaiv2.dev-yp.com}
-      # Database Configuration
+      # Database (DB_TYPE=postgres|mysql|mariadb|sqlite — same HOST/USER/PASSWORD/NAME)
       - DB_TYPE=${DB_TYPE:-postgres}
       - DB_HOST=${DB_HOST:-76.13.243.253}
       - DB_PORT=${DB_PORT:-32768}

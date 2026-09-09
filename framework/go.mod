@@ -7,18 +7,18 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.97.3
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.2
-	github.com/unifai/unifai/core v1.6.2
 	github.com/pinecone-io/go-pinecone/v5 v5.3.0
 	github.com/qdrant/go-client v1.16.2
 	github.com/redis/go-redis/v9 v9.17.2
 	github.com/segmentio/kafka-go v0.4.49
-	github.com/stretchr/testify v1.11.1
 	github.com/tidwall/gjson v1.18.0
+	github.com/unifai/unifai/core v1.6.2
 	github.com/weaviate/weaviate v1.36.5
 	github.com/weaviate/weaviate-go-client/v5 v5.7.1
 	golang.org/x/crypto v0.52.0
 	golang.org/x/sync v0.20.0
 	google.golang.org/api v0.282.0
+	gorm.io/driver/mysql v1.6.0
 	gorm.io/driver/postgres v1.6.0
 	gorm.io/driver/sqlite v1.6.0
 	gorm.io/gorm v1.31.1
@@ -31,6 +31,7 @@ require (
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/iam v1.7.0 // indirect
 	cloud.google.com/go/monitoring v1.24.3 // indirect
+	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.20.0 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1 // indirect
 	github.com/Azure/azure-sdk-for-go/sdk/internal v1.11.2 // indirect
@@ -65,6 +66,7 @@ require (
 	github.com/go-openapi/swag/stringutils v0.25.4 // indirect
 	github.com/go-openapi/swag/typeutils v0.25.4 // indirect
 	github.com/go-openapi/swag/yamlutils v0.25.4 // indirect
+	github.com/go-sql-driver/mysql v1.8.1 // indirect
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/golang-jwt/jwt/v5 v5.3.1 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
@@ -75,9 +77,11 @@ require (
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/oapi-codegen/runtime v1.1.1 // indirect
+	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/spiffe/go-spiffe/v2 v2.6.0 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
@@ -152,7 +156,7 @@ require (
 	go.mongodb.org/mongo-driver v1.17.7 // indirect
 	golang.org/x/arch v0.23.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/oauth2 v0.36.0 // indirect
+	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260523011958-0a33c5d7ca68 // indirect
