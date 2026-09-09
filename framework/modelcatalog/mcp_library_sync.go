@@ -139,10 +139,13 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 		protectedSet[slug] = true
 	}
 
-	// Upsert all entries in a single transaction.
+	// Upsert all entries in a single transaction, then prune remote rows that
+	// are no longer in the catalog (otherwise the DB accumulates forever and
+	// the UI shows hundreds more entries than mcp-library.json).
 	count := 0
 	err = store.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		seen := make(map[string]bool, len(entries))
+		catalogSlugs := make([]string, 0, len(entries))
 		for i := range entries {
 			e := &entries[i]
 			if e.Name == "" {
@@ -154,13 +157,13 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 			if slug == "" {
 				continue // name had no slug-able content
 			}
+			if !seen[slug] {
+				seen[slug] = true
+				catalogSlugs = append(catalogSlugs, slug)
+			}
 			if protectedSet[slug] {
 				continue // never overwrite custom or tombstoned rows
 			}
-			if seen[slug] {
-				continue // deduplicate within the payload
-			}
-			seen[slug] = true
 
 			now := time.Now()
 			row := &configstoreTables.TableMCPLibrary{
@@ -186,6 +189,11 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 				return fmt.Errorf("failed to upsert MCP library entry %q: %w", slug, err)
 			}
 			count++
+		}
+		// Prune remotes absent from this catalog. catalogSlugs includes protected
+		// names too so we don't wipe the world when every payload slug is custom.
+		if _, pruneErr := store.SoftDeleteStaleRemoteMCPLibraryEntries(ctx, catalogSlugs, tx); pruneErr != nil {
+			return fmt.Errorf("failed to prune stale remote MCP library entries: %w", pruneErr)
 		}
 		return nil
 	})

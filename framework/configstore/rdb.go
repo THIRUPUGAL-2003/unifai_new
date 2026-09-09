@@ -1933,9 +1933,10 @@ func (s *RDBConfigStore) GetMCPLibraryByConnectionURL(ctx context.Context, rawUR
 	return nil, ErrNotFound
 }
 
-// SoftDeleteDuplicateCustomMCPLibraryURLs soft-deletes custom library rows that
-// share a normalized connection_url with an earlier keeper row. Remote rows are
-// preferred as keepers over custom ones. Returns the number of rows tombstoned.
+// SoftDeleteDuplicateCustomMCPLibraryURLs soft-deletes library rows that share
+// a normalized connection_url with an earlier keeper row. Remote rows are
+// preferred as keepers over custom ones; later remotes with the same URL are
+// also tombstoned. Returns the number of rows tombstoned.
 func (s *RDBConfigStore) SoftDeleteDuplicateCustomMCPLibraryURLs(ctx context.Context) (int, error) {
 	var rows []tables.TableMCPLibrary
 	if err := s.DB().WithContext(ctx).
@@ -1969,10 +1970,8 @@ func (s *RDBConfigStore) SoftDeleteDuplicateCustomMCPLibraryURLs(ctx context.Con
 			keep[norm] = keeper{id: row.ID, source: row.Source}
 			continue
 		}
-		// Otherwise only soft-delete custom duplicates; leave conflicting remotes alone.
-		if row.Source == "custom" {
-			toDelete = append(toDelete, row.ID)
-		}
+		// Same URL twice (custom or remote) — keep the first keeper, tombstone the rest.
+		toDelete = append(toDelete, row.ID)
 	}
 
 	if len(toDelete) == 0 {
@@ -1981,8 +1980,35 @@ func (s *RDBConfigStore) SoftDeleteDuplicateCustomMCPLibraryURLs(ctx context.Con
 	now := time.Now()
 	result := s.DB().WithContext(ctx).
 		Model(&tables.TableMCPLibrary{}).
-		Where("id IN ? AND deleted_at IS NULL AND source = ?", toDelete, "custom").
+		Where("id IN ? AND deleted_at IS NULL", toDelete).
 		Update("deleted_at", now)
+	if result.Error != nil {
+		return 0, result.Error
+	}
+	return int(result.RowsAffected), nil
+}
+
+// SoftDeleteStaleRemoteMCPLibraryEntries tombstones live remote catalog rows
+// whose slug is absent from keepSlugs. Used after sync so the DB matches the
+// current mcp-library.json / remote catalog instead of accumulating forever.
+func (s *RDBConfigStore) SoftDeleteStaleRemoteMCPLibraryEntries(ctx context.Context, keepSlugs []string, tx ...*gorm.DB) (int, error) {
+	var txDB *gorm.DB
+	if len(tx) > 0 && tx[0] != nil {
+		txDB = tx[0]
+	} else {
+		txDB = s.DB()
+	}
+	db := txDB.WithContext(ctx).Model(&tables.TableMCPLibrary{}).
+		Where("source = ? AND deleted_at IS NULL", "remote")
+
+	if len(keepSlugs) > 0 {
+		db = db.Where("slug NOT IN ?", keepSlugs)
+	}
+	// keepSlugs empty → all live remote rows are stale (caller should only do
+	// this when the catalog intentionally has zero remote entries).
+
+	now := time.Now()
+	result := db.Update("deleted_at", now)
 	if result.Error != nil {
 		return 0, result.Error
 	}

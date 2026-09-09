@@ -257,6 +257,10 @@ type ConfigStore interface {
 	// SoftDeleteDuplicateCustomMCPLibraryURLs tombstones custom rows that share a
 	// connection URL with an earlier keeper. Returns rows affected.
 	SoftDeleteDuplicateCustomMCPLibraryURLs(ctx context.Context) (int, error)
+	// SoftDeleteStaleRemoteMCPLibraryEntries tombstones live remote rows whose
+	// slug is not in keepSlugs (catalog no longer lists them). Custom rows are
+	// never touched. Returns rows affected.
+	SoftDeleteStaleRemoteMCPLibraryEntries(ctx context.Context, keepSlugs []string, tx ...*gorm.DB) (int, error)
 	// NormalizeMCPLibraryCategories rewrites categories to canonical labels.
 	NormalizeMCPLibraryCategories(ctx context.Context) (int, error)
 	// SoftDeleteMCPLibraryEntry tombstones a library row by ID (sets deleted_at)
