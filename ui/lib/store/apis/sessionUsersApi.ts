@@ -45,11 +45,11 @@ export const sessionUsersApi = baseApi.injectEndpoints({
 			query: (id) => ({ url: `/session/users/${id}`, method: "DELETE" }),
 			invalidatesTags: ["Users"],
 		}),
-		approveSessionUser: builder.mutation<void, string>({
+		approveSessionUser: builder.mutation<SessionUser, string>({
 			query: (id) => ({ url: `/session/users/${id}/approve`, method: "POST" }),
 			invalidatesTags: ["Users"],
 		}),
-		rejectSessionUser: builder.mutation<void, string>({
+		rejectSessionUser: builder.mutation<Pick<SessionUser, "id" | "status" | "email_sent" | "email_error"> & { message?: string }, string>({
 			query: (id) => ({ url: `/session/users/${id}/reject`, method: "POST" }),
 			invalidatesTags: ["Users"],
 		}),

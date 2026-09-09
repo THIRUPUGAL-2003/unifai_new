@@ -381,11 +381,13 @@ export default function SecurityView() {
 								onCheckedChange={(notify_on_login) => setSmtpForm((f) => ({ ...f, notify_on_login }))}
 								disabled={!smtpForm.enabled || !hasSettingsUpdateAccess}
 							/>
-							<Label>Email on login</Label>
+							<Label>Email on first login / new device</Label>
 						</div>
 					</div>
 					<p className="text-muted-foreground text-xs">
-						Login security: after 3 wrong passwords the account waits 20 minutes. Reset password uses a 6-digit email OTP (15 min).
+						Login security: after 3 wrong passwords the account locks for 20 minutes (forgot-password does not unlock early).
+						Reset password uses a 6-digit email OTP (15 min) and cannot reuse the current password. Login emails only on first
+						sign-in or a new device/browser.
 					</p>
 					<div className="flex justify-end gap-2">
 						<Button

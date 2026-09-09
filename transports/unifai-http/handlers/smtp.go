@@ -12,6 +12,7 @@ import (
 	"github.com/unifai/unifai/core/schemas"
 	"github.com/unifai/unifai/framework/configstore"
 	"github.com/unifai/unifai/framework/configstore/tables"
+	"github.com/unifai/unifai/framework/encrypt"
 	"github.com/unifai/unifai/framework/mailer"
 	"github.com/unifai/unifai/transports/unifai-http/lib"
 	"github.com/valyala/fasthttp"
@@ -238,6 +239,51 @@ func trySendWelcomeEmail(store configstore.ConfigStore, ctx *fasthttp.RequestCtx
 	return true, ""
 }
 
+func accountApprovedEmailBody(username string) string {
+	return fmt.Sprintf(
+		"Hello %s,\n\nYour UnifAI registration was approved by an administrator.\n\nYou can sign in now with the username and password you registered with.\n\nIf you forgot your password, use Forgot password on the login page.\n",
+		username,
+	)
+}
+
+func accountRejectedEmailBody(username string) string {
+	return fmt.Sprintf(
+		"Hello %s,\n\nYour UnifAI registration was reviewed and was not approved.\n\nYou will not be able to sign in with this account. Contact your administrator if you believe this is a mistake.\n",
+		username,
+	)
+}
+
+// trySendRegistrationDecisionEmail notifies the user after admin accept/reject.
+// Sends when SMTP is enabled and the user has an email address.
+func trySendRegistrationDecisionEmail(store configstore.ConfigStore, ctx *fasthttp.RequestCtx, username, email, decision string) (bool, string) {
+	email = strings.TrimSpace(email)
+	if email == "" || store == nil {
+		return false, ""
+	}
+	smtpRow, err := store.GetSMTPConfig(ctx)
+	if err != nil {
+		return false, err.Error()
+	}
+	if smtpRow == nil || !smtpRow.Enabled {
+		return false, ""
+	}
+	var subject, body string
+	switch strings.ToLower(strings.TrimSpace(decision)) {
+	case "approved", "approve", "accepted", "accept":
+		subject = "UnifAI account approved"
+		body = accountApprovedEmailBody(username)
+	case "rejected", "reject", "denied", "deny":
+		subject = "UnifAI registration not approved"
+		body = accountRejectedEmailBody(username)
+	default:
+		return false, "unknown registration decision"
+	}
+	if err := sendAuthEmail(store, ctx, email, subject, body); err != nil {
+		return false, err.Error()
+	}
+	return true, ""
+}
+
 func loginUsernameKey(username string) string {
 	return strings.ToLower(strings.TrimSpace(username))
 }
@@ -283,6 +329,65 @@ func recordLoginFailure(store configstore.ConfigStore, ctx *fasthttp.RequestCtx,
 
 func clearLoginFailures(store configstore.ConfigStore, ctx *fasthttp.RequestCtx, username string) {
 	_ = store.ClearLoginLockout(ctx, loginUsernameKey(username))
+}
+
+func clientIPAddress(ctx *fasthttp.RequestCtx) string {
+	if xff := string(ctx.Request.Header.Peek("X-Forwarded-For")); xff != "" {
+		parts := strings.Split(xff, ",")
+		if ip := strings.TrimSpace(parts[0]); ip != "" {
+			return ip
+		}
+	}
+	if xri := strings.TrimSpace(string(ctx.Request.Header.Peek("X-Real-IP"))); xri != "" {
+		return xri
+	}
+	return ctx.RemoteIP().String()
+}
+
+func loginDeviceFingerprint(ctx *fasthttp.RequestCtx) (fingerprint, ip, ua string) {
+	ip = clientIPAddress(ctx)
+	ua = string(ctx.Request.Header.Peek("User-Agent"))
+	fingerprint = encrypt.HashSHA256(ip + "|" + ua)
+	return fingerprint, ip, ua
+}
+
+// trySendLoginNoticeEmail sends only on first login or a new device when NotifyOnLogin is on.
+func trySendLoginNoticeEmail(store configstore.ConfigStore, ctx *fasthttp.RequestCtx, username, email string) {
+	email = strings.TrimSpace(email)
+	if store == nil || email == "" || username == "" {
+		return
+	}
+	smtpRow, err := store.GetSMTPConfig(ctx)
+	if err != nil || smtpRow == nil || !smtpRow.Enabled || !smtpRow.NotifyOnLogin {
+		return
+	}
+	fp, ip, ua := loginDeviceFingerprint(ctx)
+	key := loginUsernameKey(username)
+	known, err := store.HasLoginDevice(ctx, key, fp)
+	if err != nil {
+		known = false
+	}
+	_ = store.UpsertLoginDevice(ctx, &tables.TableLoginDevice{
+		UsernameKey: key,
+		Fingerprint: fp,
+		UserAgent:   truncateASCII(ua, 500),
+		IPAddress:   truncateASCII(ip, 64),
+	})
+	if known {
+		return // same device — no email
+	}
+	body := fmt.Sprintf(
+		"Hello %s,\n\nYour UnifAI account signed in from a new device or for the first time.\n\nIP: %s\nBrowser: %s\n\nIf this was not you, reset your password immediately.\n",
+		username, ip, truncateASCII(ua, 200),
+	)
+	_ = sendAuthEmail(store, ctx, email, "UnifAI login notice", body)
+}
+
+func truncateASCII(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max]
 }
 
 func generateOTP6() (string, error) {

@@ -209,8 +209,16 @@ export default function UsersView() {
 	const handleApprove = async (user: SessionUser) => {
 		setActionBusyId(user.id);
 		try {
-			await approveUser(user.id).unwrap();
-			toast.success(`${user.username} approved`);
+			const result = await approveUser(user.id).unwrap();
+			if (result?.email_sent) {
+				toast.success(`${user.username} approved — notification email sent`);
+			} else if (result?.email_error) {
+				toast.warning(`${user.username} approved, but email failed: ${result.email_error}`);
+			} else if (!user.email?.trim()) {
+				toast.success(`${user.username} approved (no email on account — notification not sent)`);
+			} else {
+				toast.success(`${user.username} approved (no email — enable SMTP in Security settings)`);
+			}
 		} catch (err) {
 			toast.error(getErrorMessage(err));
 		} finally {
@@ -221,8 +229,16 @@ export default function UsersView() {
 	const handleReject = async (user: SessionUser) => {
 		setActionBusyId(user.id);
 		try {
-			await rejectUser(user.id).unwrap();
-			toast.success(`${user.username} denied — they cannot log in`);
+			const result = await rejectUser(user.id).unwrap();
+			if (result?.email_sent) {
+				toast.success(`${user.username} denied — notification email sent`);
+			} else if (result?.email_error) {
+				toast.warning(`${user.username} denied, but email failed: ${result.email_error}`);
+			} else if (!user.email?.trim()) {
+				toast.success(`${user.username} denied (no email on account — notification not sent)`);
+			} else {
+				toast.success(`${user.username} denied (no email — enable SMTP in Security settings)`);
+			}
 		} catch (err) {
 			toast.error(getErrorMessage(err));
 		} finally {

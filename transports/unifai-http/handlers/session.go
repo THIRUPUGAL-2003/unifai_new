@@ -247,10 +247,7 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 	}
 	ctx.Response.Header.SetCookie(cookie)
 
-	if smtpRow, _ := h.configStore.GetSMTPConfig(ctx); smtpRow != nil && smtpRow.Enabled && smtpRow.NotifyOnLogin && notifyEmail != "" {
-		_ = sendAuthEmail(h.configStore, ctx, notifyEmail, "UnifAI login notice",
-			fmt.Sprintf("Hello %s,\n\nYour UnifAI account just signed in successfully.\n\nIf this was not you, reset your password immediately.\n", sessionUsername))
-	}
+	trySendLoginNoticeEmail(h.configStore, ctx, sessionUsername, notifyEmail)
 
 	SendJSON(ctx, map[string]any{
 		"message": "Login successful",
@@ -651,6 +648,11 @@ func (h *SessionHandler) resetPassword(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid OTP or username")
 		return
 	}
+	sameAsCurrent, cmpErr := encrypt.CompareHash(user.Password, payload.NewPassword)
+	if cmpErr == nil && sameAsCurrent {
+		SendError(ctx, fasthttp.StatusBadRequest, "New password must be different from your current password")
+		return
+	}
 	otpRow, err := h.configStore.GetLatestPasswordResetOTP(ctx, user.Username)
 	if err != nil || otpRow == nil {
 		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid or expired OTP")
@@ -673,8 +675,14 @@ func (h *SessionHandler) resetPassword(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	_ = h.configStore.MarkPasswordResetOTPUsed(ctx, otpRow.ID)
-	clearLoginFailures(h.configStore, ctx, user.Username)
-	SendJSON(ctx, map[string]any{"message": "Password updated. You can sign in now."})
+	// Do not clear login lockout here — failed-login lockout must still apply
+	// until the timer expires (forgot-password must not bypass the lock).
+	msg := "Password updated. You can sign in now."
+	if locked, retryAfter, _ := checkLoginLockout(h.configStore, ctx, user.Username); locked {
+		mins := int(retryAfter.Minutes()) + 1
+		msg = fmt.Sprintf("Password updated. Your account is still locked for about %d minutes after failed logins — wait, then sign in with the new password.", mins)
+	}
+	SendJSON(ctx, map[string]any{"message": msg})
 }
 
 // updateUser handles PUT /api/session/users/{id} - Update user (Admin only)
@@ -892,8 +900,19 @@ func (h *SessionHandler) approveUser(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to approve user: "+err.Error())
 		return
 	}
+	emailSent, emailErr := trySendRegistrationDecisionEmail(h.configStore, ctx, user.Username, user.Email, "approved")
 	user.Password = ""
-	SendJSON(ctx, user)
+	SendJSON(ctx, map[string]any{
+		"id":          user.ID,
+		"username":    user.Username,
+		"email":       user.Email,
+		"role":        user.Role,
+		"status":      user.Status,
+		"reviewed_at": user.ReviewedAt,
+		"updated_at":  user.UpdatedAt,
+		"email_sent":  emailSent,
+		"email_error": emailErr,
+	})
 }
 
 // rejectUser handles POST /api/session/users/{id}/reject
@@ -919,9 +938,12 @@ func (h *SessionHandler) rejectUser(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to reject user: "+err.Error())
 		return
 	}
+	emailSent, emailErr := trySendRegistrationDecisionEmail(h.configStore, ctx, user.Username, user.Email, "rejected")
 	SendJSON(ctx, map[string]any{
-		"message": "Registration denied",
-		"id":      user.ID,
-		"status":  user.Status,
+		"message":     "Registration denied",
+		"id":          user.ID,
+		"status":      user.Status,
+		"email_sent":  emailSent,
+		"email_error": emailErr,
 	})
 }

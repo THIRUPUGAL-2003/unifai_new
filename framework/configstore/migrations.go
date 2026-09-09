@@ -447,6 +447,7 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"add_workspace_feature_tables"}, run: migrationAddWorkspaceFeatureTables},
 	{IDs: []string{"rename_oauth2_bf_columns_to_uf"}, run: migrationRenameOAuth2BfColumnsToUf},
 	{IDs: []string{"add_smtp_auth_security_tables"}, run: migrationAddSMTPAuthSecurityTables},
+	{IDs: []string{"add_auth_login_devices"}, run: migrationAddAuthLoginDevices},
 }
 
 // quoteSQLiteIdentifier quotes a SQLite identifier, escaping any double quotes.
@@ -10948,6 +10949,29 @@ func migrationAddSMTPAuthSecurityTables(ctx context.Context, db *gorm.DB, logger
 			if !mg.HasTable(&tables.TablePasswordResetOTP{}) {
 				if err := mg.CreateTable(&tables.TablePasswordResetOTP{}); err != nil {
 					return fmt.Errorf("create auth_password_reset_otps: %w", err)
+				}
+			}
+			return nil
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s: %w", migrationName, err)
+	}
+	return nil
+}
+
+func migrationAddAuthLoginDevices(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_auth_login_devices"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			mg := tx.Migrator()
+			if !mg.HasTable(&tables.TableLoginDevice{}) {
+				if err := mg.CreateTable(&tables.TableLoginDevice{}); err != nil {
+					return fmt.Errorf("create auth_login_devices: %w", err)
 				}
 			}
 			return nil

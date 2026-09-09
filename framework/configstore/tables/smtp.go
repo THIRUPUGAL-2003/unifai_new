@@ -75,3 +75,17 @@ type TablePasswordResetOTP struct {
 }
 
 func (TablePasswordResetOTP) TableName() string { return "auth_password_reset_otps" }
+
+// TableLoginDevice tracks known login devices so "notify on login" emails
+// fire only on first sign-in or a new device (IP + User-Agent fingerprint).
+type TableLoginDevice struct {
+	ID           uint      `gorm:"primaryKey;autoIncrement" json:"id"`
+	UsernameKey  string    `gorm:"type:varchar(255);uniqueIndex:idx_login_device_user_fp;not null" json:"username_key"`
+	Fingerprint  string    `gorm:"type:varchar(64);uniqueIndex:idx_login_device_user_fp;not null" json:"fingerprint"`
+	UserAgent    string    `gorm:"type:varchar(512)" json:"user_agent"`
+	IPAddress    string    `gorm:"type:varchar(64)" json:"ip_address"`
+	FirstSeenAt  time.Time `json:"first_seen_at"`
+	LastSeenAt   time.Time `json:"last_seen_at"`
+}
+
+func (TableLoginDevice) TableName() string { return "auth_login_devices" }

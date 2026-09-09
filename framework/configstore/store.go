@@ -401,6 +401,8 @@ type ConfigStore interface {
 	GetLoginLockout(ctx context.Context, usernameKey string) (*tables.TableLoginLockout, error)
 	UpsertLoginLockout(ctx context.Context, row *tables.TableLoginLockout) error
 	ClearLoginLockout(ctx context.Context, usernameKey string) error
+	HasLoginDevice(ctx context.Context, usernameKey, fingerprint string) (bool, error)
+	UpsertLoginDevice(ctx context.Context, row *tables.TableLoginDevice) error
 	CreatePasswordResetOTP(ctx context.Context, row *tables.TablePasswordResetOTP) error
 	GetLatestPasswordResetOTP(ctx context.Context, username string) (*tables.TablePasswordResetOTP, error)
 	MarkPasswordResetOTPUsed(ctx context.Context, id uint) error

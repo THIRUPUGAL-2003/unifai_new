@@ -5697,6 +5697,50 @@ func (s *RDBConfigStore) ClearLoginLockout(ctx context.Context, usernameKey stri
 	return s.DB().WithContext(ctx).Where("username_key = ?", usernameKey).Delete(&tables.TableLoginLockout{}).Error
 }
 
+// HasLoginDevice reports whether this username+fingerprint was seen before.
+func (s *RDBConfigStore) HasLoginDevice(ctx context.Context, usernameKey, fingerprint string) (bool, error) {
+	var count int64
+	err := s.DB().WithContext(ctx).Model(&tables.TableLoginDevice{}).
+		Where("username_key = ? AND fingerprint = ?", usernameKey, fingerprint).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// UpsertLoginDevice records or refreshes a known login device.
+func (s *RDBConfigStore) UpsertLoginDevice(ctx context.Context, row *tables.TableLoginDevice) error {
+	if row == nil {
+		return nil
+	}
+	now := time.Now()
+	var existing tables.TableLoginDevice
+	err := s.DB().WithContext(ctx).
+		Where("username_key = ? AND fingerprint = ?", row.UsernameKey, row.Fingerprint).
+		First(&existing).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		if row.FirstSeenAt.IsZero() {
+			row.FirstSeenAt = now
+		}
+		if row.LastSeenAt.IsZero() {
+			row.LastSeenAt = now
+		}
+		return s.DB().WithContext(ctx).Create(row).Error
+	}
+	if err != nil {
+		return err
+	}
+	existing.LastSeenAt = now
+	if row.UserAgent != "" {
+		existing.UserAgent = row.UserAgent
+	}
+	if row.IPAddress != "" {
+		existing.IPAddress = row.IPAddress
+	}
+	return s.DB().WithContext(ctx).Save(&existing).Error
+}
+
 // CreatePasswordResetOTP stores a new OTP row.
 func (s *RDBConfigStore) CreatePasswordResetOTP(ctx context.Context, row *tables.TablePasswordResetOTP) error {
 	return s.DB().WithContext(ctx).Create(row).Error
