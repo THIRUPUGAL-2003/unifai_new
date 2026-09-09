@@ -85,6 +85,8 @@ import {
 	useDeleteBrowserAiTargetMutation,
 	useGetBrowserAiAgentsQuery,
 	useGetBrowserAiAgentSettingsQuery,
+	useGetBrowserAiFleetConfigQuery,
+	useSaveBrowserAiFleetConfigMutation,
 	useSaveBrowserAiUninstallKeyMutation,
 	useBulkDeleteBrowserAiAgentsMutation,
 	BrowserAILogEntry,
@@ -915,6 +917,7 @@ export default function BrowserAiPage() {
 	const [showUninstallKey, setShowUninstallKey] = useState(false);
 	const [agentSearch, setAgentSearch] = useState("");
 	const [agentStatusFilter, setAgentStatusFilter] = useState("all");
+	const [agentTypeFilter, setAgentTypeFilter] = useState("all");
 	const [agentPageOffset, setAgentPageOffset] = useState(0);
 	const agentPageLimit = 50;
 	const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
@@ -1039,6 +1042,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	} = useGetBrowserAiAgentsQuery(
 		{
 			status: agentStatusFilter !== "all" ? agentStatusFilter : undefined,
+			agent_type: agentTypeFilter !== "all" ? agentTypeFilter : undefined,
 			search: agentSearch || undefined,
 			limit: agentPageLimit,
 			offset: agentPageOffset,
@@ -1046,7 +1050,35 @@ type RelatedHostEntry = { host: string; role: HostRole };
 		{ pollingInterval: activePolling }
 	);
 	const { data: agentSettingsData, refetch: refetchAgentSettings } = useGetBrowserAiAgentSettingsQuery();
+	const { data: fleetConfigData, refetch: refetchFleetConfig } = useGetBrowserAiFleetConfigQuery();
 	const [saveUninstallKey, { isLoading: savingUninstallKey }] = useSaveBrowserAiUninstallKeyMutation();
+	const [saveFleetConfig, { isLoading: savingFleetConfig }] = useSaveBrowserAiFleetConfigMutation();
+	const [fleetDraft, setFleetDraft] = useState({
+		default_proxy_addr: "127.0.0.1:8085",
+		pac_advertise_addr: "127.0.0.1:8085",
+		pac_sync_seconds: 3,
+		agent_type_default: "endpoint",
+		listen_host_policy: "127.0.0.1",
+		server_mode_policy: "endpoint_default",
+		backend_url_hint: "",
+		notes: "",
+	});
+	const [fleetSaveError, setFleetSaveError] = useState("");
+	const [fleetSaveOk, setFleetSaveOk] = useState(false);
+	useEffect(() => {
+		const f = fleetConfigData?.fleet_config;
+		if (!f) return;
+		setFleetDraft({
+			default_proxy_addr: f.default_proxy_addr || "127.0.0.1:8085",
+			pac_advertise_addr: f.pac_advertise_addr || f.default_proxy_addr || "127.0.0.1:8085",
+			pac_sync_seconds: f.pac_sync_seconds || 3,
+			agent_type_default: f.agent_type_default || "endpoint",
+			listen_host_policy: f.listen_host_policy || "127.0.0.1",
+			server_mode_policy: f.server_mode_policy || "endpoint_default",
+			backend_url_hint: f.backend_url_hint || "",
+			notes: f.notes || "",
+		});
+	}, [fleetConfigData]);
 
 	const controls: BrowserControlSettings = controlsData?.controls || {
 		id: "browser-controls-default",
@@ -1079,7 +1111,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 	useEffect(() => {
 		setSelectedAgentIds(new Set());
 		setAgentBulkAction("");
-	}, [agentPageOffset, agentSearch, agentStatusFilter]);
+	}, [agentPageOffset, agentSearch, agentStatusFilter, agentTypeFilter]);
 
 	// --- Detect new blocked violations and fire notifications ---
 	useEffect(() => {
@@ -1893,12 +1925,14 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				columns: [
 					{ key: "hostname", header: "Hostname" },
 					{ key: "agent_id", header: "Agent ID" },
+					{ key: "agent_type", header: "Source" },
 					{ key: "status", header: "Status" },
 					{ key: "last_seen", header: "Last seen" },
 				],
 				rows: agents.map((a) => ({
 					hostname: a.hostname || "",
 					agent_id: a.id || "",
+					agent_type: a.agent_type || "endpoint",
 					status: a.status || "",
 					last_seen: a.last_seen_at || "",
 				})),
@@ -3652,6 +3686,84 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 				{/* TAB 5: GUARD AGENTS */}
 				<TabsContent value="agents" className="space-y-6">
+					<Card className="bg-card border-border">
+						<CardHeader>
+							<CardTitle className="text-lg">Fleet defaults (Postgres)</CardTitle>
+							<CardDescription>
+								Stored in the same company DB. Laptop and network Guard pull these on heartbeat — one dashboard, shared defaults.
+							</CardDescription>
+						</CardHeader>
+						<CardContent className="grid gap-3 sm:grid-cols-2">
+							<div className="space-y-1">
+								<label className="text-xs text-muted-foreground">Default proxy addr</label>
+								<Input
+									value={fleetDraft.default_proxy_addr}
+									onChange={(e) => setFleetDraft((d) => ({ ...d, default_proxy_addr: e.target.value }))}
+								/>
+							</div>
+							<div className="space-y-1">
+								<label className="text-xs text-muted-foreground">PAC advertise addr</label>
+								<Input
+									value={fleetDraft.pac_advertise_addr}
+									onChange={(e) => setFleetDraft((d) => ({ ...d, pac_advertise_addr: e.target.value }))}
+								/>
+							</div>
+							<div className="space-y-1">
+								<label className="text-xs text-muted-foreground">PAC sync seconds</label>
+								<Input
+									type="number"
+									value={fleetDraft.pac_sync_seconds}
+									onChange={(e) =>
+										setFleetDraft((d) => ({ ...d, pac_sync_seconds: Number(e.target.value) || 3 }))
+									}
+								/>
+							</div>
+							<div className="space-y-1">
+								<label className="text-xs text-muted-foreground">Default agent type</label>
+								<Select
+									value={fleetDraft.agent_type_default}
+									onValueChange={(v) => setFleetDraft((d) => ({ ...d, agent_type_default: v }))}
+								>
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="endpoint">endpoint (laptop)</SelectItem>
+										<SelectItem value="network">network (server)</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<div className="space-y-1 sm:col-span-2">
+								<label className="text-xs text-muted-foreground">Notes</label>
+								<Input
+									value={fleetDraft.notes}
+									onChange={(e) => setFleetDraft((d) => ({ ...d, notes: e.target.value }))}
+									placeholder="Optional IT notes"
+								/>
+							</div>
+							<div className="sm:col-span-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+								<Button
+									disabled={savingFleetConfig}
+									onClick={async () => {
+										setFleetSaveError("");
+										setFleetSaveOk(false);
+										try {
+											await saveFleetConfig(fleetDraft).unwrap();
+											setFleetSaveOk(true);
+											refetchFleetConfig();
+										} catch (err) {
+											setFleetSaveError(err instanceof Error ? err.message : "Failed to save fleet config");
+										}
+									}}
+								>
+									{savingFleetConfig ? "Saving…" : "Save fleet defaults"}
+								</Button>
+								{fleetSaveOk ? <p className="text-xs text-emerald-500">Saved to Postgres.</p> : null}
+								{fleetSaveError ? <p className="text-xs text-destructive">{fleetSaveError}</p> : null}
+							</div>
+						</CardContent>
+					</Card>
+
 					<div className="flex flex-col sm:flex-row gap-3">
 						<div className="relative flex-1 max-w-md">
 							<Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -3680,6 +3792,22 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<SelectItem value="active">Active</SelectItem>
 								<SelectItem value="uninstall_pending">Uninstall pending</SelectItem>
 								<SelectItem value="uninstalled">Uninstalled</SelectItem>
+							</SelectContent>
+						</Select>
+						<Select
+							value={agentTypeFilter}
+							onValueChange={(v) => {
+								setAgentTypeFilter(v);
+								setAgentPageOffset(0);
+							}}
+						>
+							<SelectTrigger className="w-[160px]">
+								<SelectValue placeholder="Source" />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value="all">All sources</SelectItem>
+								<SelectItem value="endpoint">Laptop Guard</SelectItem>
+								<SelectItem value="network">Network / server</SelectItem>
 							</SelectContent>
 						</Select>
 					</div>
@@ -3712,9 +3840,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 						<CardHeader>
 							<div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
 								<div>
-									<CardTitle className="text-lg">Installed Guard laptops</CardTitle>
+									<CardTitle className="text-lg">Guard Agents (laptop + network)</CardTitle>
 									<CardDescription>
-										Chrome, Edge, Brave, Opera, Vivaldi, and Firefox — same Guard behavior. Fully quit & reopen after install.
+										Same Browser AI dashboard for laptop Guard EXE and shared server/network proxy. Rules and Prompt Logs are shared.
 									</CardDescription>
 								</div>
 								<div className="flex items-center gap-2">
@@ -3752,7 +3880,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 												disabled={agents.length === 0}
 											/>
 										</TableHead>
-										<TableHead className="w-[160px]">Laptop</TableHead>
+										<TableHead className="w-[160px]">Host</TableHead>
+										<TableHead className="w-[100px]">Source</TableHead>
 										<TableHead className="w-[100px]">User</TableHead>
 										<TableHead className="w-[120px]">IP</TableHead>
 										<TableHead className="w-[140px]">Physical address (MAC)</TableHead>
@@ -3781,6 +3910,9 @@ type RelatedHostEntry = { host: string; role: HostRole };
 													{agent.id}
 												</div>
 											</TableCell>
+											<TableCell className="text-sm">
+												{(agent.agent_type || "endpoint") === "network" ? "Network" : "Laptop"}
+											</TableCell>
 											<TableCell className="text-sm truncate">{agent.username || "—"}</TableCell>
 											<TableCell className="text-xs font-mono truncate">{agent.ip_address || "—"}</TableCell>
 											<TableCell className="text-xs font-mono truncate" data-testid="guard-agent-mac-cell" title={agent.mac_address || ""}>
@@ -3802,7 +3934,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									{agents.length === 0 && (
 										<TableRow>
 											<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
-												No Guard agents registered yet. Install UnifAI_Guard_Setup.exe (Windows) or UnifAI Guard.app (Mac) on employee laptops.
+												No Guard agents yet. Install UnifAI_Guard_Setup.exe on laptops and/or run the network proxy (docker compose unifai_broswer_proxy or Guard with server_mode). Same dashboard for both.
 											</TableCell>
 										</TableRow>
 									)}

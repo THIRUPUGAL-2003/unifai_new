@@ -8,11 +8,17 @@ Employee file to distribute:
 Configured backend:
   https://unifaiv2.dev-yp.com
 
+Hybrid (laptop + network, ONE Browser AI dashboard):
+  See HYBRID_DEPLOY.txt in this folder (parent apps\browser-guard).
+  Laptop EXE and docker network proxy share the same rules + Prompt Logs.
+
 BEFORE company rollout — verify server APIs return JSON (not HTML):
   https://unifaiv2.dev-yp.com/health
   https://unifaiv2.dev-yp.com/api/browser-ai/targets
   https://unifaiv2.dev-yp.com/api/browser-ai/rules
   https://unifaiv2.dev-yp.com/api/browser-ai/proxy.pac?proxy=127.0.0.1:8085
+  Network PAC example:
+  https://unifaiv2.dev-yp.com/api/browser-ai/pac?proxy=proxy.company.local:8082
 
 If /api/browser-ai/* returns the UnifAI web page HTML, deploy the latest
 backend that includes Browser AI routes, then re-test.

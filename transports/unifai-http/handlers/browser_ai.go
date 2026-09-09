@@ -225,6 +225,8 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 
 	r.GET("/api/browser-ai/agents", lib.ChainMiddlewares(h.listAgents, middlewares...))
 	r.POST("/api/browser-ai/agents/heartbeat", lib.ChainMiddlewares(h.agentHeartbeat, middlewares...))
+	r.GET("/api/browser-ai/fleet-config", lib.ChainMiddlewares(h.getFleetConfig, middlewares...))
+	r.PUT("/api/browser-ai/fleet-config", lib.ChainMiddlewares(h.putFleetConfig, middlewares...))
 	r.GET("/api/browser-ai/agents/settings", lib.ChainMiddlewares(h.getAgentSettings, middlewares...))
 	r.PUT("/api/browser-ai/agents/uninstall-key", lib.ChainMiddlewares(h.saveUninstallKey, middlewares...))
 	r.POST("/api/browser-ai/agents/uninstall-verify", lib.ChainMiddlewares(h.verifyUninstall, middlewares...))
@@ -521,6 +523,15 @@ func (h *BrowserAIHandler) getProxyPAC(ctx *fasthttp.RequestCtx) {
 	h.ensureDB(ctx)
 	proxyAddr := string(ctx.QueryArgs().Peek("proxy"))
 	if strings.TrimSpace(proxyAddr) == "" {
+		if fleet, err := h.manager.GetFleetConfig(ctx); err == nil && fleet != nil {
+			if v := strings.TrimSpace(fleet.PacAdvertiseAddr); v != "" {
+				proxyAddr = v
+			} else if v := strings.TrimSpace(fleet.DefaultProxyAddr); v != "" {
+				proxyAddr = v
+			}
+		}
+	}
+	if strings.TrimSpace(proxyAddr) == "" {
 		proxyAddr = "127.0.0.1:8085"
 	}
 	pac, _ := h.manager.BuildProxyPAC(context.Background(), proxyAddr)
@@ -532,6 +543,31 @@ func (h *BrowserAIHandler) getProxyPAC(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.Set("Access-Control-Allow-Origin", "*")
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetBodyString(pac)
+}
+
+func (h *BrowserAIHandler) getFleetConfig(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+	fleet, err := h.manager.GetFleetConfig(ctx)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{"fleet_config": fleet})
+}
+
+func (h *BrowserAIHandler) putFleetConfig(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+	var body logstore.BrowserGuardFleetConfig
+	if err := sonic.Unmarshal(ctx.PostBody(), &body); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid JSON payload")
+		return
+	}
+	saved, err := h.manager.SaveFleetConfig(ctx, &body)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{"status": "success", "fleet_config": saved})
 }
 
 func browserAISetupCandidates() map[string][]string {
@@ -689,12 +725,13 @@ func (h *BrowserAIHandler) listAgents(ctx *fasthttp.RequestCtx) {
 	h.ensureDB(ctx)
 	status := string(ctx.QueryArgs().Peek("status"))
 	search := string(ctx.QueryArgs().Peek("search"))
+	agentType := string(ctx.QueryArgs().Peek("agent_type"))
 	limit, _ := strconv.Atoi(string(ctx.QueryArgs().Peek("limit")))
 	offset, _ := strconv.Atoi(string(ctx.QueryArgs().Peek("offset")))
 	if limit <= 0 {
 		limit = 50
 	}
-	agents, total, err := h.manager.ListAgents(ctx, status, search, limit, offset)
+	agents, total, err := h.manager.ListAgents(ctx, status, search, limit, offset, agentType)
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
@@ -727,15 +764,17 @@ func (h *BrowserAIHandler) agentHeartbeat(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	settings, _ := h.manager.GetAgentSettings(ctx)
+	fleet, _ := h.manager.GetFleetConfig(ctx)
 	command := ""
 	if agent != nil && agent.UninstallRequested && agent.Status != logstore.AgentStatusUninstalled {
 		command = "uninstall"
 	}
 	SendJSON(ctx, map[string]any{
-		"status":   "success",
-		"agent":    agent,
-		"settings": settings,
-		"command":  command,
+		"status":       "success",
+		"agent":        agent,
+		"settings":     settings,
+		"fleet_config": fleet,
+		"command":      command,
 	})
 }
 
@@ -951,6 +990,7 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 		ClientIP      string         `json:"client_ip"`
 		AgentID       string         `json:"agent_id"`
 		AgentHostname string         `json:"agent_hostname"`
+		AgentType     string         `json:"agent_type"`
 		UploadImages  []string       `json:"upload_images"`
 		Metadata      map[string]any `json:"metadata"`
 	}
@@ -974,6 +1014,15 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 	}
 	if strings.TrimSpace(payload.AgentHostname) != "" {
 		payload.Metadata["agent_hostname"] = strings.TrimSpace(payload.AgentHostname)
+	}
+	agentType := strings.TrimSpace(payload.AgentType)
+	if agentType == "" {
+		if v, ok := payload.Metadata["agent_type"].(string); ok {
+			agentType = v
+		}
+	}
+	if agentType != "" {
+		payload.Metadata["agent_type"] = logstore.NormalizeBrowserAIAgentType(agentType)
 	}
 
 	evalOnly := metadataBool(payload.Metadata, "evaluation_only")
@@ -1607,6 +1656,7 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	clientIP := getForm("client_ip")
 	agentID := getForm("agent_id")
 	agentHostname := getForm("agent_hostname")
+	agentType := getForm("agent_type")
 	metaRaw := getForm("metadata")
 	contentTypeHint := getForm("content_type")
 
@@ -1628,6 +1678,14 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	}
 	if agentHostname != "" {
 		metadata["agent_hostname"] = agentHostname
+	}
+	if agentType == "" {
+		if v, ok := metadata["agent_type"].(string); ok {
+			agentType = v
+		}
+	}
+	if agentType != "" {
+		metadata["agent_type"] = logstore.NormalizeBrowserAIAgentType(agentType)
 	}
 	metadata["upload_scan"] = true
 
@@ -1684,10 +1742,15 @@ func (h *BrowserAIHandler) interceptFile(ctx *fasthttp.RequestCtx) {
 	if len(uploadBytes) >= 32 {
 		stored, ctype, storeErr := storeBrowserAIAttachment(logEntry.ID, safeName, uploadBytes, contentTypeHint)
 		if storeErr == nil && stored != "" {
-			if err := h.manager.UpdateLogAttachment(ctx, logEntry.ID, safeName, stored, ctype); err == nil {
+			exp := time.Now().Add(browserAIAttachmentTTL)
+			rel := "attachments/" + stored
+			if err := h.manager.UpdateLogAttachmentMeta(ctx, logEntry.ID, safeName, stored, ctype, int64(len(uploadBytes)), rel, &exp); err == nil {
 				logEntry.AttachmentStoredName = stored
 				logEntry.AttachmentContentType = ctype
 				logEntry.AttachmentName = safeName
+				logEntry.AttachmentSizeBytes = int64(len(uploadBytes))
+				logEntry.AttachmentPath = rel
+				logEntry.AttachmentExpiresAt = &exp
 			}
 		}
 	}

@@ -190,9 +190,33 @@ type BrowserAILog struct {
 	AttachmentName        string `json:"attachment_name,omitempty"`
 	AttachmentStoredName  string `json:"attachment_stored_name,omitempty"` // basename only under pdf/
 	AttachmentContentType string `json:"attachment_content_type,omitempty"`
+	AttachmentSizeBytes   int64  `json:"attachment_size_bytes,omitempty"`
+	AttachmentPath        string `json:"attachment_path,omitempty"` // relative path under APP_DIR
+	AttachmentExpiresAt   *time.Time `json:"attachment_expires_at,omitempty"`
 	Metadata              string    `gorm:"type:text" json:"metadata"`
 	CreatedAt             time.Time `json:"created_at"`
 }
+
+// BrowserGuardFleetConfigID is the singleton fleet defaults row.
+const BrowserGuardFleetConfigID = "browser-guard-fleet-default"
+
+// BrowserGuardFleetConfig stores company-wide Guard defaults in the same Postgres DB
+// (laptop + network modes). Agents pull this on heartbeat; local JSON is install override only.
+type BrowserGuardFleetConfig struct {
+	ID                 string    `gorm:"primaryKey" json:"id"`
+	DefaultProxyAddr   string    `json:"default_proxy_addr"`
+	PacAdvertiseAddr   string    `json:"pac_advertise_addr"`
+	ServerModePolicy   string    `json:"server_mode_policy"` // endpoint_default | network_allowed | network_preferred
+	ListenHostPolicy   string    `json:"listen_host_policy"` // 127.0.0.1 | 0.0.0.0
+	PacSyncSeconds     int       `json:"pac_sync_seconds"`
+	AgentTypeDefault   string    `json:"agent_type_default"` // endpoint | network
+	BackendURLHint     string    `json:"backend_url_hint"`
+	Notes              string    `gorm:"type:text" json:"notes"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	UpdatedBy          string    `json:"updated_by"`
+}
+
+func (BrowserGuardFleetConfig) TableName() string { return "browser_guard_fleet_config" }
 
 // BrowserAIAgent tracks every installed Guard EXE (unlimited scale in unifai_new).
 type BrowserAIAgent struct {
@@ -204,6 +228,8 @@ type BrowserAIAgent struct {
 	TransportName string     `json:"transport_name"`
 	OSVersion     string     `json:"os_version"`
 	AgentVersion  string     `json:"agent_version"`
+	// AgentType: endpoint (laptop Guard) | network (shared/server proxy). Same dashboard.
+	AgentType string `gorm:"index" json:"agent_type"`
 	// HealthStatus: ok | degraded | error — reported by Guard EXE health loop.
 	HealthStatus       string     `json:"health_status"`
 	HealthDetail       string     `gorm:"type:text" json:"health_detail"`
@@ -214,6 +240,16 @@ type BrowserAIAgent struct {
 	UninstalledAt      *time.Time `json:"uninstalled_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
+}
+
+// NormalizeBrowserAIAgentType maps free-form values onto endpoint|network.
+func NormalizeBrowserAIAgentType(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "network", "server", "gateway", "corp", "shared":
+		return "network"
+	default:
+		return "endpoint"
+	}
 }
 
 // BrowserAIAgentSettings stores company uninstall-key policy (single row).
@@ -381,6 +417,7 @@ func (m *BrowserAIManager) AutoMigrate(ctx context.Context) error {
 		&BrowserTargetWebsite{},
 		&BrowserAIAgent{},
 		&BrowserAIAgentSettings{},
+		&BrowserGuardFleetConfig{},
 	)
 	if err != nil {
 		return err
@@ -403,6 +440,20 @@ func (m *BrowserAIManager) AutoMigrate(ctx context.Context) error {
 			ID:                  BrowserAIAgentSettingsID,
 			RequireUninstallKey: true,
 			UpdatedAt:           time.Now(),
+		}).Error
+	}
+
+	var fleet BrowserGuardFleetConfig
+	if err := m.db.WithContext(ctx).Where("id = ?", BrowserGuardFleetConfigID).First(&fleet).Error; err != nil {
+		_ = m.db.WithContext(ctx).Create(&BrowserGuardFleetConfig{
+			ID:               BrowserGuardFleetConfigID,
+			DefaultProxyAddr: "127.0.0.1:8085",
+			PacAdvertiseAddr: "127.0.0.1:8085",
+			ServerModePolicy: "endpoint_default",
+			ListenHostPolicy: "127.0.0.1",
+			PacSyncSeconds:   3,
+			AgentTypeDefault: "endpoint",
+			UpdatedAt:        time.Now(),
 		}).Error
 	}
 
@@ -1249,6 +1300,11 @@ func (m *BrowserAIManager) InterceptPrompt(ctx context.Context, platform, prompt
 // UpdateLogAttachment links a stored upload file to an intercept log.
 // When storedName is empty, only attachment_name / content_type are updated (permanent name).
 func (m *BrowserAIManager) UpdateLogAttachment(ctx context.Context, logID, name, storedName, contentType string) error {
+	return m.UpdateLogAttachmentMeta(ctx, logID, name, storedName, contentType, 0, "", nil)
+}
+
+// UpdateLogAttachmentMeta persists attachment index fields in Postgres (bytes stay on disk).
+func (m *BrowserAIManager) UpdateLogAttachmentMeta(ctx context.Context, logID, name, storedName, contentType string, sizeBytes int64, relPath string, expiresAt *time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.db == nil || strings.TrimSpace(logID) == "" {
@@ -1264,10 +1320,103 @@ func (m *BrowserAIManager) UpdateLogAttachment(ctx context.Context, logID, name,
 	if c := strings.TrimSpace(contentType); c != "" {
 		updates["attachment_content_type"] = c
 	}
+	if sizeBytes > 0 {
+		updates["attachment_size_bytes"] = sizeBytes
+	}
+	if p := strings.TrimSpace(relPath); p != "" {
+		updates["attachment_path"] = p
+	}
+	if expiresAt != nil {
+		updates["attachment_expires_at"] = *expiresAt
+	}
 	if len(updates) == 0 {
 		return nil
 	}
 	return m.db.WithContext(ctx).Model(&BrowserAILog{}).Where("id = ?", logID).Updates(updates).Error
+}
+
+// GetFleetConfig returns the singleton Guard fleet defaults (creates seed if missing).
+func (m *BrowserAIManager) GetFleetConfig(ctx context.Context) (*BrowserGuardFleetConfig, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return defaultFleetConfig(), nil
+	}
+	var row BrowserGuardFleetConfig
+	err := m.db.WithContext(ctx).Where("id = ?", BrowserGuardFleetConfigID).First(&row).Error
+	if err != nil {
+		seed := defaultFleetConfig()
+		_ = m.db.WithContext(ctx).Create(seed).Error
+		return seed, nil
+	}
+	return &row, nil
+}
+
+// SaveFleetConfig upserts company Guard fleet defaults into Postgres.
+func (m *BrowserAIManager) SaveFleetConfig(ctx context.Context, incoming *BrowserGuardFleetConfig) (*BrowserGuardFleetConfig, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if incoming == nil {
+		return nil, fmt.Errorf("fleet config is required")
+	}
+	now := time.Now()
+	row := BrowserGuardFleetConfig{
+		ID:               BrowserGuardFleetConfigID,
+		DefaultProxyAddr: strings.TrimSpace(incoming.DefaultProxyAddr),
+		PacAdvertiseAddr: strings.TrimSpace(incoming.PacAdvertiseAddr),
+		ServerModePolicy: strings.TrimSpace(incoming.ServerModePolicy),
+		ListenHostPolicy: strings.TrimSpace(incoming.ListenHostPolicy),
+		PacSyncSeconds:   incoming.PacSyncSeconds,
+		AgentTypeDefault: strings.TrimSpace(incoming.AgentTypeDefault),
+		BackendURLHint:   strings.TrimSpace(incoming.BackendURLHint),
+		Notes:            strings.TrimSpace(incoming.Notes),
+		UpdatedAt:        now,
+		UpdatedBy:        strings.TrimSpace(incoming.UpdatedBy),
+	}
+	if row.DefaultProxyAddr == "" {
+		row.DefaultProxyAddr = "127.0.0.1:8085"
+	}
+	if row.PacAdvertiseAddr == "" {
+		row.PacAdvertiseAddr = row.DefaultProxyAddr
+	}
+	if row.ServerModePolicy == "" {
+		row.ServerModePolicy = "endpoint_default"
+	}
+	if row.ListenHostPolicy == "" {
+		row.ListenHostPolicy = "127.0.0.1"
+	}
+	if row.PacSyncSeconds <= 0 {
+		row.PacSyncSeconds = 3
+	}
+	if row.PacSyncSeconds > 600 {
+		row.PacSyncSeconds = 600
+	}
+	switch strings.ToLower(row.AgentTypeDefault) {
+	case "network", "server":
+		row.AgentTypeDefault = "network"
+	default:
+		row.AgentTypeDefault = "endpoint"
+	}
+	if err := m.db.WithContext(ctx).Save(&row).Error; err != nil {
+		return nil, err
+	}
+	return &row, nil
+}
+
+func defaultFleetConfig() *BrowserGuardFleetConfig {
+	return &BrowserGuardFleetConfig{
+		ID:               BrowserGuardFleetConfigID,
+		DefaultProxyAddr: "127.0.0.1:8085",
+		PacAdvertiseAddr: "127.0.0.1:8085",
+		ServerModePolicy: "endpoint_default",
+		ListenHostPolicy: "127.0.0.1",
+		PacSyncSeconds:   3,
+		AgentTypeDefault: "endpoint",
+		UpdatedAt:        time.Now(),
+	}
 }
 
 // ClearLogAttachmentFile removes the temp disk pointer only — keeps attachment_name forever.
@@ -1466,6 +1615,7 @@ func (m *BrowserAIManager) UpsertAgentHeartbeat(ctx context.Context, incoming *B
 			TransportName: nicGUIDFromTransport(incoming.TransportName),
 			OSVersion:     strings.TrimSpace(incoming.OSVersion),
 			AgentVersion:  strings.TrimSpace(incoming.AgentVersion),
+			AgentType:     NormalizeBrowserAIAgentType(incoming.AgentType),
 			HealthStatus:  strings.TrimSpace(incoming.HealthStatus),
 			HealthDetail:  strings.TrimSpace(incoming.HealthDetail),
 			Status:        AgentStatusActive,
@@ -1489,6 +1639,11 @@ func (m *BrowserAIManager) UpsertAgentHeartbeat(ctx context.Context, incoming *B
 	}
 	existing.OSVersion = firstNonEmpty(strings.TrimSpace(incoming.OSVersion), existing.OSVersion)
 	existing.AgentVersion = firstNonEmpty(strings.TrimSpace(incoming.AgentVersion), existing.AgentVersion)
+	if at := strings.TrimSpace(incoming.AgentType); at != "" {
+		existing.AgentType = NormalizeBrowserAIAgentType(at)
+	} else if strings.TrimSpace(existing.AgentType) == "" {
+		existing.AgentType = "endpoint"
+	}
 	if hs := strings.TrimSpace(incoming.HealthStatus); hs != "" {
 		existing.HealthStatus = hs
 	}
@@ -1531,7 +1686,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (m *BrowserAIManager) ListAgents(ctx context.Context, status, search string, limit, offset int) ([]BrowserAIAgent, int64, error) {
+func (m *BrowserAIManager) ListAgents(ctx context.Context, status, search string, limit, offset int, agentType ...string) ([]BrowserAIAgent, int64, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var agents []BrowserAIAgent
@@ -1544,11 +1699,18 @@ func (m *BrowserAIManager) ListAgents(ctx context.Context, status, search string
 	if status != "" && strings.ToLower(status) != "all" {
 		query = query.Where("LOWER(status) = ?", strings.ToLower(status))
 	}
+	typeFilter := ""
+	if len(agentType) > 0 {
+		typeFilter = strings.TrimSpace(agentType[0])
+	}
+	if typeFilter != "" && strings.ToLower(typeFilter) != "all" {
+		query = query.Where("LOWER(agent_type) = ?", NormalizeBrowserAIAgentType(typeFilter))
+	}
 	if search != "" {
 		s := "%" + strings.ToLower(search) + "%"
 		query = query.Where(
-			"LOWER(hostname) LIKE ? OR LOWER(username) LIKE ? OR LOWER(ip_address) LIKE ? OR LOWER(mac_address) LIKE ? OR LOWER(transport_name) LIKE ? OR LOWER(id) LIKE ? OR LOWER(agent_version) LIKE ?",
-			s, s, s, s, s, s, s,
+			"LOWER(hostname) LIKE ? OR LOWER(username) LIKE ? OR LOWER(ip_address) LIKE ? OR LOWER(mac_address) LIKE ? OR LOWER(transport_name) LIKE ? OR LOWER(id) LIKE ? OR LOWER(agent_version) LIKE ? OR LOWER(agent_type) LIKE ?",
+			s, s, s, s, s, s, s, s,
 		)
 	}
 	if err := query.Count(&total).Error; err != nil {

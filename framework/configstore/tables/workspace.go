@@ -1,9 +1,11 @@
 package tables
 
 import (
+	"strings"
 	"time"
 
 	"github.com/bytedance/sonic"
+	"github.com/unifai/unifai/framework/encrypt"
 	"gorm.io/gorm"
 )
 
@@ -146,8 +148,10 @@ type TableAlertChannel struct {
 	Enabled      bool           `gorm:"not null;default:true" json:"enabled"`
 	ConfigJSON   *string        `gorm:"type:text" json:"-"`
 	ParsedConfig map[string]any `gorm:"-" json:"config"`
-	CreatedAt    time.Time      `gorm:"index;not null" json:"created_at"`
-	UpdatedAt    time.Time      `gorm:"index;not null" json:"updated_at"`
+	// EncryptionStatus tracks whether ConfigJSON (webhook URLs / tokens) is AES-encrypted at rest.
+	EncryptionStatus string    `gorm:"type:varchar(20);default:'plain_text'" json:"-"`
+	CreatedAt        time.Time `gorm:"index;not null" json:"created_at"`
+	UpdatedAt        time.Time `gorm:"index;not null" json:"updated_at"`
 }
 
 func (TableAlertChannel) TableName() string { return "alert_channels" }
@@ -158,12 +162,29 @@ func (c *TableAlertChannel) BeforeSave(tx *gorm.DB) error {
 		return err
 	}
 	c.ConfigJSON = encoded
+	if encrypt.IsEnabled() && c.ConfigJSON != nil && strings.TrimSpace(*c.ConfigJSON) != "" && *c.ConfigJSON != "{}" && *c.ConfigJSON != "null" {
+		enc, err := encrypt.Encrypt(*c.ConfigJSON)
+		if err != nil {
+			return err
+		}
+		c.ConfigJSON = &enc
+		c.EncryptionStatus = EncryptionStatusEncrypted
+	} else if c.EncryptionStatus == "" {
+		c.EncryptionStatus = EncryptionStatusPlainText
+	}
 	return nil
 }
 
 func (c *TableAlertChannel) AfterFind(tx *gorm.DB) error {
 	if c.ParsedConfig == nil {
 		c.ParsedConfig = map[string]any{}
+	}
+	if c.EncryptionStatus == EncryptionStatusEncrypted && c.ConfigJSON != nil && *c.ConfigJSON != "" {
+		dec, err := encrypt.Decrypt(*c.ConfigJSON)
+		if err != nil {
+			return err
+		}
+		c.ConfigJSON = &dec
 	}
 	return readJSON(c.ConfigJSON, &c.ParsedConfig)
 }

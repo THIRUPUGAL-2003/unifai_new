@@ -126,10 +126,36 @@ def load_runtime_config() -> dict:
     # Floor 2s — 1s PAC churn felt like connection cuts; 2–3s still feels instant.
     sync_secs = str(max(2, min(sync_i, 600)))
 
+    server_mode_raw = pick("UNIFAI_SERVER_MODE", "server_mode", "0").lower()
+    server_mode = server_mode_raw in ("1", "true", "yes", "on", "server", "network")
+    agent_type = pick("UNIFAI_AGENT_TYPE", "agent_type", "network" if server_mode else "endpoint").lower()
+    if agent_type in ("server", "gateway", "corp", "shared"):
+        agent_type = "network"
+    if agent_type not in ("endpoint", "network"):
+        agent_type = "network" if server_mode else "endpoint"
+    listen_host = pick(
+        "UNIFAI_LISTEN_HOST",
+        "listen_host",
+        "0.0.0.0" if server_mode else "127.0.0.1",
+    )
+    pac_advertise = pick("UNIFAI_PAC_ADVERTISE_ADDR", "pac_advertise_addr", "")
+    if not pac_advertise:
+        # Endpoint: PAC points at local bind. Network: prefer proxy_addr if it is a
+        # reachable hostname; otherwise leave empty so IT sets advertise explicitly.
+        if not server_mode:
+            pac_advertise = proxy_addr
+        elif proxy_addr and not proxy_addr.startswith(("0.0.0.0:", "*:")):
+            pac_advertise = proxy_addr
+
     os.environ["UNIFAI_BACKEND_URL"] = backend
     os.environ["UNIFAI_PROXY_ADDR"] = proxy_addr
     os.environ["UNIFAI_PAC_URL"] = pac_url
     os.environ["UNIFAI_PAC_SYNC_SECONDS"] = str(sync_secs)
+    os.environ["UNIFAI_SERVER_MODE"] = "1" if server_mode else "0"
+    os.environ["UNIFAI_AGENT_TYPE"] = agent_type
+    os.environ["UNIFAI_LISTEN_HOST"] = listen_host
+    if pac_advertise:
+        os.environ["UNIFAI_PAC_ADVERTISE_ADDR"] = pac_advertise
 
     # Keep a copy in data_dir so logs/support can see active config
     try:
@@ -140,6 +166,10 @@ def load_runtime_config() -> dict:
                     "proxy_addr": proxy_addr,
                     "pac_url": pac_url,
                     "pac_sync_seconds": int(sync_secs),
+                    "server_mode": server_mode,
+                    "agent_type": agent_type,
+                    "listen_host": listen_host,
+                    "pac_advertise_addr": pac_advertise,
                 },
                 f,
                 indent=2,
@@ -152,6 +182,10 @@ def load_runtime_config() -> dict:
         "proxy_addr": proxy_addr,
         "pac_url": pac_url,
         "pac_sync_seconds": int(sync_secs),
+        "server_mode": server_mode,
+        "agent_type": agent_type,
+        "listen_host": listen_host,
+        "pac_advertise_addr": pac_advertise,
     }
 
 
@@ -160,7 +194,10 @@ UNIFAI_BACKEND_URL = _CFG["backend_url"]
 PAC_URL = _CFG["pac_url"]
 PROXY_ADDR = _CFG["proxy_addr"]
 PAC_SYNC_SECONDS = _CFG["pac_sync_seconds"]
-
+SERVER_MODE = bool(_CFG.get("server_mode"))
+AGENT_TYPE = str(_CFG.get("agent_type") or "endpoint")
+LISTEN_HOST = str(_CFG.get("listen_host") or "127.0.0.1")
+PAC_ADVERTISE_ADDR = str(_CFG.get("pac_advertise_addr") or PROXY_ADDR)
 
 # ---------------------------------------------------------------------------
 # Agent identity / heartbeat / uninstall
@@ -233,6 +270,7 @@ def collect_agent_info(agent_id: str, status: str = "active") -> dict:
         "transport_name": transport,
         "os_version": platform.platform(),
         "agent_version": AGENT_VERSION,
+        "agent_type": AGENT_TYPE,
         "health_status": hs or "unknown",
         "health_detail": detail_s,
         "pac_mode": pac_mode or "unknown",
@@ -271,9 +309,38 @@ def send_heartbeat(agent_id: str, status: str = "active") -> dict | None:
     code, data = _http_json("POST", f"{UNIFAI_BACKEND_URL}/api/browser-ai/agents/heartbeat", info)
     if code == 200:
         print(f"[UnifAI Guard] Heartbeat OK ({info.get('hostname')} / {info.get('ip_address')} / {info.get('mac_address')} / {status})")
+        apply_fleet_config_from_heartbeat(data if isinstance(data, dict) else None)
         return data if isinstance(data, dict) else {}
     print(f"[UnifAI Guard WARNING] Heartbeat failed status={code} body={data}")
     return None
+
+
+def apply_fleet_config_from_heartbeat(data: dict | None) -> None:
+    """Merge company fleet defaults from Postgres (via heartbeat) into this process."""
+    global PAC_SYNC_SECONDS, PAC_ADVERTISE_ADDR
+    if not isinstance(data, dict):
+        return
+    fleet = data.get("fleet_config")
+    if not isinstance(fleet, dict):
+        return
+    try:
+        sync = int(fleet.get("pac_sync_seconds") or 0)
+        if sync >= 2:
+            PAC_SYNC_SECONDS = min(sync, 600)
+            os.environ["UNIFAI_PAC_SYNC_SECONDS"] = str(PAC_SYNC_SECONDS)
+    except Exception:
+        pass
+    adv = str(fleet.get("pac_advertise_addr") or "").strip()
+    if adv and SERVER_MODE:
+        PAC_ADVERTISE_ADDR = adv
+        os.environ["UNIFAI_PAC_ADVERTISE_ADDR"] = adv
+    # Persist a copy for support under data_dir
+    try:
+        path = os.path.join(data_dir(), "fleet_config_from_db.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(fleet, f, indent=2)
+    except Exception:
+        pass
 
 
 def heartbeat_wants_uninstall(data: dict | None) -> bool:
@@ -1252,10 +1319,11 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
 
 
 def fetch_proxy_pac() -> str | None:
+    advertise = (PAC_ADVERTISE_ADDR or PROXY_ADDR or "").strip()
     urls = [
-        f"{PAC_URL}?proxy={PROXY_ADDR}",
-        f"{UNIFAI_BACKEND_URL}/api/browser-ai/pac?proxy={PROXY_ADDR}",
-        f"{UNIFAI_BACKEND_URL}/api/browser-ai/proxy.pac?proxy={PROXY_ADDR}",
+        f"{PAC_URL}?proxy={advertise}",
+        f"{UNIFAI_BACKEND_URL}/api/browser-ai/pac?proxy={advertise}",
+        f"{UNIFAI_BACKEND_URL}/api/browser-ai/proxy.pac?proxy={advertise}",
     ]
     seen = set()
     for url in urls:
@@ -1266,7 +1334,7 @@ def fetch_proxy_pac() -> str | None:
         if body and "FindProxyForURL" in body:
             return ensure_pac_strict_proxy(body)
     print("[UnifAI Guard] Server PAC unavailable — building PAC from /api/browser-ai/targets")
-    return build_pac_from_targets(PROXY_ADDR)
+    return build_pac_from_targets(advertise or PROXY_ADDR)
 
 
 def ensure_pac_strict_proxy(pac: str) -> str:
@@ -1346,15 +1414,21 @@ def install_ca_certificate() -> bool:
 
 
 def run_proxy_server(addon_script: str, port: int = 8085) -> None:
-    # Force IPv4 localhost. On some Windows setups mitm binds [::]:port only;
-    # PAC/Chrome use 127.0.0.1 → connect timeout → health fail-open DIRECT (no Monitor/Block).
-    listen_host = "127.0.0.1"
-    try:
-        cfg_host = (PROXY_ADDR or "").rsplit(":", 1)[0].strip()
-        if cfg_host and cfg_host not in ("0.0.0.0", "*", "::"):
-            listen_host = cfg_host
-    except Exception:
-        pass
+    # Endpoint mode stays on 127.0.0.1 so only this PC is intercepted.
+    # Server/network mode binds 0.0.0.0 (or UNIFAI_LISTEN_HOST) for corp PAC.
+    listen_host = (LISTEN_HOST or "127.0.0.1").strip() or "127.0.0.1"
+    if not SERVER_MODE:
+        # Force IPv4 localhost. On some Windows setups mitm binds [::]:port only;
+        # PAC/Chrome use 127.0.0.1 → connect timeout → health fail-open DIRECT.
+        listen_host = "127.0.0.1"
+        try:
+            cfg_host = (PROXY_ADDR or "").rsplit(":", 1)[0].strip()
+            if cfg_host and cfg_host not in ("0.0.0.0", "*", "::"):
+                listen_host = cfg_host
+        except Exception:
+            pass
+    elif listen_host in ("*",):
+        listen_host = "0.0.0.0"
     args = [
         "--listen-host", listen_host,
         "-p", str(port),
@@ -1425,6 +1499,8 @@ def main() -> None:
 
     print(f"[UnifAI Guard] Proxy Addon: {addon_script}")
     print(f"[UnifAI Guard] Backend URL: {UNIFAI_BACKEND_URL}")
+    print(f"[UnifAI Guard] Mode: {'network/server' if SERVER_MODE else 'endpoint'} (agent_type={AGENT_TYPE})")
+    print(f"[UnifAI Guard] Listen: {LISTEN_HOST} / advertise PAC proxy: {PAC_ADVERTISE_ADDR or PROXY_ADDR}")
     print(f"[UnifAI Guard] Local proxy: {PROXY_ADDR}")
 
     check_backend()
@@ -1442,35 +1518,49 @@ def main() -> None:
             'function FindProxyForURL(url, host) { return "DIRECT"; }\n'
         )
 
-    start_local_pac_http_server()
-    # Do NOT apply PAC until local mitmproxy is listening — otherwise browsers
-    # hit PROXY;DIRECT, fail once, and stick on DIRECT (Claude works, logs stay 0).
-    set_browser_quic(enable_quic=False)
-    if IS_WIN:
-        print("[UnifAI Guard] Browser HTTP/3 (QUIC) disabled for Chromium browsers so Target Websites use the proxy.")
-        print("[UnifAI Guard] PAC policies: Chrome, Edge, Brave, Opera, Vivaldi + Firefox.")
-    elif IS_MAC:
-        print("[UnifAI Guard] macOS system Auto Proxy URL set; Safari/Chrome/Firefox follow system proxy.")
-    if not install_ca_certificate():
-        print(f"[UnifAI Guard ERROR] CA trust failed — open {log_hint_path()}/ca_install_status.txt")
-        print("[UnifAI Guard ERROR] Without CA trust, browsers will not accept MITM HTTPS. Fix cert then restart Guard.")
-        show_message(
-            "UnifAI Guard — CA trust failed",
-            "Certificate install failed.\nHTTPS intercept / predict may not work until CA is trusted.\n\n"
-            f"See {log_hint_path()}/ca_install_status.txt",
-            0x10,
-        )
+    if SERVER_MODE:
+        # Network proxy: do NOT rewrite this machine's browser PAC. IT points
+        # employee browsers at the company PAC URL advertising this host.
+        corp_pac = f"{UNIFAI_BACKEND_URL}/api/browser-ai/pac?proxy={PAC_ADVERTISE_ADDR or PROXY_ADDR}"
+        print("[UnifAI Guard] SERVER MODE — shared network proxy (same UnifAI dashboard as laptop Guard).")
+        print(f"[UnifAI Guard] Point office browsers / GPO PAC to: {corp_pac}")
+        print("[UnifAI Guard] Skipping local OS PAC + browser policy (endpoint-only).")
+        if not install_ca_certificate():
+            print(f"[UnifAI Guard ERROR] CA trust failed — open {log_hint_path()}/ca_install_status.txt")
+            print("[UnifAI Guard ERROR] Distribute this CA to employee machines for HTTPS MITM.")
+    else:
+        start_local_pac_http_server()
+        # Do NOT apply PAC until local mitmproxy is listening — otherwise browsers
+        # hit PROXY;DIRECT, fail once, and stick on DIRECT (Claude works, logs stay 0).
+        set_browser_quic(enable_quic=False)
+        if IS_WIN:
+            print("[UnifAI Guard] Browser HTTP/3 (QUIC) disabled for Chromium browsers so Target Websites use the proxy.")
+            print("[UnifAI Guard] PAC policies: Chrome, Edge, Brave, Opera, Vivaldi + Firefox.")
+        elif IS_MAC:
+            print("[UnifAI Guard] macOS system Auto Proxy URL set; Safari/Chrome/Firefox follow system proxy.")
+        if not install_ca_certificate():
+            print(f"[UnifAI Guard ERROR] CA trust failed — open {log_hint_path()}/ca_install_status.txt")
+            print("[UnifAI Guard ERROR] Without CA trust, browsers will not accept MITM HTTPS. Fix cert then restart Guard.")
+            show_message(
+                "UnifAI Guard — CA trust failed",
+                "Certificate install failed.\nHTTPS intercept / predict may not work until CA is trusted.\n\n"
+                f"See {log_hint_path()}/ca_install_status.txt",
+                0x10,
+            )
 
-    try:
-        if getattr(sys, "frozen", False):
-            register_autostart(sys.executable)
-    except Exception as e:
-        print(f"[UnifAI Guard WARNING] Autostart: {e}")
+        try:
+            if getattr(sys, "frozen", False):
+                register_autostart(sys.executable)
+        except Exception as e:
+            print(f"[UnifAI Guard WARNING] Autostart: {e}")
 
-    maybe_first_run_prompt()
+        maybe_first_run_prompt()
 
     stop_event = threading.Event()
-    port = int(PROXY_ADDR.rsplit(":", 1)[-1] or "8085")
+    try:
+        port = int((PROXY_ADDR or "8085").rsplit(":", 1)[-1] or "8085")
+    except Exception:
+        port = 8085
 
     def proxy_supervise_loop() -> None:
         while not stop_event.is_set():
@@ -1480,8 +1570,9 @@ def main() -> None:
                 print(f"[UnifAI Guard WARNING] Proxy crashed: {e}")
             if stop_event.is_set():
                 break
-            # Known restart window: fail-open FIRST so browsers do not get ERR_PROXY.
-            pac_fail_open_direct("proxy engine restarting")
+            if not SERVER_MODE:
+                # Known restart window: fail-open FIRST so browsers do not get ERR_PROXY.
+                pac_fail_open_direct("proxy engine restarting")
             print("[UnifAI Guard] Proxy stopped — staying Active, restarting in 2s (sleep/wake safe).")
             stop_event.wait(2)
 
@@ -1494,13 +1585,17 @@ def main() -> None:
             break
         time.sleep(0.2)
     if proxy_ready:
-        print(f"[UnifAI Guard] Local proxy listening on {PROXY_ADDR} — applying PAC now.")
-        apply_pac_with_bust(silent=False, force_new=True)
+        print(f"[UnifAI Guard] Proxy listening on {LISTEN_HOST}:{port} (advertise {PAC_ADVERTISE_ADDR or PROXY_ADDR}).")
+        if not SERVER_MODE:
+            print(f"[UnifAI Guard] Local proxy listening on {PROXY_ADDR} — applying PAC now.")
+            apply_pac_with_bust(silent=False, force_new=True)
     else:
         print("[UnifAI Guard WARNING] Proxy port not open yet — PAC deferred; health loop will apply when ready.")
 
     def proxy_ready_watch() -> None:
         """After a supervise restart, restore strict PROXY once :8085 is listening again."""
+        if SERVER_MODE:
+            return
         was_up = proxy_ready
         while not stop_event.is_set():
             up = port_open("127.0.0.1", port)
@@ -1509,17 +1604,19 @@ def main() -> None:
             was_up = up
             stop_event.wait(1)
 
-    threading.Thread(target=proxy_ready_watch, daemon=True).start()
+    if not SERVER_MODE:
+        threading.Thread(target=proxy_ready_watch, daemon=True).start()
+        threading.Thread(target=sync_pac_loop, args=(stop_event,), daemon=True).start()
     # Cap AI Guard Bot hold so browsers do not drop the request (felt as connection cut).
     os.environ.setdefault("UNIFAI_EVAL_TIMEOUT", "18")
-    threading.Thread(target=sync_pac_loop, args=(stop_event,), daemon=True).start()
     threading.Thread(target=heartbeat_loop, args=(agent_id, stop_event), daemon=True).start()
     threading.Thread(target=health_loop, args=(stop_event, port), daemon=True).start()
 
     def cleanup_and_exit(signum=None, frame=None):
         print("\n[UnifAI Guard] Shutting down agent...")
         stop_event.set()
-        clear_guard_runtime()
+        if not SERVER_MODE:
+            clear_guard_runtime()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, cleanup_and_exit)
@@ -1532,7 +1629,8 @@ def main() -> None:
             stop_event.wait(3600)
     finally:
         stop_event.set()
-        clear_guard_runtime()
+        if not SERVER_MODE:
+            clear_guard_runtime()
 
 
 if __name__ == "__main__":

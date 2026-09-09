@@ -35,6 +35,8 @@ export interface BrowserAIAgent {
 	transport_name?: string;
 	os_version: string;
 	agent_version: string;
+	/** endpoint = laptop Guard; network = shared/server proxy — same dashboard */
+	agent_type?: "endpoint" | "network" | string;
 	health_status?: string;
 	health_detail?: string;
 	status: "active" | "uninstalled" | "uninstall_pending" | string;
@@ -52,6 +54,21 @@ export interface BrowserAIAgentSettings {
 	key_configured: boolean;
 	updated_at: string;
 	updated_by: string;
+}
+
+/** Company-wide Guard defaults stored in Postgres (same DB as Browser AI). */
+export interface BrowserGuardFleetConfig {
+	id?: string;
+	default_proxy_addr?: string;
+	pac_advertise_addr?: string;
+	server_mode_policy?: string;
+	listen_host_policy?: string;
+	pac_sync_seconds?: number;
+	agent_type_default?: string;
+	backend_url_hint?: string;
+	notes?: string;
+	updated_at?: string;
+	updated_by?: string;
 }
 
 export interface BrowserGuardRule {
@@ -257,7 +274,7 @@ export const browserAiApi = baseApi.injectEndpoints({
 
 		getBrowserAiAgents: builder.query<
 			{ agents: BrowserAIAgent[]; total: number; limit: number; offset: number },
-			{ status?: string; search?: string; limit?: number; offset?: number } | void
+			{ status?: string; search?: string; agent_type?: string; limit?: number; offset?: number } | void
 		>({
 			query: (params) => ({
 				url: "/browser-ai/agents",
@@ -269,6 +286,23 @@ export const browserAiApi = baseApi.injectEndpoints({
 		getBrowserAiAgentSettings: builder.query<{ settings: BrowserAIAgentSettings }, void>({
 			query: () => "/browser-ai/agents/settings",
 			providesTags: ["BrowserAiAgentSettings" as any],
+		}),
+
+		getBrowserAiFleetConfig: builder.query<{ fleet_config: BrowserGuardFleetConfig }, void>({
+			query: () => "/browser-ai/fleet-config",
+			providesTags: ["BrowserAiFleetConfig" as any],
+		}),
+
+		saveBrowserAiFleetConfig: builder.mutation<
+			{ status: string; fleet_config: BrowserGuardFleetConfig },
+			Partial<BrowserGuardFleetConfig>
+		>({
+			query: (body) => ({
+				url: "/browser-ai/fleet-config",
+				method: "PUT",
+				body,
+			}),
+			invalidatesTags: ["BrowserAiFleetConfig" as any],
 		}),
 
 		saveBrowserAiUninstallKey: builder.mutation<
@@ -328,6 +362,8 @@ export const {
 	useDeleteBrowserAiTargetMutation,
 	useGetBrowserAiAgentsQuery,
 	useGetBrowserAiAgentSettingsQuery,
+	useGetBrowserAiFleetConfigQuery,
+	useSaveBrowserAiFleetConfigMutation,
 	useSaveBrowserAiUninstallKeyMutation,
 	useRemoteUninstallBrowserAiAgentMutation,
 	useDeleteBrowserAiAgentMutation,

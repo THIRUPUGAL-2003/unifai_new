@@ -34,6 +34,79 @@ from mitmproxy import http
 UNIFAI_BACKEND_URL = os.getenv("UNIFAI_BACKEND_URL", "https://unifaiv2.dev-yp.com")
 UNIFAI_AGENT_ID = os.getenv("UNIFAI_AGENT_ID", "")
 UNIFAI_AGENT_HOSTNAME = os.getenv("UNIFAI_AGENT_HOSTNAME", "")
+UNIFAI_AGENT_TYPE = (os.getenv("UNIFAI_AGENT_TYPE") or "").strip().lower()
+UNIFAI_SERVER_MODE = (os.getenv("UNIFAI_SERVER_MODE") or "").strip().lower() in (
+    "1", "true", "yes", "on", "server", "network",
+)
+if UNIFAI_AGENT_TYPE in ("server", "gateway", "corp", "shared"):
+    UNIFAI_AGENT_TYPE = "network"
+if not UNIFAI_AGENT_TYPE:
+    UNIFAI_AGENT_TYPE = "network" if UNIFAI_SERVER_MODE else "endpoint"
+if UNIFAI_AGENT_TYPE not in ("endpoint", "network"):
+    UNIFAI_AGENT_TYPE = "endpoint"
+
+# Stable network-proxy identity when Docker does not set UNIFAI_AGENT_ID.
+if not UNIFAI_AGENT_ID and (UNIFAI_SERVER_MODE or UNIFAI_AGENT_TYPE == "network"):
+    import socket as _socket
+    UNIFAI_AGENT_ID = os.getenv("HOSTNAME") or _socket.gethostname() or "network-proxy"
+    UNIFAI_AGENT_ID = f"network-{UNIFAI_AGENT_ID}".replace(" ", "-").lower()[:120]
+if not UNIFAI_AGENT_HOSTNAME and (UNIFAI_SERVER_MODE or UNIFAI_AGENT_TYPE == "network"):
+    import socket as _socket
+    UNIFAI_AGENT_HOSTNAME = os.getenv("HOSTNAME") or _socket.gethostname() or "network-proxy"
+
+
+def _agent_wire_fields() -> dict:
+    return {
+        "agent_id": UNIFAI_AGENT_ID,
+        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+        "agent_type": UNIFAI_AGENT_TYPE,
+    }
+
+
+def _agent_metadata_fields() -> dict:
+    return {
+        "agent_id": UNIFAI_AGENT_ID,
+        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+        "agent_type": UNIFAI_AGENT_TYPE,
+    }
+
+
+def _network_proxy_heartbeat_loop() -> None:
+    """Register the shared/server proxy on the same Agents dashboard as laptop Guards."""
+    if not (UNIFAI_SERVER_MODE or UNIFAI_AGENT_TYPE == "network"):
+        return
+    if not UNIFAI_BACKEND_URL or not UNIFAI_AGENT_ID:
+        return
+    import socket as _socket
+
+    while True:
+        try:
+            payload = {
+                "id": UNIFAI_AGENT_ID,
+                "hostname": UNIFAI_AGENT_HOSTNAME or _socket.gethostname(),
+                "username": "network-proxy",
+                "ip_address": "",
+                "os_version": "network-proxy",
+                "agent_version": "mitm-addon",
+                "agent_type": "network",
+                "health_status": "ok",
+                "health_detail": "shared network proxy",
+                "status": "active",
+            }
+            req = urllib.request.Request(
+                f"{UNIFAI_BACKEND_URL.rstrip('/')}/api/browser-ai/agents/heartbeat",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json", "Accept": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=12) as resp:
+                resp.read()
+        except Exception as e:
+            print(f"[UnifAI Proxy WARNING] network heartbeat failed: {e}")
+        time.sleep(30)
+
+
+threading.Thread(target=_network_proxy_heartbeat_loop, daemon=True).start()
 
 # Admin Monitor/Block toggles must feel instant. Split TTLs:
 # - targets/controls: 1s (Monitor ON / Block site)
@@ -625,16 +698,14 @@ def evaluate_prompt(platform: str, domain: str, prompt: str, client_ip: str, url
                     "platform": platform,
                     "prompt": prompt,
                     "client_ip": client_ip,
-                    "agent_id": UNIFAI_AGENT_ID,
-                    "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+                    **_agent_wire_fields(),
                     "metadata": {
                         "domain": domain,
                         "url": url,
                         "method": method,
                         "is_blocked": True,
                         "blocked_reason": local_rt or "Guard Rule",
-                        "agent_id": UNIFAI_AGENT_ID,
-                        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+                        **_agent_metadata_fields(),
                     },
                 }).encode("utf-8")
                 req = urllib.request.Request(
@@ -4822,8 +4893,7 @@ def post_upload_intercept(
         "is_blocked": bool(is_blocked),
         "upload_scan": True,
         "file_name": file_name or "attachment",
-        "agent_id": UNIFAI_AGENT_ID,
-        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+        **_agent_metadata_fields(),
     }
     if scan_guard:
         metadata.update(scan_guard)
@@ -4886,6 +4956,7 @@ def post_upload_intercept(
         add_field("client_ip", client_ip)
         add_field("agent_id", UNIFAI_AGENT_ID or "")
         add_field("agent_hostname", UNIFAI_AGENT_HOSTNAME or "")
+        add_field("agent_type", UNIFAI_AGENT_TYPE or "endpoint")
         add_field("file_name", file_label)
         add_field("content_type", file_ctype)
         add_field("metadata", json.dumps(metadata))
@@ -4920,8 +4991,7 @@ def post_upload_intercept(
             "platform": platform,
             "prompt": prompt,
             "client_ip": client_ip,
-            "agent_id": UNIFAI_AGENT_ID,
-            "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+            **_agent_wire_fields(),
             "upload_images": upload_images or [],
             "metadata": metadata,
         }).encode("utf-8")
@@ -7041,8 +7111,7 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             "domain": domain,
             "url": url,
             "method": method,
-            "agent_id": UNIFAI_AGENT_ID,
-            "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+            **_agent_metadata_fields(),
             "evaluation_only": bool(evaluation_only),
         }
         ext = (extracted_text or "").strip()
@@ -7054,8 +7123,7 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
             "platform": platform,
             "prompt": prompt,
             "client_ip": client_ip,
-            "agent_id": UNIFAI_AGENT_ID,
-            "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+            **_agent_wire_fields(),
             "upload_images": upload_images or [],
             "metadata": metadata,
         }).encode("utf-8")
@@ -7882,16 +7950,14 @@ class BrowserAIInterceptor:
                         "platform": b_platform,
                         "prompt": f"[SITE BLOCKED] Access denied to {b_domain}",
                         "client_ip": client_ip,
-                        "agent_id": UNIFAI_AGENT_ID,
-                        "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+                        **_agent_wire_fields(),
                         "metadata": {
                             "domain": b_domain,
                             "url": flow.request.url,
                             "method": flow.request.method,
                             "is_blocked": True,
                             "blocked_reason": "Block Entire Website",
-                            "agent_id": UNIFAI_AGENT_ID,
-                            "agent_hostname": UNIFAI_AGENT_HOSTNAME,
+                            **_agent_metadata_fields(),
                         },
                     }).encode("utf-8")
                     req = urllib.request.Request(

@@ -95,6 +95,13 @@ func (s *RDBConfigStore) EncryptPlaintextRows(ctx context.Context) error {
 	}
 	totalEncrypted += count
 
+	// alert_channels (webhook / Slack / PagerDuty secrets in ConfigJSON)
+	count, err = s.encryptPlaintextAlertChannels(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt alert_channels: %w", err)
+	}
+	totalEncrypted += count
+
 	if totalEncrypted > 0 && s.logger != nil {
 		s.logger.Info(fmt.Sprintf("encrypted %d plaintext rows across all tables", totalEncrypted))
 	}
@@ -401,6 +408,35 @@ func (s *RDBConfigStore) encryptPlaintextPlugins(ctx context.Context) (int, erro
 			return count, err
 		}
 		count += len(plugins)
+	}
+	return count, nil
+}
+
+// encryptPlaintextAlertChannels re-saves plaintext alert_channels so BeforeSave can AES-encrypt ConfigJSON.
+func (s *RDBConfigStore) encryptPlaintextAlertChannels(ctx context.Context) (int, error) {
+	var count int
+	for {
+		var rows []tables.TableAlertChannel
+		if err := s.DB().WithContext(ctx).
+			Where("encryption_status = ? OR encryption_status IS NULL OR encryption_status = ''", encryptionStatusPlainText).
+			Limit(encryptionBatchSize).
+			Find(&rows).Error; err != nil {
+			return count, err
+		}
+		if len(rows) == 0 {
+			break
+		}
+		if err := s.DB().WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			for i := range rows {
+				if err := tx.Save(&rows[i]).Error; err != nil {
+					return err
+				}
+			}
+			return nil
+		}); err != nil {
+			return count, err
+		}
+		count += len(rows)
 	}
 	return count, nil
 }

@@ -1,6 +1,6 @@
 services:
-  # Production path for employees = Guard EXE on each laptop (local :8085) → this UnifAI backend.
-  # unifai_broswer_proxy below is OPTIONAL lab/demo only — do not confuse with employee Guard.
+  # Employees: Guard EXE on each laptop (local :8085) AND/OR shared network proxy below.
+  # Both report to the same Browser AI dashboard (Prompt Logs + Agents + shared rules).
   zen_gauss_v1:
     image: unifai-local:latest
     container_name: zen_gauss_v1
@@ -41,7 +41,9 @@ services:
       # /app/data/config.json — that breaks atomic rename saves (device or resource busy).
     restart: unless-stopped
 
-  # LAB ONLY: manual browser proxy to host:8082. Employee Guard EXE does NOT use this container.
+  # Shared/network Guard proxy — same UnifAI Browser AI dashboard as laptop EXE.
+  # Point office PAC/GPO to: https://<backend>/api/browser-ai/pac?proxy=<this-host>:8082
+  # Avoid double-MITM: do not also force laptop Guard PAC for the same office traffic.
   unifai_broswer_proxy:
     image: mitmproxy/mitmproxy:latest
     container_name: unifai_broswer_proxy
@@ -49,6 +51,10 @@ services:
     environment:
       - UNIFAI_BACKEND_URL=http://zen_gauss_v1:${APP_PORT:-8081}
       - UNIFAI_FAIL_OPEN=0
+      - UNIFAI_SERVER_MODE=1
+      - UNIFAI_AGENT_TYPE=network
+      - UNIFAI_AGENT_ID=${UNIFAI_NETWORK_AGENT_ID:-network-proxy-1}
+      - UNIFAI_AGENT_HOSTNAME=${UNIFAI_NETWORK_AGENT_HOSTNAME:-corp-network-proxy}
     ports:
       - "${PROXY_PORT:-8082}:${PROXY_PORT:-8082}"
     volumes:
