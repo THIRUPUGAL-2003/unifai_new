@@ -4233,8 +4233,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 							<div className="space-y-4">
 								<div className="flex items-center gap-2 font-semibold">
-									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">2a</span>
-									<span>Windows laptop</span>
+									<span className="flex h-6 min-w-6 px-1.5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">Win</span>
+									<span>Windows</span>
 								</div>
 								<p className="text-xs text-muted-foreground pl-8">
 									Run <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code>. Keep autostart enabled so Guard starts at Windows login.
@@ -4244,8 +4244,8 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 							<div className="space-y-4">
 								<div className="flex items-center gap-2 font-semibold">
-									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">2b</span>
-									<span>Mac laptop</span>
+									<span className="flex h-6 min-w-6 px-1.5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">Mac</span>
+									<span>Mac</span>
 								</div>
 								<p className="text-xs text-muted-foreground pl-8">
 									Unzip <code className="bg-black/40 px-1 rounded">UnifAI_Guard_macOS.zip</code>, then double-click{" "}

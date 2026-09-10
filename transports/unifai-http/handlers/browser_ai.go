@@ -610,10 +610,12 @@ func browserAISetupCandidates() map[string][]string {
 		"Install_UnifAI_Guard.command": {
 			filepath.Join("apps", "browser-guard", "release", "Install_UnifAI_Guard.command"),
 			filepath.Join("apps", "browser-guard", "installer", "Install_UnifAI_Guard.command"),
+			filepath.Join("release", "Install_UnifAI_Guard.command"),
 		},
 		"Uninstall_UnifAI_Guard.command": {
 			filepath.Join("apps", "browser-guard", "release", "Uninstall_UnifAI_Guard.command"),
 			filepath.Join("apps", "browser-guard", "installer", "Uninstall_UnifAI_Guard.command"),
+			filepath.Join("release", "Uninstall_UnifAI_Guard.command"),
 		},
 		"VERSION.txt": {
 			filepath.Join("apps", "browser-guard", "release", "VERSION.txt"),
