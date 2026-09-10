@@ -1,0 +1,732 @@
+# BrowserAIInterceptor — mitmproxy addon (loaded after responses_inject.py via MANIFEST).
+
+class BrowserAIInterceptor:
+
+    def __init__(self):
+        print(f"[UnifAI Proxy] Started. Backend: {UNIFAI_BACKEND_URL}")
+        print(
+            "[UnifAI Proxy] Config refresh: background every 1s "
+            "(targets/rules/controls) — request path is memory-only (instant Block/Monitor)."
+        )
+        _ensure_background_config_refresh()
+
+    def _apply_http_prompt(
+        self,
+        flow: http.HTTPFlow,
+        domain: str,
+        platform: str,
+        prompt: str,
+        client_ip: str,
+        raw_text: str,
+    ) -> None:
+        """Common predict + block/warn for any monitored domain (HTTP)."""
+        host = flow.request.pretty_host
+        print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
+        mark_duplicate_event(domain, prompt)
+
+        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
+            platform=platform,
+            domain=domain,
+            prompt=prompt,
+            client_ip=client_ip,
+            url=flow.request.url,
+            method=flow.request.method,
+        )
+
+        if not allowed:
+            if (action or "").lower() in ("bot answered", "replied"):
+                print(f"[UnifAI Proxy] Reply Bot answered for {domain}")
+            else:
+                print(f"[UnifAI Proxy] BLOCKED prompt to {domain} → Rule: {rule_triggered}")
+            make_blocked_response(flow, rule_triggered, host, reply_text=reply_text)
+        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+            print(f"[UnifAI Proxy] WARNED prompt to {domain} → Rule: {rule_triggered} (prompt+warning forwarded)")
+            try:
+                new_content = inject_warned_prompt(raw_text, prompt, redacted_prompt)
+                if new_content:
+                    flow.request.content = new_content.encode("utf-8")
+                else:
+                    print(f"[UnifAI Proxy Warning] WARN inject miss | {domain} | could not rewrite body")
+            except Exception as e:
+                print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
+
+    def _apply_duplicate_http_prompt(
+        self,
+        flow: http.HTTPFlow,
+        domain: str,
+        platform: str,
+        prompt: str,
+        client_ip: str,
+        raw_text: str,
+    ) -> None:
+        """ChatGPT/Claude often double-fire the same Send — never silent-allow the retry."""
+        host = flow.request.pretty_host
+        decision = get_remembered_guard_decision(domain, prompt)
+        if decision is None:
+            decision = evaluate_prompt_coalesced(
+                platform=platform,
+                domain=domain,
+                prompt=prompt,
+                client_ip=client_ip,
+                url=flow.request.url,
+                method=flow.request.method,
+            )
+        allowed, rule_triggered, action, redacted_prompt, reply_text = decision
+        if not allowed:
+            print(f"[UnifAI Proxy] BLOCKED duplicate prompt to {domain} → Rule: {rule_triggered}")
+            make_blocked_response(flow, rule_triggered, host, reply_text=reply_text)
+        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+            try:
+                new_content = inject_warned_prompt(raw_text, prompt, redacted_prompt)
+                if new_content:
+                    flow.request.content = new_content.encode("utf-8")
+            except Exception:
+                pass
+    def _file_send_maybe_block(
+        self,
+        flow: http.HTTPFlow,
+        domain: str,
+        platform: str,
+        client_ip: str,
+        raw_text: str,
+        content_type: str,
+        path: str,
+    ) -> tuple[bool, int, bool]:
+        """Scan attached/cached files on Send. Returns (blocked, files_processed, caption_consumed)."""
+        should_block_file, file_block_msg, redact_notice, n_processed, caption_consumed = enforce_file_send_policy(
+            platform=platform,
+            domain=domain,
+            host=flow.request.pretty_host,
+            client_ip=client_ip,
+            url=flow.request.url,
+            method=flow.request.method,
+            raw_text=raw_text,
+            content_type=content_type,
+            file_name_hint=(
+                extract_filename_from_upload(flow, raw_text)
+                if chat_carries_attachment(raw_text)
+                else extract_attachment_filename_from_send(raw_text)
+            ),
+            path=path,
+        )
+        if should_block_file:
+            make_blocked_response(
+                flow, "Block Upload", flow.request.pretty_host, reply_text=file_block_msg,
+            )
+            return True, n_processed, caption_consumed
+        if redact_notice:
+            caption = extract_prompt_universal(
+                flow.request.content or b"", content_type, host=flow.request.pretty_host, url=flow.request.url,
+            ) or ""
+            caption = (caption or "").strip()
+            try:
+                new_content = inject_file_redact_notice(raw_text, redact_notice, caption)
+                if new_content:
+                    flow.request.content = new_content.encode("utf-8")
+                    print(f"[UnifAI Proxy] FILE REDACT notice injected | {domain}")
+                else:
+                    print(f"[UnifAI Proxy Warning] FILE REDACT inject miss | {domain}")
+            except Exception as e:
+                print(f"[UnifAI Proxy Warning] FILE REDACT inject failed: {e}")
+        return False, n_processed, caption_consumed
+
+    # ── HTTP Request Interception ──────────────
+
+    def request(self, flow: http.HTTPFlow) -> None:
+        host = flow.request.pretty_host
+        method = (flow.request.method or "").upper()
+
+        # CDN / noise hosts (cdn.*, static.*) often carry file uploads. Cache via Referer
+        # BEFORE noise early-return — otherwise extract→rules never see the bytes.
+        if method in ("POST", "PUT", "PATCH") and is_noise_host(host):
+            path_n = flow.request.path
+            raw_bytes_n = flow.request.content or b""
+            content_type_n = flow.request.headers.get("content-type", "")
+            try:
+                raw_text_n = raw_bytes_n.decode("utf-8", errors="ignore")
+            except Exception:
+                raw_text_n = ""
+            is_upload_n, upload_reason_n = detect_file_upload(flow, raw_text_n)
+            if is_upload_n:
+                fname_n = extract_filename_from_upload(flow, raw_text_n)
+                if is_confident_file_upload(
+                    fname=fname_n,
+                    content_type=content_type_n,
+                    raw_bytes=raw_bytes_n,
+                    raw_text=raw_text_n,
+                    upload_reason=upload_reason_n or "",
+                    host=host,
+                    path=path_n,
+                ):
+                    bind = _resolve_upload_bind_domain(flow, host)
+                    if bind:
+                        file_ids = _extract_file_ids_from_chat(raw_text_n)
+                        cache_upload_file(
+                            bind,
+                            file_name=fname_n or "attachment",
+                            raw_bytes=raw_bytes_n,
+                            content_type=content_type_n,
+                            upload_reason=upload_reason_n or "",
+                            file_id=file_ids[0] if file_ids else "",
+                        )
+                        print(
+                            f"[UnifAI Proxy] FILE CACHED via noise CDN bind | upload_host={host} → "
+                            f"target={bind} | {fname_n or 'attachment'} | {len(raw_bytes_n)} bytes"
+                        )
+            return
+
+        if is_noise_host(host):
+            return
+
+        # Full-site lock (admin: Block entire website) — all methods, all paths
+        blocked, b_domain, b_platform = detect_site_block(host)
+        if blocked:
+            client_ip = get_client_ip(flow)
+            if not is_duplicate_event(b_domain, "site-block", ttl=BLOCK_DEDUPE_TTL):
+                print(f"[UnifAI Proxy] SITE BLOCKED | {client_ip} → {host} ({b_domain})")
+                try:
+                    payload = json.dumps({
+                        "platform": b_platform,
+                        "prompt": f"[SITE BLOCKED] Access denied to {b_domain}",
+                        "client_ip": client_ip,
+                        **_agent_wire_fields(),
+                        "metadata": {
+                            "domain": b_domain,
+                            "url": flow.request.url,
+                            "method": flow.request.method,
+                            "is_blocked": True,
+                            "blocked_reason": "Block Entire Website",
+                            **_agent_metadata_fields(),
+                        },
+                    }).encode("utf-8")
+                    req = urllib.request.Request(
+                        f"{UNIFAI_BACKEND_URL}/api/browser-ai/intercept",
+                        data=payload,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    urllib.request.urlopen(req, timeout=2)
+                except Exception:
+                    pass
+            make_site_blocked_response(flow, b_domain, b_platform)
+            return
+
+        is_target, domain, platform = detect_target(host)
+        path = flow.request.path
+        client_ip = get_client_ip(flow)
+        method = (flow.request.method or "").upper()
+
+        if not is_target:
+            # File CDNs are often NOT the chat Target Website. Bind via Referer/Origin
+            # to the admin-added domain so extract→rules still run on Send (any AI site).
+            if method in ("POST", "PUT", "PATCH"):
+                raw_bytes_nt = flow.request.content or b""
+                content_type_nt = flow.request.headers.get("content-type", "")
+                try:
+                    raw_text_nt = raw_bytes_nt.decode("utf-8", errors="ignore")
+                except Exception:
+                    raw_text_nt = ""
+                is_upload_nt, upload_reason_nt = detect_file_upload(flow, raw_text_nt)
+                if is_upload_nt:
+                    fname_nt = extract_filename_from_upload(flow, raw_text_nt)
+                    if is_confident_file_upload(
+                        fname=fname_nt,
+                        content_type=content_type_nt,
+                        raw_bytes=raw_bytes_nt,
+                        raw_text=raw_text_nt,
+                        upload_reason=upload_reason_nt or "",
+                        host=host,
+                        path=path,
+                    ):
+                        bind = _resolve_upload_bind_domain(flow, host)
+                        if bind:
+                            file_ids = _extract_file_ids_from_chat(raw_text_nt)
+                            cache_upload_file(
+                                bind,
+                                file_name=fname_nt or "attachment",
+                                raw_bytes=raw_bytes_nt,
+                                content_type=content_type_nt,
+                                upload_reason=upload_reason_nt or "",
+                                file_id=file_ids[0] if file_ids else "",
+                            )
+                            print(
+                                f"[UnifAI Proxy] FILE CACHED via Referer bind | upload_host={host} → "
+                                f"target={bind} | {fname_nt or 'attachment'} | {len(raw_bytes_nt)} bytes"
+                            )
+            return
+
+        # Keep control settings warm
+        get_control_settings()
+
+        # ── Universal GET: query-string prompts on any monitored domain ──
+        if method == "GET":
+            qs_prompt = extract_prompt_from_query_string(flow.request.url)
+            if (
+                qs_prompt
+                and looks_like_user_prompt(qs_prompt)
+                and _is_confident_chat_send(path, "", b"")
+            ):
+                if is_duplicate_event(domain, qs_prompt, ttl=DEDUPE_TTL, mark=False):
+                    self._apply_duplicate_http_prompt(flow, domain, platform, qs_prompt, client_ip, "")
+                else:
+                    self._apply_http_prompt(flow, domain, platform, qs_prompt, client_ip, "")
+            return
+
+        if method not in ("POST", "PUT", "PATCH"):
+            return
+
+        # ── File Upload: block immediately when policy ON; otherwise cache for Send-time scan ──
+        raw_bytes = flow.request.content or b""
+        content_type = flow.request.headers.get("content-type", "")
+
+        try:
+            raw_text = raw_bytes.decode("utf-8", errors="ignore")
+        except Exception:
+            raw_text = ""
+
+        # Domain-add-only: extract user text first. Role labels never skip a real prompt/file.
+        peek_prompt = extract_prompt_universal(
+            raw_bytes, content_type, host=host, url=flow.request.url,
+        )
+        has_prompt = _should_intercept_extracted_prompt(
+            peek_prompt, path, raw_text, domain, host=host, raw_bytes=raw_bytes,
+        )
+        attachment_send = _send_carries_attachment(raw_text)
+
+        is_upload, upload_reason = detect_file_upload(flow, raw_text)
+        if is_upload:
+            fname = extract_filename_from_upload(flow, raw_text)
+            confident = is_confident_file_upload(
+                fname=fname,
+                content_type=content_type,
+                raw_bytes=raw_bytes,
+                raw_text=raw_text,
+                upload_reason=upload_reason or "",
+                host=host,
+                path=path,
+            )
+            # Upload pick: cache bytes only — no predict, no log, no block until user presses Send.
+            if confident:
+                file_ids = _extract_file_ids_from_chat(raw_text)
+                cache_upload_file(
+                    domain,
+                    file_name=fname or "attachment",
+                    raw_bytes=raw_bytes,
+                    content_type=content_type,
+                    upload_reason=upload_reason or "",
+                    file_id=file_ids[0] if file_ids else "",
+                )
+                print(
+                    f"[UnifAI Proxy] FILE CACHED (await Send — no log yet) | {domain} | "
+                    f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
+                )
+            else:
+                print(
+                    f"[UnifAI Proxy] Ignoring weak upload signal | {host} | "
+                    f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
+                )
+            return
+
+        # ── File Send: scan cached bytes; then still apply caption Guard Rules ──
+        # Any admin Target Website — attachment markers OR pending upload cache.
+        if _file_policy_applies_on_send(path, raw_text, raw_bytes, domain=domain, host=host):
+            blocked, n_processed, caption_consumed = self._file_send_maybe_block(
+                flow, domain, platform, client_ip, raw_text, content_type, path,
+            )
+            if blocked:
+                return
+            if n_processed > 0:
+                # Caption already evaluated with all files — avoid duplicate predict row.
+                if (
+                    not caption_consumed
+                    and has_prompt
+                    and peek_prompt
+                    and len((peek_prompt or "").strip()) <= 320
+                    and not _looks_like_document_body_dump(peek_prompt)
+                ):
+                    self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
+                return
+            # Cache miss with attachment markers: fall through so prompt + rules still run.
+            print(
+                f"[UnifAI Proxy] File Send markers without cache | {domain} | "
+                "falling through to prompt evaluate (upload may have used another host)"
+            )
+
+        # ── Domain-add-only intercept: extracted user text → predict ──
+        # Only finished chat Sends (and short captions after file scan). Never every site request.
+        if has_prompt:
+            self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
+            return
+
+        # Gemini batchexecute noise — only skip when body is not a chat submit.
+        if "batchexecute" in (path or "").lower() and not is_gemini_chat_submit(path, raw_text):
+            return
+
+        if is_copilot_noise_content(raw_text):
+            return
+
+        # Only inspect real chat/prompt endpoints — ignore challenges & analytics
+        if not is_chat_path(path, host, raw_text):
+            return
+
+        if not _is_confident_chat_send(path, raw_text, raw_bytes) and not attachment_send:
+            # Telemetry / background RPCs on chat-ish paths — no predict
+            return
+
+        chatgpt_shaped = _looks_like_chatgpt_body(raw_text, raw_bytes)
+        if not chatgpt_shaped:
+            if is_noise(path):
+                return
+            if is_noise(path, raw_text):
+                return
+        elif "prepare" in (path or "").lower() or "autocomplet" in (path or "").lower():
+            return
+
+        # File attached + Send (fallback path when extract missed on first pass)
+        if _file_policy_applies_on_send(path, raw_text, raw_bytes, domain=domain, host=host):
+            blocked, n_processed, caption_consumed = self._file_send_maybe_block(
+                flow, domain, platform, client_ip, raw_text, content_type, path,
+            )
+            if blocked:
+                return
+            if n_processed > 0 and caption_consumed:
+                # Combined multi-file+caption already predicted — skip duplicate text path.
+                return
+            # If no cache processed, continue so prompt evaluate can still block.
+
+        prompt = extract_prompt_universal(raw_bytes, content_type, host=host, url=flow.request.url)
+        if not prompt or len(prompt.strip()) < 1:
+            if len(raw_bytes) > 8:
+                print(f"[UnifAI Proxy] No prompt extracted | {platform} ({domain}) path={path[:80]!r} bytes={len(raw_bytes)}")
+            # Attachment-only send already logged above (real file markers only)
+            if chat_carries_attachment(raw_text):
+                return
+            return
+        # Same gate as early path — confident Send keeps number/symbol/short text.
+        if not _should_intercept_extracted_prompt(
+            prompt, path, raw_text, domain, host=host, raw_bytes=raw_bytes
+        ):
+            return
+        # Skip duplicate FILE UPLOAD lines if extract_prompt somehow returned that
+        if prompt.strip().startswith("[FILE UPLOAD"):
+            return
+
+        # ChatGPT/Perplexity: skip only in-progress draft bodies, not finished submits.
+        if is_unsubmitted_chat_body(path, raw_text):
+            return
+        # Keystroke HTTP bursts (all sites): observe → quiet → one commit.
+        if is_composer_typing_draft(domain, prompt):
+            return
+        stable = wait_if_composer_unstable(domain, prompt)
+        if stable is None:
+            return
+        prompt = stable
+
+        # Collapse browser double-fire — MUST still enforce the same guard decision
+        # (silent return here previously let the 2nd request bypass BLOCK).
+        if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
+            self._apply_duplicate_http_prompt(flow, domain, platform, prompt, client_ip, raw_text)
+            return
+
+        print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
+        mark_duplicate_event(domain, prompt)
+        clear_composer_state(domain)
+
+        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
+            platform=platform,
+            domain=domain,
+            prompt=prompt,
+            client_ip=client_ip,
+            url=flow.request.url,
+            method=flow.request.method,
+        )
+
+        if not allowed:
+            if (action or "").lower() in ("bot answered", "replied"):
+                print(f"[UnifAI Proxy] Reply Bot answered for {domain}")
+            else:
+                print(f"[UnifAI Proxy] BLOCKED prompt to {domain} → Rule: {rule_triggered}")
+            make_blocked_response(flow, rule_triggered, host, reply_text=reply_text)
+        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+            print(f"[UnifAI Proxy] WARNED prompt to {domain} → Rule: {rule_triggered} (prompt+warning forwarded)")
+            try:
+                new_content = inject_warned_prompt(raw_text, prompt, redacted_prompt)
+                if new_content:
+                    flow.request.content = new_content.encode("utf-8")
+                else:
+                    print(f"[UnifAI Proxy Warning] WARN inject miss | {domain} | could not rewrite body")
+            except Exception as e:
+                print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
+
+    def response(self, flow: http.HTTPFlow) -> None:
+        # Download / copy-paste controls removed — only upload is blocked on request().
+        return
+
+    # ── WebSocket Message Interception ─────────
+
+    def websocket_message(self, flow: http.HTTPFlow) -> None:
+        if not flow.websocket or not flow.websocket.messages:
+            return
+
+        msg = flow.websocket.messages[-1]
+        if not msg.from_client:
+            return
+
+        host = flow.request.pretty_host
+        if is_noise_host(host):
+            return
+        blocked, b_domain, b_platform = detect_site_block(host)
+        if blocked:
+            msg.kill()
+            print(f"[UnifAI Proxy] SITE BLOCKED (websocket) → {b_domain} ({b_platform})")
+            return
+        is_target, domain, platform = detect_target(host)
+        if not is_target:
+            return
+
+        content = msg.text or ""
+        if not content or len(content.strip()) < 1:
+            return
+
+        ws_path = flow.request.path or ""
+        client_ip = get_client_ip(flow)
+        ws_has_prompt = False
+        ws_prompt = extract_prompt_universal(
+            content.encode("utf-8"), "application/json", host=host, url=flow.request.url,
+        )
+        ws_has_prompt = _should_intercept_extracted_prompt(
+            ws_prompt, ws_path, content, domain, host=host, raw_bytes=content.encode("utf-8", errors="ignore"),
+        )
+        attachment_send = _send_carries_attachment(content)
+
+        if attachment_send and _file_policy_applies_on_send(
+            ws_path, content, content.encode("utf-8", errors="ignore"), domain=domain, host=host,
+        ):
+            should_block_file, file_block_msg, _n = enforce_file_send_policy(
+                platform=platform,
+                domain=domain,
+                host=host,
+                client_ip=client_ip,
+                url=flow.request.url,
+                method="WS",
+                raw_text=content,
+                content_type="application/json",
+                path=ws_path,
+            )
+            if should_block_file:
+                try:
+                    msg.drop()
+                except Exception:
+                    try:
+                        msg.kill()
+                    except Exception:
+                        pass
+                inject_websocket_reply(flow, host, (file_block_msg or "").strip())
+                return
+            # File row logged — only allow a short user caption, never embedded doc text.
+            if ws_has_prompt:
+                pn = (ws_prompt or "").strip()
+                if pn and len(pn) <= 320 and not _looks_like_document_body_dump(pn):
+                    if not is_duplicate_event(domain, pn, ttl=DEDUPE_TTL, mark=False):
+                        mark_duplicate_event(domain, ws_prompt)
+                        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
+                            platform=platform,
+                            domain=domain,
+                            prompt=ws_prompt,
+                            client_ip=client_ip,
+                            url=flow.request.url,
+                            method="WS",
+                        )
+                        if not allowed:
+                            try:
+                                msg.drop()
+                            except Exception:
+                                try:
+                                    msg.kill()
+                                except Exception:
+                                    pass
+                            inject_websocket_reply(flow, host, (reply_text or "").strip())
+                        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != ws_prompt:
+                            new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
+                            if new_content:
+                                msg.text = new_content
+                    else:
+                        decision = get_remembered_guard_decision(domain, pn) or evaluate_prompt_coalesced(
+                            platform=platform,
+                            domain=domain,
+                            prompt=ws_prompt,
+                            client_ip=client_ip,
+                            url=flow.request.url,
+                            method="WS",
+                        )
+                        allowed, rule_triggered, action, redacted_prompt, reply_text = decision
+                        if not allowed:
+                            try:
+                                msg.drop()
+                            except Exception:
+                                try:
+                                    msg.kill()
+                                except Exception:
+                                    pass
+                            inject_websocket_reply(flow, host, (reply_text or "").strip())
+                        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != ws_prompt:
+                            new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
+                            if new_content:
+                                msg.text = new_content
+            return
+
+        # ── Universal WebSocket: domain-agnostic extract (same rule as HTTP) ──
+        if ws_has_prompt:
+            mark_duplicate_event(domain, ws_prompt)
+            allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
+                platform=platform,
+                domain=domain,
+                prompt=ws_prompt,
+                client_ip=client_ip,
+                url=flow.request.url,
+                method="WS",
+            )
+            if not allowed:
+                try:
+                    msg.drop()
+                except Exception:
+                    try:
+                        msg.kill()
+                    except Exception:
+                        pass
+                inject_websocket_reply(flow, host, (reply_text or "").strip())
+            elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != ws_prompt:
+                new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
+                if new_content:
+                    msg.text = new_content
+            return
+
+        if "batchexecute" in ws_path.lower() and not is_gemini_chat_submit(ws_path, content):
+            return
+        if is_copilot_noise_content(content):
+            return
+        if not is_chat_path(ws_path, host, content):
+            return
+
+        chatgpt_shaped = _looks_like_chatgpt_body(content)
+        if not chatgpt_shaped and is_noise(ws_path, content):
+            return
+
+        # File attachment Send must hit Block Upload / file rules (finished Send only)
+        if _file_policy_applies_on_send(
+            ws_path, content, content.encode("utf-8", errors="ignore"), domain=domain, host=host,
+        ):
+            should_block_file, file_block_msg, _redact_notice, n_processed, caption_consumed = enforce_file_send_policy(
+                platform=platform,
+                domain=domain,
+                host=host,
+                client_ip=get_client_ip(flow),
+                url=flow.request.url,
+                method="WS",
+                raw_text=content,
+                content_type="application/json",
+                path=flow.request.path or "",
+            )
+            if should_block_file:
+                try:
+                    msg.drop()
+                except Exception:
+                    try:
+                        msg.kill()
+                    except Exception:
+                        pass
+                inject_websocket_reply(flow, host, file_block_msg)
+                return
+            if n_processed > 0 and caption_consumed:
+                return
+            # Cache miss: fall through to prompt evaluate. Cache hit without caption: allow below.
+
+        # Copilot/Edge image or file frames must not fall through as garbled text prompts.
+        if (
+            (copilot_carries_binary_attach(content) or chat_carries_attachment(content) or chatgpt_carries_file(content))
+            and not (ws_has_prompt and ws_prompt and len((ws_prompt or "").strip()) <= 320)
+        ):
+            return
+
+        prompt = extract_prompt_universal(content.encode("utf-8"), "application/json", host=host, url=flow.request.url)
+        if not prompt or prompt.strip() in ("{}", "[]", "ping", "pong"):
+            return
+        ws_bytes = content.encode("utf-8", errors="ignore")
+        if not _should_intercept_extracted_prompt(
+            prompt, flow.request.path, content, domain, host=host, raw_bytes=ws_bytes
+        ):
+            return
+
+        if is_unsubmitted_chat_body(flow.request.path, content):
+            return
+        if is_composer_typing_draft(domain, prompt):
+            return
+        stable = wait_if_composer_unstable(domain, prompt)
+        if stable is None:
+            return
+        prompt = stable
+
+        if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
+            decision = get_remembered_guard_decision(domain, prompt)
+            if decision is None:
+                decision = evaluate_prompt_coalesced(
+                    platform=platform,
+                    domain=domain,
+                    prompt=prompt,
+                    client_ip=get_client_ip(flow),
+                    url=flow.request.url,
+                    method="WS",
+                )
+            allowed, rule_triggered, action, redacted_prompt, reply_text = decision
+            if not allowed:
+                try:
+                    msg.drop()
+                except Exception:
+                    try:
+                        msg.kill()
+                    except Exception:
+                        pass
+                inject_websocket_reply(flow, host, (reply_text or "").strip())
+            elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+                new_content = inject_warned_prompt(content, prompt, redacted_prompt)
+                if new_content:
+                    msg.text = new_content
+            return
+
+        client_ip = get_client_ip(flow)
+        print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
+        mark_duplicate_event(domain, prompt)
+        clear_composer_state(domain)
+
+        allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
+            platform=platform,
+            domain=domain,
+            prompt=prompt,
+            client_ip=client_ip,
+            url=flow.request.url,
+            method="WS",
+        )
+
+        if not allowed:
+            if (action or "").lower() in ("bot answered", "replied"):
+                print(f"[UnifAI Proxy] Reply Bot answered via WebSocket for {domain}")
+            else:
+                print(f"[UnifAI Proxy] BLOCKED WebSocket to {domain} → Rule: {rule_triggered or action}")
+            block_msg = (reply_text or "").strip()
+            # Drop outbound turn (site AI never sees it), inject reply for ANY target site.
+            try:
+                msg.drop()
+            except Exception:
+                try:
+                    msg.kill()
+                except Exception:
+                    pass
+            inject_websocket_reply(flow, host, block_msg)
+        elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
+            print(f"[UnifAI Proxy] WARNED WebSocket prompt to {domain} → Rule: {rule_triggered}")
+            new_content = inject_warned_prompt(content, prompt, redacted_prompt)
+            if new_content:
+                msg.text = new_content
+
+
+addons = [BrowserAIInterceptor()]

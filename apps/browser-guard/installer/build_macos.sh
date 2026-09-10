@@ -32,7 +32,7 @@ fi
 VERSION="$(tr -d '[:space:]\ufeff' < release/VERSION.txt 2>/dev/null || true)"
 VERSION="${VERSION//$'\xef\xbb\xbf'/}"
 if [[ -z "${VERSION}" ]]; then
-  VERSION="$("$PYTHON" -c "import re, pathlib; t=pathlib.Path('agent/unifai_agent.py').read_text(encoding='utf-8'); m=re.search(r'AGENT_VERSION\\s*=\\s*[\"\\']([^\"\\']+)[\"\\']', t); print(m.group(1) if m else '0.0.0')")"
+  VERSION="$("$PYTHON" -c "import re, pathlib; t=pathlib.Path('agent/agent_config.py').read_text(encoding='utf-8'); m=re.search(r'AGENT_VERSION\\s*=\\s*[\"\\']([^\"\\']+)[\"\\']', t); print(m.group(1) if m else '0.0.0')")"
 fi
 
 echo "============================================================"
@@ -51,6 +51,56 @@ for f in agent/unifai_agent.py proxy/browser_ai_proxy.py config/unifai_guard_con
     exit 1
   fi
 done
+
+# Preflight: modular agent + proxy parts (post-split layout)
+for f in \
+  agent/agent_config.py \
+  agent/agent_health.py \
+  agent/agent_heartbeat.py \
+  agent/agent_lifecycle.py \
+  agent/guard_platform.py \
+  proxy/unifai_proxy_parts/MANIFEST.txt \
+  proxy/unifai_proxy_parts/responses_inject.py \
+  proxy/unifai_proxy_parts/responses_addon.py
+do
+  if [[ ! -f "$f" ]]; then
+    echo "Missing $f (Mac build needs latest split layout — sync repo from Windows first)"
+    exit 1
+  fi
+done
+while IFS= read -r part || [[ -n "$part" ]]; do
+  part="${part#"${part%%[![:space:]]*}"}"
+  part="${part%"${part##*[![:space:]]}"}"
+  part="${part#$'\xef\xbb\xbf'}"
+  [[ -z "$part" ]] && continue
+  if [[ ! -f "proxy/unifai_proxy_parts/$part" ]]; then
+    echo "Missing proxy part from MANIFEST: $part"
+    exit 1
+  fi
+done < proxy/unifai_proxy_parts/MANIFEST.txt
+
+# Keep Info.plist version in sync with VERSION / agent_config
+SPEC="$ROOT/UnifAI_Guard.macos.spec"
+if [[ -f "$SPEC" ]]; then
+  "$PYTHON" - "$SPEC" "$VERSION" <<'PY'
+import pathlib, re, sys
+spec, ver = pathlib.Path(sys.argv[1]), sys.argv[2]
+text = spec.read_text(encoding="utf-8")
+text2 = re.sub(
+    r'("CFBundleShortVersionString":\s*")[^"]+(")',
+    rf'\g<1>{ver}\g<2>',
+    text,
+)
+text2 = re.sub(
+    r'("CFBundleVersion":\s*")[^"]+(")',
+    rf'\g<1>{ver}\g<2>',
+    text2,
+)
+if text2 != text:
+    spec.write_text(text2, encoding="utf-8")
+    print(f"Updated {spec.name} bundle version → {ver}")
+PY
+fi
 
 VENV="$ROOT/.venv-guard"
 if [[ ! -d "$VENV" ]]; then

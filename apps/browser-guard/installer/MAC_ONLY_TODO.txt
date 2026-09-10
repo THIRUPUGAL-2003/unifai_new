@@ -1,0 +1,46 @@
+UnifAI Guard — macOS ONLY checklist (you run this on a Mac)
+===========================================================
+
+Windows side already prepared:
+- Agent modularized (agent_*.py)
+- Proxy parts + responses_inject.py in MANIFEST
+- Version 1.6.24 synced
+- UnifAI_Guard.macos.spec hiddenimports + build_macos.sh preflight
+- Install scripts / INSTALL_MACOS.txt ready
+
+YOU MUST DO ON A REAL MAC (cannot run from Windows):
+----------------------------------------------------
+0) Sync this repo to the Mac (same commit / copy as Windows).
+
+1) Build:
+   cd apps/browser-guard
+   ./installer/build_macos.sh
+
+2) If you have Apple Developer ID (production):
+   export MACOS_APP_SIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)"
+   export APPLE_ID="you@company.com"
+   export APPLE_TEAM_ID="TEAMID"
+   export APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx"
+   # optional pkg:
+   # export MACOS_SIGN_IDENTITY="Developer ID Installer: Your Name (TEAMID)"
+   ./installer/sign_and_notarize_macos.sh
+   # builds signed ZIP + optional .pkg
+
+3) If NO Apple account (pilot only):
+   Skip step 2. Use unsigned release/UnifAI_Guard_macOS.zip
+   (Gatekeeper: Right-click → Open)
+
+4) Install test on that Mac:
+   - Run Install_UnifAI_Guard.command (or open .pkg)
+   - Open http://127.0.0.1:18085/
+   - Confirm: version 1.6.24, proxy_port OK, ca trusted
+   - Cmd+Q browsers → reopen → test Target Website
+
+5) Deploy:
+   Copy to server release folder:
+   - UnifAI_Guard_macOS.zip
+   - UnifAI_Guard_1.6.24.pkg (if built)
+   Redeploy so website Mac download serves the new files.
+
+NOTE: release/UnifAI_Guard_macOS.zip on Windows may be STALE until you rebuild on Mac.
+See release/MAC_ZIP_STALE.txt

@@ -8,10 +8,34 @@ from PyInstaller.utils.hooks import collect_all
 ROOT = Path(SPECPATH).resolve()
 AGENT = ROOT / "agent" / "unifai_agent.py"
 PROXY = ROOT / "proxy" / "browser_ai_proxy.py"
+PROXY_PARTS = ROOT / "proxy" / "unifai_proxy_parts"
 
-datas = [(str(PROXY), ".")]
+datas = [
+    (str(PROXY), "."),
+    (str(PROXY_PARTS), "unifai_proxy_parts"),
+]
 binaries = []
-hiddenimports = ["pypdf", "PIL", "PIL.Image"]
+# Explicit agent modules (split from unifai_agent.py) — safe if Analysis misses a lazy import.
+hiddenimports = [
+    "pypdf",
+    "PIL",
+    "PIL.Image",
+    "agent_config",
+    "agent_http",
+    "agent_logging",
+    "agent_certs",
+    "agent_proxy_engine",
+    "agent_state",
+    "agent_pac_content",
+    "agent_pac_server",
+    "agent_browser_policy",
+    "agent_pac_orchestration",
+    "agent_identity",
+    "agent_health",
+    "agent_heartbeat",
+    "agent_lifecycle",
+    "guard_platform",
+]
 
 for pkg in ("pypdf", "PIL", "mitmproxy"):
     tmp_ret = collect_all(pkg)
@@ -70,8 +94,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleDisplayName": "UnifAI Guard",
         "CFBundleName": "UnifAI Guard",
-        "CFBundleShortVersionString": "1.6.23",
-        "CFBundleVersion": "1.6.23",
+        "CFBundleShortVersionString": "1.6.24",
+        "CFBundleVersion": "1.6.24",
         "LSBackgroundOnly": False,
         "NSHighResolutionCapable": True,
     },

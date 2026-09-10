@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableExtensions
-title Build UnifAI Guard Enterprise Installer 1.6.18
+title Build UnifAI Guard Enterprise Installer 1.6.24
 
 cd /d "%~dp0.."
 
@@ -52,6 +52,7 @@ echo  3) Compiling Setup EXE (Inno Setup)
 echo ============================================================
 set ISCC="C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
 if not exist %ISCC% set ISCC="C:\Program Files\Inno Setup 6\ISCC.exe"
+if not exist %ISCC% set ISCC="%LocalAppData%\Programs\Inno Setup 6\ISCC.exe"
 if not exist %ISCC% (
   echo Inno Setup 6 not found. Staging folder is ready at installer\staging
   echo Install Inno Setup, then re-run this script.
@@ -67,7 +68,7 @@ if errorlevel 1 (
 
 echo.
 echo ============================================================
-echo  SUCCESS — UnifAI Guard 1.6.18
+echo  SUCCESS — UnifAI Guard 1.6.24
 echo  Employee installer:
 echo    release\UnifAI_Guard_Setup.exe
 echo  Portable EXE:

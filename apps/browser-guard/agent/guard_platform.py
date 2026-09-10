@@ -667,7 +667,12 @@ def register_autostart(exe_path: str) -> None:
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
-  <false/>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
   <key>StandardOutPath</key>
   <string>{os.path.join(data_dir(), "launchd.out.log")}</string>
   <key>StandardErrorPath</key>
@@ -678,10 +683,10 @@ def register_autostart(exe_path: str) -> None:
         try:
             with open(plist_path, "w", encoding="utf-8") as f:
                 f.write(plist)
-            # Do NOT launchctl load while Guard is already running — load would
-            # spawn a second instance and fight for :8085 (Errno 48).
-            # Plist is enough for next login / reboot.
-            print(f"[UnifAI Guard] Autostart registered (LaunchAgent for next login): {plist_path}")
+            # Write plist only — do not launchctl load while this process is alive
+            # (would spawn a second copy). KeepAlive applies on next login when
+            # launchd starts Guard and restarts it after crash.
+            print(f"[UnifAI Guard] Autostart registered (LaunchAgent KeepAlive on next login): {plist_path}")
         except Exception as e:
             print(f"[UnifAI Guard WARNING] LaunchAgent register failed: {e}")
 

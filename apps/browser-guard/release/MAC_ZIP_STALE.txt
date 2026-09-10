@@ -1,0 +1,11 @@
+STALE — rebuild on a Mac before shipping
+
+This UnifAI_Guard_macOS.zip (if present) was NOT rebuilt after the latest
+Windows-side Guard split (agent modules + proxy responses_inject).
+
+On a Mac run:
+  cd apps/browser-guard
+  ./installer/build_macos.sh
+  # then optional: ./installer/sign_and_notarize_macos.sh
+
+See installer/MAC_ONLY_TODO.txt
