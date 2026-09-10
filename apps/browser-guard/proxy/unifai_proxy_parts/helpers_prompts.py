@@ -3,7 +3,7 @@
 
 
 
-def _is_claude_api_shape(path: str, body: str) -> bool:
+def _is_anthropic_messages_api_shape(path: str, body: str) -> bool:
     """Detect Claude / Anthropic chat submit from request path or JSON body — not hostname."""
     path_l = (path or "").lower()
     if any(x in path_l for x in ("/v1/messages", "chat_conversations", "append_message", "/completion")):
@@ -23,7 +23,7 @@ def _is_claude_api_shape(path: str, body: str) -> bool:
     return False
 
 
-def is_copilot_noise_content(content: str) -> bool:
+def is_event_sync_noise_content(content: str) -> bool:
     """Copilot SignalR / Sydney frames that are not a user chat submit."""
     if not content:
         return True
@@ -60,7 +60,7 @@ def _parse_signalr_frames(text: str) -> list:
     return out
 
 
-def extract_copilot_prompt(content: str) -> str:
+def extract_event_send_prompt(content: str) -> str:
     """Extract user-typed text from Copilot / Bing Sydney / Edge / M365 SignalR payloads."""
 
     def _pick_text(val: str) -> str:
@@ -206,7 +206,7 @@ def _send_carries_attachment(raw_text: str) -> bool:
     """True when this chat Send references an uploaded/attached file."""
     return bool(
         chat_carries_attachment(raw_text)
-        or chatgpt_carries_file(raw_text)
+        or messages_parts_carries_file(raw_text)
         or bool(extract_attachment_filename_from_send(raw_text))
     )
 
@@ -242,7 +242,8 @@ def looks_like_user_prompt(text: str) -> bool:
         return True
     if _looks_like_filename_only(t):
         return False
-    if len(t) == 1 and t in "/.\\|#@":
+    # Only drop lone path separators — keep user symbols like # @ ! ? $ %
+    if len(t) == 1 and t in "/.\\|":
         return False
 
     # Reject raw urlencoded wire parameters or batch execute bodies
@@ -250,7 +251,7 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
 
     low = t.lower()
-    if low in GEMINI_LOCALE_JUNK or re.fullmatch(r"[a-z]{2}-[a-z]{2,3}", low):
+    if low in BATCHEXECUTE_LOCALE_JUNK or re.fullmatch(r"[a-z]{2}-[a-z]{2,3}", low):
         return False
     if low in {
         "null", "undefined", "generic", "batchexecute", "wrb.fr",
@@ -330,10 +331,15 @@ def _is_internal_wire_text(text: str) -> bool:
         return True
     # Short wire fragments: B-mvY..., J12'54M, U}2T), 7cZ.
     # Keep mostly-digit tokens (formatted IDs) — not opaque wire.
+    # Keep short pure symbols (# @ ! ?) — users type these as prompts.
     if len(t) <= 14 and " " not in t:
         special = sum(1 for c in t if not c.isalnum() and c not in "._-'")
         digits = sum(1 for c in t if c.isdigit())
         if digits >= 3 and special <= 2 and all(c.isdigit() or c in "+#*-(). " for c in t):
+            return False
+        if len(t) <= 3 and not any(c.isalnum() for c in t):
+            return False
+        if len(t) == 1:
             return False
         if special >= 1 and len(t) <= 10:
             return True
@@ -381,16 +387,16 @@ def _is_clear_chat_submit(path: str, host: str, raw_text: str, raw_bytes: bytes 
         return False
     if is_unsubmitted_chat_body(path, body):
         return False
-    if is_copilot_noise_content(body):
+    if is_event_sync_noise_content(body):
         return False
     if (
-        is_perplexity_chat_submit(path, body)
-        or is_gemini_chat_submit(path, body)
-        or is_copilot_chat_submit(path, body)
-        or _is_claude_api_shape(path, body)
+        is_rest_sse_ask_submit(path, body)
+        or is_batchexecute_chat_submit(path, body)
+        or is_event_send_chat_submit(path, body)
+        or _is_anthropic_messages_api_shape(path, body)
     ):
         return True
-    if _is_chatgpt_style_path(path_l) or _looks_like_chatgpt_body(body, raw_bytes):
+    if _is_messages_conversation_path(path_l) or _looks_like_messages_parts_body(body, raw_bytes):
         return True
     if _path_has_chat_marker(path_l):
         if is_noise(path, body):
@@ -412,13 +418,13 @@ def _is_confident_chat_send(path: str, raw_text: str, raw_bytes: bytes = b"") ->
         return True
     path_l = (path or "").lower()
     body = raw_text or ""
-    if _looks_like_chatgpt_body(body, raw_bytes) and (
-        _is_chatgpt_style_path(path_l) or _path_has_chat_marker(path_l)
+    if _looks_like_messages_parts_body(body, raw_bytes) and (
+        _is_messages_conversation_path(path_l) or _path_has_chat_marker(path_l)
     ):
         return True
-    if is_perplexity_chat_submit(path, body):
+    if is_rest_sse_ask_submit(path, body):
         return True
-    if _is_claude_api_shape(path, body):
+    if _is_anthropic_messages_api_shape(path, body):
         return True
     return False
 
@@ -469,7 +475,7 @@ def _pick_best_user_text(candidates: list[str]) -> str | None:
     return best
 
 
-def _extract_chatgpt_parts_prompt(blob: str) -> str | None:
+def _extract_messages_parts_prompt(blob: str) -> str | None:
     """Last ChatGPT/OpenAI parts[] slot — the finished user Send text."""
     if not blob:
         return None
@@ -554,9 +560,8 @@ def _should_intercept_extracted_prompt(
         if _is_ide_non_chat_noise(text, domain=domain) or _is_ide_non_chat_noise(text, domain=host):
             if not _is_digit_heavy_user_text(text) and not _is_typed_numeric_prompt(text):
                 return False
-        # Draft coalesce happens at commit (wait_if_composer_unstable) — do not mutate here.
-        if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
-            return False
+        # Duplicate peek is still a real Send — caller reuses remembered decision.
+        # Never return False here or the prompt silently vanishes from Prompt Logs.
         return True
 
     # Non-confident paths keep stricter filters (avoid telemetry false positives).
@@ -581,7 +586,7 @@ def _should_intercept_extracted_prompt(
     if len(text) < 2 and not text.isdigit() and not _is_typed_numeric_prompt(text):
         return False
     body = (raw_text or "").lstrip()
-    if body.startswith(("{", "[")) and not _looks_like_chatgpt_body(body, raw_bytes):
+    if body.startswith(("{", "[")) and not _looks_like_messages_parts_body(body, raw_bytes):
         if not _path_has_chat_marker(path) and not is_chat_path(path, host, raw_text):
             return False
     if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
@@ -628,10 +633,10 @@ def is_noise(path: str, content: str = "") -> bool:
         # Protobuf / binary chat submit — do not drop as noise when path/body looks like chat.
         path_l = (path or "").lower()
         chat_submit = (
-            _is_chatgpt_style_path(path_l)
-            or is_perplexity_chat_submit(path_l, content)
-            or is_gemini_chat_submit(path_l, content)
-            or is_copilot_chat_submit(path_l, content)
+            _is_messages_conversation_path(path_l)
+            or is_rest_sse_ask_submit(path_l, content)
+            or is_batchexecute_chat_submit(path_l, content)
+            or is_event_send_chat_submit(path_l, content)
             or _path_has_chat_marker(path_l)
         )
         if (
@@ -649,7 +654,7 @@ def is_noise(path: str, content: str = "") -> bool:
         if '"event":"send"' in content or '"event": "send"' in content:
             return False
         # Copilot SignalR / sync noise — not user prompts
-        if is_copilot_noise_content(content):
+        if is_event_sync_noise_content(content):
             return True
         # Cloudflare challenge bodies (non-JSON)
         if not cl.startswith(("{", "[")) and not looks_like_user_prompt(content[:200]):
@@ -701,7 +706,7 @@ def mark_duplicate_event(domain: str, event_key: str) -> None:
     _recent_prompts[key] = time.time()
 
 
-def chatgpt_carries_file(raw_text: str) -> bool:
+def messages_parts_carries_file(raw_text: str) -> bool:
     """ChatGPT multimodal sends use content_type:file / file_id — not always attachments[]."""
     if not raw_text:
         return False
@@ -731,7 +736,7 @@ def chatgpt_carries_file(raw_text: str) -> bool:
     return False
 
 
-def detect_chatgpt_file_upload(
+def detect_messages_parts_file_upload(
     host: str,
     path: str,
     method: str,
@@ -809,15 +814,16 @@ def _composer_hold_seconds(text: str) -> float:
 
 
 def _composer_related(a: str, b: str) -> bool:
-    """True when one string is a typing prefix/extension of the other."""
+    """True when one string is a typing prefix/extension of the other.
+
+    Prefix-only — do NOT treat unrelated Sends (hi vs how are u) as related
+    via fuzzy first-3-char matching (that caused real prompts to be dropped).
+    """
     if not a or not b:
         return False
     if a == b:
         return True
     if a.startswith(b) or b.startswith(a):
-        return True
-    # Small edit distance growth (typo fix) within max grow window
-    if abs(len(a) - len(b)) <= COMPOSER_DRAFT_MAX_GROW and (a[:3] == b[:3] if len(a) >= 3 and len(b) >= 3 else False):
         return True
     return False
 
@@ -1028,7 +1034,7 @@ def _extract_from_json(data) -> str | None:
         # Never treat trailing numeric / token slots as the user prompt.
         if data and (data[0] is None or (len(data) >= 2 and isinstance(data[1], str) and data[1][:1] in ("[", "{"))):
             dumped = json.dumps(data, ensure_ascii=False)
-            got = extract_gemini_prompt(dumped)
+            got = extract_batchexecute_prompt(dumped)
             if got:
                 return _clean_prompt_text(got)
             return None
@@ -1260,14 +1266,14 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
     raw = raw_content or ""
 
     # ChatGPT / OpenAI CDN — catch before chat-path exclusions swallow file POSTs
-    cgpt_up, cgpt_reason = detect_chatgpt_file_upload(host, path, method, content_type, body_len, flow.request.content or b"")
-    if cgpt_up:
-        return True, cgpt_reason
+    messages_parts_up, messages_parts_reason = detect_messages_parts_file_upload(host, path, method, content_type, body_len, flow.request.content or b"")
+    if messages_parts_up:
+        return True, messages_parts_reason
 
     # ── Never treat real chat Send as a file upload ──
-    if is_gemini_chat_submit(path, raw) or "f.req=" in raw[:500]:
+    if is_batchexecute_chat_submit(path, raw) or "f.req=" in raw[:500]:
         return False, ""
-    if is_perplexity_chat_submit(path, raw):
+    if is_rest_sse_ask_submit(path, raw):
         return False, ""
     # Claude / ChatGPT / generic chat completion paths (JSON text prompts)
     chat_path_markers = (

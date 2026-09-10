@@ -31,9 +31,9 @@ def enforce_file_send_policy(
     """
     has_attach = (
         chat_carries_attachment(raw_text)
-        or chatgpt_carries_file(raw_text)
+        or messages_parts_carries_file(raw_text)
         or bool((file_name_hint or "").strip())
-        or copilot_carries_binary_attach(raw_text)
+        or event_send_carries_binary_attach(raw_text)
     )
     cached_list = take_all_cached_uploads_for_send(domain, raw_text, allow_latest=False)
     if not cached_list and has_attach:

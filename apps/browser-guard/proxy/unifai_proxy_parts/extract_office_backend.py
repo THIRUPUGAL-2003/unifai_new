@@ -860,7 +860,7 @@ def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
     return False, "", ""
 
 
-def extract_perplexity_prompt(content: str) -> str | None:
+def extract_rest_sse_ask_prompt(content: str) -> str | None:
     """Extract user query from Perplexity /rest/sse, /rest/thread, entrypoint JSON or SSE lines."""
     if not content:
         return None
@@ -877,7 +877,7 @@ def extract_perplexity_prompt(content: str) -> str | None:
             if not chunk or chunk in ("[DONE]", "done"):
                 continue
             if chunk.startswith("{"):
-                nested = extract_perplexity_prompt(chunk)
+                nested = extract_rest_sse_ask_prompt(chunk)
                 if nested:
                     candidates.append(nested)
         picked = _pick_best_user_text(candidates)
@@ -926,7 +926,7 @@ def extract_perplexity_prompt(content: str) -> str | None:
         inner = data.get(wrapper)
         if isinstance(inner, dict):
             try:
-                nested = extract_perplexity_prompt(json.dumps(inner))
+                nested = extract_rest_sse_ask_prompt(json.dumps(inner))
             except Exception:
                 nested = None
             if nested:
@@ -945,7 +945,7 @@ def extract_perplexity_prompt(content: str) -> str | None:
     return None
 
 
-def extract_gemini_prompt(content: str) -> str:
+def extract_batchexecute_prompt(content: str) -> str:
     """
     Extract ONLY the user-typed prompt from Gemini/Bard requests.
 
@@ -992,7 +992,7 @@ def extract_gemini_prompt(content: str) -> str:
         if _is_ai_chrome_url(s):
             return False
         # Locale / UI language crumbs from Gemini (hl=en-IN → "en"). Keep greetings like "hi".
-        if s.lower() in GEMINI_LOCALE_JUNK or re.fullmatch(r"[a-z]{2}-[A-Za-z]{2,3}", s):
+        if s.lower() in BATCHEXECUTE_LOCALE_JUNK or re.fullmatch(r"[a-z]{2}-[A-Za-z]{2,3}", s):
             return False
         if re.fullmatch(r"[a-z]{2}-[A-Z]{2,3}", s):
             return False
@@ -1123,7 +1123,7 @@ def _printable_runs(raw: bytes) -> list[str]:
     return chunks
 
 
-def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
+def extract_messages_parts_prompt(text: str, raw: bytes) -> str | None:
     """ChatGPT web: JSON parts, nested author.content, or protobuf string fields."""
     blob = text or ""
     raw_blob = (raw or b"").decode("utf-8", errors="ignore")
@@ -1132,8 +1132,8 @@ def extract_chatgpt_prompt(text: str, raw: bytes) -> str | None:
         search_blob = blob
 
     # Highest confidence: explicit parts[] / input_text from conversation JSON embedded in protobuf.
-    parts_got = _extract_chatgpt_parts_prompt(search_blob)
-    if parts_got and (chatgpt_carries_file(search_blob) or chat_carries_attachment(search_blob)):
+    parts_got = _extract_messages_parts_prompt(search_blob)
+    if parts_got and (messages_parts_carries_file(search_blob) or chat_carries_attachment(search_blob)):
         if _looks_like_document_body_dump(parts_got) or len(parts_got) > 320:
             parts_got = None
     if parts_got:
@@ -1204,8 +1204,8 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
         text = body_bytes.decode("utf-8", errors="ignore")
         ct = (content_type or "").lower()
         if not text.strip():
-            if _looks_like_chatgpt_body("", body_bytes):
-                return extract_chatgpt_prompt(text, body_bytes)
+            if _looks_like_messages_parts_body("", body_bytes):
+                return extract_messages_parts_prompt(text, body_bytes)
             return None
 
         # Multipart: extract prompt fields; never treat the raw boundary blob as chat text.
@@ -1214,23 +1214,23 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
 
         # Body-shape parsers (any admin-monitored domain — no hostname lists).
         if "f.req=" in text or "req0___data__" in text or text.startswith("f.req="):
-            gemini_prompt = extract_gemini_prompt(text)
-            if gemini_prompt:
-                return _clean_prompt_text(gemini_prompt)
+            batchexecute_prompt = extract_batchexecute_prompt(text)
+            if batchexecute_prompt:
+                return _clean_prompt_text(batchexecute_prompt)
 
-        if is_copilot_chat_submit("", text) or '"event":"send"' in text or '"event": "send"' in text:
-            copilot_prompt = extract_copilot_prompt(text)
-            if copilot_prompt:
-                return _clean_prompt_text(copilot_prompt)
+        if is_event_send_chat_submit("", text) or '"event":"send"' in text or '"event": "send"' in text:
+            event_send_prompt = extract_event_send_prompt(text)
+            if event_send_prompt:
+                return _clean_prompt_text(event_send_prompt)
 
-        pplx_prompt = extract_perplexity_prompt(text)
-        if pplx_prompt:
-            return pplx_prompt
+        rest_sse_ask_prompt = extract_rest_sse_ask_prompt(text)
+        if rest_sse_ask_prompt:
+            return rest_sse_ask_prompt
 
-        if _looks_like_chatgpt_body(text, body_bytes):
-            chatgpt_got = extract_chatgpt_prompt(text, body_bytes)
-            if chatgpt_got:
-                return chatgpt_got
+        if _looks_like_messages_parts_body(text, body_bytes):
+            messages_parts_got = extract_messages_parts_prompt(text, body_bytes)
+            if messages_parts_got:
+                return messages_parts_got
             # Fall through — some ChatGPT wires look like conversation JSON but need
             # generic message/content walk (otherwise Claude works and ChatGPT misses).
 
@@ -1251,8 +1251,8 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
                         if got:
                             return got
                 if form.get("f.req"):
-                    gemini_prompt = extract_gemini_prompt("f.req=" + form["f.req"][0])
-                    return _clean_prompt_text(gemini_prompt) if gemini_prompt else None
+                    batchexecute_prompt = extract_batchexecute_prompt("f.req=" + form["f.req"][0])
+                    return _clean_prompt_text(batchexecute_prompt) if batchexecute_prompt else None
             except Exception:
                 pass
             return None  # Form data must never fall through to plain text!

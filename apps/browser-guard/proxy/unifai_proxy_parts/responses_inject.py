@@ -46,7 +46,7 @@ def inject_file_redact_notice(raw_text: str, notice: str, user_caption: str = ""
     return raw_text + "\n" + notice
 
 
-def _ws_frames_copilot(reply: str) -> list[bytes]:
+def _ws_frames_event_send(reply: str) -> list[bytes]:
     frames = [
         json.dumps({"event": "received"}, ensure_ascii=False).encode("utf-8"),
         json.dumps({"event": "startMessage", "messageId": "unifai-reply"}, ensure_ascii=False).encode("utf-8"),
@@ -86,7 +86,7 @@ def _ws_frames_openai(reply: str) -> list[bytes]:
     ]
 
 
-def _ws_frames_perplexity(reply: str) -> list[bytes]:
+def _ws_frames_rest_sse(reply: str) -> list[bytes]:
     return [
         json.dumps({"text": reply}, ensure_ascii=False).encode("utf-8"),
         json.dumps({"status": "completed", "text": reply, "final": True}, ensure_ascii=False).encode("utf-8"),
@@ -100,9 +100,9 @@ def _ws_frames_universal(reply: str) -> list[bytes]:
     Clients ignore frames they don't understand; one matching shape is enough.
     """
     frames: list[bytes] = []
-    frames.extend(_ws_frames_copilot(reply))
+    frames.extend(_ws_frames_event_send(reply))
     frames.extend(_ws_frames_openai(reply))
-    frames.extend(_ws_frames_perplexity(reply))
+    frames.extend(_ws_frames_rest_sse(reply))
     frames.append(json.dumps({
         "type": "message",
         "role": "assistant",
@@ -172,22 +172,22 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
     raw_body = (flow.request.content or b"").decode("utf-8", errors="ignore")
 
     # Wire-format routing: detect from REQUEST SHAPE (path/body/Accept) — not hostname lists.
-    chatgpt_body = None
+    messages_parts_body = None
     try:
         parsed = json.loads(raw_body or "")
         if isinstance(parsed, dict) and isinstance(parsed.get("messages"), list):
             if "conversation_id" in parsed or "parent_message_id" in parsed:
-                chatgpt_body = parsed
+                messages_parts_body = parsed
             elif any(isinstance(m, dict) and isinstance(m.get("author"), dict) for m in parsed["messages"]):
-                chatgpt_body = parsed
+                messages_parts_body = parsed
     except Exception:
-        chatgpt_body = None
+        messages_parts_body = None
 
     # ── ChatGPT-shaped conversation APIs (body shape, any monitored domain) ──
-    if chatgpt_body is not None:
+    if messages_parts_body is not None:
         user_msg_id = ""
         conv_id = None
-        req_data = chatgpt_body if isinstance(chatgpt_body, dict) else {}
+        req_data = messages_parts_body if isinstance(messages_parts_body, dict) else {}
         if not req_data:
             try:
                 req_data = json.loads(flow.request.content.decode("utf-8", errors="ignore"))
@@ -211,7 +211,7 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         reply_msg_id = str(uuid.uuid4())
         now_ts = time.time()
 
-        chatgpt_resp_obj = {
+        messages_parts_resp_obj = {
             "message": {
                 "id": reply_msg_id,
                 "author": {"role": "assistant", "name": None, "metadata": {}},
@@ -232,7 +232,7 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
             "conversation_id": conv_id,
             "error": None,
         }
-        sse_payload = f"data: {json.dumps(chatgpt_resp_obj)}\n\ndata: [DONE]\n\n"
+        sse_payload = f"data: {json.dumps(messages_parts_resp_obj)}\n\ndata: [DONE]\n\n"
         flow.response = http.Response.make(
             200,
             sse_payload.encode("utf-8"),
@@ -241,9 +241,9 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         return
 
     # ── Claude / Anthropic chat APIs (path/body shape) ──
-    if _is_claude_api_shape(path, raw_body):
+    if _is_anthropic_messages_api_shape(path, raw_body):
         if "/v1/messages" in path:
-            claude_sse = (
+            anthropic_sse = (
                 'event: message_start\n'
                 'data: {"type":"message_start","message":{"id":"msg_unifai_block","type":"message",'
                 '"role":"assistant","content":[],"model":"unifai-guard","stop_reason":null}}\n\n'
@@ -259,7 +259,7 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
                 'data: {"type":"message_stop"}\n\n'
             )
         else:
-            claude_sse = (
+            anthropic_sse = (
                 "event: completion\n"
                 f"data: {json.dumps({'completion': msg, 'stop_reason': None, 'model': 'unifai-guard', 'stop': None, 'log_id': 'unifai_block'})}\n\n"
                 "event: completion\n"
@@ -267,7 +267,7 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
             )
         flow.response = http.Response.make(
             200,
-            claude_sse.encode("utf-8"),
+            anthropic_sse.encode("utf-8"),
             {
                 **common_headers,
                 "Content-Type": "text/event-stream; charset=utf-8",
@@ -277,8 +277,8 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         return
 
     # ── Microsoft Copilot / Bing (request shape) ──
-    if is_copilot_chat_submit(path, raw_body):
-        copilot_sse = (
+    if is_event_send_chat_submit(path, raw_body):
+        event_send_sse = (
             "data: {\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":"
             f"{msg_json}"
             "}}]}\n\n"
@@ -286,16 +286,16 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
             "data: [DONE]\n\n"
         )
         # Also provide a Graph-style message payload some Copilot UIs accept
-        copilot_json = json.dumps({
+        event_send_json = json.dumps({
             "message": {"text": msg, "role": "assistant"},
             "messages": [{"text": msg, "author": "bot"}],
             "error": None,
             "unifai_blocked": True,
         })
-        body = copilot_sse if "event-stream" in accept or "stream" in path else copilot_json
+        body = event_send_sse if "event-stream" in accept or "stream" in path else event_send_json
         ctype = (
             "text/event-stream; charset=utf-8"
-            if body == copilot_sse
+            if body == event_send_sse
             else "application/json; charset=utf-8"
         )
         flow.response = http.Response.make(
@@ -306,7 +306,7 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         return
 
     # ── Perplexity (request shape) ──
-    if is_perplexity_chat_submit(path, raw_body):
+    if is_rest_sse_ask_submit(path, raw_body):
         pplx = (
             f'event: message\ndata: {{"text":{msg_json}}}\n\n'
             f'data: {{"status":"completed","text":{msg_json},"final":true}}\n\n'
@@ -320,7 +320,7 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         return
 
     # ── Gemini / Bard (request shape) ──
-    if is_gemini_chat_submit(path, raw_body) or "f.req=" in raw_body:
+    if is_batchexecute_chat_submit(path, raw_body) or "f.req=" in raw_body:
         path_compact = path.replace("_", "")
         # StreamGenerate expects progressive Google JSON lines — OpenAI-style SSE leaves the UI spinning.
         if "streamgenerate" in path_compact or "generatecontent" in path_compact or "bardfrontend" in path:
@@ -338,14 +338,14 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
             )
             return
 
-        gemini_body = (
+        batchexecute_body = (
             ")]}'\n"
             f'[["wrb.fr","UnifAIGuard","[[\\"{msg_escaped}\\"]]",null,null,null,"generic"],'
             '["di",34],["af.httprm",34,"-unifai-",1]]\n'
         )
         flow.response = http.Response.make(
             200,
-            gemini_body.encode("utf-8"),
+            batchexecute_body.encode("utf-8"),
             {**common_headers, "Content-Type": "application/json; charset=utf-8"},
         )
         return

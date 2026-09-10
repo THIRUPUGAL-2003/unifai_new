@@ -831,7 +831,7 @@ def chat_carries_attachment(raw_text: str) -> bool:
             return True
 
     # ChatGPT / OpenAI file pointers
-    if chatgpt_carries_file(raw_text):
+    if messages_parts_carries_file(raw_text):
         return True
     if re.search(r'"id"\s*:\s*"file-[a-zA-Z0-9_-]+"', low):
         return True
@@ -840,13 +840,13 @@ def chat_carries_attachment(raw_text: str) -> bool:
             return True
 
     # Copilot / Sydney image or file payloads (base64 in send frame)
-    if copilot_carries_binary_attach(raw_text):
+    if event_send_carries_binary_attach(raw_text):
         return True
 
     return False
 
 
-def copilot_carries_binary_attach(raw_text: str) -> bool:
+def event_send_carries_binary_attach(raw_text: str) -> bool:
     """Copilot/Edge image or file sends often embed base64 instead of file_id."""
     if not raw_text:
         return False
@@ -1050,9 +1050,9 @@ def _file_policy_applies_on_send(
     body = raw_text or ""
     has_file = (
         _send_carries_attachment(body)
-        or chatgpt_carries_file(body)
+        or messages_parts_carries_file(body)
         or chat_carries_attachment(body)
-        or copilot_carries_binary_attach(body)
+        or event_send_carries_binary_attach(body)
     )
     chatish = is_chat_path(path, host, body) or _path_has_chat_marker(path)
     if has_file and chatish:

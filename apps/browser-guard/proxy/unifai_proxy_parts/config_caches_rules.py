@@ -197,7 +197,7 @@ CHAT_PATH_MARKERS = [
 
 GEMINI_CHAT_RPCS = {"hR32Ce", "vyAQhe", "wXbdQc", "BardFrontendService", "StreamGenerate"}
 
-GEMINI_LOCALE_JUNK = {
+BATCHEXECUTE_LOCALE_JUNK = {
     "en", "en-in", "en-us", "en-gb", "en-au", "ta-in", "hi-in",
     "es", "fr", "de", "it", "pt", "ja", "ko", "zh", "ru", "ar",
     "nl", "sv", "pl", "uk", "cs", "da", "fi", "el", "he", "th",
@@ -231,20 +231,20 @@ _UNIVERSAL_PROMPT_KEYS = (
 # Deduplicate identical events per domain within this window (seconds).
 # Keep short so intentional same-text resends (~1s later) still predict;
 # only collapses near-simultaneous browser double-submits.
-DEDUPE_TTL = 4.0
+DEDUPE_TTL = 2.0
 # Longer window for upload/download blocks (ChatGPT fires many file API calls)
 BLOCK_DEDUPE_TTL = 30
 # Typing/request bursts (Grok/Copilot/…): Observe every keystroke request, Commit once.
 # Same rule for ALL admin Target Websites — not per-domain hardcode.
-COMPOSER_DRAFT_TTL = 0.55
+# Keep holds SHORT — long sleeps on the mitm request thread caused intermittent
+# misses across every Target domain (browser abort / race / supersede).
+COMPOSER_DRAFT_TTL = 0.35
 COMPOSER_DRAFT_MAX_GROW = 8
-# Adaptive quiet window before predict (keystroke HTTP looks like "Send" on many AIs).
-COMPOSER_STABILITY_HOLD = 0.55
-COMPOSER_STABILITY_HOLD_SHORT = 1.05  # len <= 12 (h→hi, digit drip)
-COMPOSER_STABILITY_HOLD_TINY = 1.35   # len <= 3 (single chars / "hi")
+COMPOSER_STABILITY_HOLD = 0.28
+COMPOSER_STABILITY_HOLD_SHORT = 0.40  # len <= 12
+COMPOSER_STABILITY_HOLD_TINY = 0.45   # len <= 3
 COMPOSER_HOLD_MAX_LEN = 120
-# If a longer prefix-related string appears within this window, shorter never commits.
-COMPOSER_PREFIX_WINDOW = 2.5
+COMPOSER_PREFIX_WINDOW = 1.2
 
 # ─────────────────────────────────────────────
 # In-memory Caches
@@ -995,7 +995,7 @@ def _path_has_ignore_pattern(path: str) -> bool:
     return False
 
 
-def _is_chatgpt_style_path(path: str) -> bool:
+def _is_messages_conversation_path(path: str) -> bool:
     """ChatGPT/OpenAI-style API paths — hostname not required."""
     p = (path or "").lower().split("?", 1)[0]
     if "prepare" in p or "autocomplet" in p or "implicit" in p:
@@ -1020,7 +1020,7 @@ def _path_has_chat_marker(path: str) -> bool:
     return False
 
 
-def _looks_like_chatgpt_body(text: str, body_bytes: bytes = b"") -> bool:
+def _looks_like_messages_parts_body(text: str, body_bytes: bytes = b"") -> bool:
     """ChatGPT/OpenAI conversation JSON or protobuf — detected from body, not hostname."""
     t = (text or "").strip()
     if t:
@@ -1049,13 +1049,13 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
     if "prepare" in p or "autocomplet" in p or "implicit" in p:
         return False
 
-    if is_gemini_chat_submit(p, body) or "f.req=" in body[:500]:
+    if is_batchexecute_chat_submit(p, body) or "f.req=" in body[:500]:
         return True
-    if is_copilot_chat_submit(p, body):
+    if is_event_send_chat_submit(p, body):
         return True
-    if is_perplexity_chat_submit(p, body):
+    if is_rest_sse_ask_submit(p, body):
         return True
-    if _is_chatgpt_style_path(p) or _looks_like_chatgpt_body(body):
+    if _is_messages_conversation_path(p) or _looks_like_messages_parts_body(body):
         return True
     if _path_has_chat_marker(p):
         return True
@@ -1071,7 +1071,7 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
     return False
 
 
-def is_gemini_chat_submit(path: str, body: str = "") -> bool:
+def is_batchexecute_chat_submit(path: str, body: str = "") -> bool:
     """True only for the HTTP call that carries the user's typed Gemini prompt.
 
     StreamGenerate / GenerateContent / BardFrontendService / BardChatUi batchexecute.
@@ -1338,7 +1338,7 @@ def _is_file_content_part(part: dict) -> bool:
     return False
 
 
-def is_copilot_chat_submit(path: str, body: str = "") -> bool:
+def is_event_send_chat_submit(path: str, body: str = "") -> bool:
     """True only for Copilot/Bing/Edge chat submit — not telemetry or sync frames."""
     path_l = (path or "").lower().split("?", 1)[0]
     body_l = (body or "").lower()
@@ -1371,7 +1371,7 @@ def is_copilot_chat_submit(path: str, body: str = "") -> bool:
     return False
 
 
-def is_perplexity_chat_submit(path: str, body: str = "") -> bool:
+def is_rest_sse_ask_submit(path: str, body: str = "") -> bool:
     """True only for Perplexity chat submit — not feed, auth, or telemetry."""
     path_l = (path or "").lower().split("?", 1)[0]
     if any(

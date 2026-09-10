@@ -21,8 +21,15 @@ class BrowserAIInterceptor:
     ) -> None:
         """Common predict + block/warn for any monitored domain (HTTP)."""
         host = flow.request.pretty_host
+        prompt = (prompt or "").strip()
+        if not prompt:
+            return
+        # Same-text browser double-fire: reuse decision (never silent skip).
+        if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
+            self._apply_duplicate_http_prompt(flow, domain, platform, prompt, client_ip, raw_text)
+            return
+
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
-        mark_duplicate_event(domain, prompt)
 
         allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
             platform=platform,
@@ -32,6 +39,9 @@ class BrowserAIInterceptor:
             url=flow.request.url,
             method=flow.request.method,
         )
+        # Mark only after evaluate so a failed first attempt can retry.
+        mark_duplicate_event(domain, prompt)
+        clear_composer_state(domain)
 
         if not allowed:
             if (action or "").lower() in ("bot answered", "replied"):
@@ -359,10 +369,10 @@ class BrowserAIInterceptor:
             return
 
         # Gemini batchexecute noise — only skip when body is not a chat submit.
-        if "batchexecute" in (path or "").lower() and not is_gemini_chat_submit(path, raw_text):
+        if "batchexecute" in (path or "").lower() and not is_batchexecute_chat_submit(path, raw_text):
             return
 
-        if is_copilot_noise_content(raw_text):
+        if is_event_sync_noise_content(raw_text):
             return
 
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
@@ -373,8 +383,8 @@ class BrowserAIInterceptor:
             # Telemetry / background RPCs on chat-ish paths — no predict
             return
 
-        chatgpt_shaped = _looks_like_chatgpt_body(raw_text, raw_bytes)
-        if not chatgpt_shaped:
+        messages_parts_shaped = _looks_like_messages_parts_body(raw_text, raw_bytes)
+        if not messages_parts_shaped:
             if is_noise(path):
                 return
             if is_noise(path, raw_text):
@@ -414,13 +424,17 @@ class BrowserAIInterceptor:
         # ChatGPT/Perplexity: skip only in-progress draft bodies, not finished submits.
         if is_unsubmitted_chat_body(path, raw_text):
             return
-        # Keystroke HTTP bursts (all sites): observe → quiet → one commit.
-        if is_composer_typing_draft(domain, prompt):
-            return
-        stable = wait_if_composer_unstable(domain, prompt)
-        if stable is None:
-            return
-        prompt = stable
+        # Finished chat-shaped Sends: commit immediately (all Target domains).
+        # Composer hold is ONLY for keystroke-as-HTTP sites — long waits caused
+        # intermittent predict misses (hi / numbers / symbols / every AI).
+        confident_send = _is_confident_chat_send(path, raw_text, raw_bytes)
+        if not confident_send:
+            if is_composer_typing_draft(domain, prompt):
+                return
+            stable = wait_if_composer_unstable(domain, prompt)
+            if stable is None:
+                return
+            prompt = stable
 
         # Collapse browser double-fire — MUST still enforce the same guard decision
         # (silent return here previously let the 2nd request bypass BLOCK).
@@ -429,9 +443,6 @@ class BrowserAIInterceptor:
             return
 
         print(f"[UnifAI Proxy] Intercepted prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
-        mark_duplicate_event(domain, prompt)
-        clear_composer_state(domain)
-
         allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
             platform=platform,
             domain=domain,
@@ -440,6 +451,8 @@ class BrowserAIInterceptor:
             url=flow.request.url,
             method=flow.request.method,
         )
+        mark_duplicate_event(domain, prompt)
+        clear_composer_state(domain)
 
         if not allowed:
             if (action or "").lower() in ("bot answered", "replied"):
@@ -601,15 +614,15 @@ class BrowserAIInterceptor:
                     msg.text = new_content
             return
 
-        if "batchexecute" in ws_path.lower() and not is_gemini_chat_submit(ws_path, content):
+        if "batchexecute" in ws_path.lower() and not is_batchexecute_chat_submit(ws_path, content):
             return
-        if is_copilot_noise_content(content):
+        if is_event_sync_noise_content(content):
             return
         if not is_chat_path(ws_path, host, content):
             return
 
-        chatgpt_shaped = _looks_like_chatgpt_body(content)
-        if not chatgpt_shaped and is_noise(ws_path, content):
+        messages_parts_shaped = _looks_like_messages_parts_body(content)
+        if not messages_parts_shaped and is_noise(ws_path, content):
             return
 
         # File attachment Send must hit Block Upload / file rules (finished Send only)
@@ -643,7 +656,7 @@ class BrowserAIInterceptor:
 
         # Copilot/Edge image or file frames must not fall through as garbled text prompts.
         if (
-            (copilot_carries_binary_attach(content) or chat_carries_attachment(content) or chatgpt_carries_file(content))
+            (event_send_carries_binary_attach(content) or chat_carries_attachment(content) or messages_parts_carries_file(content))
             and not (ws_has_prompt and ws_prompt and len((ws_prompt or "").strip()) <= 320)
         ):
             return
@@ -659,12 +672,15 @@ class BrowserAIInterceptor:
 
         if is_unsubmitted_chat_body(flow.request.path, content):
             return
-        if is_composer_typing_draft(domain, prompt):
-            return
-        stable = wait_if_composer_unstable(domain, prompt)
-        if stable is None:
-            return
-        prompt = stable
+        # Confident chat shapes: predict immediately (same as HTTP path).
+        confident_ws = _is_confident_chat_send(flow.request.path, content, ws_bytes)
+        if not confident_ws:
+            if is_composer_typing_draft(domain, prompt):
+                return
+            stable = wait_if_composer_unstable(domain, prompt)
+            if stable is None:
+                return
+            prompt = stable
 
         if is_duplicate_event(domain, prompt, ttl=DEDUPE_TTL, mark=False):
             decision = get_remembered_guard_decision(domain, prompt)
@@ -695,9 +711,6 @@ class BrowserAIInterceptor:
 
         client_ip = get_client_ip(flow)
         print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {prompt[:80]!r}")
-        mark_duplicate_event(domain, prompt)
-        clear_composer_state(domain)
-
         allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
             platform=platform,
             domain=domain,
@@ -706,6 +719,8 @@ class BrowserAIInterceptor:
             url=flow.request.url,
             method="WS",
         )
+        mark_duplicate_event(domain, prompt)
+        clear_composer_state(domain)
 
         if not allowed:
             if (action or "").lower() in ("bot answered", "replied"):
