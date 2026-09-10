@@ -73,8 +73,22 @@ _LAST_HEALTH: dict = {}
 
 
 def exe_dir() -> str:
+    """Directory for config next to the Guard binary / .app.
+
+    Frozen layouts:
+    - Windows: folder containing UnifAI_Guard.exe
+    - macOS .app: Contents/Resources (preferred) or folder containing UnifAI_Guard.app
+    """
     if getattr(sys, "frozen", False):
-        return os.path.dirname(os.path.abspath(sys.executable))
+        d = os.path.dirname(os.path.abspath(sys.executable))
+        norm = d.replace("\\", "/")
+        if norm.endswith("/Contents/MacOS"):
+            resources = os.path.abspath(os.path.join(d, "..", "Resources"))
+            if os.path.isdir(resources):
+                return resources
+            # Parent of UnifAI_Guard.app (portable zip next to .app)
+            return os.path.abspath(os.path.join(d, "..", "..", ".."))
+        return d
     return os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
 

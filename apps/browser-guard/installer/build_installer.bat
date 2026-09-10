@@ -29,7 +29,7 @@ echo.
 echo ============================================================
 echo  1) Building UnifAI_Guard.exe  (embeds latest browser_ai_proxy.py)
 echo ============================================================
-python build\build_agent.py
+python installer\build_agent.py
 if errorlevel 1 (
   echo EXE build failed.
   exit /b 1

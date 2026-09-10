@@ -1,0 +1,50 @@
+UnifAI Guard macOS — Turn OFF / Uninstall
+========================================
+
+Windows equivalent:
+  Settings → Apps → UnifAI Guard → Uninstall
+  (prompts for company uninstall key)
+
+macOS — do this:
+---------------
+1. Open the Setup ZIP folder (or /Applications after install).
+2. Double-click Uninstall_UnifAI_Guard.command
+   - If blocked: Right-click → Open → Open
+3. Enter the company uninstall key from Browser AI → Setup (IT).
+4. Wait until the success dialog appears.
+5. Fully quit and reopen all browsers (Cmd+Q).
+
+What uninstall does (same as Windows):
+- Verifies uninstall key with UnifAI backend
+- Clears system Auto Proxy URL (PAC) — Guard monitoring OFF
+- Removes LaunchAgent (will not start at next login)
+- Stops the Guard process
+- Deletes UnifAI_Guard.app from /Applications
+
+Manual / IT fallback (Terminal)
+-------------------------------
+# Preferred — same key check as the GUI:
+"/Applications/UnifAI_Guard.app/Contents/MacOS/UnifAI_Guard" --uninstall-prompt
+
+# Or with key on the command line:
+"/Applications/UnifAI_Guard.app/Contents/MacOS/UnifAI_Guard" --uninstall "YOUR_KEY"
+
+# Then remove leftovers if needed:
+launchctl unload ~/Library/LaunchAgents/com.unifai.guard.plist 2>/dev/null
+rm -f ~/Library/LaunchAgents/com.unifai.guard.plist
+pkill -f UnifAI_Guard
+rm -rf /Applications/UnifAI_Guard.app
+
+# Optional — delete local logs/agent id (not required):
+# rm -rf ~/Library/Application\ Support/UnifAI/Guard
+
+Admin remote uninstall
+----------------------
+Browser AI → Agents → request uninstall on the Mac agent.
+On next heartbeat Guard clears PAC/autostart and exits (no employee key).
+Same behavior as Windows.
+
+IMPORTANT
+---------
+Just killing the app without --uninstall may leave PAC on and break browsing.
+Always use Uninstall_UnifAI_Guard.command (or --uninstall) to turn Guard OFF cleanly.

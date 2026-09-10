@@ -9,7 +9,8 @@ No separate dashboard.
 
 Mode A — Laptop (endpoint)  [default]
 -------------------------------------
-  Install: release\UnifAI_Guard_Setup.exe on each PC
+  Install: release\UnifAI_Guard_Setup.exe on each Windows PC
+  Install: release\UnifAI_Guard_macOS.zip on each Mac (Install_UnifAI_Guard.command)
   Listens: 127.0.0.1:8085
   PAC: applied on that PC only
   agent_type: endpoint

@@ -2,15 +2,16 @@
 UnifAI Guard — Company Release Notes
 ====================================
 
-Employee file to distribute:
-  release\UnifAI_Guard_Setup.exe
+Employee files to distribute:
+  Windows: release\UnifAI_Guard_Setup.exe
+  macOS:   release\UnifAI_Guard_macOS.zip
 
 Configured backend:
   https://unifaiv2.dev-yp.com
 
 Hybrid (laptop + network, ONE Browser AI dashboard):
   See HYBRID_DEPLOY.txt in this folder (parent apps\browser-guard).
-  Laptop EXE and docker network proxy share the same rules + Prompt Logs.
+  Laptop EXE/.app and docker network proxy share the same rules + Prompt Logs.
 
 BEFORE company rollout — verify server APIs return JSON (not HTML):
   https://unifaiv2.dev-yp.com/health
@@ -23,15 +24,24 @@ BEFORE company rollout — verify server APIs return JSON (not HTML):
 If /api/browser-ai/* returns the UnifAI web page HTML, deploy the latest
 backend that includes Browser AI routes, then re-test.
 
-Rebuild installer anytime:
-  installer\build_installer.bat
+Rebuild installers:
+  Windows: installer\build_installer.bat
+  macOS:   ./installer/build_macos.sh   (must run on a Mac, Python 3.11+)
+
+Uninstall / turn OFF
+--------------------
+  Windows: Settings → Apps → UnifAI Guard → Uninstall (company key)
+  macOS:   Uninstall_UnifAI_Guard.command (same company key)
 
 Packaging structure
 -------------------
-dist\UnifAI_Guard.exe            Raw standalone agent build
-dist\unifai_guard_config.json    Raw agent config
+dist\UnifAI_Guard.exe            Raw standalone Windows agent build
+dist\UnifAI_Guard.app            Raw macOS app (after Mac build)
 installer\UnifAI_Guard.iss       Inno Setup source
-installer\build_installer.bat    Rebuilds staging + setup EXE
-installer\EMPLOYEE_README.txt    Included in installer package
-installer\staging\               Temporary/generated build staging
-release\UnifAI_Guard_Setup.exe   Final employee installer
+installer\build_installer.bat    Rebuilds Windows staging + setup EXE
+installer\build_macos.sh         Rebuilds Mac .app + UnifAI_Guard_macOS.zip
+installer\EMPLOYEE_README.txt    Windows employee readme
+installer\EMPLOYEE_README_MAC.txt Mac employee readme
+installer\staging\               Temporary/generated Windows build staging
+release\UnifAI_Guard_Setup.exe   Final Windows employee installer
+release\UnifAI_Guard_macOS.zip   Final Mac employee package

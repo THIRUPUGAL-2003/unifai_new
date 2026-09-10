@@ -1,0 +1,24 @@
+UnifAI Guard macOS install (v1.6.21)
+===================================
+
+1. Fully quit old Guard if running:
+   - Activity Monitor → quit "UnifAI Guard", OR
+   - Terminal: pkill -f UnifAI_Guard ; launchctl unload ~/Library/LaunchAgents/com.unifai.guard.plist
+2. Unzip UnifAI_Guard_macOS.zip (must match VERSION.txt = 1.6.21).
+3. Double-click Install_UnifAI_Guard.command
+   (Right-click → Open if Gatekeeper blocks)
+   Installs to /Applications/UnifAI_Guard.app and starts Guard.
+4. Open http://127.0.0.1:18085/ — version must show 1.6.21, proxy_port OK.
+5. Guard Agents UI → Active row must show Version 1.6.21.
+6. Fully quit browsers (Cmd+Q) and reopen.
+7. Test Target Website + upload / Send.
+
+TURN OFF / UNINSTALL
+--------------------
+See UNINSTALL_MACOS.txt (same company uninstall key as Windows).
+Quick path: double-click Uninstall_UnifAI_Guard.command
+
+Notes:
+- Build on a Mac: installer/build_macos.sh → release/UnifAI_Guard_macOS.zip
+- Website Download ZIP must be rebuilt/deployed on the server after each agent rebuild.
+- Unsigned builds: employees may need Right-click → Open the first time.
