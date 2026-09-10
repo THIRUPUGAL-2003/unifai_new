@@ -582,9 +582,35 @@ func browserAISetupCandidates() map[string][]string {
 			filepath.Join("apps", "browser-guard", "dist", "UnifAI_Guard.exe"),
 			filepath.Join("release", "UnifAI_Guard.exe"),
 		},
+		// macOS employee package (PyInstaller .app + install/uninstall scripts).
+		"UnifAI_Guard_macOS.zip": {
+			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_macOS.zip"),
+			filepath.Join("release", "UnifAI_Guard_macOS.zip"),
+		},
 		"INSTALL_WINDOWS.txt": {
 			filepath.Join("apps", "browser-guard", "release", "INSTALL_WINDOWS.txt"),
 			filepath.Join("release", "INSTALL_WINDOWS.txt"),
+		},
+		"INSTALL_MACOS.txt": {
+			filepath.Join("apps", "browser-guard", "release", "INSTALL_MACOS.txt"),
+			filepath.Join("release", "INSTALL_MACOS.txt"),
+		},
+		"UNINSTALL_MACOS.txt": {
+			filepath.Join("apps", "browser-guard", "release", "UNINSTALL_MACOS.txt"),
+			filepath.Join("release", "UNINSTALL_MACOS.txt"),
+		},
+		"EMPLOYEE_README_MAC.txt": {
+			filepath.Join("apps", "browser-guard", "release", "EMPLOYEE_README_MAC.txt"),
+			filepath.Join("apps", "browser-guard", "installer", "EMPLOYEE_README_MAC.txt"),
+			filepath.Join("release", "EMPLOYEE_README_MAC.txt"),
+		},
+		"Install_UnifAI_Guard.command": {
+			filepath.Join("apps", "browser-guard", "release", "Install_UnifAI_Guard.command"),
+			filepath.Join("apps", "browser-guard", "installer", "Install_UnifAI_Guard.command"),
+		},
+		"Uninstall_UnifAI_Guard.command": {
+			filepath.Join("apps", "browser-guard", "release", "Uninstall_UnifAI_Guard.command"),
+			filepath.Join("apps", "browser-guard", "installer", "Uninstall_UnifAI_Guard.command"),
 		},
 		"VERSION.txt": {
 			filepath.Join("apps", "browser-guard", "release", "VERSION.txt"),
@@ -653,6 +679,7 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 
 	setupPath, setupOK := findFirstExisting(browserAISetupCandidates()["UnifAI_Guard_Setup.exe"])
 	exePath, exeOK := findFirstExisting(browserAISetupCandidates()["UnifAI_Guard.exe"])
+	macZipPath, macZipOK := findFirstExisting(browserAISetupCandidates()["UnifAI_Guard_macOS.zip"])
 
 	// Stale Setup.exe was shipping Active agents as 1.6.0 while source was 1.6.17+.
 	// If portable EXE is newer, omit Setup so Download cannot install the old binary.
@@ -669,15 +696,27 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 	if exeOK {
 		assets = append(assets, zipAsset{name: "UnifAI_Guard.exe", path: exePath})
 	}
-	for _, name := range []string{"INSTALL_WINDOWS.txt", "VERSION.txt"} {
+	if macZipOK {
+		assets = append(assets, zipAsset{name: "UnifAI_Guard_macOS.zip", path: macZipPath})
+	}
+	for _, name := range []string{
+		"INSTALL_WINDOWS.txt",
+		"INSTALL_MACOS.txt",
+		"UNINSTALL_MACOS.txt",
+		"EMPLOYEE_README_MAC.txt",
+		"Install_UnifAI_Guard.command",
+		"Uninstall_UnifAI_Guard.command",
+		"VERSION.txt",
+	} {
 		if path, ok := findFirstExisting(browserAISetupCandidates()[name]); ok {
 			assets = append(assets, zipAsset{name: name, path: path})
 		}
 	}
 
 	hasWindows := setupOK || exeOK
-	if !hasWindows {
-		SendError(ctx, fasthttp.StatusNotFound, "No Guard installer on server — add UnifAI_Guard.exe / UnifAI_Guard_Setup.exe under apps/browser-guard/release/")
+	hasMac := macZipOK
+	if !hasWindows && !hasMac {
+		SendError(ctx, fasthttp.StatusNotFound, "No Guard installer on server — add UnifAI_Guard.exe / UnifAI_Guard_Setup.exe and/or UnifAI_Guard_macOS.zip under apps/browser-guard/release/")
 		return
 	}
 	if len(assets) == 0 {

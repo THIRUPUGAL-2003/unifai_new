@@ -3934,7 +3934,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									{agents.length === 0 && (
 										<TableRow>
 											<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
-												No Guard agents yet. Install UnifAI_Guard_Setup.exe on laptops and/or run the network proxy (docker compose unifai_broswer_proxy or Guard with server_mode). Same dashboard for both.
+												No Guard agents yet. Install UnifAI_Guard_Setup.exe (Windows) or UnifAI_Guard_macOS.zip (Mac) on laptops and/or run the network proxy (docker compose unifai_broswer_proxy or Guard with server_mode). Same dashboard for both.
 											</TableCell>
 										</TableRow>
 									)}
@@ -4021,7 +4021,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 							<div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
 								<div>
 									<p className="text-sm font-medium">Require uninstall key</p>
-									<p className="text-xs text-muted-foreground">When off, Windows uninstall proceeds without a key check.</p>
+									<p className="text-xs text-muted-foreground">When off, Windows/macOS uninstall proceeds without a key check.</p>
 								</div>
 								<Switch
 									checked={!!agentSettings?.require_uninstall_key}
@@ -4161,7 +4161,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 									<div>
 										<CardTitle className="text-lg">Employee Setup Package</CardTitle>
 										<CardDescription>
-											Windows Guard setup ZIP for employee laptops.
+											Windows + macOS Guard setup ZIP for employee laptops.
 										</CardDescription>
 									</div>
 								</div>
@@ -4173,8 +4173,10 @@ type RelatedHostEntry = { host: string; role: HostRole };
 						</CardHeader>
 						<CardContent className="pt-0">
 							<p className="text-sm text-muted-foreground">
-								ZIP includes <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> and/or{" "}
-								<code className="bg-black/40 px-1 rounded">UnifAI_Guard.exe</code>. Backend URL is already baked in.
+								ZIP includes Windows <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> /{" "}
+								<code className="bg-black/40 px-1 rounded">UnifAI_Guard.exe</code>
+								{" "}and/or macOS <code className="bg-black/40 px-1 rounded">UnifAI_Guard_macOS.zip</code>.
+								{" "}Backend URL is already baked in.
 							</p>
 							{setupPackageError ? <p className="mt-3 text-sm text-red-400">{setupPackageError}</p> : null}
 						</CardContent>
@@ -4183,7 +4185,7 @@ type RelatedHostEntry = { host: string; role: HostRole };
 					<Card className="bg-card border-border">
 						<CardHeader>
 							<CardTitle className="text-lg">Install Steps</CardTitle>
-							<CardDescription>Download the ZIP and run the Windows installer on the employee laptop.</CardDescription>
+							<CardDescription>Download the ZIP and install Guard on Windows or Mac employee laptops.</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<div className="space-y-4">
@@ -4198,11 +4200,26 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 							<div className="space-y-4">
 								<div className="flex items-center gap-2 font-semibold">
-									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">2</span>
+									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">2a</span>
 									<span>Windows laptop</span>
 								</div>
 								<p className="text-xs text-muted-foreground pl-8">
 									Run <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code>. Keep autostart enabled so Guard starts at Windows login.
+									To turn OFF / uninstall: Windows Settings → Apps → UnifAI Guard → Uninstall (company uninstall key).
+								</p>
+							</div>
+
+							<div className="space-y-4">
+								<div className="flex items-center gap-2 font-semibold">
+									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">2b</span>
+									<span>Mac laptop</span>
+								</div>
+								<p className="text-xs text-muted-foreground pl-8">
+									Unzip <code className="bg-black/40 px-1 rounded">UnifAI_Guard_macOS.zip</code>, then double-click{" "}
+									<code className="bg-black/40 px-1 rounded">Install_UnifAI_Guard.command</code>
+									{" "}(Right-click → Open if Gatekeeper blocks). See <code className="bg-black/40 px-1 rounded">INSTALL_MACOS.txt</code>.
+									To turn OFF / uninstall: double-click <code className="bg-black/40 px-1 rounded">Uninstall_UnifAI_Guard.command</code>
+									{" "}and enter the same company uninstall key (<code className="bg-black/40 px-1 rounded">UNINSTALL_MACOS.txt</code>).
 								</p>
 							</div>
 
@@ -4221,8 +4238,10 @@ type RelatedHostEntry = { host: string; role: HostRole };
 								<p className="font-semibold text-foreground">ZIP contents (when built &amp; deployed)</p>
 								<ul className="list-disc pl-5 text-muted-foreground space-y-1">
 									<li><code>UnifAI_Guard_Setup.exe</code> — Windows employee installer</li>
-									<li><code>UnifAI_Guard.exe</code> — portable / latest build (when included)</li>
-									<li><code>INSTALL_WINDOWS.txt</code> / <code>VERSION.txt</code></li>
+									<li><code>UnifAI_Guard.exe</code> — Windows portable / latest build (when included)</li>
+									<li><code>UnifAI_Guard_macOS.zip</code> — Mac .app + Install / Uninstall scripts</li>
+									<li><code>INSTALL_WINDOWS.txt</code> / <code>INSTALL_MACOS.txt</code> / <code>UNINSTALL_MACOS.txt</code></li>
+									<li><code>VERSION.txt</code></li>
 								</ul>
 							</div>
 						</CardContent>
