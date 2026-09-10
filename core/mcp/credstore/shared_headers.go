@@ -26,10 +26,15 @@ func (r *sharedHeadersResolver) ConnectionHeaders(_ *schemas.UnifAIContext, conf
 	// match case-insensitively (consistent with utils.StaticConfigHeaders'
 	// Authorization exclusion) to keep the security guarantee tight.
 	for key, value := range config.Headers {
-		if strings.EqualFold(key, "Authorization") {
-			headers.Set("Authorization", value.GetValue())
-			break
+		if !strings.EqualFold(key, "Authorization") {
+			continue
 		}
+		// Never send an empty Authorization — it triggers confusing 401s
+		// upstream when the admin left the field blank.
+		if v := strings.TrimSpace(value.GetValue()); v != "" {
+			headers.Set("Authorization", v)
+		}
+		break
 	}
 	return headers, nil
 }

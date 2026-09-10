@@ -82,7 +82,9 @@ func StaticConfigHeaders(config *schemas.MCPClientConfig) http.Header {
 		if matchesPerUserHeaderKey(key, config.PerUserHeaderKeys) {
 			continue
 		}
-		headers.Add(key, value.GetValue())
+		if v := strings.TrimSpace(value.GetValue()); v != "" {
+			headers.Add(key, v)
+		}
 	}
 	return headers
 }

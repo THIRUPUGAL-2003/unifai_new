@@ -632,6 +632,22 @@ func (h *MCPHandler) addMCPClient(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	// Headers auth must carry at least one non-empty header value — otherwise
+	// connect fails with a confusing upstream 401 instead of a clear 400.
+	if req.AuthType == string(schemas.MCPAuthTypeHeaders) {
+		hasValue := false
+		for _, sv := range req.Headers {
+			if strings.TrimSpace(sv.GetValue()) != "" || strings.TrimSpace(sv.GetRef()) != "" {
+				hasValue = true
+				break
+			}
+		}
+		if !hasValue {
+			SendError(ctx, fasthttp.StatusBadRequest, "auth_type 'headers' requires at least one header with a value (e.g. Authorization)")
+			return
+		}
+	}
+
 	// Reject duplicates before OAuth pending / connect so users never rename to canva2 after a late 409.
 	if _, err := h.store.ConfigStore.GetMCPClientByName(ctx, req.Name); err == nil {
 		SendError(ctx, fasthttp.StatusConflict, "An MCP client with this name already exists")

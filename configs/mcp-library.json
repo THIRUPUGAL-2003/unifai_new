@@ -1,6 +1,54 @@
 {
-  "lastUpdatedAt": "2026-09-09T19:41:54Z",
+  "lastUpdatedAt": "2026-09-09T19:40:28Z",
   "servers": [
+    {
+      "name": "AdisInsight",
+      "description": "AdisInsight provides pharmaceutical drug and clinical trial intelligence powered by Springer Nature. Its MCP connector gives assistants context for exploring drug pipelines, clinical trials, competitive landscapes, development history, adverse events, and regulatory milestones.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://adisinsight-mcp.springer.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "adisinsight",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/adisinsight",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=adisinsight-mcp.springer.com&sz=128"
+    },
+    {
+      "name": "Adobe Experience Manager",
+      "description": "Adobe Experience Manager lets users create, edit, search, and publish pages or content fragments by describing the work in natural language. The MCP connector supports content updates, campaign-page searches, and launch scheduling while respecting existing AEM permissions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.adobeaemcloud.com/adobe/mcp/aem",
+      "auth_type": "oauth",
+      "publisher": "adobe",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/adobe-experience-manager",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/adobe.svg"
+    },
+    {
+      "name": "Adobe for creativity",
+      "description": "Adobe for creativity connects Photoshop, Lightroom, Illustrator, Firefly, Premiere, Express, InDesign, and Stock capabilities to AI-assisted creative work. Users can create, edit, and refine photos, design assets, and video projects through natural language while keeping work tied to an Adobe account.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://adobe-creativity.adobe.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "adobe",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/adobe-creativity",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "/images/mcp-servers/adobe.svg"
+    },
     {
       "name": "Adobe Journey Optimizer",
       "description": "Adobe Journey Optimizer helps teams inspect, summarize, and troubleshoot journeys, campaigns, offers, and channel configurations. Its MCP connector turns AJO retrieve APIs into plain-language context for reviewing statuses, finding draft issues, and understanding orchestration portfolios.",
@@ -322,6 +370,38 @@
       "icon_url": "https://www.google.com/s2/favicons?domain=b12.io&sz=128"
     },
     {
+      "name": "Base44",
+      "description": "Base44 is an AI app-building platform where full applications are created and edited from natural-language descriptions. Its remote MCP server lets assistants create and manage Base44 apps, backend logic, and data without leaving the conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.base44.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "base44",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/base44",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.base44.com&sz=128"
+    },
+    {
+      "name": "Benevity",
+      "description": "Benevity is a corporate purpose platform for workplace giving and volunteering. Its public remote MCP server lets assistants search a database of more than 2.3 million verified nonprofit organizations and surface relevant causes.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.benevity.org/general/v1/nonprofit",
+      "auth_type": "oauth",
+      "publisher": "benevity",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/benevity",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.benevity.org&sz=128"
+    },
+    {
       "name": "Bigdata.com",
       "description": "Bigdata.com provides institutional-grade financial data covering global news, transcripts, and regulatory filings. Its MCP server combines entity-aware search with assistant reasoning so analysts can run due diligence and produce cited finance research from grounded sources.",
       "category": "Productivity",
@@ -336,6 +416,102 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/bigdata.png"
+    },
+    {
+      "name": "BioRender",
+      "description": "BioRender is a platform for creating publication-quality scientific figures and illustrations. Its remote MCP server connects assistants to BioRender's icon library and figure tools so scientific visuals can be drafted and refined as part of research workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.services.biorender.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "biorender",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/biorender",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.services.biorender.com&sz=128"
+    },
+    {
+      "name": "Bitly",
+      "description": "Bitly is a link management platform for branded short links, QR codes, and engagement analytics. Its remote MCP server gives assistants tools to create and manage links and codes, inspect performance, and work with organization settings.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api-ssl.bitly.com/v4/mcp",
+      "auth_type": "oauth",
+      "publisher": "bitly",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/bitly",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api-ssl.bitly.com&sz=128"
+    },
+    {
+      "name": "Blackbaud",
+      "description": "Blackbaud provides fundraising, nonprofit, and education software. Its remote MCP server brings live constituent, event, and donation data from Blackbaud's SKY API into assistant workflows for natural-language exploration and analysis.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.sky.blackbaud.com/",
+      "auth_type": "oauth",
+      "publisher": "blackbaud",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/blackbaud",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.sky.blackbaud.com&sz=128"
+    },
+    {
+      "name": "Blockscout",
+      "description": "Blockscout provides multichain blockchain data such as balances, tokens, NFTs, and contract metadata. Its MCP connector gives assistants blockchain context for research, analysis, verification, and cross-chain questions that need structured on-chain information.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.blockscout.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "blockscout",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/blockscout",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.blockscout.com&sz=128"
+    },
+    {
+      "name": "BoardWise",
+      "description": "BoardWise is a read-only educational MCP server for licensed professionals facing state licensing-board matters. It helps assistants find jurisdiction-specific deadlines, outline responses, and surface curated educational resources while avoiding legal-advice claims.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://uakozrqrztgrgwoywxkx.supabase.co/functions/v1/mcp-server",
+      "auth_type": "oauth",
+      "publisher": "boardwise",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/boardwise",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=uakozrqrztgrgwoywxkx.supabase.co&sz=128"
+    },
+    {
+      "name": "Booking.com",
+      "description": "Booking.com helps travelers search, compare, and choose hotels, homes, and other stays. Its MCP connector brings accommodation options, filters, ratings, facilities, prices, and trip preferences into assistant workflows for faster lodging research.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://demandapi-mcp.booking.com/v1/mcp/8132308",
+      "auth_type": "oauth",
+      "publisher": "booking",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/booking",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=demandapi-mcp.booking.com&sz=128"
     },
     {
       "name": "Box",
@@ -354,6 +530,22 @@
       "icon_url": "/images/mcp-servers/box.png"
     },
     {
+      "name": "Brex",
+      "description": "Brex is a spend management platform covering corporate cards, expenses, travel, and bill pay. Its remote MCP server gives assistants governed access to company spend data so expenses can be monitored, policies checked, and finance questions answered with live account context.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.brex.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "brex",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/brex",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.brex.com&sz=128"
+    },
+    {
       "name": "Calendly",
       "description": "Calendly is a scheduling platform for booking meetings without back-and-forth email. Its remote MCP server lets assistants check availability, look up scheduled events, and manage booking links using the calendar setup users already maintain in Calendly.",
       "category": "Productivity",
@@ -368,6 +560,38 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/calendly.svg"
+    },
+    {
+      "name": "Campfire",
+      "description": "Campfire is an enterprise resource planning platform for finance and operations teams. Its remote MCP server lets assistants search projects, contacts, and financials, generate analysis, and prepare decision-ready material from live ERP data.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.meetcampfire.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "campfire",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/campfire",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.meetcampfire.com&sz=128"
+    },
+    {
+      "name": "Candid",
+      "description": "Candid provides nonprofit and funder intelligence for the social sector. Its remote MCP server lets assistants search millions of organizations, discover funding opportunities, and retrieve expert knowledge and sector news in conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.candid.org/mcp",
+      "auth_type": "oauth",
+      "publisher": "candid",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/candid",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.candid.org&sz=128"
     },
     {
       "name": "Canva",
@@ -402,6 +626,86 @@
       "icon_url": "/images/mcp-servers/carta.png"
     },
     {
+      "name": "Cash App",
+      "description": "Order by Cash App brings local food ordering into assistant workflows. It helps users discover nearby restaurants, compare menus, customize orders, and check out through supported clients while keeping the ordering experience inside the conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://connect.squareup.com/v2/mcp/cash-app",
+      "auth_type": "oauth",
+      "publisher": "cash",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/cash-app",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=connect.squareup.com&sz=128"
+    },
+    {
+      "name": "CB Insights",
+      "description": "CB Insights provides predictive intelligence on private companies, markets, deals, and technology trends. Its MCP connector gives assistants company profiles, market-map context, investment-research signals, and competitor-monitoring data for private-market workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.cbinsights.com",
+      "auth_type": "oauth",
+      "publisher": "cb",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/cb-insights",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.cbinsights.com&sz=128"
+    },
+    {
+      "name": "CData Connect AI",
+      "description": "CData Connect AI is a managed data-access platform spanning more than 350 enterprise sources including Salesforce, Snowflake, and NetSuite. Its remote MCP server adds semantic context, granular permissions, and audit trails to cross-system analysis.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.cloud.cdata.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "cdata",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/cdata-connect-ai",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.cloud.cdata.com&sz=128"
+    },
+    {
+      "name": "Chronograph",
+      "description": "Chronograph connects private-investment portfolio data to assistant workflows. Its connector lets users query portfolio information, analyze investments, search entities, retrieve performance metrics, and access Chronograph help documentation from programmatic portfolio context.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://ai.chronograph.pe/mcp",
+      "auth_type": "oauth",
+      "publisher": "chronograph",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/chronograph",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai.chronograph.pe&sz=128"
+    },
+    {
+      "name": "Circleback",
+      "description": "Circleback is an AI meeting assistant that produces structured notes, transcripts, and action items. Its remote MCP server brings that meeting context into assistant workflows so past conversations, decisions, and follow-ups can be searched and referenced.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.circleback.ai/api/mcp",
+      "auth_type": "oauth",
+      "publisher": "circleback",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/circleback",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.circleback.ai&sz=128"
+    },
+    {
       "name": "Clarify",
       "description": "Clarify is a conversational CRM connector for retrieving, creating, and updating sales records. It helps assistants query deals, companies, people, meetings, tasks, and pipeline context while respecting real-time Clarify data and permissions.",
       "category": "Productivity",
@@ -416,6 +720,38 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/clarify.png"
+    },
+    {
+      "name": "Clarity AI",
+      "description": "Clarity AI helps investment and compliance teams simulate fund classifications under the proposed SFDR 2.0 framework. Its MCP connector searches funds and applies Clarity AI regulatory data and modelling to support ESG and transition-planning workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://clarity-sfdr20-mcp.pro.clarity.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "clarity",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/clarity-ai",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=clarity-sfdr20-mcp.pro.clarity.ai&sz=128"
+    },
+    {
+      "name": "Clay",
+      "description": "Clay is a go-to-market platform for prospecting, data enrichment, and outbound workflows. Its remote MCP server lets assistants search companies and people, enrich records from dozens of data providers, and drive GTM tables using natural language.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.clay.com/v3/mcp",
+      "auth_type": "oauth",
+      "publisher": "clay",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/clay",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.clay.com&sz=128"
     },
     {
       "name": "Clerk",
@@ -450,6 +786,38 @@
       "icon_url": "/images/mcp-servers/clickup.svg"
     },
     {
+      "name": "Clockwise",
+      "description": "Clockwise helps teams schedule meetings, protect focus time, and coordinate calendars across working hours, time zones, and participant constraints. Its MCP connector gives assistants scheduling context for rescheduling, time blocking, and complex meeting coordination.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.getclockwise.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "clockwise",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/clockwise",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.getclockwise.com&sz=128"
+    },
+    {
+      "name": "Close",
+      "description": "Close is a CRM built for inside sales teams, combining leads, calls, email, and pipeline management. Its remote MCP server gives assistants direct access to CRM data so leads can be looked up, activity summarized, and records updated from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.close.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "close",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/close",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.close.com&sz=128"
+    },
+    {
       "name": "Cloudflare",
       "description": "Cloudflare is an application, security, and developer platform spanning Workers, storage, networking, DNS, and account APIs. Its official MCP server gives assistants structured Cloudflare context for inspecting resources, planning infrastructure changes, and working across Cloudflare services.",
       "category": "Productivity",
@@ -482,6 +850,22 @@
       "icon_url": "/images/mcp-servers/cloudinary.svg"
     },
     {
+      "name": "Codex Resets",
+      "description": "Codex Resets tracks OpenAI Codex usage-limit reset announcements and history so you do not have to watch the feed. Its public remote MCP server lets assistants check the latest reset, review past announcements, and answer when Codex limits were last replenished.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://codex-resets.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "codex",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/codex-resets",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=codex-resets.com&sz=128"
+    },
+    {
       "name": "CoinDesk",
       "description": "CoinDesk Data and Indices provides real-time and historical digital asset market data, regulated indices, benchmarks, spot prices, derivatives data, and exchange metrics. Its connector gives assistants crypto-market context for trader, analyst, and research workflows.",
       "category": "Productivity",
@@ -496,6 +880,70 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/coindesk.png"
+    },
+    {
+      "name": "Common Room",
+      "description": "Common Room is a customer intelligence platform that unifies product, community, and social signals for go-to-market teams. Its remote MCP server lets assistants query member activity, account signals, and engagement data to inform sales and community work.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.commonroom.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "common",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/common-room",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.commonroom.io&sz=128"
+    },
+    {
+      "name": "Conductor",
+      "description": "Conductor is a platform for running coding agents in isolated cloud workspaces. Its hosted MCP server lets assistants create workspaces, start agent sessions, follow their progress, and read results using the organization you sign in with.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.conductor.build/mcp",
+      "auth_type": "oauth",
+      "publisher": "conductor",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/conductor",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.conductor.build&sz=128"
+    },
+    {
+      "name": "Consensus",
+      "description": "Consensus connects assistants to a large corpus of peer-reviewed academic research. Its MCP connector supports searching, synthesizing, and building structured research outputs from scientific papers so answers can be grounded in scholarly sources.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.consensus.app/mcp",
+      "auth_type": "oauth",
+      "publisher": "consensus",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/consensus",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.consensus.app&sz=128"
+    },
+    {
+      "name": "Contentsquare",
+      "description": "Contentsquare is an experience analytics platform that captures and analyzes user behavior across digital products. Its connector gives assistants analytics context for understanding what users do, why patterns emerge, and how product teams can investigate behavior.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.contentsquare.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "contentsquare",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/contentsquare",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.contentsquare.com&sz=128"
     },
     {
       "name": "Context7",
@@ -514,6 +962,54 @@
       "icon_url": "/images/mcp-servers/context7.svg"
     },
     {
+      "name": "Control Plane",
+      "description": "Control Plane is a platform for running cloud-native workloads across multiple clouds and regions from a single control plane. Its remote MCP server lets assistants inspect and manage workloads, GVCs, and related infrastructure resources in a Control Plane organization directly from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.cpln.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "control",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/control-plane",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.cpln.io&sz=128"
+    },
+    {
+      "name": "COROS",
+      "description": "COROS is a sports technology company making GPS watches and training tools for endurance athletes. Its remote MCP server bridges COROS training history into assistant workflows, giving access to workout records, fitness metrics like VO2max and training load, and daily health data such as sleep, heart rate, and HRV.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.coros.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "coros",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/coros",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.coros.com&sz=128"
+    },
+    {
+      "name": "Cortellis Regulatory Intelligence",
+      "description": "Cortellis Regulatory Intelligence is Clarivate's database of global drug regulatory guidance, requirements, and agency correspondence. Its remote MCP server gives life-sciences teams assistant access to regulatory documents and intelligence for research and compliance work.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.clarivate.com/lifesciences/mcp-regulatory/mcp",
+      "auth_type": "oauth",
+      "publisher": "cortellis",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/cortellis-regulatory-intelligence",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.clarivate.com&sz=128"
+    },
+    {
       "name": "Coupler.io",
       "description": "Coupler.io connects marketing, sales, finance, ecommerce, and other business data from hundreds of sources. Its connector lets assistants query Coupler.io data flows, transform raw platform metrics, and turn multi-channel information into analysis-ready business insight.",
       "category": "Productivity",
@@ -530,6 +1026,38 @@
       "icon_url": "/images/mcp-servers/coupler.png"
     },
     {
+      "name": "CourtListener",
+      "description": "CourtListener is Free Law Project's legal research platform for U.S. court opinions, PACER dockets, judge profiles, oral arguments, and citation data. Its connector grounds assistants in primary legal records while supporting citation checks and docket-aware research.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.courtlistener.com/",
+      "auth_type": "oauth",
+      "publisher": "courtlistener",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/courtlistener",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.courtlistener.com&sz=128"
+    },
+    {
+      "name": "Courtroom5",
+      "description": "Courtroom5 provides jurisdiction-aware civil legal guidance for self-represented litigants across U.S. states. Its connector supports case intake, procedural deadline calculations, and next-step guidance while keeping outputs framed as informational support rather than legal advice.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.courtroom5.com/v1",
+      "auth_type": "oauth",
+      "publisher": "courtroom5",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/courtroom5",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.courtroom5.com&sz=128"
+    },
+    {
       "name": "Craft",
       "description": "Craft helps users create structured documents, manage tasks, and organize a personal knowledge base. Its connector gives assistants a persistent workspace for saving research, drafting content, tracking to-dos, and arranging information into folders.",
       "category": "Productivity",
@@ -544,6 +1072,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/craft.png"
+    },
+    {
+      "name": "Credit Karma",
+      "description": "Credit Karma is Intuit's personal finance platform for credit scores, reports, and financial recommendations. Its remote MCP server lets assistants reference a member's credit and financial picture to answer questions and surface personalized insights.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.creditkarma.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "credit",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/credit-karma",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.creditkarma.com&sz=128"
     },
     {
       "name": "Crossbeam",
@@ -576,6 +1120,230 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/crypto.png"
+    },
+    {
+      "name": "D&B Risk Analytics",
+      "description": "D&B Risk Analytics uses Dun & Bradstreet commercial data to support KYC, KYB, entity resolution, screening, and alert triage workflows. Its MCP connector brings relationship-aware business context and D-U-N-S anchored risk data into assistant workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://agents.riskanalytics.dnb.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "dnb",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/dnb-risk-analytics",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=agents.riskanalytics.dnb.com&sz=128"
+    },
+    {
+      "name": "Daloopa",
+      "description": "Daloopa supplies financial fundamentals and KPI data sourced from SEC filings, investor presentations, and public financial documents. Its connector gives assistants source-linked data points for quantitative financial analysis, dashboards, and company comparisons.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.daloopa.com/server/mcp",
+      "auth_type": "oauth",
+      "publisher": "daloopa",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/daloopa",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.daloopa.com&sz=128"
+    },
+    {
+      "name": "Datasite",
+      "description": "Datasite supports M&A data-room workflows for diligence content and transaction collaboration. Its MCP connector gives assistants deal-room context for locating materials, understanding project state, and helping teams coordinate work during mergers and acquisitions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.global.datasite.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "datasite",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/datasite",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.global.datasite.com&sz=128"
+    },
+    {
+      "name": "Day AI",
+      "description": "Day AI focuses on prospect and customer intelligence through CRMx context. Its MCP connector gives assistants account, relationship, and customer data for sales research, follow-up planning, and understanding what matters across prospects and existing customers.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://day.ai/api/mcp",
+      "auth_type": "oauth",
+      "publisher": "day",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/day-ai",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=day.ai&sz=128"
+    },
+    {
+      "name": "Definely",
+      "description": "Definely provides structured contract review tools for legal teams. Its connector brings legal-document context into assistant workflows so users can review clauses, reason over agreement language, and support contract analysis with a purpose-built legal toolset.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.eu.definely.com/api/proxy/core-mcp",
+      "auth_type": "oauth",
+      "publisher": "definely",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/definely",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.eu.definely.com&sz=128"
+    },
+    {
+      "name": "Descrybe Legal Engine",
+      "description": "Descrybe Legal Engine provides structured U.S. primary-law context for legal work. Its connector helps assistants ground legal research in clean source material, supporting searches, summaries, and analysis across U.S. legal documents.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.descrybe.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "descrybe",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/descrybe-legal-engine",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.descrybe.com&sz=128"
+    },
+    {
+      "name": "DevRev",
+      "description": "DevRev connects customer support and product development through an enterprise knowledge graph. Its remote MCP server lets assistants search workspace knowledge and query or update issues, tickets, enhancements, customers, and product relationships.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.devrev.ai/mcp/v1",
+      "auth_type": "oauth",
+      "publisher": "devrev",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/devrev",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.devrev.ai&sz=128"
+    },
+    {
+      "name": "Dice",
+      "description": "Dice is a career marketplace focused on technology roles. Its public remote MCP server lets assistants search active jobs across technical disciplines with natural-language criteria, refine results conversationally, and link users to relevant opportunities.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.dice.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "dice",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/dice",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.dice.com&sz=128"
+    },
+    {
+      "name": "Digits",
+      "description": "Digits helps users track and analyze business finances through connected accounting context. Its connector gives assistants financial data for reviewing performance, answering finance questions, and understanding company numbers from conversational prompts.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.digits.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "digits",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/digits",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.digits.com&sz=128"
+    },
+    {
+      "name": "DocuSeal",
+      "description": "DocuSeal is an electronic signature platform for document templates and submissions. Its remote MCP server lets assistants find templates, turn uploaded PDFs into signable forms, email documents to signers, and track pending or completed submissions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://docuseal.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "docuseal",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/docuseal",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=docuseal.com&sz=128"
+    },
+    {
+      "name": "Docusign",
+      "description": "Docusign is an agreement management platform for preparing, signing, and tracking contracts. Its remote MCP server connects assistants to envelopes and agreement data so documents can be located, statuses checked, and signing workflows moved forward from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.docusign.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "docusign",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/docusign",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.docusign.com&sz=128"
+    },
+    {
+      "name": "DoorDash",
+      "description": "DoorDash brings food delivery and restaurant reservation workflows into assistant conversations. Its connector helps users explore restaurants, compare food options, plan orders, and work with local dining context from DoorDash.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://openapi.doordash.com/mcp/consumer",
+      "auth_type": "oauth",
+      "publisher": "doordash",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/doordash",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=openapi.doordash.com&sz=128"
+    },
+    {
+      "name": "Dovetail",
+      "description": "Dovetail helps teams turn customer feedback and research data into decisions. Its connector gives assistants access to feedback context so user insights, themes, and evidence can be searched, summarized, and connected to product decisions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://dovetail.com/api/mcp",
+      "auth_type": "oauth",
+      "publisher": "dovetail",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/dovetail",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=dovetail.com&sz=128"
+    },
+    {
+      "name": "Egnyte",
+      "description": "Egnyte is a governed content collaboration platform for secure files and business documents. Its connector gives assistants permission-aware access to Egnyte content for search, review, summarization, and knowledge work.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp-server.egnyte.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "egnyte",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/egnyte",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp-server.egnyte.com&sz=128"
     },
     {
       "name": "Enterpret",
@@ -626,6 +1394,22 @@
       "icon_url": "/images/mcp-servers/eraser.png"
     },
     {
+      "name": "Everlaw",
+      "description": "Everlaw supports legal teams working with litigation databases, discovery records, and case materials. Its connector brings Everlaw search and exploration context into assistant workflows for reviewing evidence, finding documents, and understanding case data.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.everlaw.com/v1/mcp",
+      "auth_type": "oauth",
+      "publisher": "everlaw",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/everlaw",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.everlaw.com&sz=128"
+    },
+    {
       "name": "Exa",
       "description": "Exa provides web search and code documentation search for AI workflows. Its connector gives assistants live retrieval context for finding relevant web pages, technical documentation, and source material when answers need grounded external information.",
       "category": "Productivity",
@@ -674,6 +1458,86 @@
       "icon_url": "/images/mcp-servers/expedia.png"
     },
     {
+      "name": "Explorium",
+      "description": "Explorium is a B2B data platform whose AgentSource and Vibe Prospecting products find and enrich companies and prospects from natural-language queries. Its remote MCP server lets assistants search firmographic, technographic, and contact data across Explorium's business graph.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.explorium.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "explorium",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/explorium",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.explorium.ai&sz=128"
+    },
+    {
+      "name": "FactSet",
+      "description": "FactSet provides institutional-grade financial data, analytics, and research tools. Its AI-Ready Data remote MCP server gives assistants structured access to FactSet content so company fundamentals, estimates, and market data can be queried in conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.factset.com/content/v1",
+      "auth_type": "oauth",
+      "publisher": "factset",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/factset",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.factset.com&sz=128"
+    },
+    {
+      "name": "Fathom",
+      "description": "Fathom connects meeting recordings, transcripts, and summaries to assistant workflows. Its connector helps users bring meeting context into conversations for follow-ups, decisions, action items, and team knowledge.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.fathom.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "fathom",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/fathom",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.fathom.ai&sz=128"
+    },
+    {
+      "name": "Fellow.ai",
+      "description": "Fellow.ai is a meeting management platform that captures transcripts, summaries, decisions, and follow-ups. Its remote MCP server lets assistants search meeting history, retrieve key insights, and track action items using natural-language queries.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://fellow.app/mcp",
+      "auth_type": "oauth",
+      "publisher": "fellow",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/fellow-ai",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=fellow.app&sz=128"
+    },
+    {
+      "name": "Fever Event Discovery",
+      "description": "Fever Event Discovery helps users find live entertainment events around the world. Its connector gives assistants event-discovery context for exploring concerts, cultural experiences, local activities, and ticketed entertainment options.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://data-search.apigw.feverup.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "fever",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/fever-event-discovery",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=data-search.apigw.feverup.com&sz=128"
+    },
+    {
       "name": "Figma",
       "description": "Figma is a collaborative product design platform for interface design, prototyping, and developer handoff. Its remote MCP server brings files, designs, and Dev Mode context into assistant workflows so agents can understand visual work and relate it to implementation tasks.",
       "category": "Productivity",
@@ -690,6 +1554,22 @@
       "icon_url": "/images/mcp-servers/figma.svg"
     },
     {
+      "name": "Fireflies",
+      "description": "Fireflies is an AI notetaker that records, transcribes, and summarizes meetings across conferencing platforms. Its remote MCP server lets assistants search past conversations, pull transcripts and summaries, and act on meeting knowledge stored in Fireflies.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.fireflies.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "fireflies",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/fireflies",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.fireflies.ai&sz=128"
+    },
+    {
       "name": "Fiscal.ai",
       "description": "Fiscal.ai provides clean public-equity fundamental data for financial research. Its connector gives assistants structured company and market context for analysis, comparison, and investment-oriented questions grounded in financial datasets.",
       "category": "Productivity",
@@ -704,6 +1584,86 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/fiscal.png"
+    },
+    {
+      "name": "FMP",
+      "description": "FMP provides comprehensive financial datasets for market and company analysis. Its connector gives assistants finance data context for working with fundamentals, market information, comparisons, and investment-research workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://financialmodelingprep.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "fmp",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/fmp",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=financialmodelingprep.com&sz=128"
+    },
+    {
+      "name": "Function Health",
+      "description": "Function Health is a health-testing membership that tracks biomarkers across heart, hormone, thyroid, liver, kidney, nutrient, and immune health. Its remote MCP server lets members securely view lab results, ask health questions, and create nutrition plans.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://services.functionhealth.com/ai-chat/mcp",
+      "auth_type": "oauth",
+      "publisher": "function",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/function-health",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=services.functionhealth.com&sz=128"
+    },
+    {
+      "name": "G2",
+      "description": "G2 is a software marketplace and peer-review platform. Its remote MCP server brings real-time Buyer Intent, competitive-interest, and review-sentiment signals into assistant workflows for account prioritization, outreach, messaging, and market analysis.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.g2.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "g2",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/g2",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.g2.com&sz=128"
+    },
+    {
+      "name": "Gainsight (Staircase AI)",
+      "description": "Gainsight Staircase AI brings customer context into AI workflows for customer-success teams. Its connector helps assistants understand accounts, risks, customer signals, and relationship history when answering questions or planning engagement.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.staircase.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "gainsight",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/gainsight-staircase-ai",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.staircase.ai&sz=128"
+    },
+    {
+      "name": "Gamma",
+      "description": "Gamma is an AI-native tool for creating presentations, documents, and simple websites from prompts. Its remote MCP server lets assistants generate and edit Gamma content directly, turning ideas and outlines into polished, shareable decks and pages.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.gamma.app/mcp",
+      "auth_type": "oauth",
+      "publisher": "gamma",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/gamma",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.gamma.app&sz=128"
     },
     {
       "name": "GitHub",
@@ -770,6 +1730,70 @@
       "icon_url": "/images/mcp-servers/godaddy.svg"
     },
     {
+      "name": "Goodnotes",
+      "description": "Goodnotes helps turn AI insights into documents and notes. Its connector brings note-taking and document context into assistant workflows so users can capture ideas, organize outputs, and move from analysis to written artifacts.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://claude-mcp-api.ml.goodnotes.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "goodnotes",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/goodnotes",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=claude-mcp-api.ml.goodnotes.com&sz=128"
+    },
+    {
+      "name": "Google Cloud BigQuery",
+      "description": "Google Cloud BigQuery provides advanced analytical insight for data agents. Its connector gives assistants BigQuery context for exploring datasets, asking analytical questions, and working with large-scale cloud data from natural language.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://bigquery.googleapis.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "bigquery",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/bigquery",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=bigquery.googleapis.com&sz=128"
+    },
+    {
+      "name": "Google Compute Engine",
+      "description": "Google Compute Engine provides virtual machines and related infrastructure on Google Cloud. Its remote MCP server lets assistants manage compute resources across deployment and operations using a configured Google Cloud OAuth client.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://compute.googleapis.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "google",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/google-compute-engine",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=compute.googleapis.com&sz=128"
+    },
+    {
+      "name": "GovTribe",
+      "description": "GovTribe provides government procurement and spending data. Its connector gives assistants context for searching opportunities, contracts, agencies, vendors, and federal spending information used in public-sector market research.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://govtribe.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "govtribe",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/govtribe",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=govtribe.com&sz=128"
+    },
+    {
       "name": "Grain",
       "description": "Grain turns meetings into insights, summaries, and next steps. Its connector brings meeting context into assistant workflows so users can find moments, understand decisions, and convert conversations into follow-up actions.",
       "category": "Productivity",
@@ -818,6 +1842,70 @@
       "icon_url": "/images/mcp-servers/granted.png"
     },
     {
+      "name": "GraphOS MCP Tools",
+      "description": "GraphOS MCP Tools connect assistants to Apollo documentation, GraphQL specifications, and best practices. The connector supports developer workflows around GraphOS, schema work, and GraphQL implementation guidance.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.apollographql.com",
+      "auth_type": "oauth",
+      "publisher": "graphos",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/graphos-tools",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.apollographql.com&sz=128"
+    },
+    {
+      "name": "Guidepoint",
+      "description": "Guidepoint provides access to trusted expert knowledge for research and decision-making. Its connector brings expert-network context into assistant workflows so users can incorporate specialist insight into business, market, and diligence analysis.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://clapi.guidepoint.io/mcp-server/v1/mcp",
+      "auth_type": "oauth",
+      "publisher": "guidepoint",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/guidepoint",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=clapi.guidepoint.io&sz=128"
+    },
+    {
+      "name": "Guru",
+      "description": "Guru is a company knowledge platform that captures verified internal information as searchable cards. Its remote MCP server connects assistants to that trusted knowledge layer so team questions can be answered with sourced, up-to-date company content.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.api.getguru.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "guru",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/guru",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.api.getguru.com&sz=128"
+    },
+    {
+      "name": "Gusto",
+      "description": "Gusto is a payroll, benefits, and HR platform for small and mid-sized businesses. Its remote MCP server gives assistants account-backed access to payroll and people data so compensation, time-off, and workforce questions can be answered from the system of record.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.api.gusto.com/anthropic",
+      "auth_type": "oauth",
+      "publisher": "gusto",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/gusto",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.api.gusto.com&sz=128"
+    },
+    {
       "name": "Harmonic",
       "description": "Harmonic helps users discover, research, and enrich companies and people. Its connector gives assistants company and contact intelligence for market mapping, prospect research, and startup or business analysis.",
       "category": "Productivity",
@@ -832,6 +1920,38 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/harmonic.png"
+    },
+    {
+      "name": "Harvey",
+      "description": "Harvey is a legal AI platform used by law firms and legal teams for research, drafting, and analysis. Its remote MCP server brings Harvey's legal intelligence into assistant workflows, supporting legal inquiries and document analysis with domain-tuned reasoning.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.harvey.ai/hosted_mcp/mcp",
+      "auth_type": "oauth",
+      "publisher": "harvey",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/harvey",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.harvey.ai&sz=128"
+    },
+    {
+      "name": "HealthEx",
+      "description": "HealthEx is a patient-controlled health data platform. Its remote MCP server securely connects health records to assistant workflows so users can ask questions grounded in their medical information and receive more personalized health-management insights.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.healthex.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "healthex",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/healthex",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.healthex.io&sz=128"
     },
     {
       "name": "Hex",
@@ -898,6 +2018,134 @@
       "icon_url": "/images/mcp-servers/hugging_face.svg"
     },
     {
+      "name": "IBISWorld",
+      "description": "IBISWorld provides financials, risk data, and analysis across tens of thousands of industries. Its connector gives assistants industry research context for market sizing, risk assessment, benchmarking, and business planning.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.ibisworld.com",
+      "auth_type": "oauth",
+      "publisher": "ibisworld",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ibisworld",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.ibisworld.com&sz=128"
+    },
+    {
+      "name": "IBKR",
+      "description": "Interactive Brokers (IBKR) is a global brokerage for stocks, options, futures, and multi-currency portfolios. Its hosted MCP server lets assistants analyze positions, balances, P&L, and risk, research investments, and draft trade instructions after you sign in with your IBKR account. Orders stay under your control — instructions never execute automatically.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.ibkr.com/v1/api/mcp",
+      "auth_type": "oauth",
+      "publisher": "ibkr",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ibkr",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.ibkr.com&sz=128"
+    },
+    {
+      "name": "ICE Data Services",
+      "description": "ICE Data Services provides U.S. fixed-income trade and reference data. Its connector gives assistants bond-market context for analyzing fixed-income instruments, trade information, and reference datasets.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://fids-mcp.ice.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "ice",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ice-data-services",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=fids-mcp.ice.com&sz=128"
+    },
+    {
+      "name": "IFTTT",
+      "description": "IFTTT connects and automates more than a thousand apps, services, and devices. Its connector lets assistants control applets, trigger automations, and reason over connected service workflows from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://ifttt.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "ifttt",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ifttt",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=ifttt.com&sz=128"
+    },
+    {
+      "name": "iManage Work",
+      "description": "iManage Work is a governed knowledge and document-management platform for professional teams. Its connector gives assistants permission-aware access to knowledge, documents, and matter context already managed in iManage.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://cloudimanage.com/mcp/work",
+      "auth_type": "oauth",
+      "publisher": "imanage",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/imanage",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=cloudimanage.com&sz=128"
+    },
+    {
+      "name": "incident.io",
+      "description": "incident.io is an incident management platform covering response, on-call, and status pages. Its remote MCP server lets assistants declare and triage incidents, acknowledge pages, check on-call schedules, and track follow-ups across the whole workspace.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.incident.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "incident",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/incident-io",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.incident.io&sz=128"
+    },
+    {
+      "name": "Indeed",
+      "description": "Indeed is one of the world's largest job platforms. Its remote MCP server lets assistants search job listings, retrieve detailed descriptions and requirements, and link users directly to relevant openings as part of career and hiring conversations.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.indeed.com/claude/mcp",
+      "auth_type": "oauth",
+      "publisher": "indeed",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/indeed",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.indeed.com&sz=128"
+    },
+    {
+      "name": "Instacart",
+      "description": "Instacart helps users shop for groceries and everyday goods with fast delivery. Its connector brings grocery, store, product, and delivery context into assistant workflows for planning baskets and finding items.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://fig-mcp.instacart.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "instacart",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/instacart",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=fig-mcp.instacart.com&sz=128"
+    },
+    {
       "name": "Intercom",
       "description": "Intercom connects assistants to customer-support and customer-communication data. Its connector gives AI workflows access to conversations, support context, and customer insights that can improve service analysis and follow-up.",
       "category": "Productivity",
@@ -912,6 +2160,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/intercom.png"
+    },
+    {
+      "name": "Ironclad Contracts",
+      "description": "Ironclad Contracts provides plain-language search for contract answers. Its connector brings contract repository context into assistant workflows so legal and business teams can find agreement terms, obligations, and related records faster.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.na1.ironcladapp.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "ironclad",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ironclad-contracts",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.na1.ironcladapp.com&sz=128"
     },
     {
       "name": "Jam",
@@ -930,6 +2194,22 @@
       "icon_url": "/images/mcp-servers/jam.png"
     },
     {
+      "name": "Jentic",
+      "description": "Jentic provides a managed connection to more than 1,500 APIs. Its remote MCP server keeps credentials in a central vault and uses just-in-time tooling so assistants fetch only the tools needed for a task, reducing context size and credential exposure.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.jentic.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "jentic",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/jentic",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.jentic.com&sz=128"
+    },
+    {
       "name": "Jotform",
       "description": "Jotform helps users create forms and analyze submissions. Its connector gives assistants form-building and response-analysis context so teams can design collection workflows and understand submitted data from conversation.",
       "category": "Productivity",
@@ -944,6 +2224,70 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/jotform.png"
+    },
+    {
+      "name": "Ketryx",
+      "description": "Ketryx supports regulated software lifecycle workflows. Its connector gives assistants context for searching and exploring software development, quality, and compliance data used in regulated product environments.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.ketryx.com/api/mcp",
+      "auth_type": "oauth",
+      "publisher": "ketryx",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ketryx",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.ketryx.com&sz=128"
+    },
+    {
+      "name": "Kindora Funder Discovery",
+      "description": "Kindora Funder Discovery helps organizations find funders aligned with their causes. Its connector brings fundraising and grantmaker context into assistant workflows for prospect research and funding strategy.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://kindora-mcp.azurewebsites.net/mcp/",
+      "auth_type": "oauth",
+      "publisher": "kindora",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/kindora-funder-discovery",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=kindora-mcp.azurewebsites.net&sz=128"
+    },
+    {
+      "name": "Kiwi.com",
+      "description": "Kiwi.com is a travel platform known for flexible flight search across airlines and routes. Its remote MCP server brings flight search into assistant conversations so itineraries can be explored, compared, and handed off for booking.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.kiwi.com",
+      "auth_type": "oauth",
+      "publisher": "kiwi",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/kiwi",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.kiwi.com&sz=128"
+    },
+    {
+      "name": "Klaviyo",
+      "description": "Klaviyo is a marketing automation platform for email, SMS, and customer data. Its remote MCP server lets assistants report on campaign performance, segment and inspect profiles, and manage marketing workflows grounded in live Klaviyo account data.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.klaviyo.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "klaviyo",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/klaviyo",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.klaviyo.com&sz=128"
     },
     {
       "name": "Krisp",
@@ -962,6 +2306,54 @@
       "icon_url": "/images/mcp-servers/krisp.png"
     },
     {
+      "name": "lastminute.com",
+      "description": "lastminute.com is a European online travel agency for flights, hotels, and dynamic holiday packages. Its remote MCP server exposes real-time travel search so trips can be compared and planned directly within assistant conversations.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.lastminute.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "lastminute",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/lastminute",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lastminute.com&sz=128"
+    },
+    {
+      "name": "Lawve AI",
+      "description": "Lawve AI provides expert-written skills for legal work. Its connector gives assistants access to legal workflow knowledge so users can discover structured support for drafting, research, review, and other legal tasks.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.lawve.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "lawve",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/lawve-ai",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lawve.ai&sz=128"
+    },
+    {
+      "name": "Learning Commons Knowledge Graph",
+      "description": "Learning Commons provides a shared knowledge graph for K-12 academic standards, granular skills, and learning progressions across all U.S. states. Its public remote MCP server grounds assistants in standards-aligned instructional and learning-science context.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://kg.mcp.learningcommons.org/mcp",
+      "auth_type": "oauth",
+      "publisher": "learning",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/learning-commons-knowledge-graph",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=kg.mcp.learningcommons.org&sz=128"
+    },
+    {
       "name": "Legal Data Hunter",
       "description": "Legal Data Hunter searches millions of legal documents across many jurisdictions. Its connector gives assistants legal-data context for finding documents, comparing sources, and supporting research across a broad legal corpus.",
       "category": "Productivity",
@@ -976,6 +2368,38 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/legal-data-hunter.png"
+    },
+    {
+      "name": "LegalZoom",
+      "description": "LegalZoom provides online legal services for businesses and individuals, from formation to document review. Its remote MCP server pairs AI document scanning with access to attorney-backed guidance so legal questions and paperwork can be handled in conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://www.legalzoom.com/mcp/claude/v1",
+      "auth_type": "oauth",
+      "publisher": "legalzoom",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/legalzoom",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=www.legalzoom.com&sz=128"
+    },
+    {
+      "name": "LILT",
+      "description": "LILT provides high-quality translation workflows with human verification. Its connector gives assistants translation context for multilingual content while keeping professional review and localization quality in the loop.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.lilt.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "lilt",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/lilt",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lilt.com&sz=128"
     },
     {
       "name": "Linear",
@@ -994,6 +2418,86 @@
       "icon_url": "/images/mcp-servers/linear.svg"
     },
     {
+      "name": "Local Falcon",
+      "description": "Local Falcon provides AI visibility and local search intelligence. Its connector gives assistants location-based search context for understanding map rankings, local visibility, and regional SEO performance.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.localfalcon.com",
+      "auth_type": "oauth",
+      "publisher": "local",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/local-falcon",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.localfalcon.com&sz=128"
+    },
+    {
+      "name": "Longbridge",
+      "description": "Longbridge is a digital brokerage offering trading and market data across global markets. Its remote MCP server exposes 100+ tools for real-time quotes, fundamentals and research, option chains, account balances and positions, order placement, price alerts, and scheduled DCA plans.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.longbridge.com",
+      "auth_type": "oauth",
+      "publisher": "longbridge",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/longbridge",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.longbridge.com&sz=128"
+    },
+    {
+      "name": "Lorikeet",
+      "description": "Lorikeet supports complex customer-service workflows with a concierge-style AI layer. Its connector gives assistants business-process and customer-context signals for resolving sophisticated support or service requests.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.lorikeetcx.ai/v1/mcp",
+      "auth_type": "oauth",
+      "publisher": "lorikeet",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/lorikeet",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.lorikeetcx.ai&sz=128"
+    },
+    {
+      "name": "LSEG",
+      "description": "LSEG (London Stock Exchange Group) provides real-time and historical market data, news, and analytics. Its remote MCP server gives assistants access to LSEG's financial content for pricing, reference data, and market analysis workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.analytics.lseg.com/lfa/mcp/server-cl",
+      "auth_type": "oauth",
+      "publisher": "lseg",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/lseg",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.analytics.lseg.com&sz=128"
+    },
+    {
+      "name": "Lucid",
+      "description": "Lucid helps teams ideate, diagram, and align around visual collaboration. Its connector gives assistants diagramming and board context for creating, editing, and reasoning over visual planning artifacts.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.lucid.app/mcp",
+      "auth_type": "oauth",
+      "publisher": "lucid",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/lucid",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lucid.app&sz=128"
+    },
+    {
       "name": "Lumin",
       "description": "Lumin helps users manage documents, send signature requests, and convert Markdown to PDF. Its connector gives assistants document-workflow context for preparing files, handling signatures, and producing shareable outputs.",
       "category": "Productivity",
@@ -1008,6 +2512,38 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/lumin.png"
+    },
+    {
+      "name": "LunarCrush",
+      "description": "LunarCrush is a social analytics and market-intelligence platform for brands, companies, stocks, and cryptocurrencies. Its remote MCP server gives assistants real-time social metrics, sentiment, trending topics, and market data for research workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://lunarcrush.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "lunarcrush",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/lunarcrush",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=lunarcrush.ai&sz=128"
+    },
+    {
+      "name": "Lusha",
+      "description": "Lusha helps teams find and enrich B2B contacts and companies. Its connector gives assistants sales-intelligence context for prospecting, account research, and go-to-market workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.lusha.com/mcp/claude",
+      "auth_type": "oauth",
+      "publisher": "lusha",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/lusha",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lusha.com&sz=128"
     },
     {
       "name": "Magic Patterns",
@@ -1026,6 +2562,22 @@
       "icon_url": "/images/mcp-servers/magic-patterns.png"
     },
     {
+      "name": "Mailchimp",
+      "description": "Mailchimp is Intuit's marketing platform for email campaigns, audiences, and automations. Its remote MCP server lets assistants plan and produce omnichannel campaigns, inspect audience data, and manage marketing work from the account teams already use.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://ai-inc.mailchimp.com/claude/mcp/v2",
+      "auth_type": "oauth",
+      "publisher": "mailchimp",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mailchimp",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai-inc.mailchimp.com&sz=128"
+    },
+    {
       "name": "MailerLite",
       "description": "MailerLite turns email-marketing workflows into assistant-accessible tasks. Its connector brings campaign, subscriber, and email-marketing context into AI conversations for drafting, reviewing, and planning marketing work.",
       "category": "Productivity",
@@ -1040,6 +2592,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/mailerlite.png"
+    },
+    {
+      "name": "Make",
+      "description": "Make lets users run scenarios and manage automation workflows. Its connector gives assistants Make account and scenario context for operating automations, understanding workflows, and coordinating connected apps.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.make.com",
+      "auth_type": "oauth",
+      "publisher": "make",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/make",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.make.com&sz=128"
     },
     {
       "name": "Malwarebytes",
@@ -1058,6 +2626,54 @@
       "icon_url": "/images/mcp-servers/malwarebytes.png"
     },
     {
+      "name": "MDN",
+      "description": "MDN provides documentation for open web technologies including HTML, CSS, JavaScript, Web APIs, and browser compatibility data. Its experimental remote MCP server gives assistants current web platform context for answering implementation and browser-support questions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mdn.mozilla.net/",
+      "auth_type": "oauth",
+      "publisher": "mdn",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mdn",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mdn.mozilla.net&sz=128"
+    },
+    {
+      "name": "Medidata",
+      "description": "Medidata provides software and data for clinical trials. Its remote MCP server answers product questions across tools such as Rave EDC and Clinical Data Studio, and helps eligible users rank trial sites against enrollment goals during protocol planning.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.imedidata.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "medidata",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/medidata",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.imedidata.com&sz=128"
+    },
+    {
+      "name": "Melon",
+      "description": "Melon helps users browse music charts and personalized music picks. Its connector brings music-discovery context into assistant workflows for recommendations, chart exploration, and listening ideas.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.melon.com/mcp/",
+      "auth_type": "oauth",
+      "publisher": "melon",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/melon",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.melon.com&sz=128"
+    },
+    {
       "name": "Mem",
       "description": "Mem is an AI notebook for notes, thoughts, and personal knowledge. Its connector gives assistants notebook context for recalling information, organizing ideas, and building a persistent knowledge workspace.",
       "category": "Productivity",
@@ -1072,6 +2688,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/mem.png"
+    },
+    {
+      "name": "Mercury",
+      "description": "Mercury is a banking platform for startups and businesses. Its hosted MCP server connects assistants to Mercury account data through OAuth, providing read-only access to accounts, transactions, balances, statements, cards, recipients, treasury accounts, and related financial context.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mercury.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "mercury",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mercury",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mercury.com&sz=128"
     },
     {
       "name": "Mermaid Chart",
@@ -1120,6 +2752,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/microsoft.svg"
+    },
+    {
+      "name": "Midpage Legal Research",
+      "description": "Midpage Legal Research helps users conduct legal research and create legal work product. Its connector gives assistants legal-research context for finding authorities, analyzing materials, and drafting grounded outputs.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.midpage.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "midpage",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/midpage",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.midpage.ai&sz=128"
     },
     {
       "name": "Mintlify",
@@ -1186,6 +2834,86 @@
       "icon_url": "/images/mcp-servers/monday.png"
     },
     {
+      "name": "Monte Carlo",
+      "description": "Monte Carlo provides data and AI observability for monitoring data reliability. Its connector gives assistants observability context for investigating data incidents, understanding quality signals, and supporting trusted analytics workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://integrations.getmontecarlo.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "monte",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/monte-carlo",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=integrations.getmontecarlo.com&sz=128"
+    },
+    {
+      "name": "Moody's",
+      "description": "Moody's provides credit ratings, research, and risk analytics for global markets. Its GenAI-Ready Data remote MCP server gives assistants structured access to Moody's datasets so credit and risk analysis can be grounded in authoritative information.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.moodys.com/genai-ready-data/m1/mcp",
+      "auth_type": "oauth",
+      "publisher": "moodys",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/moodys",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.moodys.com&sz=128"
+    },
+    {
+      "name": "Morningstar",
+      "description": "Morningstar provides independent investment research, ratings, and data across funds, equities, and markets. Its remote MCP server connects assistants to Morningstar's research and analytics so investment questions can be answered with cited, institutional-grade data.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.morningstar.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "morningstar",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/morningstar",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.morningstar.com&sz=128"
+    },
+    {
+      "name": "MoSPI",
+      "description": "MoSPI is India's Ministry of Statistics and Programme Implementation. Its public remote MCP server exposes official datasets covering GDP, inflation, employment, industry, education, health, energy, environment, and trade through natural-language queries.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mospi.gov.in/",
+      "auth_type": "oauth",
+      "publisher": "mospi",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mospi",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mospi.gov.in&sz=128"
+    },
+    {
+      "name": "MotherDuck",
+      "description": "MotherDuck is a serverless cloud data warehouse built on DuckDB. Its remote MCP server lets assistants explore schemas, run SQL, and analyze warehouse data using natural language against the databases teams already manage in MotherDuck.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.motherduck.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "motherduck",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/motherduck",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.motherduck.com&sz=128"
+    },
+    {
       "name": "Motion Creative Analytics",
       "description": "Motion Creative Analytics helps teams analyze Meta ad creative and competitor ad libraries. Its connector gives assistants creative-performance context for reviewing ads, comparing competitors, and planning paid-social strategy.",
       "category": "Productivity",
@@ -1202,6 +2930,54 @@
       "icon_url": "/images/mcp-servers/motion.svg"
     },
     {
+      "name": "MSCI",
+      "description": "MSCI provides indexes, portfolio analytics, and private-asset data for institutional investors. Its remote MCP server connects assistants to MSCI's data and analytics so index, risk, and private-markets questions can be explored in conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.msci.com/mcp/v1.0/mcp",
+      "auth_type": "oauth",
+      "publisher": "msci",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/msci",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.msci.com&sz=128"
+    },
+    {
+      "name": "MT Newswires",
+      "description": "MT Newswires produces real-time, multi-asset financial news covering global markets. Its remote MCP server streams that reporting into assistant workflows so market developments can be summarized and monitored as they happen.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mtnewswires.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "mt",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/mt-newswires",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mtnewswires.com&sz=128"
+    },
+    {
+      "name": "Navan",
+      "description": "Navan is a travel and expense management platform for businesses. Its remote MCP server gives assistants secure access to travel and expense program data, including spend summaries, transaction details, and policy information for conversational analysis.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.navan.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "navan",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/navan",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.navan.com&sz=128"
+    },
+    {
       "name": "Neon",
       "description": "Neon is a serverless Postgres platform built around branching and developer workflows. Its remote MCP server connects assistants to Postgres projects, branches, SQL, and documentation so database environments and data-related tasks can be explored from conversation.",
       "category": "Productivity",
@@ -1216,6 +2992,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/neon.svg"
+    },
+    {
+      "name": "NetDocuments",
+      "description": "NetDocuments is a cloud document-management platform for legal and professional work. Its connector gives assistants governed document context for search, review, summaries, and matter-aware analysis within existing permissions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://web-api.us.netdocuments.app/connect/mcp",
+      "auth_type": "oauth",
+      "publisher": "netdocuments",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/netdocuments",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=web-api.us.netdocuments.app&sz=128"
     },
     {
       "name": "Netlify",
@@ -1266,6 +3058,38 @@
       "icon_url": "/images/mcp-servers/omni.png"
     },
     {
+      "name": "Open Targets",
+      "description": "Open Targets is a public platform for systematic drug target identification and prioritisation. Its remote MCP server gives assistants a purpose-built interface to association, evidence, and target data for genetics-driven drug discovery research.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.platform.opentargets.org/mcp",
+      "auth_type": "oauth",
+      "publisher": "open",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/open-targets",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.platform.opentargets.org&sz=128"
+    },
+    {
+      "name": "OpenRouter",
+      "description": "OpenRouter is a unified API gateway for accessing hundreds of LLMs from a single endpoint. Its remote MCP server gives assistants live access to OpenRouter data, including model catalogs, pricing, benchmarks and rankings, and account credits, and lets them send test messages to any model without leaving the editor.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.openrouter.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "openrouter",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/openrouter",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.openrouter.ai&sz=128"
+    },
+    {
       "name": "Orion by Gravity",
       "description": "Orion by Gravity provides insights from an autonomous AI analyst. Its connector brings analytical context into assistant workflows for asking business questions, exploring findings, and understanding data-backed recommendations.",
       "category": "Productivity",
@@ -1296,6 +3120,54 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/otter.png"
+    },
+    {
+      "name": "Outreach",
+      "description": "Outreach supports sales engagement and revenue-team workflows. Its connector gives assistants account, prospect, and outreach context for understanding pipeline activity, preparing communications, and improving sales execution.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.outreach.io/mcp/",
+      "auth_type": "oauth",
+      "publisher": "outreach",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/outreach",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.outreach.io&sz=128"
+    },
+    {
+      "name": "Owkin",
+      "description": "Owkin develops AI agents for biology, drug discovery, and clinical research. Its remote MCP connector currently powers HistoPLUS, which turns histopathology slides into queryable cell, spatial tumor, cohort, and survival-analysis insights.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.k.owkin.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "owkin",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/owkin",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.k.owkin.com&sz=128"
+    },
+    {
+      "name": "PagerDuty",
+      "description": "PagerDuty is an operations platform for incident response, on-call management, and event intelligence. Its remote MCP server lets assistants manage incidents, create services, schedule overrides, and check rotations using live PagerDuty account data.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.pagerduty.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "pagerduty",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/pagerduty",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.pagerduty.com&sz=128"
     },
     {
       "name": "Parallel Search",
@@ -1346,6 +3218,70 @@
       "icon_url": "/images/mcp-servers/peec.png"
     },
     {
+      "name": "Pendo",
+      "description": "Pendo is a product experience platform combining analytics, in-app guides, and feedback. Its remote MCP server gives assistants access to visitor, account, and usage data so product questions can be answered from real behavioral analytics.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://app.pendo.io/mcp/v0/shttp",
+      "auth_type": "oauth",
+      "publisher": "pendo",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/pendo",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=app.pendo.io&sz=128"
+    },
+    {
+      "name": "pg-aiguide",
+      "description": "pg-aiguide connects assistants to pg and Tiger documentation for database learning. Its connector gives current Postgres-oriented guidance for database questions, implementation choices, troubleshooting, and skill building.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.tigerdata.com/docs",
+      "auth_type": "oauth",
+      "publisher": "pg",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/pg-aiguide",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.tigerdata.com&sz=128"
+    },
+    {
+      "name": "PitchBook",
+      "description": "PitchBook provides data on private and public capital markets, covering companies, investors, deals, and funds. Its Premium remote MCP server brings that intelligence into assistant workflows for sourcing, diligence, and market research.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://premium.mcp.pitchbook.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "pitchbook",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/pitchbook",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=premium.mcp.pitchbook.com&sz=128"
+    },
+    {
+      "name": "Plaid Developer Tools",
+      "description": "Plaid connects applications to financial accounts and transaction data. Its remote MCP server gives developers access to Plaid Link conversion insights, usage metrics, and Item diagnostics so integrations can be monitored, debugged, and optimized conversationally.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.dashboard.plaid.com/mcp/sse",
+      "auth_type": "oauth",
+      "publisher": "plaid",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/plaid-developer-tools",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.dashboard.plaid.com&sz=128"
+    },
+    {
       "name": "PlanetScale",
       "description": "PlanetScale provides authenticated access to Postgres and MySQL databases. Its connector gives assistants database context for inspecting schema, understanding environments, and planning data-related work with connected database systems.",
       "category": "Productivity",
@@ -1360,6 +3296,54 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/planetscale.svg"
+    },
+    {
+      "name": "Play Sheet Music",
+      "description": "Play Sheet Music is an official MCP Apps example that demonstrates interactive musical output inside a conversation. Its hosted remote MCP server lets assistants generate sheet music and render a playable visual score for experimentation and demos.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://example-server.modelcontextprotocol.io/sheet-music/mcp",
+      "auth_type": "oauth",
+      "publisher": "play",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/play-sheet-music",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=example-server.modelcontextprotocol.io&sz=128"
+    },
+    {
+      "name": "PlayMCP",
+      "description": "PlayMCP is a catalog and connection layer for MCP servers, including Kakao services. Its hosted remote MCP connector lets users add services registered in PlayMCP to an assistant toolbox and use their tools through one connection.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://playmcp.kakao.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "playmcp",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/playmcp",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=playmcp.kakao.com&sz=128"
+    },
+    {
+      "name": "Polar Analytics",
+      "description": "Polar Analytics brings ecommerce and business data into one analytics workspace. Its connector gives assistants connected metrics context for querying performance, analyzing revenue, and understanding multichannel business data.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.polaranalytics.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "polar",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/polar-analytics",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.polaranalytics.com&sz=128"
     },
     {
       "name": "PostHog",
@@ -1410,6 +3394,22 @@
       "icon_url": "/images/mcp-servers/privacy.png"
     },
     {
+      "name": "Process Street",
+      "description": "Process Street is a process management platform for repeatable workflows and operational runs. Its remote MCP server lets assistants inspect workflows, tasks, users, datasets, and run history, then update fields, start runs, or complete tasks with auditable actions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.process.st",
+      "auth_type": "oauth",
+      "publisher": "process",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/process-street",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.process.st&sz=128"
+    },
+    {
       "name": "Pylon",
       "description": "Pylon helps teams search and manage support issues. Its connector gives assistants support-workflow context for finding customer issues, tracking status, and coordinating responses across support operations.",
       "category": "Productivity",
@@ -1440,6 +3440,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/quartr.png"
+    },
+    {
+      "name": "QuickBooks",
+      "description": "QuickBooks is Intuit's accounting platform for small business bookkeeping, invoicing, and reporting. Its remote MCP server gives assistants governed access to company financials so books, invoices, and cash-flow questions can be handled with live account data.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://ai-inc.quickbooks.intuit.com/v1/mcp",
+      "auth_type": "oauth",
+      "publisher": "quickbooks",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/quickbooks",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai-inc.quickbooks.intuit.com&sz=128"
     },
     {
       "name": "Quo",
@@ -1506,6 +3522,70 @@
       "icon_url": "/images/mcp-servers/ramp.png"
     },
     {
+      "name": "Razorpay",
+      "description": "Razorpay is a full-stack payments platform for businesses in India. Its remote MCP server lets assistants query payments, orders, refunds, and settlement data directly from a merchant account for support and finance workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.razorpay.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "razorpay",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/razorpay",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.razorpay.com&sz=128"
+    },
+    {
+      "name": "Readwise",
+      "description": "Readwise is a reading system for saving highlights and managing a personal library across books, articles, podcasts, and more. Its remote MCP server gives assistants OAuth-backed access to Readwise highlights and Reader documents so you can search notes, ground answers in your reading history, and manage library items from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp2.readwise.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "readwise",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/readwise",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp2.readwise.io&sz=128"
+    },
+    {
+      "name": "Resend",
+      "description": "Resend is an email API for developers to send transactional and marketing email. Its official remote MCP server gives assistants OAuth-backed access to send and receive email, manage templates, contacts, broadcasts, domains, and other Resend resources from conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.resend.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "resend",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/resend",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.resend.com&sz=128"
+    },
+    {
+      "name": "Resy",
+      "description": "Resy helps users find and book restaurants instantly. Its connector brings restaurant availability, dining preferences, and booking context into assistant workflows for planning meals and comparing options.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://apigw.americanexpress.com/dining/v1/mcp",
+      "auth_type": "oauth",
+      "publisher": "resy",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/resy",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=apigw.americanexpress.com&sz=128"
+    },
+    {
       "name": "Rillet",
       "description": "Rillet lets teams query live general-ledger and financial data in plain English. Its connector gives assistants accounting and finance context for understanding financials, investigating GL details, and answering operational questions.",
       "category": "Productivity",
@@ -1522,6 +3602,22 @@
       "icon_url": "/images/mcp-servers/rillet.png"
     },
     {
+      "name": "S&P Global",
+      "description": "S&P Global provides financial data and analytics, including S&P Capital IQ Financials, through its Kensho-built LLM-ready API. Its remote MCP server lets assistants query these datasets with natural language for company and market analysis.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://kfinance.kensho.com/integrations/mcp",
+      "auth_type": "oauth",
+      "publisher": "sp",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/sp-global",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=kfinance.kensho.com&sz=128"
+    },
+    {
       "name": "Sanity",
       "description": "Sanity is a structured-content platform for creating, querying, and managing content. Its connector gives assistants project and content context for audits, document updates, release coordination, and schema or project setup.",
       "category": "Productivity",
@@ -1536,6 +3632,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/sanity-light.svg"
+    },
+    {
+      "name": "Scholar Gateway",
+      "description": "Scholar Gateway grounds AI responses in peer-reviewed literature with verifiable citations and DOIs. Its remote MCP server lets assistants search scholarly sources and cite them precisely, supporting research workflows that require trustworthy references.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://connector.scholargateway.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "scholar",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/scholar-gateway",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=connector.scholargateway.ai&sz=128"
     },
     {
       "name": "Scite",
@@ -1634,6 +3746,22 @@
       "icon_url": "/images/mcp-servers/shopify.svg"
     },
     {
+      "name": "SignNow",
+      "description": "SignNow is an e-signature platform for sending, signing, and managing documents. Its remote MCP server connects assistants to signing workflows so documents can be prepared, sent for signature, and tracked without switching tools.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp-server.signnow.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "signnow",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/signnow",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp-server.signnow.com&sz=128"
+    },
+    {
       "name": "Similarweb",
       "description": "Similarweb provides real-time web, mobile app, and market intelligence data. Its connector gives assistants competitive context for traffic sources, keyword rankings, audience demographics, and industry benchmarking.",
       "category": "Productivity",
@@ -1666,6 +3794,22 @@
       "icon_url": "/images/mcp-servers/slack.svg"
     },
     {
+      "name": "Solve Intelligence",
+      "description": "Solve Intelligence supports patent workflows across patent literature, non-patent literature, legal texts, standards, and the open web. Its connector helps assistants search, draft, chart, and analyze patent-related materials.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.solveintelligence.com/mcp/",
+      "auth_type": "oauth",
+      "publisher": "solve",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/solve-intelligence",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.solveintelligence.com&sz=128"
+    },
+    {
       "name": "Splice",
       "description": "Splice provides discovery and ideation tools for music creators using its catalog of royalty-free samples. Its MCP server helps assistants search sounds with natural language and build stacks of complementary sounds for new projects.",
       "category": "Productivity",
@@ -1680,6 +3824,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/splice.png"
+    },
+    {
+      "name": "Spotify",
+      "description": "Spotify helps users discover music and podcasts based on personal taste, activity, mood, or topic. Its connector gives assistants music-discovery context for recommending songs, artists, albums, playlists, podcasts, and listening experiences.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp-gateway-external-pilot.spotify.net/mcp",
+      "auth_type": "oauth",
+      "publisher": "spotify",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/spotify",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp-gateway-external-pilot.spotify.net&sz=128"
     },
     {
       "name": "Square",
@@ -1698,6 +3858,22 @@
       "icon_url": "/images/mcp-servers/square.png"
     },
     {
+      "name": "Strava",
+      "description": "Strava connects activities, fitness trends, training load, and goals to assistant workflows. The connector gives agents account-backed fitness context for reviewing activity history, understanding patterns, and planning around training goals.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.strava.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "strava",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/strava",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.strava.com&sz=128"
+    },
+    {
       "name": "Stripe",
       "description": "Stripe is a payments and financial infrastructure platform for payments, billing, customers, and developer documentation. Its remote MCP server gives assistants Stripe-backed account and implementation context for understanding customer workflows, billing questions, and payment-related tasks.",
       "category": "Productivity",
@@ -1712,6 +3888,38 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/stripe.svg"
+    },
+    {
+      "name": "StubHub",
+      "description": "StubHub helps users explore live event tickets with real-time availability, pricing, and view-quality information. Its connector brings concerts, sports, theater, comedy, festivals, and other event listings into assistant workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://open-ai-app.stubhub.net/mcp",
+      "auth_type": "oauth",
+      "publisher": "stubhub",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/stubhub",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=open-ai-app.stubhub.net&sz=128"
+    },
+    {
+      "name": "Stytch",
+      "description": "Stytch is an authentication and identity platform for applications. Its remote MCP server lets assistants manage project configuration such as redirect URLs and email templates, bringing common workspace administration tasks into development workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.stytch.dev/mcp",
+      "auth_type": "oauth",
+      "publisher": "stytch",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/stytch",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.stytch.dev&sz=128"
     },
     {
       "name": "Supabase",
@@ -1730,6 +3938,86 @@
       "icon_url": "/images/mcp-servers/supabase.svg"
     },
     {
+      "name": "Superhuman Mail",
+      "description": "Superhuman Mail connects email and calendar workflows to assistants. Its connector helps users search inboxes, draft replies, check read statuses, set reminders, schedule meetings, and send messages without leaving the AI workflow.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.mail.superhuman.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "superhuman",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/superhuman-mail",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mail.superhuman.com&sz=128"
+    },
+    {
+      "name": "Supermetrics",
+      "description": "Supermetrics is a marketing data platform that unifies advertising, analytics, CRM, and ecommerce data from over 150 sources. Its remote MCP server gives assistants direct access to that cross-channel data for reporting and performance analysis.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.supermetrics.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "supermetrics",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/supermetrics",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.supermetrics.com&sz=128"
+    },
+    {
+      "name": "SurveyMonkey",
+      "description": "SurveyMonkey helps teams design surveys, collect responses, analyze feedback, and uncover trends. Its connector brings survey-building and response-analysis context into assistant workflows so feedback can become clear next steps.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.surveymonkey.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "surveymonkey",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/surveymonkey",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.surveymonkey.com&sz=128"
+    },
+    {
+      "name": "Sybill",
+      "description": "Sybill is a revenue intelligence platform that unifies call transcripts, summaries, MEDDIC scores, emails, and CRM records. Its remote MCP server lets assistants prepare for meetings, surface action items, identify deal risk, and analyze pipeline patterns.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.sybill.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "sybill",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/sybill",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.sybill.ai&sz=128"
+    },
+    {
+      "name": "Synapse.org",
+      "description": "Synapse.org is a collaborative research platform for scientific datasets and projects. Its remote MCP server lets assistants search genomics, imaging, clinical, and disease research data, navigate project hierarchies, and inspect metadata and provenance.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.synapse.org/mcp",
+      "auth_type": "oauth",
+      "publisher": "synapse",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/synapse-org",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.synapse.org&sz=128"
+    },
+    {
       "name": "Synthesize Bio",
       "description": "Synthesize Bio generates and analyzes gene-expression data from a virtual human using natural-language experiment descriptions. Its connector gives assistants synthetic biology context for bulk and single-cell RNA-seq style workflows.",
       "category": "Productivity",
@@ -1744,6 +4032,38 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/synthesize-bio.png"
+    },
+    {
+      "name": "Tango",
+      "description": "Tango provides competitive intelligence for U.S. federal procurement. Its remote MCP server gives assistants structured, language-model-friendly access to government contracting data so procurement teams can research opportunities, agencies, and competitors.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://govcon.dev/mcp",
+      "auth_type": "oauth",
+      "publisher": "tango",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/tango-government-contracting",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=govcon.dev&sz=128"
+    },
+    {
+      "name": "Taskrabbit Booking Assistance",
+      "description": "Taskrabbit Booking Assistance checks local service availability and pricing, then guides users through scoping questions for home-service needs. Its connector brings location-based pricing, service details, and booking links into assistant workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.taskrabbit.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "taskrabbit",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/taskrabbit",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.taskrabbit.com&sz=128"
     },
     {
       "name": "Tavily",
@@ -1762,6 +4082,54 @@
       "icon_url": "/images/mcp-servers/tavily.png"
     },
     {
+      "name": "Third Bridge",
+      "description": "Third Bridge provides expert-led insights for financial and business analysis. Its connector brings trusted expert-content context into assistant workflows so users can query substantial research libraries and improve analytical output.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://ai.thirdbridge.com/mcp/sse",
+      "auth_type": "oauth",
+      "publisher": "third",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/third-bridge",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai.thirdbridge.com&sz=128"
+    },
+    {
+      "name": "Three.js 3D Viewer",
+      "description": "Three.js 3D Viewer is an official MCP Apps example for rich interactive output. Its hosted remote MCP server generates browser-rendered 3D scenes, models, and animations inside a conversation, demonstrating visual tools built with Three.js.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://example-server.modelcontextprotocol.io/threejs/mcp",
+      "auth_type": "oauth",
+      "publisher": "three",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/three-js-3d-viewer",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=example-server.modelcontextprotocol.io&sz=128"
+    },
+    {
+      "name": "Thumbtack",
+      "description": "Thumbtack helps users plan home projects and connect with local professionals. Its connector brings repair, maintenance, improvement, recommendation, and hiring context into assistant workflows so users can move from project ideas to qualified pros.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.thumbtack.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "thumbtack",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/thumbtack",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.thumbtack.com&sz=128"
+    },
+    {
       "name": "Ticket Tailor",
       "description": "Ticket Tailor provides event organizers with tools for ticketing, orders, discounts, products, and box-office management. Its connector gives assistants event-operations context for managing ticket workflows and answering account questions.",
       "category": "Productivity",
@@ -1776,6 +4144,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/ticket-tailor.png"
+    },
+    {
+      "name": "tldraw",
+      "description": "tldraw is a collaborative whiteboard and canvas SDK. Its remote MCP server lets assistants draw and edit diagrams — flowcharts, architecture sketches, wireframes — on a live tldraw canvas while you work.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://tldraw-mcp-app.tldraw.workers.dev/mcp",
+      "auth_type": "oauth",
+      "publisher": "tldraw",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/tldraw",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=tldraw-mcp-app.tldraw.workers.dev&sz=128"
     },
     {
       "name": "Todoist",
@@ -1794,6 +4178,86 @@
       "icon_url": "/images/mcp-servers/todoist.svg"
     },
     {
+      "name": "TopCounsel by The L Suite",
+      "description": "TopCounsel by The L Suite helps users find outside counsel recommendations based on insights from a large in-house counsel community. Its connector brings legal-provider rankings, expertise signals, and recommendation context into assistant workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.techgc.co/api/mcp/topcounsel",
+      "auth_type": "oauth",
+      "publisher": "topcounsel",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/topcounsel",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.techgc.co&sz=128"
+    },
+    {
+      "name": "Trellis",
+      "description": "Trellis gives trial-court litigators access to state trial-court data including dockets, rulings, verdicts, and filings. Its connector grounds assistants in litigation context for legal research, judge analytics, motion drafting, and case strategy.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.trellis.law/anthropic",
+      "auth_type": "oauth",
+      "publisher": "trellis",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/trellis",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.trellis.law&sz=128"
+    },
+    {
+      "name": "Trimble SketchUp",
+      "description": "Trimble SketchUp turns conversational descriptions into 3D model concepts for SketchUp. Its connector helps users generate, refine, and share room additions, furniture ideas, site concepts, and other models without needing modeling experience to start.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.sketchup.com/mcp/v1/sketchup/mcp",
+      "auth_type": "oauth",
+      "publisher": "sketchup",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/sketchup",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.sketchup.com&sz=128"
+    },
+    {
+      "name": "Tripadvisor",
+      "description": "Tripadvisor hotel tools provide data for accommodation research, including hotel details, photos, reviews, ratings, availability, pricing, and nearby points of interest. The connector grounds assistant-led hotel comparison in Tripadvisor location and hotel data.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://production.ai-mcp-extensibility-prd.tamg.cloud/ogMvjY4De1G7CiHanMOAgddl/mcp",
+      "auth_type": "oauth",
+      "publisher": "tripadvisor",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/tripadvisor",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=production.ai-mcp-extensibility-prd.tamg.cloud&sz=128"
+    },
+    {
+      "name": "Trivago",
+      "description": "Trivago helps users search hotels and accommodations by coordinates, cities, countries, dates, and travel context. Its connector gives assistants lodging-search context for finding suitable stays near destinations or points of interest.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.trivago.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "trivago",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/trivago",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.trivago.com&sz=128"
+    },
+    {
       "name": "Tropic",
       "description": "Tropic helps teams benchmark software and AI contract pricing against verified technology transactions. Its connector brings procurement and vendor-pricing context into assistant workflows for identifying savings opportunities and preparing negotiations.",
       "category": "Productivity",
@@ -1808,6 +4272,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/tropic.png"
+    },
+    {
+      "name": "TurboTax",
+      "description": "TurboTax is Intuit's consumer tax preparation platform. Its remote MCP server exposes TurboTax tools to assistants so tax questions can be explored and filing tasks supported with Intuit's tax logic and account context.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://ai-inc.turbotax.intuit.com/358A1C1B-F73B-46A7-B130-4B14916E6843/v1/mcp",
+      "auth_type": "oauth",
+      "publisher": "turbotax",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/turbotax",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai-inc.turbotax.intuit.com&sz=128"
     },
     {
       "name": "Twilio",
@@ -1858,6 +4338,22 @@
       "icon_url": "/images/mcp-servers/uber_light.svg"
     },
     {
+      "name": "Udemy Business",
+      "description": "Udemy Business is the enterprise edition of the Udemy learning platform, offering curated course libraries for organizations. Its remote MCP server lets assistants search courses and surface relevant learning content inside everyday workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.udemy.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "udemy",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/udemy-business",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.udemy.com&sz=128"
+    },
+    {
       "name": "Unthread",
       "description": "Unthread helps teams search conversations, monitor SLAs, analyze support metrics, and manage support tickets. Its connector gives assistants a support-intelligence layer for helpdesk performance, triage, and workflow automation.",
       "category": "Productivity",
@@ -1888,6 +4384,102 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/vercel.svg"
+    },
+    {
+      "name": "Verisk Underwriting Intelligence",
+      "description": "Verisk Underwriting Intelligence provides conversational access to ISO Loss Cost insights for underwriters, actuaries, and product teams with eligible subscriptions. Its connector grounds assistants in Verisk data and actuarial context for underwriting questions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://gatewaymcp.verisk.com/underwriting/intelligencemcp/v1",
+      "auth_type": "oauth",
+      "publisher": "verisk",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/verisk-underwriting-intelligence",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=gatewaymcp.verisk.com&sz=128"
+    },
+    {
+      "name": "Verisk XactRestore",
+      "description": "Verisk XactRestore supports natural-language estimating for restoration and remodeling professionals. Its connector helps assistants create rooms, adjust line items, apply Quick Estimates, and surface pricing details while keeping contractors in control.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://xactrestore-xactremodelserver-usw2-prod.propsol.io/mcp",
+      "auth_type": "oauth",
+      "publisher": "verisk",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/verisk-xactrestore",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=xactrestore-xactremodelserver-usw2-prod.propsol.io&sz=128"
+    },
+    {
+      "name": "Viator",
+      "description": "Viator helps users discover and book travel experiences, tours, attractions, and destination activities. Its connector gives assistants travel-experience context for narrowing options by destination, dates, price range, category, and practical trip details.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://exp-app-mcp.prod.ep.viator.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "viator",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/viator",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=exp-app-mcp.prod.ep.viator.com&sz=128"
+    },
+    {
+      "name": "Webflow",
+      "description": "Webflow is a visual web development platform for building and hosting production sites. Its remote MCP server lets assistants design pages, manage CMS collections, and update site content directly, bringing Webflow projects into AI-assisted workflows.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.webflow.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "webflow",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/webflow",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.webflow.com&sz=128"
+    },
+    {
+      "name": "Windsor.ai",
+      "description": "Windsor.ai connects marketing, analytics, CRM, and ecommerce data from hundreds of platforms for attribution and reporting. Its remote MCP server lets assistants analyze multi-channel performance across all connected sources in one conversation.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.windsor.ai",
+      "auth_type": "oauth",
+      "publisher": "windsor",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/windsor-ai",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.windsor.ai&sz=128"
+    },
+    {
+      "name": "Wix",
+      "description": "Wix is a website platform spanning sites, ecommerce, bookings, and business management. Its remote MCP server lets assistants manage Wix sites and business data — from content updates to store operations — using the account's existing permissions.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.wix.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "wix",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/wix",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.wix.com&sz=128"
     },
     {
       "name": "WordPress.com",
@@ -1922,6 +4514,86 @@
       "icon_url": "/images/mcp-servers/workable.png"
     },
     {
+      "name": "Wyndham Hotels and Resorts",
+      "description": "Wyndham Hotels and Resorts helps travelers search and compare hotel options by city, dates, amenities, and trip needs. Its connector brings hotel-discovery context into assistant workflows for weekend getaways, family vacations, and work trips.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.wyndhamhotels.com/claude/mcp",
+      "auth_type": "oauth",
+      "publisher": "wyndham",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/wyndham-hotels",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.wyndhamhotels.com&sz=128"
+    },
+    {
+      "name": "Xero",
+      "description": "Xero gives assistants read-only access to business financial summaries such as profit and loss, receivables, cash position, and top customers. Its connector links responses back to Xero for deeper financial analysis.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.xero.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "xero",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/xero",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.xero.com&sz=128"
+    },
+    {
+      "name": "Yardi Virtuoso",
+      "description": "Yardi Virtuoso provides AI access to Yardi real-estate management systems. Its remote MCP server lets investment, property, and asset management teams query financial models, maintenance predictions, market analysis, and portfolio data in natural language.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.virtuoso.ai/mcp",
+      "auth_type": "oauth",
+      "publisher": "yardi",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/yardi-virtuoso",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.virtuoso.ai&sz=128"
+    },
+    {
+      "name": "Zapier",
+      "description": "Zapier is an automation platform connecting more than 8,000 apps. Its remote MCP server lets assistants search knowledge across connected tools and execute real-world actions — creating records, sending messages, running workflows — through one integration.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.zapier.com/api/v1/connect",
+      "auth_type": "oauth",
+      "publisher": "zapier",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/zapier",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.zapier.com&sz=128"
+    },
+    {
+      "name": "ZipRecruiter",
+      "description": "ZipRecruiter helps users search live jobs by title, company, location, salary, distance, work style, employment type, and posting date. Its connector brings job-search context into assistant workflows before handing applications back to ZipRecruiter.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://api.ziprecruiter.com/mcp",
+      "auth_type": "oauth",
+      "publisher": "ziprecruiter",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/ziprecruiter",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.ziprecruiter.com&sz=128"
+    },
+    {
       "name": "Zocks",
       "description": "Zocks connects assistants to client conversation intelligence for financial advisors, including meeting insights, goals, concerns, and planning opportunities. Its connector helps surface tax, estate, and client-specific signals from interaction history.",
       "category": "Productivity",
@@ -1936,6 +4608,22 @@
         "oauth"
       ],
       "icon_url": "/images/mcp-servers/zocks.png"
+    },
+    {
+      "name": "Zoom",
+      "description": "Zoom is a video communications platform for meetings, webinars, and team chat. Its remote MCP server lets assistants search meetings with natural language, retrieve recordings and AI summaries, and work with schedule context from a Zoom account.",
+      "category": "Productivity",
+      "connection_type": "http",
+      "connection_url": "https://mcp.zoom.us/mcp/zoom/streamable",
+      "auth_type": "oauth",
+      "publisher": "zoom",
+      "docs_url": "https://mcpservers.org/remote-mcp-servers/zoom",
+      "tags": [
+        "official",
+        "remote",
+        "oauth"
+      ],
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.zoom.us&sz=128"
     },
     {
       "name": "ZoomInfo",

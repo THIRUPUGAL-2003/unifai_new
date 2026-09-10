@@ -135,13 +135,16 @@ const ClientForm: React.FC<ClientFormProps> = ({ open, onClose, onSaved }) => {
 	// opens MCPHeadersAuthorizer with an invalid config the server has to
 	// reject.
 	let headersValidationError: string | null = null;
-	if ((connectionType === "http" || connectionType === "sse") && (authType === "headers" || authType === "per_user_headers") && headers) {
+		if (authType === "headers" || authType === "per_user_headers") && headers) {
 		for (const [key, secretVar] of Object.entries(headers)) {
 			if (!secretVar.value && !secretVar.ref) {
 				headersValidationError = `Header "${key}" must have a value`;
 				break;
 			}
 		}
+	}
+	if (authType === "headers" && (!headers || Object.keys(headers).length === 0)) {
+		headersValidationError = "Add at least one header with a value (e.g. Authorization)";
 	}
 
 	// Reset form state when dialog opens
