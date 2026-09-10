@@ -11,7 +11,8 @@ INSTALL (turn ON)
    - If macOS says it cannot be opened: Right-click → Open → Open
 3. Allow any Keychain / admin prompts (needed to trust the Guard certificate)
 4. Fully quit Safari / Chrome / Edge / Firefox (Cmd+Q), then reopen
-5. Open a monitored AI website as usual
+5. Safari users: System Settings → iCloud → Private Relay → Off (for corp intercept)
+6. Open a monitored AI website as usual
 
 Health check: http://127.0.0.1:18085/
 Logs: ~/Library/Application Support/UnifAI/Guard/unifai_guard.log
@@ -21,6 +22,7 @@ What it does
 - Connects to the company UnifAI backend for rules & target websites
 - Runs a local proxy on this Mac only (127.0.0.1:8085)
 - Sets system Auto Proxy URL (same idea as Windows PAC)
+- Disables Chromium HTTP/3 (QUIC) via managed policies when possible
 - Starts again at login (LaunchAgent) — like Windows autostart
 - Does NOT need Docker or direct database access
 

@@ -231,14 +231,29 @@ if ($result -ne [System.Windows.Forms.DialogResult]::OK) { exit 3 }
 
 
 def ca_trusted(status_path: str) -> bool:
-    try:
-        if os.path.isfile(status_path):
-            with open(status_path, "r", encoding="utf-8", errors="replace") as f:
-                if f.read().strip().upper().startswith("OK"):
-                    return True
-    except Exception:
-        pass
+    """True only when the mitmproxy CA is actually trusted for SSL (not merely present)."""
+    mitm_dir = os.path.expanduser("~/.mitmproxy")
+    pem = os.path.join(mitm_dir, "mitmproxy-ca-cert.pem")
+
     if IS_WIN:
+        try:
+            if os.path.isfile(status_path):
+                with open(status_path, "r", encoding="utf-8", errors="replace") as f:
+                    if f.read().strip().upper().startswith("OK"):
+                        # Confirm still in store — status OK alone can go stale after user removes cert.
+                        completed = subprocess.run(
+                            ["certutil.exe", "-user", "-store", "Root"],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            timeout=12,
+                            creationflags=subprocess.CREATE_NO_WINDOW,
+                            check=False,
+                        )
+                        out = ((completed.stdout or "") + (completed.stderr or "")).lower()
+                        return "mitmproxy" in out
+        except Exception:
+            pass
         try:
             completed = subprocess.run(
                 ["certutil.exe", "-user", "-store", "Root"],
@@ -253,31 +268,42 @@ def ca_trusted(status_path: str) -> bool:
             return "mitmproxy" in out
         except Exception:
             return False
+
     if IS_MAC:
+        # Prefer real SSL trust verification — "cert exists" alone is NOT enough
+        # (Keychain can hold mitmproxy with Use System Defaults → HTTPS MITM fails).
+        if os.path.isfile(pem):
+            try:
+                completed = subprocess.run(
+                    ["security", "verify-cert", "-c", pem, "-p", "ssl"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=12,
+                    check=False,
+                )
+                if completed.returncode == 0:
+                    return True
+            except Exception:
+                pass
+        # Stale OK status without verify must NOT skip reinstall.
         try:
-            completed = subprocess.run(
-                ["security", "find-certificate", "-a", "-c", "mitmproxy", str(os.path.expanduser("~/Library/Keychains/login.keychain-db"))],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=12,
-                check=False,
-            )
-            out = ((completed.stdout or "") + (completed.stderr or "")).lower()
-            if "mitmproxy" in out:
-                return True
-            # Fallback: any keychain
-            completed2 = subprocess.run(
-                ["security", "find-certificate", "-a", "-c", "mitmproxy"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                timeout=12,
-                check=False,
-            )
-            return "mitmproxy" in ((completed2.stdout or "") + (completed2.stderr or "")).lower()
+            if os.path.isfile(status_path):
+                with open(status_path, "r", encoding="utf-8", errors="replace") as f:
+                    if f.read().strip().upper().startswith("OK"):
+                        # Downgrade stale status so next install_ca runs again.
+                        with open(status_path, "w", encoding="utf-8") as wf:
+                            wf.write("STALE: cert present but SSL trust not verified\n")
         except Exception:
-            return False
+            pass
+        return False
+
+    try:
+        if os.path.isfile(status_path):
+            with open(status_path, "r", encoding="utf-8", errors="replace") as f:
+                return f.read().strip().upper().startswith("OK")
+    except Exception:
+        pass
     return False
 
 
@@ -332,12 +358,11 @@ def install_ca_certificate(status_path: str) -> bool:
             keychain = os.path.expanduser("~/Library/Keychains/login.keychain-db")
             if not os.path.exists(keychain):
                 keychain = os.path.expanduser("~/Library/Keychains/login.keychain")
-            # -d = admin cert store path optional; user trust for SSL
-            completed = subprocess.run(
-                [
+
+            def _add_trusted(with_admin_flag: bool) -> tuple[int, str]:
+                cmd = [
                     "security",
                     "add-trusted-cert",
-                    "-d",
                     "-r",
                     "trustRoot",
                     "-p",
@@ -347,38 +372,46 @@ def install_ca_certificate(status_path: str) -> bool:
                     "-k",
                     keychain,
                     target_cert,
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                check=False,
-            )
-            out = ((completed.stdout or "") + (completed.stderr or "")).strip()
-            # Already trusted often returns non-zero with "already exists"
-            if completed.returncode != 0 and "already" not in out.lower() and "exists" not in out.lower():
-                # Retry without -d (some macOS versions)
-                completed2 = subprocess.run(
-                    [
-                        "security",
-                        "add-trusted-cert",
-                        "-r",
-                        "trustRoot",
-                        "-k",
-                        keychain,
-                        target_cert,
-                    ],
+                ]
+                # Prefer non-admin first (login keychain). -d can hang on password dialog.
+                if with_admin_flag:
+                    cmd.insert(2, "-d")
+                completed = subprocess.run(
+                    cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
+                    timeout=120,
                     check=False,
                 )
-                out2 = ((completed2.stdout or "") + (completed2.stderr or "")).strip()
-                if completed2.returncode != 0 and "already" not in out2.lower():
+                return completed.returncode, ((completed.stdout or "") + (completed.stderr or "")).strip()
+
+            code, out = _add_trusted(False)
+            if code != 0 and "already" not in out.lower() and "exists" not in out.lower():
+                code2, out2 = _add_trusted(True)
+                if code2 != 0 and "already" not in out2.lower() and "exists" not in out2.lower():
                     print(f"[UnifAI Guard ERROR] CA install failed: {out or out2}")
-                    print("[UnifAI Guard ERROR] You may need to approve the cert in Keychain Access (Trust → Always Trust).")
+                    print("[UnifAI Guard ERROR] Approve the cert in Keychain Access → Trust → Always Trust (SSL).")
                     with open(status_path, "w", encoding="utf-8") as f:
                         f.write(f"FAILED\n{out}\n{out2}\n")
                     return False
+
+            # Require SSL verify before writing OK — otherwise HTTPS intercept stays broken.
+            verify = subprocess.run(
+                ["security", "verify-cert", "-c", target_cert, "-p", "ssl"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=12,
+                check=False,
+            )
+            if verify.returncode != 0:
+                print("[UnifAI Guard WARNING] CA added but SSL trust not verified yet — open Keychain Access and set Always Trust.")
+                with open(status_path, "w", encoding="utf-8") as f:
+                    f.write("PARTIAL: installed but SSL trust not verified\n")
+                # Still return True so Guard starts; health will keep warning until verify OK.
+                # Caller uses ca_trusted() which will stay False until verify succeeds.
+                return False
         else:
             print("[UnifAI Guard WARNING] Auto CA install not supported on this OS — trust mitmproxy CA manually.")
             with open(status_path, "w", encoding="utf-8") as f:
@@ -484,7 +517,7 @@ def _set_mac_proxy_pac(enable: bool, pac_url: str, silent: bool) -> bool:
     for service in _mac_network_services():
         try:
             if enable:
-                subprocess.run(
+                set_url = subprocess.run(
                     ["networksetup", "-setautoproxyurl", service, pac_url],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -492,7 +525,7 @@ def _set_mac_proxy_pac(enable: bool, pac_url: str, silent: bool) -> bool:
                     timeout=15,
                     check=False,
                 )
-                completed = subprocess.run(
+                set_state = subprocess.run(
                     ["networksetup", "-setautoproxystate", service, "on"],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -500,6 +533,30 @@ def _set_mac_proxy_pac(enable: bool, pac_url: str, silent: bool) -> bool:
                     timeout=15,
                     check=False,
                 )
+                if set_url.returncode != 0:
+                    err = ((set_url.stderr or "") + (set_url.stdout or "")).strip()
+                    print(f"[UnifAI Guard WARNING] setautoproxyurl '{service}' failed: {err or set_url.returncode}")
+                    continue
+                if set_state.returncode != 0:
+                    err = ((set_state.stderr or "") + (set_state.stdout or "")).strip()
+                    print(f"[UnifAI Guard WARNING] setautoproxystate '{service}' failed: {err or set_state.returncode}")
+                    continue
+                # Confirm URL stuck on the interface (false OK previously ignored setautoproxyurl failures).
+                got = subprocess.run(
+                    ["networksetup", "-getautoproxyurl", service],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=15,
+                    check=False,
+                )
+                got_out = (got.stdout or "").strip()
+                if pac_url.split("?")[0] not in got_out.replace("URL:", "").replace(" ", ""):
+                    # Soft check — some macOS versions print multi-line; accept if URL substring present.
+                    if pac_url not in got_out and "http://127.0.0.1:18085" not in got_out and "18085" not in got_out:
+                        print(f"[UnifAI Guard WARNING] PAC URL not confirmed on '{service}': {got_out[:200]}")
+                        continue
+                ok_any = True
             else:
                 completed = subprocess.run(
                     ["networksetup", "-setautoproxystate", service, "off"],
@@ -509,8 +566,8 @@ def _set_mac_proxy_pac(enable: bool, pac_url: str, silent: bool) -> bool:
                     timeout=15,
                     check=False,
                 )
-            if completed.returncode == 0:
-                ok_any = True
+                if completed.returncode == 0:
+                    ok_any = True
         except Exception as e:
             print(f"[UnifAI Guard WARNING] PAC on '{service}': {e}")
     if enable and not silent:
@@ -662,20 +719,49 @@ def os_label() -> str:
 
 
 def write_chrome_mac_proxy_policy(enable: bool, pac_url: str) -> None:
-    """Best-effort Chrome managed preference on macOS (user Library)."""
+    """Write Chromium managed policies on macOS (PAC + disable QUIC/DoH) so Chrome/Edge/Brave
+    do not bypass Guard via HTTP/3. Also keep a support note."""
     if not IS_MAC:
         return
-    # Chrome reads policies from Managed Preferences when deployed via MDM;
-    # for user installs, system PAC (networksetup) is the primary path.
-    # Also drop a helper prefs note for support.
+    import json
+
     note = os.path.join(data_dir(), "mac_browser_note.txt")
     try:
         with open(note, "w", encoding="utf-8") as f:
             f.write(
                 "UnifAI Guard on macOS uses system Auto Proxy URL (networksetup).\n"
                 "Chrome / Edge / Brave / Firefox typically follow system proxy.\n"
+                "Managed policies also disable QUIC (HTTP/3) where Chrome supports it.\n"
                 "Fully quit & reopen browsers after install.\n"
+                "Safari: disable iCloud Private Relay for reliable intercept.\n"
                 f"PAC: {pac_url if enable else '(cleared)'}\n"
             )
     except Exception:
         pass
+
+    # Chrome 90+ user managed policies (no admin / MDM required).
+    policy = {
+        "ProxyMode": "pac_script",
+        "ProxyPacUrl": pac_url,
+        "QuicAllowed": False,
+        "DnsOverHttpsMode": "off",
+    }
+    app_support = os.path.join(os.path.expanduser("~"), "Library", "Application Support")
+    managed_roots = [
+        os.path.join(app_support, "Google", "Chrome", "policies", "managed"),
+        os.path.join(app_support, "Google", "Chrome Canary", "policies", "managed"),
+        os.path.join(app_support, "Microsoft Edge", "policies", "managed"),
+        os.path.join(app_support, "BraveSoftware", "Brave-Browser", "policies", "managed"),
+        os.path.join(app_support, "Chromium", "policies", "managed"),
+    ]
+    for root in managed_roots:
+        path = os.path.join(root, "unifai_guard.json")
+        try:
+            if enable:
+                os.makedirs(root, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(policy, f, indent=2)
+            elif os.path.isfile(path):
+                os.remove(path)
+        except Exception as e:
+            print(f"[UnifAI Guard WARNING] Mac Chromium policy write failed ({root}): {e}")

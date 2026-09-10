@@ -1285,13 +1285,22 @@ func (h *BrowserAIHandler) intercept(ctx *fasthttp.RequestCtx) {
 					if res.evalErr != "" {
 						evalError = res.evalErr
 						ruleAction := logstore.NormalizeGuardRuleAction(res.rule.Action)
+						logEntry.RuleTriggered = res.rule.Name
+						if ruleAction == "BLOCK" {
+							// Fail closed for BLOCK bots: unreachable Ollama must not silently allow.
+							logEntry.Action = "Blocked"
+							logEntry.Status = fmt.Sprintf("Blocked (%s — AI Guard Bot eval failed)", res.rule.Name)
+							logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
+							logEntry.RiskScore = 90
+							logEntry.PredictiveRisk = "HIGH"
+							securityVerdict = "eval_failed_blocked"
+							evalError = res.evalErr + " (blocked — fail-closed on eval error)"
+							_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
+							continue
+						}
 						logEntry.Status = fmt.Sprintf("Allowed (%s — AI Guard Bot eval failed)", res.rule.Name)
 						logEntry.PredictedCategory = "AI_GUARD_BOT_EVAL_ERROR"
-						logEntry.RuleTriggered = res.rule.Name
 						securityVerdict = "eval_failed"
-						if ruleAction == "BLOCK" {
-							evalError = res.evalErr + " (allowed — eval error does not block)"
-						}
 						_ = h.manager.UpdateLogRuleViolation(ctx, logEntry.ID, logEntry.Action, logEntry.Status, logEntry.RuleTriggered, logEntry.RiskScore, logEntry.PredictiveRisk, logEntry.PredictedCategory)
 						continue
 					}

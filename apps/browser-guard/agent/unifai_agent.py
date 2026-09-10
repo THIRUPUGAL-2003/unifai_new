@@ -1011,6 +1011,15 @@ def _apply_chromium_browser_policies(enable: bool, pac_url: str | None = None) -
 
 
 def set_browser_quic(enable_quic: bool) -> None:
+    if IS_MAC:
+        # When disabling QUIC, (re)write managed policies including QuicAllowed=false.
+        # Do not wipe PAC policies when re-enabling QUIC.
+        if not enable_quic:
+            try:
+                write_chrome_mac_proxy_policy(enable=True, pac_url=pac_http_url())
+            except Exception as e:
+                print(f"[UnifAI Guard WARNING] Mac QUIC policy update failed: {e}")
+        return
     if not IS_WIN:
         return
     value = 1 if enable_quic else 0

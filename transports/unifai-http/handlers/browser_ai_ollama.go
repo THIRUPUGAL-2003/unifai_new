@@ -16,11 +16,13 @@ import (
 )
 
 const (
-	browserAIGuardBotDefaultProvider   = "ollama"
-	browserAIGuardBotDefaultModel        = "llama3.2"
-	browserAIGuardBotDefaultOllamaURL    = "http://76.13.243.253:11434"
-	browserAIGuardBotMaxPromptRunes      = 50000
-	browserAIGuardBotMaxReferenceImageB  = 512 * 1024 // 512 KiB raw base64 payload limit
+	browserAIGuardBotDefaultProvider = "ollama"
+	browserAIGuardBotDefaultModel    = "llama3.2"
+	// Prefer env BROWSER_AI_OLLAMA_URL / OLLAMA_BASE_URL. Do not hardcode a remote
+	// host — dead IPs burn the shared Guard Bot budget and make LLM look "regex only".
+	browserAIGuardBotDefaultOllamaURL = "http://127.0.0.1:11434"
+	browserAIGuardBotMaxPromptRunes     = 50000
+	browserAIGuardBotMaxReferenceImageB = 512 * 1024 // 512 KiB raw base64 payload limit
 )
 
 type ollamaChatMessage struct {
@@ -66,7 +68,8 @@ func addOllamaURLCandidate(seen map[string]bool, out *[]string, raw string) {
 	*out = append(*out, u)
 }
 
-// ollamaBaseURLCandidates lists every URL the backend may try (Docker bridge, 1Panel, host IP).
+// ollamaBaseURLCandidates lists every URL the backend may try (Docker bridge, 1Panel, localhost).
+// Env URLs always come first. Dead remote defaults must never lead the list.
 func ollamaBaseURLCandidates() []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, 8)
@@ -83,8 +86,11 @@ func ollamaBaseURLCandidates() []string {
 	addOllamaURLCandidate(seen, &out, "http://ollama:11434")
 	addOllamaURLCandidate(seen, &out, "http://host.docker.internal:11434")
 	addOllamaURLCandidate(seen, &out, "http://172.17.0.1:11434")
-	addOllamaURLCandidate(seen, &out, browserAIGuardBotDefaultOllamaURL)
 	addOllamaURLCandidate(seen, &out, "http://127.0.0.1:11434")
+	// Opt-in legacy remote only when explicitly allowed (avoids burning eval timeout).
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("BROWSER_AI_OLLAMA_ALLOW_LEGACY")), "1") {
+		addOllamaURLCandidate(seen, &out, "http://76.13.243.253:11434")
+	}
 	return out
 }
 
@@ -111,8 +117,11 @@ func rememberWorkingOllamaURL(baseURL string) {
 // miss the proxy's ~95s deadline and look like "model never evaluates").
 func resolveWorkingOllamaBase(probeTimeout time.Duration) (string, error) {
 	if probeTimeout <= 0 {
-		probeTimeout = 3 * time.Second
+		probeTimeout = 1500 * time.Millisecond
 	}
+	// Hard cap total probe budget so dead Docker hostnames cannot burn Guard Bot eval time.
+	deadline := time.Now().Add(4 * time.Second)
+
 	ollamaURLCacheMu.RLock()
 	cached := cachedOllamaBaseURL
 	ollamaURLCacheMu.RUnlock()
@@ -134,7 +143,20 @@ func resolveWorkingOllamaBase(probeTimeout time.Duration) (string, error) {
 
 	var errs []string
 	for _, base := range ordered {
-		if _, err := fetchOllamaTags(base, probeTimeout); err == nil {
+		if time.Now().After(deadline) {
+			errs = append(errs, "probe budget exhausted")
+			break
+		}
+		left := time.Until(deadline)
+		pt := probeTimeout
+		if left < pt {
+			pt = left
+		}
+		if pt < 200*time.Millisecond {
+			errs = append(errs, "probe budget exhausted")
+			break
+		}
+		if _, err := fetchOllamaTags(base, pt); err == nil {
 			rememberWorkingOllamaURL(base)
 			return base, nil
 		} else {
@@ -142,9 +164,9 @@ func resolveWorkingOllamaBase(probeTimeout time.Duration) (string, error) {
 		}
 	}
 	if len(errs) == 0 {
-		return "", fmt.Errorf("ollama unreachable: no candidate URLs configured")
+		return "", fmt.Errorf("ollama unreachable: no candidate URLs configured (set BROWSER_AI_OLLAMA_URL)")
 	}
-	return "", fmt.Errorf("ollama unreachable (%d probes): %s", len(errs), strings.Join(errs, "; "))
+	return "", fmt.Errorf("ollama unreachable (%d probes): %s — set BROWSER_AI_OLLAMA_URL", len(errs), strings.Join(errs, "; "))
 }
 
 // callOllamaChatAny probes for a live Ollama once, then runs a single chat call.
