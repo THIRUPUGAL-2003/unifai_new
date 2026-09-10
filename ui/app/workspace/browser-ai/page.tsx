@@ -906,7 +906,7 @@ export default function BrowserAiPage() {
 	const [pdfLoading, setPdfLoading] = useState(false);
 	const [pdfError, setPdfError] = useState("");
 	const [copiedPrompt, setCopiedPrompt] = useState(false);
-	const [setupPackageDownloading, setSetupPackageDownloading] = useState(false);
+	const [downloadingPlatform, setDownloadingPlatform] = useState<"windows" | "mac" | null>(null);
 	const [setupPackageError, setSetupPackageError] = useState("");
 	const [uninstallKeyInput, setUninstallKeyInput] = useState("");
 	const [uninstallKeyMessage, setUninstallKeyMessage] = useState("");
@@ -1679,11 +1679,11 @@ type RelatedHostEntry = { host: string; role: HostRole };
 		setTimeout(() => setCopiedPrompt(false), 2000);
 	};
 
-	const handleDownloadSetupPackage = async () => {
-		setSetupPackageDownloading(true);
+	const handleDownloadSetupPackage = async (platform: "windows" | "mac") => {
+		setDownloadingPlatform(platform);
 		setSetupPackageError("");
 		try {
-			const res = await fetch(`${getApiBaseUrl()}/browser-ai/setup/download.zip`, {
+			const res = await fetch(`${getApiBaseUrl()}/browser-ai/setup/download.zip?platform=${platform}`, {
 				credentials: "include",
 			});
 			if (!res.ok) {
@@ -1693,15 +1693,15 @@ type RelatedHostEntry = { host: string; role: HostRole };
 			const url = window.URL.createObjectURL(blob);
 			const link = document.createElement("a");
 			link.href = url;
-			link.download = "unifai-browser-ai-setup.zip";
+			link.download = platform === "mac" ? "UnifAI_Guard_macOS.zip" : "UnifAI_Guard_Windows.zip";
 			document.body.appendChild(link);
 			link.click();
 			link.remove();
 			window.URL.revokeObjectURL(url);
 		} catch (error) {
-			setSetupPackageError(error instanceof Error ? error.message : "Failed to download setup package");
+			setSetupPackageError(error instanceof Error ? error.message : `Failed to download ${platform} setup package`);
 		} finally {
-			setSetupPackageDownloading(false);
+			setDownloadingPlatform(null);
 		}
 	};
 
@@ -4155,46 +4155,79 @@ type RelatedHostEntry = { host: string; role: HostRole };
 
 					<Card className="bg-card border-border">
 						<CardHeader>
-							<div className="flex justify-between items-center gap-4">
+							<div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
 								<div className="flex items-center gap-3">
-									<CheckCircle2 className="h-6 w-6 text-emerald-400" />
+									<CheckCircle2 className="h-6 w-6 text-emerald-400 shrink-0" />
 									<div>
-										<CardTitle className="text-lg">Employee Setup Package</CardTitle>
+										<CardTitle className="text-lg">Employee Setup Packages</CardTitle>
 										<CardDescription>
-											Windows + macOS Guard setup ZIP for employee laptops.
+											Choose Windows or macOS to download the Guard installer package for employee laptops.
 										</CardDescription>
 									</div>
 								</div>
-								<Button onClick={handleDownloadSetupPackage} disabled={setupPackageDownloading} className="gap-2">
-									<Download className="h-4 w-4" />
-									{setupPackageDownloading ? "Preparing..." : "Download Setup ZIP"}
-								</Button>
+								<div className="flex flex-wrap items-center gap-2.5">
+									<Button
+										onClick={() => handleDownloadSetupPackage("windows")}
+										disabled={downloadingPlatform !== null}
+										variant="outline"
+										className="gap-2 border-border hover:border-sky-500/60 hover:bg-sky-500/10 transition-colors"
+									>
+										<svg className="h-4 w-4 fill-current text-sky-400" viewBox="0 0 24 24">
+											<path d="M0 3.449L9.75 2.1v9.451H0m10.949-9.602L24 0v11.4H10.949M0 12.6h9.75v9.451L0 20.699M10.949 12.6H24V24l-12.949-1.95" />
+										</svg>
+										{downloadingPlatform === "windows" ? "Preparing Windows..." : "Download for Windows"}
+									</Button>
+									<Button
+										onClick={() => handleDownloadSetupPackage("mac")}
+										disabled={downloadingPlatform !== null}
+										className="gap-2 bg-primary hover:bg-primary/90 text-primary-foreground"
+									>
+										<svg className="h-4 w-4 fill-current" viewBox="0 0 170 170">
+											<path d="M150.37 130.25c-2.45 5.66-5.35 10.87-8.71 15.66-4.58 6.53-8.33 11.05-11.22 13.56-4.48 4.12-9.28 6.23-14.42 6.35-3.69 0-8.14-1.05-13.32-3.18-5.19-2.12-9.97-3.17-14.34-3.17-4.58 0-9.49 1.05-14.75 3.17-5.26 2.13-9.5 3.24-12.74 3.35-4.35.13-9.16-1.9-14.42-6.08-3.7-3.04-7.7-7.9-11.99-14.57-6.09-9.46-10.9-20.2-14.42-32.22-3.52-12.01-5.28-23.23-5.28-33.64 0-14.78 3.82-27.17 11.45-37.19 7.63-10.01 17.1-15.13 28.4-15.35 4.35 0 9.29 1.14 14.81 3.42 5.53 2.29 9.38 3.48 11.56 3.59 1.74 0 5.86-1.25 12.38-3.76 6.52-2.5 12.16-3.6 16.92-3.3 12.51.98 22.37 5.76 29.57 14.34-11.09 6.74-16.53 16.09-16.32 28.05.22 9.57 3.91 17.61 11.09 24.13 7.18 6.52 15.66 10.11 25.44 10.76-2.28 7.07-5.22 14.67-8.81 22.8zM119.22 31.84c0-7.18 2.61-13.91 7.83-20.19 5.22-6.28 11.52-10.22 18.91-11.83 1.09 6.74-.22 13.48-3.91 20.22-3.7 6.74-9.35 11.3-16.96 13.7-1.09-.76-2.93-1.3-5.52-1.63-.22-.11-.35-.27-.35-.27z" />
+										</svg>
+										{downloadingPlatform === "mac" ? "Preparing Mac..." : "Download for Mac"}
+									</Button>
+								</div>
 							</div>
 						</CardHeader>
-						<CardContent className="pt-0">
-							<p className="text-sm text-muted-foreground">
-								ZIP includes Windows <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> /{" "}
-								<code className="bg-black/40 px-1 rounded">UnifAI_Guard.exe</code>
-								{" "}and/or macOS <code className="bg-black/40 px-1 rounded">UnifAI_Guard_macOS.zip</code>.
-								{" "}Backend URL is already baked in.
-							</p>
-							{setupPackageError ? <p className="mt-3 text-sm text-red-400">{setupPackageError}</p> : null}
+						<CardContent className="pt-0 space-y-3">
+							<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+								<div className="rounded-md border border-border/80 p-3 bg-muted/20">
+									<div className="flex items-center gap-2 font-medium text-xs text-foreground mb-1">
+										<span className="h-2 w-2 rounded-full bg-sky-400"></span>
+										Windows Package (<code className="bg-black/40 px-1 rounded text-[11px]">UnifAI_Guard_Windows.zip</code>)
+									</div>
+									<p className="text-xs text-muted-foreground">
+										Includes <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> installer with auto-start and enterprise proxy routing.
+									</p>
+								</div>
+								<div className="rounded-md border border-border/80 p-3 bg-muted/20">
+									<div className="flex items-center gap-2 font-medium text-xs text-foreground mb-1">
+										<span className="h-2 w-2 rounded-full bg-primary"></span>
+										macOS Package (<code className="bg-black/40 px-1 rounded text-[11px]">UnifAI_Guard_macOS.zip</code>)
+									</div>
+									<p className="text-xs text-muted-foreground">
+										Includes <code className="bg-black/40 px-1 rounded">UnifAI_Guard.app</code> + <code className="bg-black/40 px-1 rounded">Install_UnifAI_Guard.command</code>.
+									</p>
+								</div>
+							</div>
+							{setupPackageError ? <p className="mt-2 text-sm text-red-400">{setupPackageError}</p> : null}
 						</CardContent>
 					</Card>
 
 					<Card className="bg-card border-border">
 						<CardHeader>
 							<CardTitle className="text-lg">Install Steps</CardTitle>
-							<CardDescription>Download the ZIP and install Guard on Windows or Mac employee laptops.</CardDescription>
+							<CardDescription>Download the package for your OS and install Guard on Windows or Mac laptops.</CardDescription>
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<div className="space-y-4">
 								<div className="flex items-center gap-2 font-semibold">
 									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">1</span>
-									<span>Download the ZIP package</span>
+									<span>Download the package for your OS</span>
 								</div>
 								<p className="text-xs text-muted-foreground pl-8">
-									Click <strong>Download Setup ZIP</strong> above.
+									Click <strong>Download for Windows</strong> or <strong>Download for Mac</strong> above based on your device.
 								</p>
 							</div>
 
@@ -4235,11 +4268,10 @@ type RelatedHostEntry = { host: string; role: HostRole };
 							</div>
 
 							<div className="rounded-md border border-border bg-background p-4 text-xs space-y-2">
-								<p className="font-semibold text-foreground">ZIP contents (when built &amp; deployed)</p>
+								<p className="font-semibold text-foreground">Package contents</p>
 								<ul className="list-disc pl-5 text-muted-foreground space-y-1">
-									<li><code>UnifAI_Guard_Setup.exe</code> — Windows employee installer</li>
-									<li><code>UnifAI_Guard.exe</code> — Windows portable / latest build (when included)</li>
-									<li><code>UnifAI_Guard_macOS.zip</code> — Mac .app + Install / Uninstall scripts</li>
+									<li><code>UnifAI_Guard_Windows.zip</code> — Windows <code>UnifAI_Guard_Setup.exe</code> installer &amp; docs</li>
+									<li><code>UnifAI_Guard_macOS.zip</code> — macOS <code>UnifAI_Guard.app</code> + Install &amp; Uninstall scripts</li>
 									<li><code>INSTALL_WINDOWS.txt</code> / <code>INSTALL_MACOS.txt</code> / <code>UNINSTALL_MACOS.txt</code></li>
 									<li><code>VERSION.txt</code></li>
 								</ul>

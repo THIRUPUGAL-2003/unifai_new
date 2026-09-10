@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -222,6 +223,8 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.GET("/api/browser-ai/proxy.pac", lib.ChainMiddlewares(h.getProxyPAC, middlewares...))
 	r.GET("/api/browser-ai/pac", lib.ChainMiddlewares(h.getProxyPAC, middlewares...))
 	r.GET("/api/browser-ai/setup/download.zip", lib.ChainMiddlewares(h.downloadSetupPackage, middlewares...))
+	r.GET("/api/browser-ai/setup/download-windows.zip", lib.ChainMiddlewares(h.downloadSetupPackage, middlewares...))
+	r.GET("/api/browser-ai/setup/download-mac.zip", lib.ChainMiddlewares(h.downloadSetupPackage, middlewares...))
 
 	r.GET("/api/browser-ai/agents", lib.ChainMiddlewares(h.listAgents, middlewares...))
 	r.POST("/api/browser-ai/agents/heartbeat", lib.ChainMiddlewares(h.agentHeartbeat, middlewares...))
@@ -677,12 +680,104 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 		path string
 	}
 
+	platform := strings.ToLower(strings.TrimSpace(string(ctx.QueryArgs().Peek("platform"))))
+	if platform == "" {
+		platform = strings.ToLower(strings.TrimSpace(string(ctx.QueryArgs().Peek("os"))))
+	}
+	path := string(ctx.Path())
+	if strings.Contains(path, "download-windows") {
+		platform = "windows"
+	} else if strings.Contains(path, "download-mac") {
+		platform = "mac"
+	}
+
 	setupPath, setupOK := findFirstExisting(browserAISetupCandidates()["UnifAI_Guard_Setup.exe"])
 	exePath, exeOK := findFirstExisting(browserAISetupCandidates()["UnifAI_Guard.exe"])
 	macZipPath, macZipOK := findFirstExisting(browserAISetupCandidates()["UnifAI_Guard_macOS.zip"])
+	releaseVer := readGuardReleaseVersion()
 
-	// Stale Setup.exe was shipping Active agents as 1.6.0 while source was 1.6.17+.
-	// If portable EXE is newer, omit Setup so Download cannot install the old binary.
+	// 1. MAC DEDICATED DOWNLOAD
+	if platform == "mac" || platform == "macos" || platform == "darwin" {
+		if !macZipOK {
+			SendError(ctx, fasthttp.StatusNotFound, "No macOS Guard installer on server — add UnifAI_Guard_macOS.zip under apps/browser-guard/release/")
+			return
+		}
+		ctx.SetStatusCode(fasthttp.StatusOK)
+		ctx.SetContentType("application/zip")
+		ctx.Response.Header.Set("Content-Disposition", `attachment; filename="UnifAI_Guard_macOS.zip"`)
+		if releaseVer != "" {
+			ctx.Response.Header.Set("X-UnifAI-Guard-Version", releaseVer)
+		}
+		ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
+			f, err := os.Open(macZipPath)
+			if err != nil {
+				return
+			}
+			defer f.Close()
+			_, _ = io.Copy(w, f)
+			_ = w.Flush()
+		})
+		return
+	}
+
+	// 2. WINDOWS DEDICATED DOWNLOAD
+	if platform == "windows" || platform == "win" {
+		if !setupOK && !exeOK {
+			SendError(ctx, fasthttp.StatusNotFound, "No Windows Guard installer on server — add UnifAI_Guard_Setup.exe or UnifAI_Guard.exe under apps/browser-guard/release/")
+			return
+		}
+		if setupOK && exeOK {
+			if fileModTime(exePath).After(fileModTime(setupPath)) {
+				setupOK = false
+			}
+		}
+		var winAssets []zipAsset
+		if setupOK {
+			winAssets = append(winAssets, zipAsset{name: "UnifAI_Guard_Setup.exe", path: setupPath})
+		}
+		if exeOK {
+			winAssets = append(winAssets, zipAsset{name: "UnifAI_Guard.exe", path: exePath})
+		}
+		for _, name := range []string{"INSTALL_WINDOWS.txt", "VERSION.txt"} {
+			if p, ok := findFirstExisting(browserAISetupCandidates()[name]); ok {
+				winAssets = append(winAssets, zipAsset{name: name, path: p})
+			}
+		}
+		ctx.SetStatusCode(fasthttp.StatusOK)
+		ctx.SetContentType("application/zip")
+		ctx.Response.Header.Set("Content-Disposition", `attachment; filename="UnifAI_Guard_Windows.zip"`)
+		if releaseVer != "" {
+			ctx.Response.Header.Set("X-UnifAI-Guard-Version", releaseVer)
+		}
+		ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
+			zw := zip.NewWriter(w)
+			wroteVersion := false
+			for _, asset := range winAssets {
+				data, err := os.ReadFile(asset.path)
+				if err != nil {
+					continue
+				}
+				entry, err := zw.Create(asset.name)
+				if err != nil {
+					continue
+				}
+				_, _ = entry.Write(data)
+				if asset.name == "VERSION.txt" {
+					wroteVersion = true
+				}
+			}
+			if !wroteVersion && releaseVer != "" {
+				if entry, err := zw.Create("VERSION.txt"); err == nil {
+					_, _ = entry.Write([]byte(releaseVer + "\n"))
+				}
+			}
+			_ = zw.Close()
+			_ = w.Flush()
+		})
+		return
+	}
+
+	// 3. COMBINED / LEGACY DOWNLOAD (when no platform specified)
 	if setupOK && exeOK {
 		if fileModTime(exePath).After(fileModTime(setupPath)) {
 			setupOK = false
@@ -723,8 +818,6 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusNotFound, "No Browser AI setup package files found on server")
 		return
 	}
-
-	releaseVer := readGuardReleaseVersion()
 
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetContentType("application/zip")
