@@ -15,8 +15,12 @@ const mcpLibrarySettingsSchema = z.object({
 		.string()
 		.trim()
 		.refine(
-			(value) => value === "" || value.startsWith("http://") || value.startsWith("https://"),
-			"URL must start with http:// or https://",
+			(value) =>
+				value === "" ||
+				value.startsWith("http://") ||
+				value.startsWith("https://") ||
+				value.startsWith("file://"),
+			"URL must start with http://, https://, or file://",
 		),
 	mcp_library_sync_interval_hours: z
 		.number({ message: "Sync interval is required" })
@@ -32,7 +36,7 @@ interface MCPLibrarySettingsSheetProps {
 }
 
 export function MCPLibrarySettingsSheet({ open, onClose }: MCPLibrarySettingsSheetProps) {
-	const hasSettingsUpdateAccess = useRbac(RbacResource.Settings, RbacOperation.Update);
+	const hasSettingsUpdateAccess = useRbac(RbacResource.MCPGateway, RbacOperation.Update);
 	const { data: unifaiConfig, isLoading: isConfigLoading, isError: isConfigError } = useGetCoreConfigQuery({ fromDB: true });
 	const config = unifaiConfig?.framework_config;
 	const [updateCoreConfig, { isLoading }] = useUpdateCoreConfigMutation();
@@ -113,13 +117,13 @@ export function MCPLibrarySettingsSheet({ open, onClose }: MCPLibrarySettingsShe
 							<div className="space-y-0.5">
 								<Label htmlFor="mcp-library-url">Library Sync URL</Label>
 								<p className="text-muted-foreground text-sm">
-									URL to a custom MCP server catalog. Leave empty to use the default UnifAI catalog.
+									URL to an MCP server catalog (http(s) or file://). Leave empty to use the bundled default.
 								</p>
 							</div>
 							<Input
 								id="mcp-library-url"
 								type="text"
-								placeholder="https://getunifai.ai/mcp-library"
+								placeholder="file:///app/configs/mcp-library.json"
 								data-testid="mcp-library-url-input"
 								{...register("mcp_library_url")}
 								className={errors.mcp_library_url ? "border-destructive" : ""}

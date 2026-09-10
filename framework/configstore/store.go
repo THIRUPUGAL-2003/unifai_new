@@ -270,7 +270,7 @@ type ConfigStore interface {
 	// rows (freeing their slug for re-add) and tombstoning "remote" rows.
 	DeleteMCPLibraryEntry(ctx context.Context, id uint) error
 	// GetProtectedMCPLibrarySlugs returns the slugs the remote sync must not
-	// overwrite or recreate: custom rows and soft-deleted (tombstoned) rows.
+	// overwrite: org-custom rows. Soft-deleted remotes may be resurrected.
 	GetProtectedMCPLibrarySlugs(ctx context.Context) ([]string, error)
 
 	// Vector store config CRUD

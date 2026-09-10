@@ -98,9 +98,7 @@ type MCPLibraryPayload struct {
 // ConfigStore so it can be called from both the force-sync handler and the
 // background worker without needing a dedicated manager struct.
 func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigStore) (int, error) {
-	if url == "" {
-		url = DefaultMCPLibraryURL
-	}
+	url = SanitizeMCPLibraryURL(url)
 
 	entries, err := withRetries(ctx, urlFetchMaxRetries, urlFetchMaxBackoff, func() ([]MCPLibraryEntry, error) {
 		return fetchMCPLibrary(ctx, url)
@@ -113,9 +111,8 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 		return 0, nil
 	}
 
-	// Load the slugs the sync must not touch: org-internal ("custom") rows and
-	// soft-deleted ("tombstoned") rows. A remote payload entry whose slug is in
-	// this set is skipped silently so the rest of the payload still seeds.
+	// Load the slugs the sync must not touch: org-internal ("custom") rows only.
+	// Soft-deleted remotes may be resurrected when they reappear in the catalog.
 	protected, err := store.GetProtectedMCPLibrarySlugs(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("failed to load protected MCP library slugs: %w", err)
@@ -147,7 +144,7 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 				catalogSlugs = append(catalogSlugs, slug)
 			}
 			if protectedSet[slug] {
-				continue // never overwrite custom or tombstoned rows
+				continue // never overwrite custom rows
 			}
 
 			now := time.Now()
@@ -174,6 +171,11 @@ func SyncMCPLibrary(ctx context.Context, url string, store configstore.ConfigSto
 				return fmt.Errorf("failed to upsert MCP library entry %q: %w", slug, err)
 			}
 			count++
+		}
+		// Never prune when the payload yielded zero usable slugs — that would
+		// soft-delete the entire remote library on a malformed catalog.
+		if len(catalogSlugs) == 0 {
+			return fmt.Errorf("MCP library catalog produced zero valid entries; refusing to prune")
 		}
 		if _, pruneErr := store.SoftDeleteStaleRemoteMCPLibraryEntries(ctx, catalogSlugs, tx); pruneErr != nil {
 			return fmt.Errorf("failed to prune stale remote MCP library entries: %w", pruneErr)
@@ -204,7 +206,7 @@ func (mc *ModelCatalog) syncMCPLibrary(ctx context.Context) error {
 func (mc *ModelCatalog) ForceReloadMCPLibrary(ctx context.Context) (int, error) {
 	if mc.shouldSyncGate != nil && !mc.shouldSyncGate(ctx) {
 		mc.logger.Debug("MCP library sync cancelled by custom gate")
-		return 0, nil
+		return 0, fmt.Errorf("MCP library sync is currently unavailable")
 	}
 	count, err := mc.syncMCPLibraryNow(ctx)
 	if err != nil {

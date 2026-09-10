@@ -4078,11 +4078,16 @@ func ResolveFrameworkPricingConfig(
 		// backfilled when the file changed since the last persisted hash.
 		if dbConfig.MCPLibraryURL != nil {
 			if trimmed := strings.TrimSpace(*dbConfig.MCPLibraryURL); trimmed != "" {
-				if fileChanged && fileMCPLibraryURL != nil && !skipMCPLibraryURLBackfill {
+				sanitized := modelcatalog.SanitizeMCPLibraryURL(trimmed)
+				if sanitized != trimmed {
+					logger.Warn("mcp_library_url in DB points at a dead host (%q) — rewriting to %q", trimmed, sanitized)
+					resolvedMCPLibraryURL = &sanitized
+					needsDBUpdate = true
+				} else if fileChanged && fileMCPLibraryURL != nil && !skipMCPLibraryURLBackfill {
 					logger.Info("mcp_library_url from config.json overrides DB (file hash changed) — updating DB")
 					needsDBUpdate = true
 				} else {
-					resolvedMCPLibraryURL = &trimmed
+					resolvedMCPLibraryURL = &sanitized
 				}
 			} else if !skipMCPLibraryURLBackfill {
 				needsDBUpdate = true

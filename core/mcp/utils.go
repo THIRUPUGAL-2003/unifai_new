@@ -189,8 +189,8 @@ func isTransientError(err error) bool {
 		"invalid config",
 		// Command execution errors
 		"executable file not found", "permission denied", "command failed",
-		// Timeout errors - if something times out, retrying won't help
-		"timeout", "deadline exceeded", "waiting for endpoint",
+		// Endpoint permanently unreachable (not generic timeouts — those retry)
+		"waiting for endpoint",
 	}
 
 	for _, permanentErr := range permanentErrors {

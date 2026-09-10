@@ -276,8 +276,8 @@ func ParseModel(model string) (string, string, error) {
 func ClampPaginationParams(limit, offset int) (int, int) {
 	if limit <= 0 {
 		limit = 25
-	} else if limit > 100 {
-		limit = 100
+	} else if limit > 1000 {
+		limit = 1000
 	}
 	if offset < 0 {
 		offset = 0

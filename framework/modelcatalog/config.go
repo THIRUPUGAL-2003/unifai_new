@@ -1,6 +1,7 @@
 package modelcatalog
 
 import (
+	"strings"
 	"time"
 
 	"github.com/unifai/unifai/core/schemas"
@@ -78,6 +79,20 @@ const (
 	DefaultMCPLibraryURL     = "file:///app/configs/mcp-library.json"
 	DefaultMCPLibraryTimeout = 45 * time.Second
 )
+
+// SanitizeMCPLibraryURL rewrites empty / known-dead catalog URLs to the bundled
+// default so Force Sync and boot never stick on NXDOMAIN hosts.
+func SanitizeMCPLibraryURL(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return DefaultMCPLibraryURL
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.Contains(lower, "getunifai.ai") {
+		return DefaultMCPLibraryURL
+	}
+	return trimmed
+}
 
 // syncWorkerTickerPeriod is the fixed interval at which the background sync worker
 // wakes up to check whether a sync is due. This is independent of pricingSyncInterval —

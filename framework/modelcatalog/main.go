@@ -63,7 +63,7 @@ func Init(ctx context.Context, config *Config, configStore configstore.ConfigSto
 	}
 	mcpLibraryURL := DefaultMCPLibraryURL
 	if config != nil && config.MCPLibraryURL != nil && *config.MCPLibraryURL != "" {
-		mcpLibraryURL = *config.MCPLibraryURL
+		mcpLibraryURL = SanitizeMCPLibraryURL(*config.MCPLibraryURL)
 	}
 	mcpLibrarySyncInterval := DefaultSyncInterval
 	if config != nil && config.MCPLibrarySyncInterval != nil && *config.MCPLibrarySyncInterval > 0 {
@@ -305,7 +305,7 @@ func (mc *ModelCatalog) UpdateSyncConfig(ctx context.Context, config *Config) er
 	}
 	mcpLibraryURL := DefaultMCPLibraryURL
 	if config != nil && config.MCPLibraryURL != nil && *config.MCPLibraryURL != "" {
-		mcpLibraryURL = *config.MCPLibraryURL
+		mcpLibraryURL = SanitizeMCPLibraryURL(*config.MCPLibraryURL)
 	}
 	mcpLibrarySyncInterval := DefaultSyncInterval
 	if config != nil && config.MCPLibrarySyncInterval != nil && *config.MCPLibrarySyncInterval > 0 {
@@ -329,7 +329,13 @@ func (mc *ModelCatalog) UpdateSyncConfig(ctx context.Context, config *Config) er
 	mc.syncCtx, mc.syncCancel = context.WithCancel(ctx)
 	mc.startSyncWorker(mc.syncCtx)
 
-	return mc.ForceReloadPricing(ctx)
+	if err := mc.ForceReloadPricing(ctx); err != nil {
+		return err
+	}
+	if _, err := mc.ForceReloadMCPLibrary(ctx); err != nil {
+		return err
+	}
+	return nil
 }
 
 // ForceReloadPricing triggers an immediate URL→DB→memory sync for pricing
