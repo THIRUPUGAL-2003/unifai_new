@@ -6,6 +6,9 @@ Company server: https://unifaiv2.dev-yp.com
 
 INSTALL (turn ON)
 -----------------
+Preferred: if IT gave you UnifAI_Guard_*.pkg — open the pkg and install.
+
+ZIP path:
 1. Unzip UnifAI_Guard_macOS.zip completely (keep all files in one folder)
 2. Double-click Install_UnifAI_Guard.command
    - If macOS says it cannot be opened: Right-click → Open → Open
@@ -15,6 +18,7 @@ INSTALL (turn ON)
 6. Open a monitored AI website as usual
 
 Health check: http://127.0.0.1:18085/
+  → proxy_port must be OK (not FAIL). If FAIL: quit Guard, reopen app, wait 10s.
 Logs: ~/Library/Application Support/UnifAI/Guard/unifai_guard.log
 
 What it does
@@ -23,7 +27,7 @@ What it does
 - Runs a local proxy on this Mac only (127.0.0.1:8085)
 - Sets system Auto Proxy URL (same idea as Windows PAC)
 - Disables Chromium HTTP/3 (QUIC) via managed policies when possible
-- Starts again at login (LaunchAgent) — like Windows autostart
+- Starts again at login (LaunchAgent KeepAlive) — like Windows autostart
 - Does NOT need Docker or direct database access
 
 TURN OFF / UNINSTALL
