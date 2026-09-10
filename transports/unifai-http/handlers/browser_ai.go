@@ -578,48 +578,68 @@ func browserAISetupCandidates() map[string][]string {
 		"UnifAI_Guard_Setup.exe": {
 			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_Setup.exe"),
 			filepath.Join("release", "UnifAI_Guard_Setup.exe"),
+			"/app/release/UnifAI_Guard_Setup.exe",
+			"/app/apps/browser-guard/release/UnifAI_Guard_Setup.exe",
 		},
 		// Portable EXE (latest PyInstaller build) — preferred when newer than Setup.exe.
 		"UnifAI_Guard.exe": {
 			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard.exe"),
 			filepath.Join("apps", "browser-guard", "dist", "UnifAI_Guard.exe"),
 			filepath.Join("release", "UnifAI_Guard.exe"),
+			"/app/release/UnifAI_Guard.exe",
+			"/app/apps/browser-guard/release/UnifAI_Guard.exe",
 		},
 		// macOS employee package (PyInstaller .app + install/uninstall scripts).
 		"UnifAI_Guard_macOS.zip": {
 			filepath.Join("apps", "browser-guard", "release", "UnifAI_Guard_macOS.zip"),
 			filepath.Join("release", "UnifAI_Guard_macOS.zip"),
+			"/app/release/UnifAI_Guard_macOS.zip",
+			"/app/apps/browser-guard/release/UnifAI_Guard_macOS.zip",
 		},
 		"INSTALL_WINDOWS.txt": {
 			filepath.Join("apps", "browser-guard", "release", "INSTALL_WINDOWS.txt"),
 			filepath.Join("release", "INSTALL_WINDOWS.txt"),
+			"/app/release/INSTALL_WINDOWS.txt",
+			"/app/apps/browser-guard/release/INSTALL_WINDOWS.txt",
 		},
 		"INSTALL_MACOS.txt": {
 			filepath.Join("apps", "browser-guard", "release", "INSTALL_MACOS.txt"),
 			filepath.Join("release", "INSTALL_MACOS.txt"),
+			"/app/release/INSTALL_MACOS.txt",
+			"/app/apps/browser-guard/release/INSTALL_MACOS.txt",
 		},
 		"UNINSTALL_MACOS.txt": {
 			filepath.Join("apps", "browser-guard", "release", "UNINSTALL_MACOS.txt"),
 			filepath.Join("release", "UNINSTALL_MACOS.txt"),
+			"/app/release/UNINSTALL_MACOS.txt",
+			"/app/apps/browser-guard/release/UNINSTALL_MACOS.txt",
 		},
 		"EMPLOYEE_README_MAC.txt": {
 			filepath.Join("apps", "browser-guard", "release", "EMPLOYEE_README_MAC.txt"),
 			filepath.Join("apps", "browser-guard", "installer", "EMPLOYEE_README_MAC.txt"),
 			filepath.Join("release", "EMPLOYEE_README_MAC.txt"),
+			"/app/release/EMPLOYEE_README_MAC.txt",
+			"/app/apps/browser-guard/release/EMPLOYEE_README_MAC.txt",
 		},
 		"Install_UnifAI_Guard.command": {
 			filepath.Join("apps", "browser-guard", "release", "Install_UnifAI_Guard.command"),
 			filepath.Join("apps", "browser-guard", "installer", "Install_UnifAI_Guard.command"),
 			filepath.Join("release", "Install_UnifAI_Guard.command"),
+			"/app/release/Install_UnifAI_Guard.command",
+			"/app/apps/browser-guard/release/Install_UnifAI_Guard.command",
 		},
 		"Uninstall_UnifAI_Guard.command": {
 			filepath.Join("apps", "browser-guard", "release", "Uninstall_UnifAI_Guard.command"),
 			filepath.Join("apps", "browser-guard", "installer", "Uninstall_UnifAI_Guard.command"),
 			filepath.Join("release", "Uninstall_UnifAI_Guard.command"),
+			"/app/release/Uninstall_UnifAI_Guard.command",
+			"/app/apps/browser-guard/release/Uninstall_UnifAI_Guard.command",
 		},
 		"VERSION.txt": {
 			filepath.Join("apps", "browser-guard", "release", "VERSION.txt"),
 			filepath.Join("release", "VERSION.txt"),
+			"/app/release/VERSION.txt",
+			"/app/apps/browser-guard/release/VERSION.txt",
 		},
 	}
 }

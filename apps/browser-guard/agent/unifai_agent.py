@@ -61,7 +61,7 @@ else:
 # ---------------------------------------------------------------------------
 
 DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
-AGENT_VERSION = "1.6.21"
+AGENT_VERSION = "1.6.23"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 PAC_HTTP_HOST = "127.0.0.1"
@@ -1424,6 +1424,11 @@ def ensure_mitm_certs() -> None:
 def install_ca_certificate() -> bool:
     ensure_mitm_certs()
     status_path = os.path.join(data_dir(), "ca_install_status.txt")
+    # macOS `security add-trusted-cert` can block on an admin password dialog forever.
+    # If we already trust the CA, never re-prompt on every launch.
+    if platform_ca_trusted(status_path):
+        print("[UnifAI Guard] CA already trusted — skip reinstall.")
+        return True
     return platform_install_ca(status_path)
 
 
@@ -1576,41 +1581,28 @@ def main() -> None:
     except Exception:
         port = 8085
 
-    def proxy_supervise_loop() -> None:
-        while not stop_event.is_set():
-            try:
-                run_proxy_server(addon_script, port=port)
-            except Exception as e:
-                print(f"[UnifAI Guard WARNING] Proxy crashed: {e}")
+    def apply_pac_when_proxy_ready() -> None:
+        """Wait for :8085 on a helper thread — mitmdump must own the main thread on macOS."""
+        for _ in range(75):  # ~15s
             if stop_event.is_set():
-                break
-            if not SERVER_MODE:
-                # Known restart window: fail-open FIRST so browsers do not get ERR_PROXY.
-                pac_fail_open_direct("proxy engine restarting")
-            print("[UnifAI Guard] Proxy stopped — staying Active, restarting in 2s (sleep/wake safe).")
-            stop_event.wait(2)
-
-    threading.Thread(target=proxy_supervise_loop, daemon=True).start()
-
-    proxy_ready = False
-    for _ in range(75):  # ~15s
-        if port_open("127.0.0.1", port):
-            proxy_ready = True
-            break
-        time.sleep(0.2)
-    if proxy_ready:
-        print(f"[UnifAI Guard] Proxy listening on {LISTEN_HOST}:{port} (advertise {PAC_ADVERTISE_ADDR or PROXY_ADDR}).")
-        if not SERVER_MODE:
-            print(f"[UnifAI Guard] Local proxy listening on {PROXY_ADDR} — applying PAC now.")
-            apply_pac_with_bust(silent=False, force_new=True)
-    else:
+                return
+            if port_open("127.0.0.1", port):
+                print(
+                    f"[UnifAI Guard] Proxy listening on {LISTEN_HOST}:{port} "
+                    f"(advertise {PAC_ADVERTISE_ADDR or PROXY_ADDR})."
+                )
+                if not SERVER_MODE:
+                    print(f"[UnifAI Guard] Local proxy listening on {PROXY_ADDR} — applying PAC now.")
+                    apply_pac_with_bust(silent=False, force_new=True)
+                return
+            time.sleep(0.2)
         print("[UnifAI Guard WARNING] Proxy port not open yet — PAC deferred; health loop will apply when ready.")
 
     def proxy_ready_watch() -> None:
         """After a supervise restart, restore strict PROXY once :8085 is listening again."""
         if SERVER_MODE:
             return
-        was_up = proxy_ready
+        was_up = False
         while not stop_event.is_set():
             up = port_open("127.0.0.1", port)
             if up and not was_up:
@@ -1618,6 +1610,7 @@ def main() -> None:
             was_up = up
             stop_event.wait(1)
 
+    threading.Thread(target=apply_pac_when_proxy_ready, daemon=True).start()
     if not SERVER_MODE:
         threading.Thread(target=proxy_ready_watch, daemon=True).start()
         threading.Thread(target=sync_pac_loop, args=(stop_event,), daemon=True).start()
@@ -1637,10 +1630,28 @@ def main() -> None:
     signal.signal(signal.SIGTERM, cleanup_and_exit)
 
     print("[UnifAI Guard] Agent is active. Sleep/shutdown keep monitoring; only uninstall stops Guard.")
-    print("[UnifAI Guard] IMPORTANT: Fully quit Chrome/Edge (all windows) then reopen for PAC to stick.")
+    print("[UnifAI Guard] IMPORTANT: Fully quit Chrome/Edge/Safari (all windows) then reopen for PAC to stick.")
+    # mitmdump/asyncio requires the main thread (macOS: set_wakeup_fd). Do NOT run proxy in a worker thread.
     try:
         while not stop_event.is_set():
-            stop_event.wait(3600)
+            # Ensure previous bind released before restart (avoids Errno 48 on macOS).
+            for _ in range(40):
+                if stop_event.is_set():
+                    break
+                if not port_open("127.0.0.1", port):
+                    break
+                time.sleep(0.25)
+            try:
+                run_proxy_server(addon_script, port=port)
+            except Exception as e:
+                print(f"[UnifAI Guard WARNING] Proxy crashed: {e}")
+            if stop_event.is_set():
+                break
+            if not SERVER_MODE:
+                # Known restart window: fail-open FIRST so browsers do not get ERR_PROXY.
+                pac_fail_open_direct("proxy engine restarting")
+            print("[UnifAI Guard] Proxy stopped — staying Active, restarting in 2s (sleep/wake safe).")
+            stop_event.wait(2)
     finally:
         stop_event.set()
         if not SERVER_MODE:

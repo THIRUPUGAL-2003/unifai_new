@@ -1687,7 +1687,16 @@ type RelatedHostEntry = { host: string; role: HostRole };
 				credentials: "include",
 			});
 			if (!res.ok) {
-				throw new Error(`Download failed (${res.status})`);
+				let msg = `Download failed (${res.status})`;
+				try {
+					const errJson = await res.json();
+					if (errJson?.error || errJson?.message) {
+						msg = errJson.error || errJson.message;
+					}
+				} catch {
+					// fallback
+				}
+				throw new Error(msg);
 			}
 			const blob = await res.blob();
 			const url = window.URL.createObjectURL(blob);

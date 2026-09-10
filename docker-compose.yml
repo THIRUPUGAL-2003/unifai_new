@@ -37,6 +37,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./configs:/app/configs
+      - ./apps/browser-guard/release:/app/release
       # Keep config.json inside ./data only. Do not also bind-mount a single file onto
       # /app/data/config.json — that breaks atomic rename saves (device or resource busy).
     restart: unless-stopped

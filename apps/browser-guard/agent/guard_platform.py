@@ -621,9 +621,10 @@ def register_autostart(exe_path: str) -> None:
         try:
             with open(plist_path, "w", encoding="utf-8") as f:
                 f.write(plist)
-            subprocess.run(["launchctl", "unload", plist_path], check=False, capture_output=True)
-            subprocess.run(["launchctl", "load", plist_path], check=False, capture_output=True)
-            print(f"[UnifAI Guard] Autostart registered (LaunchAgent): {plist_path}")
+            # Do NOT launchctl load while Guard is already running — load would
+            # spawn a second instance and fight for :8085 (Errno 48).
+            # Plist is enough for next login / reboot.
+            print(f"[UnifAI Guard] Autostart registered (LaunchAgent for next login): {plist_path}")
         except Exception as e:
             print(f"[UnifAI Guard WARNING] LaunchAgent register failed: {e}")
 
