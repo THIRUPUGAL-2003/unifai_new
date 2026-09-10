@@ -270,6 +270,27 @@ export const providersApi = baseApi.injectEndpoints({
 			},
 		}),
 
+		rediscoverProviderKey: builder.mutation<ModelProviderKey, { provider: string; keyId: string }>({
+			query: ({ provider, keyId }) => ({
+				url: `/providers/${encodeURIComponent(provider)}/keys/${encodeURIComponent(keyId)}/discover`,
+				method: "POST",
+			}),
+			async onQueryStarted({ provider, keyId }, { dispatch, queryFulfilled }) {
+				try {
+					const { data: updatedKey } = await queryFulfilled;
+					dispatch(
+						providersApi.util.updateQueryData("getProviderKeys", provider, (draft) => {
+							const index = draft.findIndex((key) => key.id === keyId);
+							if (index !== -1) {
+								draft[index] = updatedKey;
+							}
+						}),
+					);
+					dispatch(providersApi.util.updateQueryData("getProviderKey", { provider, keyId }, () => updatedKey));
+				} catch {}
+			},
+		}),
+
 		deleteProviderKey: builder.mutation<ModelProviderKey, { provider: string; keyId: string }>({
 			query: ({ provider, keyId }) => ({
 				url: `/providers/${encodeURIComponent(provider)}/keys/${encodeURIComponent(keyId)}`,
@@ -398,10 +419,10 @@ export const providersApi = baseApi.injectEndpoints({
 			providesTags: ["Models"],
 		}),
 
-		// Batch upsert additional_attributes on existing pricing rows. The
-		// pricing row must already exist for each (model, provider); a missing
-		// row surfaces as a 400. An entry with an empty additional_attributes
-		// map clears the column for that row.
+		// Batch upsert additional_attributes on pricing rows keyed by
+		// (model, provider). Missing rows are auto-seeded as chat stubs so
+		// description/attributes can be saved before Force Sync. An entry with
+		// an empty additional_attributes map clears the column for that row.
 		upsertModelCatalogEntries: builder.mutation<void, ModelPricingAttributesEntry[]>({
 			query: (entries) => ({
 				url: "/models/catalog",
@@ -422,6 +443,7 @@ export const {
 	useUpdateProviderMutation,
 	useCreateProviderKeyMutation,
 	useUpdateProviderKeyMutation,
+	useRediscoverProviderKeyMutation,
 	useDeleteProviderKeyMutation,
 	useDeleteProviderMutation,
 	useGetAllKeysQuery,

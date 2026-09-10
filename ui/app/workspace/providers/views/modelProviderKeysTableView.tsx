@@ -15,11 +15,16 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getErrorMessage } from "@/lib/store";
-import { useDeleteProviderKeyMutation, useGetProviderKeysQuery, useUpdateProviderKeyMutation } from "@/lib/store/apis/providersApi";
+import {
+	useDeleteProviderKeyMutation,
+	useGetProviderKeysQuery,
+	useRediscoverProviderKeyMutation,
+	useUpdateProviderKeyMutation,
+} from "@/lib/store/apis/providersApi";
 import { ModelProvider } from "@/lib/types/config";
 import { cn } from "@/lib/utils";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
-import { AlertCircle, CheckCircle2, EllipsisIcon, PencilIcon, PlusIcon, TrashIcon } from "lucide-react";
+import { AlertCircle, CheckCircle2, EllipsisIcon, PencilIcon, PlusIcon, RefreshCw, TrashIcon } from "lucide-react";
 import { ReactNode, useState } from "react";
 import { toast } from "sonner";
 import AddNewKeySheet from "../dialogs/addNewKeySheet";
@@ -35,14 +40,18 @@ function ProviderKeyActionsMenu({
 	keyId,
 	hasUpdateAccess,
 	hasDeleteAccess,
+	showRetryDiscover,
 	onEdit,
 	onDelete,
+	onRetryDiscover,
 }: {
 	keyId: string;
 	hasUpdateAccess: boolean;
 	hasDeleteAccess: boolean;
+	showRetryDiscover?: boolean;
 	onEdit: (keyId: string) => void;
 	onDelete: (keyId: string) => void;
+	onRetryDiscover?: (keyId: string) => void;
 }) {
 	const [isOpen, setIsOpen] = useState(false);
 
@@ -54,6 +63,18 @@ function ProviderKeyActionsMenu({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end">
+				{showRetryDiscover && hasUpdateAccess && onRetryDiscover ? (
+					<DropdownMenuItem
+						onSelect={(e) => {
+							e.preventDefault();
+							onRetryDiscover(keyId);
+							setIsOpen(false);
+						}}
+					>
+						<RefreshCw className="mr-1 h-4 w-4" />
+						Retry discovery
+					</DropdownMenuItem>
+				) : null}
 				<DropdownMenuItem
 					onSelect={(e) => {
 						e.preventDefault();
@@ -94,14 +115,32 @@ export default function ModelProviderKeysTableView({ provider, className, header
 	const hasDeleteProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Delete);
 	const [updateProviderKey, { isLoading: isUpdatingProviderKey }] = useUpdateProviderKeyMutation();
 	const [deleteProviderKey, { isLoading: isDeletingProviderKey }] = useDeleteProviderKeyMutation();
+	const [rediscoverProviderKey, { isLoading: isRediscoveringKey }] = useRediscoverProviderKeyMutation();
 	const { data: keys = [] } = useGetProviderKeysQuery(provider.name);
-	const isMutatingProviderKey = isUpdatingProviderKey || isDeletingProviderKey;
+	const isMutatingProviderKey = isUpdatingProviderKey || isDeletingProviderKey || isRediscoveringKey;
 	const [togglingKeyIds, setTogglingKeyIds] = useState<Set<string>>(new Set());
 	const [showAddNewKeyDialog, setShowAddNewKeyDialog] = useState<{ show: boolean; keyId: string | null } | undefined>(undefined);
 	const [showDeleteKeyDialog, setShowDeleteKeyDialog] = useState<{ show: boolean; keyId: string } | undefined>(undefined);
 
 	function handleAddKey() {
 		setShowAddNewKeyDialog({ show: true, keyId: null });
+	}
+
+	function handleRetryDiscover(keyId: string) {
+		rediscoverProviderKey({ provider: provider.name, keyId })
+			.unwrap()
+			.then((updated) => {
+				if (updated.status === "success") {
+					toast.success("Model discovery succeeded");
+				} else {
+					toast.error("Model discovery still failing", {
+						description: updated.description || "Check the API key value and try again",
+					});
+				}
+			})
+			.catch((err) => {
+				toast.error("Failed to retry discovery", { description: getErrorMessage(err) });
+			});
 	}
 
 	return (
@@ -322,8 +361,10 @@ export default function ModelProviderKeysTableView({ provider, className, header
 														keyId={key.id}
 														hasUpdateAccess={hasUpdateProviderAccess}
 														hasDeleteAccess={hasDeleteProviderAccess}
+														showRetryDiscover={key.status === "list_models_failed"}
 														onEdit={(keyId) => setShowAddNewKeyDialog({ show: true, keyId })}
 														onDelete={(keyId) => setShowDeleteKeyDialog({ show: true, keyId })}
+														onRetryDiscover={handleRetryDiscover}
 													/>
 												) : null}
 											</div>

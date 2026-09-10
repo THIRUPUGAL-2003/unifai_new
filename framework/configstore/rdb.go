@@ -2904,9 +2904,10 @@ func (s *RDBConfigStore) UpsertModelPricesBatch(ctx context.Context, pricing []t
 }
 
 // UpsertModelPricingAttributes writes only the additional_attributes column
-// for the pricing row keyed by (model, provider). The row must already exist
-// — callers may not seed pricing rows through this path; the management API
-// enforces that. A nil/empty attrs map clears the column to an empty JSON object.
+// for pricing rows keyed by (model, provider). If no pricing row exists yet
+// (pricing sync not run / custom model), seeds a chat-mode stub so editorial
+// metadata (description/attributes) can still be saved. A nil/empty attrs map
+// clears the column to an empty JSON object.
 func (s *RDBConfigStore) UpsertModelPricingAttributes(ctx context.Context, model, provider string, attrs map[string]string, tx ...*gorm.DB) (int64, error) {
 	var txDB *gorm.DB
 	if len(tx) > 0 {
@@ -2933,9 +2934,32 @@ func (s *RDBConfigStore) UpsertModelPricingAttributes(ctx context.Context, model
 	if res.Error != nil {
 		return 0, s.parseGormError(res.Error)
 	}
-	// Do not invent stub pricing rows here — management API requires an existing
-	// pricing row (sync/datasheet). Returning 0 lets the caller reject with 400.
-	return res.RowsAffected, nil
+	if res.RowsAffected > 0 {
+		return res.RowsAffected, nil
+	}
+
+	// No pricing row yet — seed a chat stub so catalog description/attributes
+	// work before Force Sync (or for custom models not in the datasheet).
+	stub := tables.TableModelPricing{
+		Model:                    model,
+		Provider:                 provider,
+		Mode:                     "chat",
+		AdditionalAttributesJSON: value,
+	}
+	if err := db.Create(&stub).Error; err != nil {
+		// Concurrent Force Sync may have inserted the row — retry update.
+		retry := db.Model(&tables.TableModelPricing{}).
+			Where("model = ? AND provider = ?", model, provider).
+			Update("additional_attributes", value)
+		if retry.Error != nil {
+			return 0, s.parseGormError(retry.Error)
+		}
+		if retry.RowsAffected > 0 {
+			return retry.RowsAffected, nil
+		}
+		return 0, s.parseGormError(err)
+	}
+	return 1, nil
 }
 
 // DeleteModelPrices deletes all model pricing records from the database.

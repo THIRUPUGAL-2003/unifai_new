@@ -267,6 +267,45 @@ func (h *ProviderHandler) updateProviderKey(ctx *fasthttp.RequestCtx) {
 	SendJSON(ctx, redactedKey)
 }
 
+// rediscoverProviderKey re-runs list-models discovery for one key and returns
+// the updated redacted key (including status / description). Used to clear
+// stale list_models_failed badges after fixing credentials.
+func (h *ProviderHandler) rediscoverProviderKey(ctx *fasthttp.RequestCtx) {
+	provider, err := getProviderFromCtx(ctx)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("Invalid provider: %v", err))
+		return
+	}
+
+	keyID, err := getKeyIDFromCtx(ctx)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
+		return
+	}
+
+	rawKey, err := h.inMemoryStore.GetProviderKeyRaw(provider, keyID)
+	if err != nil {
+		if errors.Is(err, lib.ErrNotFound) {
+			SendError(ctx, fasthttp.StatusNotFound, fmt.Sprintf("Provider key not found: %v", err))
+			return
+		}
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to get provider key: %v", err))
+		return
+	}
+
+	if err := h.modelsManager.OnKeyUpdated(ctx, provider, *rawKey); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Model discovery failed: %v", err))
+		return
+	}
+
+	redactedKey, err := h.inMemoryStore.GetProviderKeyRedacted(provider, keyID)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to get provider key: %v", err))
+		return
+	}
+	SendJSON(ctx, redactedKey)
+}
+
 func (h *ProviderHandler) deleteProviderKey(ctx *fasthttp.RequestCtx) {
 	provider, err := getProviderFromCtx(ctx)
 	if err != nil {
