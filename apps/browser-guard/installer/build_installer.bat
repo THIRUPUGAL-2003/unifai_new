@@ -44,6 +44,7 @@ if not exist release mkdir release
 
 copy /Y dist\UnifAI_Guard.exe installer\staging\UnifAI_Guard.exe >nul
 copy /Y config\unifai_guard_config.json installer\staging\unifai_guard_config.json >nul
+copy /Y installer\unifai_guard.ico installer\staging\unifai_guard.ico >nul
 if exist installer\EMPLOYEE_README.txt copy /Y installer\EMPLOYEE_README.txt installer\staging\EMPLOYEE_README.txt >nul
 
 echo.

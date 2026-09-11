@@ -220,7 +220,11 @@ NOISE_EXTENSIONS = re.compile(
 )
 
 # Universal prompt field names — any admin-added domain, any JSON shape.
+# Covers: OpenAI/ChatGPT, Claude/Anthropic, Gemini, Grok, Perplexity, DeepSeek,
+# Copilot, Poe, HuggingFace, LMStudio, Ollama, LiteLLM, custom enterprise AI,
+# GraphQL variables, URL-encoded forms, XML/SOAP, plain-text, and any future AI.
 _UNIVERSAL_PROMPT_KEYS = (
+    # Standard chat/completion keys
     "query", "query_str", "prompt", "input", "input_text", "inputs", "text",
     "message", "question", "user_input", "last_query", "user_query",
     "rawUserQuery", "utterance", "userMessage", "content", "instruction",
@@ -228,12 +232,28 @@ _UNIVERSAL_PROMPT_KEYS = (
     "search_focus", "user_text", "chat_input", "message_text", "entry",
     "followup", "follow_up", "search", "ask", "query_text",
     "prompt_text", "user_prompt", "userPrompt", "chat_message", "msg",
+    # Extended: Grok / X.AI / DeepSeek / Mistral / Cohere / AI21
+    "human_input", "user_turn", "turn_input", "message_input",
+    "chat_query", "user_content", "request_text", "prompt_input",
+    "user_message_text", "human_message", "ask_text", "user_ask",
+    "chat_text", "input_message", "send_text", "user_send",
+    "conversation_input", "dialogue_input", "human_turn", "user_input_text",
+    # GraphQL / REST variables
+    "variables", "operation", "query_variables", "input_data",
+    "chat_request", "send_request", "talk", "speak", "say",
+    # Enterprise / custom AI APIs
+    "body", "request_body", "payload", "data", "chat_body",
+    "user_query_text", "natural_language", "nl_query", "user_nl",
+    "human_text", "customer_input", "end_user_input", "end_user_message",
+    # LLM inference servers (Ollama, LMStudio, LiteLLM, vLLM, TGI)
+    "prompt_str", "prompt_text_input", "raw_prompt", "user_prompt_text",
+    "input_prompt", "completion_prompt", "generate_prompt",
 )
 
 # Deduplicate identical events per domain within this window (seconds).
-# Keep short so intentional same-text resends (~1s later) still predict;
-# only collapses near-simultaneous browser double-submits.
-DEDUPE_TTL = 2.0
+# 1.2s: collapses near-simultaneous browser double-submits (~50–200ms apart)
+# while allowing genuine same-text re-sends at ~1.5s+ to predict fresh.
+DEDUPE_TTL = 1.2
 # Longer window for upload/download blocks (ChatGPT fires many file API calls)
 BLOCK_DEDUPE_TTL = 30
 # Typing/request bursts (Grok/Copilot/…): Observe every keystroke request, Commit once.
@@ -320,6 +340,8 @@ def _normalize_domain(raw: str) -> str:
         domain = domain[1:domain.index("]")]
     elif ":" in domain:
         domain = domain.rsplit(":", 1)[0]
+    # Strip wildcards (*.example.com -> example.com) and leading/trailing dots
+    domain = domain.lstrip("*.").strip(".")
     # Strip leading www.
     if domain.startswith("www."):
         domain = domain[4:]
@@ -494,11 +516,16 @@ def get_target_domains() -> dict:
 def detect_site_block(host: str) -> tuple[bool, str, str]:
     """Return (blocked, domain, platform) when admin enabled Block entire website."""
     get_target_domains()  # ensure bg refresh + memory maps
-    host_lower = (host or "").lower().strip(".")
+    host_lower = _normalize_domain(host)
+    if not host_lower:
+        return False, "", ""
     with _cache_lock:
         blocked_map = dict(_cached_blocked)
     for domain, platform in blocked_map.items():
-        if host_lower == domain or host_lower.endswith("." + domain):
+        d = _normalize_domain(domain)
+        if not d:
+            continue
+        if host_lower == d or host_lower.endswith("." + d):
             return True, domain, platform
     return False, "", ""
 
@@ -1186,6 +1213,8 @@ def _is_clear_protocol_junk(text: str) -> bool:
 def _is_opaque_wire_blob(text: str) -> bool:
     """Encoded wire/session tokens (Copilot/Bing base64url, Gemini blobs) — not typed chat."""
     t = (text or "").strip()
+    if t.startswith(("{", "[")):
+        return False
     if _is_typed_numeric_prompt(t) or _is_digit_heavy_user_text(t):
         return False
     if _is_google_wire_blob(text):
@@ -1217,6 +1246,8 @@ def _looks_like_binary_or_wire_garbage(text: str) -> bool:
     t = (text or "").strip()
     if not t:
         return True
+    if t.startswith(("{", "[")) and (t.endswith(("}", "]")) or len(t) > 10):
+        return False
     low = t.lower()
 
     # Cursor / IDE exe attestation + content hashes (not typed chat)

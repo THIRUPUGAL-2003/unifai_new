@@ -74,10 +74,12 @@ def main() -> int:
     system = platform.system().lower()
     if system == "windows":
         out = build_windows()
-        print(f"OK Windows build: {out}")
+        safe_out = str(out).encode(sys.stdout.encoding or "ascii", errors="replace").decode(sys.stdout.encoding or "ascii")
+        print(f"OK Windows build: {safe_out}")
     elif system == "darwin":
         out = build_macos()
-        print(f"OK macOS build: {out}")
+        safe_out = str(out).encode(sys.stdout.encoding or "ascii", errors="replace").decode(sys.stdout.encoding or "ascii")
+        print(f"OK macOS build: {safe_out}")
     else:
         print(f"Unsupported OS for Guard packaging: {system}", file=sys.stderr)
         return 1

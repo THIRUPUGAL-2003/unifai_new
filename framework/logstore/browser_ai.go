@@ -345,7 +345,7 @@ func (BrowserAIAgentSettings) TableName() string {
 
 const BrowserControlSettingsID = "browser-controls-default"
 
-// NormalizeDomain cleans values like "https://gemini.google.com/" -> "gemini.google.com".
+// NormalizeDomain cleans values like "https://www.example.com/" -> "example.com".
 func NormalizeDomain(raw string) string {
 	domain := strings.TrimSpace(strings.ToLower(raw))
 	if domain == "" {
@@ -761,7 +761,7 @@ function FindProxyForURL(url, host) {
 }
 
 // minimizePACHosts drops hosts already covered by a parent in the same list.
-// Example: chatgpt.com + www.chatgpt.com → keep chatgpt.com only (subdomain match).
+// Example: example.com + www.example.com → keep example.com only (subdomain match).
 // No product hardcoding — purely structural. Cuts PAC size for 1000+ target rows.
 func minimizePACHosts(hosts []string) []string {
 	if len(hosts) <= 1 {

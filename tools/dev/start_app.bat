@@ -12,13 +12,13 @@ start /b mitmweb -p 8085 --web-port 8083 -s "%PROXY_SCRIPT%" --set block_global=
 
 timeout /t 2 >nul
 
-rem 2. Open Chrome with proxy configured
+rem 2. Open Chrome with proxy configured (dashboard + proxy UI only — no product site hardcode)
 echo 2. Opening Chrome with Proxy...
-start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --proxy-server="http://127.0.0.1:8085" --user-data-dir="%TEMP%\chrome_proxy" --ignore-certificate-errors "http://localhost:8081/workspace/browser-ai" "http://127.0.0.1:8083" "https://chatgpt.com"
+start "" "C:\Program Files\Google\Chrome\Application\chrome.exe" --proxy-server="http://127.0.0.1:8085" --user-data-dir="%TEMP%\chrome_proxy" --ignore-certificate-errors "http://localhost:8081/workspace/browser-ai" "http://127.0.0.1:8083"
 
 echo ====================================================
 echo Everything is running ^& opened in Chrome!
 echo - Dashboard UI: http://localhost:8081/workspace/browser-ai
 echo - Proxy Monitor UI: http://127.0.0.1:8083
-echo - ChatGPT: https://chatgpt.com
+echo - Then open any monitored Target Website from the dashboard list.
 echo ====================================================

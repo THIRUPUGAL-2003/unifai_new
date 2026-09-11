@@ -426,16 +426,34 @@ class BrowserAIInterceptor:
         if is_unsubmitted_chat_body(path, raw_text):
             return
         # Finished chat-shaped Sends: commit immediately (all Target domains).
-        # Composer hold is ONLY for keystroke-as-HTTP sites — long waits caused
-        # intermittent predict misses (hi / numbers / symbols / every AI).
+        # Composer hold is ONLY for keystroke-as-HTTP sites (Grok/Copilot) — long waits
+        # caused intermittent predict misses (hi / numbers / symbols / every AI).
         confident_send = _is_confident_chat_send(path, raw_text, raw_bytes)
+
+        # Body-shape shortcut: if JSON body carries messages[]/prompt/query etc.
+        # → treat as confident regardless of path recognition (fixes ChatGPT/Perplexity).
+        if not confident_send and raw_text.lstrip().startswith(("{", "[")):
+            try:
+                _body_data = json.loads(raw_text)
+                if _body_has_user_send_payload(_body_data):
+                    confident_send = True
+            except Exception:
+                pass
+
         if not confident_send:
             if is_composer_typing_draft(domain, prompt):
                 return
             stable = wait_if_composer_unstable(domain, prompt)
             if stable is None:
-                return
-            prompt = stable
+                # Supersede fallback: never silently drop — commit whatever is latest.
+                with _composer_lock:
+                    _fallback = _composer_draft.get(domain)
+                prompt = (_fallback[0] or prompt).strip() if _fallback else prompt
+                if not prompt:
+                    return
+            else:
+                prompt = stable
+
 
         # Collapse browser double-fire — MUST still enforce the same guard decision
         # (silent return here previously let the 2nd request bypass BLOCK).

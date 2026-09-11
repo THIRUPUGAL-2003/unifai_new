@@ -38,11 +38,12 @@ def is_event_sync_noise_content(content: str) -> bool:
         return True
     if "messagetype\":\"internal" in cl or "messagetype\": \"internal" in cl:
         return True
-    if '"event":"send"' not in cl and '"event": "send"' not in cl:
-        if '"target":"chat"' not in cl and '"target": "chat"' not in cl:
-            if ('"type":4' not in cl and '"type": 4' not in cl) or "chat" not in cl:
-                if len(content) > 40 and _is_opaque_wire_blob(content.strip()):
-                    return True
+    if "\x1e" in content or '"target":' in cl or '"arguments":' in cl:
+        if '"event":"send"' not in cl and '"event": "send"' not in cl:
+            if '"target":"chat"' not in cl and '"target": "chat"' not in cl:
+                if ('"type":4' not in cl and '"type": 4' not in cl) or "chat" not in cl:
+                    if len(content) > 40 and _is_opaque_wire_blob(content.strip()):
+                        return True
     return False
 
 
@@ -195,6 +196,12 @@ def _looks_like_filename_only(text: str) -> bool:
     t = (text or "").strip()
     if not t or " " in t or "\n" in t or len(t) > 240:
         return False
+    # Numbers (integers or decimals like 3.14, 100.5) are valid prompts, not filenames
+    try:
+        float(t)
+        return False
+    except ValueError:
+        pass
     if not re.search(r"\.[a-z0-9]{2,8}$", t, re.IGNORECASE):
         return False
     if _FILE_EXTENSION_RE.search(t):
@@ -213,14 +220,30 @@ def _send_carries_attachment(raw_text: str) -> bool:
 
 def looks_like_user_prompt(text: str) -> bool:
     """
-    Save any user-typed prompt: any language, numbers, symbols, code, one word or long text.
-    Do not save protocol junk (Gemini request ids, RPC tokens, f.req blobs).
+    Accept ANY user-typed prompt: 1 char to 100k+, any language (Tamil, Arabic,
+    Chinese, Hindi, Japanese, Korean, English, any Unicode), numbers, symbols, code.
+    Reject ONLY true protocol junk: RPC tokens, base64 blobs, multipart headers.
     """
     if not text or not isinstance(text, str):
         return False
     t = text.strip()
     if len(t) < 1:
         return False
+
+    # ── Non-Latin / Unicode scripts → ALWAYS a user prompt ──────────────────
+    # Tamil, Arabic, Chinese, Hindi, Japanese, Korean, Russian, Greek, Hebrew,
+    # Thai, Devanagari, Bengali, Telugu, Kannada, Malayalam, Gujarati, Punjabi,
+    # and ALL other non-ASCII Unicode scripts. Never filter by language.
+    if any(ord(c) > 127 for c in t[:80]):
+        # Only reject actual mojibake (replacement chars ≥8% of content)
+        if "\ufffd" in t and t.count("\ufffd") / max(len(t), 1) >= 0.08:
+            return False
+        # Reject raw multipart headers even in non-ASCII
+        low_head = t[:80].lower()
+        if "webkitformboundary" in low_head or "content-disposition: form-data" in t[:200].lower():
+            return False
+        return True  # All other non-ASCII → always a real user prompt
+
     # Never treat multipart / raw HTTP file bodies as chat prompts
     low_head = t[:80].lower()
     if (
@@ -250,6 +273,10 @@ def looks_like_user_prompt(text: str) -> bool:
     if any(wire in t for wire in ("count=", "&ofs=", "req0___data__", "f.req=", "soc-app=", "soc-platform=", "___data__=")):
         return False
 
+    # Reject raw GraphQL operations
+    if t.startswith(("mutation ", "mutation{", "query {", "subscription ", "subscription{")):
+        return False
+
     low = t.lower()
     if low in BATCHEXECUTE_LOCALE_JUNK or re.fullmatch(r"[a-z]{2}-[a-z]{2,3}", low):
         return False
@@ -262,8 +289,12 @@ def looks_like_user_prompt(text: str) -> bool:
     if "bard activity" in low and len(t) < 30:
         return False
     # Domain / public-suffix crumbs that Gemini embeds in wire payloads (not typed chat)
+    # Guard: decimal numbers like 3.14, 1.0, 2.5 must NOT be filtered (digits after dot = number)
     if re.fullmatch(r"[a-z0-9]{1,8}\.(?:co\.)?[a-z]{2,3}", low):
-        return False
+        # Only reject if the part after last dot is all letters (real TLD), not digits (decimal)
+        suffix = low.rsplit(".", 1)[-1]
+        if suffix.isalpha():
+            return False
 
     # Filter tokens and RPC IDs when text has no spaces.
     # Digit-only text is a valid user prompt (IDs, math, OTPs). Do not drop it.
@@ -295,14 +326,33 @@ def looks_like_user_prompt(text: str) -> bool:
 def detect_target(host: str) -> tuple[bool, str, str]:
     """Check if host matches any monitored domain. Returns (is_target, domain, platform)."""
     domains_map = get_target_domains()
-    host_lower = (host or "").lower().strip(".")
+    h = (host or "").lower().strip(".")
+    if "://" in h:
+        h = h.split("://", 1)[1]
+    h = h.split("/", 1)[0].split("?", 1)[0]
+    if ":" in h:
+        h = h.rsplit(":", 1)[0]
+    if h.startswith("www."):
+        h = h[4:]
+    if not h:
+        return False, "", ""
     best_domain = ""
     best_platform = ""
     best_len = -1
     for domain, platform in domains_map.items():
-        if host_lower == domain or host_lower.endswith("." + domain):
-            if len(domain) > best_len:
-                best_len = len(domain)
+        d = (domain or "").lower().strip(".")
+        if "://" in d:
+            d = d.split("://", 1)[1]
+        d = d.split("/", 1)[0].split("?", 1)[0]
+        if ":" in d:
+            d = d.rsplit(":", 1)[0]
+        if d.startswith("www."):
+            d = d[4:]
+        if not d:
+            continue
+        if h == d or h.endswith("." + d):
+            if len(d) > best_len:
+                best_len = len(d)
                 best_domain = domain
                 best_platform = platform
     if best_domain:
@@ -450,25 +500,24 @@ def _is_confident_chat_send(path: str, raw_text: str, raw_bytes: bytes = b"") ->
         return True
     if _is_anthropic_messages_api_shape(path, body):
         return True
-    # Unknown / new AI: chat path marker OR JSON user-send payload = finished Send.
+    # Unknown / new AI: JSON user-send payload = finished Send (any path, any domain).
     if body.lstrip().startswith(("{", "[")):
         try:
             data = json.loads(body)
             if isinstance(data, dict) and _body_has_user_send_payload(data):
-                if (
-                    _path_has_chat_marker(path_l)
-                    or _is_messages_conversation_path(path_l)
-                    or is_chat_path(path_l, "", body)
-                ):
-                    return True
-                # Strong body shapes alone (messages[] / parts / universal keys)
-                if isinstance(data.get("messages"), list) and data.get("messages"):
-                    return True
-                content = data.get("content")
-                if isinstance(content, dict) and isinstance(content.get("parts"), list):
-                    return True
+                return True
+            if isinstance(data, list) and any(isinstance(item, dict) and _body_has_user_send_payload(item) for item in data):
+                return True
         except Exception:
             pass
+
+    # Form, XML, NDJSON user-send shapes
+    if "=" in body and any(k in body for k in ("prompt=", "query=", "message=", "text=", "input=")):
+        return True
+    if body.lstrip().startswith("<") and any(k in body for k in ("<prompt", "<query", "<question", "<message", "<text", "<input")):
+        return True
+    if "\n" in body and '"user"' in body and any(k in body for k in ('"content"', '"text"', '"message"', '"prompt"')):
+        return True
     return False
 
 
@@ -583,6 +632,18 @@ def _should_intercept_extracted_prompt(
     text = prompt.strip()
     if len(text) < 1:
         return False
+
+    # ── Non-ASCII / Unicode scripts (Tamil, Arabic, Chinese, Hindi, etc.) ────
+    # Any non-Latin language prompt is ALWAYS a real user send — never filter by language.
+    if any(ord(c) > 127 for c in text[:80]):
+        if text.startswith("[FILE UPLOAD"):
+            return False
+        if _is_typing_or_draft_path(path, raw_text):
+            return False
+        if is_noise(path, raw_text):
+            return False
+        return True
+
     if text.startswith("[FILE UPLOAD"):
         return False
     if _is_typing_or_draft_path(path, raw_text):
@@ -703,7 +764,7 @@ def is_noise(path: str, content: str = "") -> bool:
         if '"event":"send"' in content or '"event": "send"' in content:
             return False
         # Copilot SignalR / sync noise — not user prompts
-        if is_event_sync_noise_content(content):
+        if ("chathub" in path_l or "sydney" in path_l or "\x1e" in content or '"target":' in cl) and is_event_sync_noise_content(content):
             return True
         # Cloudflare challenge bodies (non-JSON)
         if not cl.startswith(("{", "[")) and not looks_like_user_prompt(content[:200]):
@@ -1218,7 +1279,9 @@ def _deep_extract_from_json(data, depth: int = 0, max_depth: int = 10) -> str | 
     if depth > max_depth:
         return None
     if isinstance(data, dict):
-        role = str(data.get("role") or "").lower()
+        role = str(data.get("role") or data.get("author") or data.get("sender") or "").lower()
+        if role in ("system", "assistant", "bot", "model", "ai"):
+            return None
         if role in ("user", "human", "customer", "client", "sender", ""):
             got = _extract_from_message_obj(data)
             if got:
@@ -1227,10 +1290,18 @@ def _deep_extract_from_json(data, depth: int = 0, max_depth: int = 10) -> str | 
             val = data.get(key)
             if isinstance(val, (str, int, float)):
                 sval = str(val)
-                if not _is_opaque_wire_blob(sval):
+                # For direct known-key hits: only reject true protocol wire blobs,
+                # NOT language-based filters. Any user text in a named prompt field
+                # must be accepted regardless of length or language.
+                if not _is_opaque_wire_blob(sval) and not _is_clear_protocol_junk(sval):
                     got = _clean_prompt_text(sval)
-                    if got and looks_like_user_prompt(got):
+                    if got:
                         return got
+                    # For floats/ints that clean to empty string, return raw stripped value
+                    if isinstance(val, (int, float)):
+                        raw = str(val).strip()
+                        if raw:
+                            return raw
             elif isinstance(val, list):
                 got = _parts_to_text(val)
                 if got:
@@ -1255,16 +1326,259 @@ def _deep_extract_from_json(data, depth: int = 0, max_depth: int = 10) -> str | 
 
 
 def _regex_extract_prompt_from_text(text: str) -> str | None:
-    """Last-resort: pull known JSON keys from raw text without full parse."""
+    """Last-resort: pull known JSON keys from raw text without full parse.
+    Also handles single-quoted JSON variants and key: value (no-quote) formats."""
     if not text or len(text) < 2:
         return None
+    best = None
+    best_len = 0
     for key in _UNIVERSAL_PROMPT_KEYS:
+        # Standard double-quoted JSON
         pat = rf'"{re.escape(key)}"\s*:\s*"((?:[^"\\]|\\.)*)"'
         for m in re.finditer(pat, text):
             cand = _clean_prompt_text(m.group(1).replace("\\n", "\n").replace('\\"', '"'))
             if cand and looks_like_user_prompt(cand) and not _is_opaque_wire_blob(cand):
-                return cand
+                if len(cand) > best_len:
+                    best = cand
+                    best_len = len(cand)
+        # Numeric values (e.g. "count": 42)
+        pat2 = rf'"{re.escape(key)}"\s*:\s*(\d[\d.]*)'
+        for m in re.finditer(pat2, text):
+            cand = _clean_prompt_text(m.group(1))
+            if cand and looks_like_user_prompt(cand):
+                if len(cand) > best_len:
+                    best = cand
+                    best_len = len(cand)
+    return best
+
+
+# ─────────────────────────────────────────────
+# Multi-Format Extractors (URL-encoded / Multipart / GraphQL / XML / NDJSON)
+# ─────────────────────────────────────────────
+
+def _extract_from_urlencoded(text: str) -> str | None:
+    """Extract prompt from application/x-www-form-urlencoded bodies.
+
+    Example: query=hello+world&lang=en&model=gpt4
+    Covers: many custom AI APIs, enterprise chatbots, form-POST AI tools.
+    """
+    if not text:
+        return None
+    try:
+        qs = urllib.parse.parse_qs(text, keep_blank_values=False)
+        best = None
+        best_len = 0
+        for key in _UNIVERSAL_PROMPT_KEYS:
+            vals = qs.get(key) or qs.get(key.lower()) or qs.get(key.upper())
+            if vals:
+                for v in vals:
+                    got = _clean_prompt_text(v)
+                    if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+                        if len(got) > best_len:
+                            best = got
+                            best_len = len(got)
+        if best:
+            return best
+        # Fallback: any long-enough value that looks like user text
+        for vals in qs.values():
+            for v in vals:
+                got = _clean_prompt_text(v)
+                if got and len(got) >= 3 and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+                    if len(got) > best_len:
+                        best = got
+                        best_len = len(got)
+        return best
+    except Exception:
+        return None
+
+
+def _extract_from_multipart(text: str) -> str | None:
+    """Extract user prompt text from multipart/form-data bodies.
+
+    Handles: file + text caption sends (ChatGPT drag-drop, custom AI with file attachment).
+    Skips binary file parts; returns only the text field content.
+    """
+    if not text:
+        return None
+    try:
+        best = None
+        best_len = 0
+        # Find boundary parts
+        parts = re.split(r'--[A-Za-z0-9\-_]{10,}', text)
+        for part in parts:
+            if not part.strip() or part.strip() == '--':
+                continue
+            # Skip file parts (Content-Type: application/... or image/... or has filename=)
+            header_end = part.find('\r\n\r\n') if '\r\n\r\n' in part else part.find('\n\n')
+            if header_end == -1:
+                continue
+            header = part[:header_end].lower()
+            if 'filename=' in header:
+                continue
+            # Skip non-text content types
+            if re.search(r'content-type:\s*(?:application/(?!json)|image/|audio/|video/|binary)', header):
+                continue
+            # Extract name= field to check against known keys
+            name_m = re.search(r'name="?([^"\r\n;]+)"?', header)
+            field_name = name_m.group(1).lower().strip() if name_m else ""
+            body_part = part[header_end:].strip('\r\n ')
+            if not body_part:
+                continue
+            # If field name matches a known prompt key — accept directly
+            if field_name in _UNIVERSAL_PROMPT_KEYS or field_name in {k.lower() for k in _UNIVERSAL_PROMPT_KEYS}:
+                got = _clean_prompt_text(body_part)
+                if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+                    if len(got) > best_len:
+                        best = got
+                        best_len = len(got)
+            else:
+                # Generic text field — filter carefully
+                got = _clean_prompt_text(body_part)
+                if got and len(got) >= 3 and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+                    if ' ' in got or len(got) >= 10:  # needs some substance
+                        if len(got) > best_len:
+                            best = got
+                            best_len = len(got)
+        return best
+    except Exception:
+        return None
+
+
+def _extract_from_graphql(data) -> str | None:
+    """Extract user prompt from GraphQL request bodies.
+
+    Handles:
+      {"query": "...", "variables": {"input": "hello"}}
+      {"operationName": "SendMessage", "variables": {"message": "hello"}}
+    Covers: GraphQL-based AI APIs (Poe, some enterprise AI, custom frontends).
+    """
+    if not isinstance(data, dict):
+        return None
+    try:
+        # Check variables dict against all known prompt keys
+        variables = data.get("variables") or data.get("input") or {}
+        if isinstance(variables, dict):
+            best = None
+            best_len = 0
+            for key in _UNIVERSAL_PROMPT_KEYS:
+                val = variables.get(key) or variables.get(key.lower())
+                if isinstance(val, (str, int, float)):
+                    got = _clean_prompt_text(str(val))
+                    if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+                        if len(got) > best_len:
+                            best = got
+                            best_len = len(got)
+                elif isinstance(val, dict):
+                    got = _deep_extract_from_json(val)
+                    if got and len(got) > best_len:
+                        best = got
+                        best_len = len(got)
+            if best:
+                return best
+            # Recursive walk inside variables
+            got = _deep_extract_from_json(variables)
+            if got:
+                return got
+
+        # Nested input objects
+        for nest_key in ("input", "request", "args", "params", "data"):
+            nested = data.get(nest_key)
+            if isinstance(nested, dict):
+                for key in _UNIVERSAL_PROMPT_KEYS:
+                    val = nested.get(key)
+                    if isinstance(val, (str, int, float)):
+                        got = _clean_prompt_text(str(val))
+                        if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+                            return got
+    except Exception:
+        pass
     return None
+
+
+def _extract_from_xml(text: str) -> str | None:
+    """Extract user prompt from XML / SOAP request bodies.
+
+    Handles:
+      <query>hello world</query>
+      <message><text>hello</text></message>
+      SOAP envelopes wrapping AI chat requests.
+    Covers: Enterprise AI APIs using SOAP/REST XML, legacy systems.
+    """
+    if not text or not text.lstrip().startswith('<'):
+        return None
+    try:
+        clean_xml = re.sub(r'<(/?)(\w+):', r'<\1', text.strip())
+        root = ET.fromstring(clean_xml)
+        prompt_tag_names = {k.lower() for k in _UNIVERSAL_PROMPT_KEYS}
+        best = None
+        best_len = 0
+
+        def _walk(node):
+            nonlocal best, best_len
+            tag = re.sub(r'\{[^}]+\}', '', node.tag or '').split(':')[-1].lower()
+            if tag in prompt_tag_names:
+                val = (node.text or '').strip()
+                if val:
+                    got = _clean_prompt_text(val)
+                    if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+                        if len(got) > best_len:
+                            best = got
+                            best_len = len(got)
+            for child in node:
+                _walk(child)
+
+        _walk(root)
+        if best:
+            return best
+    except Exception:
+        pass
+
+    prompt_tags = r'question|query|prompt|text|message|input|user_input|instruction'
+    pat = rf'<(?:\w+:)?({prompt_tags})[^>]*>([^<]+)</(?:\w+:)?\1>'
+    m = re.search(pat, text, re.IGNORECASE)
+    if m:
+        val = m.group(2).strip()
+        got = _clean_prompt_text(val)
+        if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+            return got
+
+    return None
+
+
+def _extract_from_ndjson(text: str) -> str | None:
+    """Extract user prompt from NDJSON / JSON Lines bodies.
+
+    Handles:
+      {"role": "user", "content": "hello"}\\n{"role": "system", ...}
+      Streaming request formats that send one JSON object per line.
+    Covers: Some LLM servers (TGI, vLLM streaming input), custom AI streaming.
+    """
+    if not text:
+        return None
+    best = None
+    best_len = 0
+    try:
+        for line in text.splitlines():
+            line = line.strip()
+            if not line or line[0] not in '{[':
+                continue
+            try:
+                obj = json.loads(line)
+                role = str(obj.get("role") or obj.get("author") or obj.get("sender") or "").lower() if isinstance(obj, dict) else ""
+                if role in ("system", "assistant", "bot", "model", "ai"):
+                    continue
+                got = _deep_extract_from_json(obj)
+                if got and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):
+                    if role in ("user", "human", "customer", "client"):
+                        return got
+                    if len(got) > best_len:
+                        best = got
+                        best_len = len(got)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return best
 
 
 def extract_prompt_from_query_string(url: str) -> str | None:
@@ -1284,17 +1598,44 @@ def extract_prompt_from_query_string(url: str) -> str | None:
 
 
 def extract_prompt_universal(body_bytes: bytes, content_type: str = "", host: str = "", url: str = "") -> str | None:
+    """Universal prompt extraction for ANY admin Target Website — any format.
+
+    Tries ALL known AI request formats in priority order:
+      1. Platform-specific parsers (OpenAI/ChatGPT/Claude/Gemini/Grok/Copilot)
+      2. GET query string parameters
+      3. JSON — deep recursive walk (10 levels, all _UNIVERSAL_PROMPT_KEYS)
+      4. GraphQL variables / operation inputs
+      5. URL-encoded form body (application/x-www-form-urlencoded)
+      6. Multipart form-data (text fields only, skip file parts)
+      7. XML / SOAP (tag name matched against _UNIVERSAL_PROMPT_KEYS)
+      8. NDJSON / JSON Lines (one JSON object per line)
+      9. Plain text body (text/plain or short unstructured body IS the prompt)
+      10. Regex last resort (partial JSON, malformed bodies)
+
+    Any AI website — ChatGPT, Claude, Gemini, Grok, Perplexity, DeepSeek,
+    Copilot, Poe, HuggingFace, Ollama, LMStudio, enterprise custom AI —
+    will be caught by at least one of the above layers.
     """
-    Domain-agnostic prompt extraction for ANY admin Target Website.
-    Platform-specific parsers first, then deep JSON walk, query string, regex fallback.
-    """
+    # ── Step 1: Platform-specific parsers (most accurate) ─────────────────
     got = extract_prompt(body_bytes, content_type, host=host)
     if got:
-        return got
+        # Validate: reject if it looks like raw XML/multipart/wire (not user text)
+        got_s = (got or "").strip()
+        if (
+            got_s
+            and not got_s.startswith("<")
+            and "webkitformboundary" not in got_s.lower()[:80]
+            and not _is_clear_protocol_junk(got_s)
+        ):
+            return got
+        # Fall through to format-specific layers for XML/wire results
+
+    # ── Step 2: URL query string ───────────────────────────────────────────
     if url:
         got = extract_prompt_from_query_string(url)
         if got:
             return got
+
     if not body_bytes:
         return None
     try:
@@ -1303,15 +1644,88 @@ def extract_prompt_universal(body_bytes: bytes, content_type: str = "", host: st
         return None
     if not text.strip():
         return None
-    if text.lstrip().startswith(("{", "[")):
+
+    ct = (content_type or "").lower()
+    stripped = text.lstrip()
+
+    # ── Step 3: JSON — deep recursive walk ────────────────────────────────
+    if stripped.startswith(("{", "[")):
         try:
             data = json.loads(text)
+            # If GraphQL payload (has "variables" dictionary), extract user prompt from variables first
+            if isinstance(data, dict) and "variables" in data:
+                got = _extract_from_graphql(data)
+                if got:
+                    return got
             got = _deep_extract_from_json(data)
+            if got:
+                return got
+            # ── Step 4: GraphQL inside JSON ────────────────────────────────
+            got = _extract_from_graphql(data)
             if got:
                 return got
         except Exception:
             pass
+
+    # ── Step 5: URL-encoded form ───────────────────────────────────────────
+    if (
+        "urlencoded" in ct
+        or "form" in ct
+        or ("=" in text and "&" in text and not stripped.startswith(("{", "[", "<")))
+    ):
+        got = _extract_from_urlencoded(text)
+        if got:
+            return got
+
+    # ── Step 6: Multipart form-data ────────────────────────────────────────
+    if "multipart" in ct or "boundary" in ct or "webkitformboundary" in text[:400].lower():
+        got = _extract_from_multipart(text)
+        if got:
+            return got
+
+    # ── Step 7: XML / SOAP ─────────────────────────────────────────────────
+    if stripped.startswith("<") or "xml" in ct or "soap" in ct:
+        got = _extract_from_xml(text)
+        if got:
+            return got
+
+    # ── Step 8: NDJSON / JSON Lines ───────────────────────────────────────
+    # Only when body has multiple lines and at least one looks like JSON
+    if "\n" in text.strip() and not stripped.startswith(("{", "[", "<")):
+        got = _extract_from_ndjson(text)
+        if got:
+            return got
+    elif "\n" in text.strip() and stripped.startswith(("{", "[")):
+        # Could be NDJSON even if first char is JSON bracket — try it
+        got = _extract_from_ndjson(text)
+        if got:
+            return got
+
+    # ── Step 9: Plain text body ────────────────────────────────────────────
+    # Some simple AI APIs POST raw text directly (no wrapper)
+    if (
+        "text/plain" in ct
+        or "text/xml" in ct
+        or (
+            not stripped.startswith(("{", "[", "<"))
+            and "=" not in text[:30]
+            and len(text.strip()) >= 2
+        )
+    ):
+        cleaned = _clean_prompt_text(text.strip())
+        if (
+            cleaned
+            and len(cleaned) >= 2
+            and len(cleaned) <= 200_000
+            and looks_like_user_prompt(cleaned)
+            and not _is_opaque_wire_blob(cleaned)
+        ):
+            return cleaned
+
+    # ── Step 10: Regex last resort ─────────────────────────────────────────
+    # Partial JSON, malformed bodies, or mixed text+JSON
     return _regex_extract_prompt_from_text(text)
+
 
 
 def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str]:

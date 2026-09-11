@@ -40,6 +40,23 @@ def check_backend() -> bool:
     return False
 
 
+def _normalize_domain(raw: str) -> str:
+    domain = (raw or "").strip().lower()
+    if not domain:
+        return ""
+    if "://" in domain:
+        domain = domain.split("://", 1)[1]
+    domain = domain.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    if domain.startswith("[") and "]" in domain:
+        domain = domain[1:domain.index("]")]
+    elif ":" in domain:
+        domain = domain.rsplit(":", 1)[0]
+    domain = domain.lstrip("*.").strip(".")
+    if domain.startswith("www."):
+        domain = domain[4:]
+    return domain
+
+
 def build_pac_from_targets(proxy_addr: str) -> str | None:
     body = _http_get_text(
         f"{UNIFAI_BACKEND_URL}/api/browser-ai/targets?for=agent",
@@ -73,7 +90,7 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         block_site = bool(t.get("block_site"))
         if not monitored and not block_site:
             continue
-        d = str(t.get("domain") or "").strip().lower().lstrip(".")
+        d = _normalize_domain(str(t.get("domain") or ""))
         if not d or d in seen:
             continue
         seen.add(d)
