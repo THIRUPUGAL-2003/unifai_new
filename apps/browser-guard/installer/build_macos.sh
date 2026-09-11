@@ -52,6 +52,24 @@ for f in agent/unifai_agent.py proxy/browser_ai_proxy.py config/unifai_guard_con
   fi
 done
 
+# Generate macOS .icns from unifai_guard.png if not present
+if [[ ! -f "unifai_guard.icns" && -f "unifai_guard.png" ]] && command -v sips >/dev/null 2>&1 && command -v iconutil >/dev/null 2>&1; then
+  echo "Generating unifai_guard.icns from unifai_guard.png..."
+  ICONSET="unifai_guard.iconset"
+  mkdir -p "$ICONSET"
+  sips -z 16 16     unifai_guard.png --out "$ICONSET/icon_16x16.png" >/dev/null 2>&1 || true
+  sips -z 32 32     unifai_guard.png --out "$ICONSET/icon_16x16@2x.png" >/dev/null 2>&1 || true
+  sips -z 32 32     unifai_guard.png --out "$ICONSET/icon_32x32.png" >/dev/null 2>&1 || true
+  sips -z 64 64     unifai_guard.png --out "$ICONSET/icon_32x32@2x.png" >/dev/null 2>&1 || true
+  sips -z 128 128   unifai_guard.png --out "$ICONSET/icon_128x128.png" >/dev/null 2>&1 || true
+  sips -z 256 256   unifai_guard.png --out "$ICONSET/icon_128x128@2x.png" >/dev/null 2>&1 || true
+  sips -z 256 256   unifai_guard.png --out "$ICONSET/icon_256x256.png" >/dev/null 2>&1 || true
+  sips -z 512 512   unifai_guard.png --out "$ICONSET/icon_256x256@2x.png" >/dev/null 2>&1 || true
+  sips -z 512 512   unifai_guard.png --out "$ICONSET/icon_512x512.png" >/dev/null 2>&1 || true
+  iconutil -c icns "$ICONSET" -o unifai_guard.icns 2>/dev/null || true
+  rm -rf "$ICONSET"
+fi
+
 # Preflight: modular agent + proxy parts (post-split layout)
 for f in \
   agent/agent_config.py \
@@ -159,6 +177,7 @@ rm -f "$ZIP_OUT"
 )
 
 printf '%s\n' "$VERSION" > release/VERSION.txt
+rm -f release/MAC_ZIP_STALE.txt
 
 cp -f installer/Install_UnifAI_Guard.command release/Install_UnifAI_Guard.command
 cp -f installer/Uninstall_UnifAI_Guard.command release/Uninstall_UnifAI_Guard.command

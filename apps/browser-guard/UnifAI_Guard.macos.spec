@@ -37,7 +37,7 @@ hiddenimports = [
     "guard_platform",
 ]
 
-for pkg in ("pypdf", "PIL", "mitmproxy"):
+for pkg in ("pypdf", "PIL", "mitmproxy", "mitmproxy_macos"):
     tmp_ret = collect_all(pkg)
     datas += tmp_ret[0]
     binaries += tmp_ret[1]
@@ -86,16 +86,18 @@ coll = COLLECT(
     name="UnifAI_Guard",
 )
 
+mac_icon = str(ROOT / "unifai_guard.icns") if (ROOT / "unifai_guard.icns").is_file() else None
+
 app = BUNDLE(
     coll,
     name="UnifAI_Guard.app",
-    icon=None,
+    icon=mac_icon,
     bundle_identifier="com.unifai.guard",
     info_plist={
         "CFBundleDisplayName": "UnifAI Guard",
         "CFBundleName": "UnifAI Guard",
-        "CFBundleShortVersionString": "1.6.24",
-        "CFBundleVersion": "1.6.24",
+        "CFBundleShortVersionString": "1.6.25",
+        "CFBundleVersion": "1.6.25",
         "LSBackgroundOnly": False,
         "NSHighResolutionCapable": True,
     },
