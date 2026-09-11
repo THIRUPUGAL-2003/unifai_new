@@ -422,15 +422,18 @@ func (s *RDBConfigStore) DeletePromptVersion(ctx context.Context, id uint) error
 // Prompt Repository - Sessions
 // ============================================================================
 
-// GetPromptSessions gets all sessions for a prompt
-func (s *RDBConfigStore) GetPromptSessions(ctx context.Context, promptID string) ([]tables.TablePromptSession, error) {
+// GetPromptSessions gets sessions for a prompt.
+// When userID is non-empty, only that user's sessions are returned (user-based history).
+func (s *RDBConfigStore) GetPromptSessions(ctx context.Context, promptID string, userID string) ([]tables.TablePromptSession, error) {
 	var sessions []tables.TablePromptSession
-	if err := s.DB().WithContext(ctx).
+	q := s.DB().WithContext(ctx).
 		Preload("Messages", func(db *gorm.DB) *gorm.DB { return db.Order("order_index ASC") }).
 		Preload("Version").
-		Where("prompt_id = ?", promptID).
-		Order("created_at DESC").
-		Find(&sessions).Error; err != nil {
+		Where("prompt_id = ?", promptID)
+	if userID != "" {
+		q = q.Where("user_id = ?", userID)
+	}
+	if err := q.Order("created_at DESC").Find(&sessions).Error; err != nil {
 		return nil, err
 	}
 	return sessions, nil

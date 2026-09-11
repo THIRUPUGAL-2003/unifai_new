@@ -693,7 +693,7 @@ type ConfigStore interface {
 	UpdateSkillConfigHash(ctx context.Context, skillID string, configHash string) error
 
 	// Prompt Repository - Sessions
-	GetPromptSessions(ctx context.Context, promptID string) ([]tables.TablePromptSession, error)
+	GetPromptSessions(ctx context.Context, promptID string, userID string) ([]tables.TablePromptSession, error)
 	GetPromptSessionByID(ctx context.Context, id uint) (*tables.TablePromptSession, error)
 	CreatePromptSession(ctx context.Context, session *tables.TablePromptSession) error
 	UpdatePromptSession(ctx context.Context, session *tables.TablePromptSession) error

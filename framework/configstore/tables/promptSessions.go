@@ -18,6 +18,8 @@ type TablePromptSession struct {
 	VersionID       *uint               `gorm:"index" json:"version_id,omitempty"` // Optional - session may or may not be based on a version
 	Version         *TablePromptVersion `gorm:"foreignKey:VersionID;constraint:OnDelete:SET NULL" json:"version,omitempty"`
 	Name            string              `gorm:"type:varchar(255)" json:"name"`
+	// UserID owns this playground history row (governance_users.id). Empty = legacy shared.
+	UserID          string              `gorm:"type:varchar(255);index:idx_prompt_session_user" json:"user_id"`
 	ModelParamsJSON *string             `gorm:"type:text;column:model_params_json" json:"-"`
 	ModelParams     ModelParams         `gorm:"-" json:"model_params"`
 	Provider        string              `gorm:"type:varchar(100)" json:"provider"`

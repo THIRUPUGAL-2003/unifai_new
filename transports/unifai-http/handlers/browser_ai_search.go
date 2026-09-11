@@ -8,6 +8,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
+	"github.com/unifai/unifai/framework/logstore"
 	"github.com/valyala/fasthttp"
 )
 
@@ -208,8 +209,58 @@ func computeSearchRisk(query string) (int, string, string) {
 	return 10, "LOW", "General Search"
 }
 
-// getSearchLogs serves in-memory search logs with filtering.
+func toLogstoreSearchLog(e *BrowserAISearchLogEntry) *logstore.BrowserAISearchLog {
+	ts := e.Timestamp
+	if ts.IsZero() {
+		ts = time.Now()
+	}
+	return &logstore.BrowserAISearchLog{
+		ID:             e.ID,
+		Timestamp:      ts,
+		Engine:         e.Engine,
+		Browser:        e.Browser,
+		IsIncognito:    e.IsIncognito,
+		Query:          e.Query,
+		ClickedURL:     e.ClickedURL,
+		ClickedTitle:   e.ClickedTitle,
+		URL:            e.URL,
+		Host:           e.Host,
+		ClientIP:       e.ClientIP,
+		AgentHostname:  e.AgentHostname,
+		AgentID:        e.AgentID,
+		RiskScore:      e.RiskScore,
+		PredictiveRisk: e.PredictiveRisk,
+		RiskCategory:   e.RiskCategory,
+		CreatedAt:      ts,
+	}
+}
+
+func fromLogstoreSearchLog(e *logstore.BrowserAISearchLog) BrowserAISearchLogEntry {
+	return BrowserAISearchLogEntry{
+		ID:             e.ID,
+		Timestamp:      e.Timestamp,
+		Engine:         e.Engine,
+		Browser:        e.Browser,
+		IsIncognito:    e.IsIncognito,
+		Query:          e.Query,
+		ClickedURL:     e.ClickedURL,
+		ClickedTitle:   e.ClickedTitle,
+		URL:            e.URL,
+		Host:           e.Host,
+		ClientIP:       e.ClientIP,
+		AgentHostname:  e.AgentHostname,
+		AgentID:        e.AgentID,
+		RiskScore:      e.RiskScore,
+		PredictiveRisk: e.PredictiveRisk,
+		RiskCategory:   e.RiskCategory,
+		CreatedAt:      e.Timestamp.Format(time.RFC3339),
+	}
+}
+
+// getSearchLogs serves search logs from PostgreSQL (pgAdmin) with fallback to in-memory buffer.
 func (h *BrowserAIHandler) getSearchLogs(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+
 	engineFilter := strings.ToLower(strings.TrimSpace(string(ctx.QueryArgs().Peek("engine"))))
 	browserFilter := strings.ToLower(strings.TrimSpace(string(ctx.QueryArgs().Peek("browser"))))
 	incognitoFilter := strings.ToLower(strings.TrimSpace(string(ctx.QueryArgs().Peek("is_incognito"))))
@@ -222,7 +273,34 @@ func (h *BrowserAIHandler) getSearchLogs(ctx *fasthttp.RequestCtx) {
 	if limit <= 0 {
 		limit = 50
 	}
+	if offset < 0 {
+		offset = 0
+	}
 
+	// 1. Try PostgreSQL database first
+	if h.manager != nil && h.manager.GetDB() != nil {
+		dbLogs, total, incognitoCount, queriesCount, clicksCount, err := h.manager.GetSearchLogs(
+			ctx, engineFilter, browserFilter, incognitoFilter, searchFilter, limit, offset,
+		)
+		if err == nil {
+			paged := make([]BrowserAISearchLogEntry, 0, len(dbLogs))
+			for _, l := range dbLogs {
+				paged = append(paged, fromLogstoreSearchLog(&l))
+			}
+			SendJSON(ctx, map[string]any{
+				"logs":            paged,
+				"total":           total,
+				"incognito_count": incognitoCount,
+				"queries_count":   queriesCount,
+				"clicks_count":    clicksCount,
+				"limit":           limit,
+				"offset":          offset,
+			})
+			return
+		}
+	}
+
+	// 2. Fallback to in-memory buffer if DB is offline
 	searchLogsMu.RLock()
 	defer searchLogsMu.RUnlock()
 
@@ -295,8 +373,10 @@ func (h *BrowserAIHandler) getSearchLogs(ctx *fasthttp.RequestCtx) {
 	})
 }
 
-// recordSearchLog records a search query or click in memory from proxy or UI test.
+// recordSearchLog records a search query or click in PostgreSQL and in-memory buffer.
 func (h *BrowserAIHandler) recordSearchLog(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+
 	var body BrowserAISearchLogEntry
 	if err := sonic.Unmarshal(ctx.PostBody(), &body); err != nil {
 		SendError(ctx, fasthttp.StatusBadRequest, "Invalid JSON payload")
@@ -328,8 +408,14 @@ func (h *BrowserAIHandler) recordSearchLog(ctx *fasthttp.RequestCtx) {
 		body.RiskCategory = "General Search"
 	}
 
+	// 1. Persist to PostgreSQL database (visible in pgAdmin)
+	if h.manager != nil && h.manager.GetDB() != nil {
+		dbEntry := toLogstoreSearchLog(&body)
+		_ = h.manager.RecordSearchLog(ctx, dbEntry)
+	}
+
+	// 2. Also keep in-memory buffer
 	searchLogsMu.Lock()
-	// Prepend to top so newest searches appear first
 	searchLogsList = append([]BrowserAISearchLogEntry{body}, searchLogsList...)
 	if len(searchLogsList) > 500 {
 		searchLogsList = searchLogsList[:500]
@@ -342,8 +428,14 @@ func (h *BrowserAIHandler) recordSearchLog(ctx *fasthttp.RequestCtx) {
 	})
 }
 
-// deleteSearchLogs clears the in-memory search logs buffer.
+// deleteSearchLogs clears search logs in PostgreSQL and in-memory buffer.
 func (h *BrowserAIHandler) deleteSearchLogs(ctx *fasthttp.RequestCtx) {
+	h.ensureDB(ctx)
+
+	if h.manager != nil && h.manager.GetDB() != nil {
+		_ = h.manager.ClearSearchLogs(ctx)
+	}
+
 	searchLogsMu.Lock()
 	searchLogsList = []BrowserAISearchLogEntry{}
 	searchLogsMu.Unlock()

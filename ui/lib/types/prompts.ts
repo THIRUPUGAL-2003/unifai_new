@@ -73,6 +73,7 @@ export interface PromptSession {
 	version_id?: number;
 	version?: PromptVersion;
 	name: string;
+	user_id?: string;
 	messages: PromptSessionMessage[];
 	model_params: ModelParams;
 	provider: string;

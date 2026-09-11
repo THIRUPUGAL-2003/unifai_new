@@ -197,6 +197,29 @@ type BrowserAILog struct {
 	CreatedAt             time.Time `json:"created_at"`
 }
 
+// BrowserAISearchLog represents an enterprise search event stored in Postgres (visible in pgAdmin).
+type BrowserAISearchLog struct {
+	ID             string    `gorm:"primaryKey" json:"id"`
+	Timestamp      time.Time `gorm:"index" json:"timestamp"`
+	Engine         string    `gorm:"index" json:"engine"`          // "Google", "Bing", "Safari / Apple", "DuckDuckGo", "Yahoo"
+	Browser        string    `gorm:"index" json:"browser"`         // "Edge", "Chrome", "Safari", "Firefox", "Brave"
+	IsIncognito    bool      `gorm:"index" json:"is_incognito"`    // true if incognito / private mode
+	Query          string    `gorm:"type:text" json:"query"`       // Searched keywords
+	ClickedURL     string    `gorm:"type:text" json:"clicked_url"` // URL of search result link clicked
+	ClickedTitle   string    `gorm:"type:text" json:"clicked_title"`
+	URL            string    `gorm:"type:text" json:"url"`         // Raw search URL
+	Host           string    `gorm:"index" json:"host"`            // Search engine host
+	ClientIP       string    `json:"client_ip"`
+	AgentHostname  string    `json:"agent_hostname"`
+	AgentID        string    `gorm:"index" json:"agent_id"`
+	RiskScore      int       `json:"risk_score"`
+	PredictiveRisk string    `gorm:"index" json:"predictive_risk"` // "LOW" | "MEDIUM" | "HIGH" | "CRITICAL"
+	RiskCategory   string    `json:"risk_category"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+func (BrowserAISearchLog) TableName() string { return "browser_ai_search_logs" }
+
 // BrowserGuardFleetConfigID is the singleton fleet defaults row.
 const BrowserGuardFleetConfigID = "browser-guard-fleet-default"
 
@@ -412,6 +435,7 @@ func (m *BrowserAIManager) AutoMigrate(ctx context.Context) error {
 
 	err := m.db.WithContext(ctx).AutoMigrate(
 		&BrowserAILog{},
+		&BrowserAISearchLog{},
 		&BrowserGuardRule{},
 		&BrowserControlSettings{},
 		&BrowserTargetWebsite{},
@@ -531,6 +555,91 @@ func (m *BrowserAIManager) ClearLogs(ctx context.Context) error {
 		return nil
 	}
 	return m.db.WithContext(ctx).Exec("DELETE FROM browser_ai_logs").Error
+}
+
+func (m *BrowserAIManager) RecordSearchLog(ctx context.Context, entry *BrowserAISearchLog) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return nil
+	}
+	if entry.ID == "" {
+		entry.ID = uuid.New().String()
+	}
+	if entry.Timestamp.IsZero() {
+		entry.Timestamp = time.Now()
+	}
+	if entry.CreatedAt.IsZero() {
+		entry.CreatedAt = entry.Timestamp
+	}
+	return m.db.WithContext(ctx).Create(entry).Error
+}
+
+func (m *BrowserAIManager) GetSearchLogs(ctx context.Context, engine, browser, isIncognito, search string, limit, offset int) ([]BrowserAISearchLog, int64, int64, int64, int64, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var logs []BrowserAISearchLog
+	var total int64
+	var incognitoCount int64
+	var queriesCount int64
+	var clicksCount int64
+
+	if m.db == nil {
+		return logs, 0, 0, 0, 0, nil
+	}
+
+	// Overall KPI metrics (unfiltered totals)
+	_ = m.db.WithContext(ctx).Model(&BrowserAISearchLog{}).Where("is_incognito = ?", true).Count(&incognitoCount).Error
+	_ = m.db.WithContext(ctx).Model(&BrowserAISearchLog{}).Where("query != '' AND query IS NOT NULL").Count(&queriesCount).Error
+	_ = m.db.WithContext(ctx).Model(&BrowserAISearchLog{}).Where("clicked_url != '' AND clicked_url IS NOT NULL").Count(&clicksCount).Error
+
+	query := m.db.WithContext(ctx).Model(&BrowserAISearchLog{})
+
+	if engine != "" && strings.ToLower(engine) != "all" {
+		query = query.Where("LOWER(engine) LIKE ?", "%"+strings.ToLower(engine)+"%")
+	}
+	if browser != "" && strings.ToLower(browser) != "all" {
+		query = query.Where("LOWER(browser) LIKE ?", "%"+strings.ToLower(browser)+"%")
+	}
+	if isIncognito == "true" {
+		query = query.Where("is_incognito = ?", true)
+	} else if isIncognito == "false" {
+		query = query.Where("is_incognito = ?", false)
+	}
+	if search != "" {
+		s := "%" + strings.ToLower(search) + "%"
+		query = query.Where("LOWER(query) LIKE ? OR LOWER(clicked_url) LIKE ? OR LOWER(clicked_title) LIKE ? OR LOWER(agent_hostname) LIKE ? OR LOWER(client_ip) LIKE ?", s, s, s, s, s)
+	}
+
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, 0, 0, 0, err
+	}
+
+	if limit <= 0 {
+		limit = 50
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	err := query.Order("timestamp DESC").Limit(limit).Offset(offset).Find(&logs).Error
+	if err != nil {
+		return nil, 0, 0, 0, 0, err
+	}
+	if logs == nil {
+		logs = []BrowserAISearchLog{}
+	}
+	return logs, total, incognitoCount, queriesCount, clicksCount, nil
+}
+
+func (m *BrowserAIManager) ClearSearchLogs(ctx context.Context) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return nil
+	}
+	return m.db.WithContext(ctx).Exec("DELETE FROM browser_ai_search_logs").Error
 }
 
 func (m *BrowserAIManager) GetRules(ctx context.Context) ([]BrowserGuardRule, error) {

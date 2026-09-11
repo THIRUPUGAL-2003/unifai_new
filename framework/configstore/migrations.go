@@ -448,6 +448,7 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"rename_oauth2_bf_columns_to_uf"}, run: migrationRenameOAuth2BfColumnsToUf},
 	{IDs: []string{"add_smtp_auth_security_tables"}, run: migrationAddSMTPAuthSecurityTables},
 	{IDs: []string{"add_auth_login_devices"}, run: migrationAddAuthLoginDevices},
+	{IDs: []string{"add_user_id_to_prompt_sessions"}, run: migrationAddUserIDToPromptSessions},
 }
 
 // quoteSQLiteIdentifier quotes a SQLite identifier, escaping any double quotes.
@@ -10979,6 +10980,30 @@ func migrationAddAuthLoginDevices(ctx context.Context, db *gorm.DB, logger schem
 	}})
 	if err := m.Migrate(); err != nil {
 		return fmt.Errorf("error running %s: %w", migrationName, err)
+	}
+	return nil
+}
+
+func migrationAddUserIDToPromptSessions(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_user_id_to_prompt_sessions"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			if err := addColumnIfNotExists(tx, logger, &tables.TablePromptSession{}, "UserID"); err != nil {
+				return fmt.Errorf("add user_id to prompt_sessions: %w", err)
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			return dropColumnIfExists(tx, logger, &tables.TablePromptSession{}, "user_id")
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
 	}
 	return nil
 }

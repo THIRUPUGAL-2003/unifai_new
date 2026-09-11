@@ -759,6 +759,44 @@ func (h *PromptsHandler) checkPromptAccess(ctx *fasthttp.RequestCtx, promptID st
 	return false
 }
 
+// promptCallerIdentity returns a stable owner id + role for prompt session history.
+// Prefer governance_users.id; fall back to session username so env/admin logins still own rows.
+func (h *PromptsHandler) promptCallerIdentity(ctx *fasthttp.RequestCtx) (userID, role string) {
+	tokenVal := ctx.UserValue(schemas.UnifAIContextKeySessionToken)
+	token, ok := tokenVal.(string)
+	if !ok || token == "" {
+		return "", ""
+	}
+	session, err := h.store.GetSession(ctx, token)
+	if err != nil || session == nil {
+		return "", ""
+	}
+	role = strings.TrimSpace(session.Role)
+	username := strings.TrimSpace(session.Username)
+	if username == "" {
+		return "", role
+	}
+	dbUser, err := h.store.GetUserByUsername(ctx, username)
+	if err == nil && dbUser != nil && strings.TrimSpace(dbUser.ID) != "" {
+		return dbUser.ID, role
+	}
+	// No governance_users row (e.g. bootstrap admin) — username is still unique per login.
+	return username, role
+}
+
+// checkSessionOwnership: each login only accesses their own playground history
+// (admin and user alike). Prompt library ACL is separate via checkPromptAccess.
+func (h *PromptsHandler) checkSessionOwnership(ctx *fasthttp.RequestCtx, session *tables.TablePromptSession) bool {
+	if session == nil {
+		return false
+	}
+	userID, _ := h.promptCallerIdentity(ctx)
+	if userID == "" {
+		return false
+	}
+	return session.UserID == userID
+}
+
 // deleteVersion handles DELETE /api/prompt-repo/versions/{id}
 func (h *PromptsHandler) deleteVersion(ctx *fasthttp.RequestCtx) {
 	idVal := ctx.UserValue("id")
@@ -831,7 +869,14 @@ func (h *PromptsHandler) getPromptSessions(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	sessions, err := h.store.GetPromptSessions(ctx, promptID)
+	// User-based history: admin sees only admin's sessions; user sees only that user's.
+	callerID, _ := h.promptCallerIdentity(ctx)
+	if callerID == "" {
+		SendError(ctx, fasthttp.StatusUnauthorized, "authentication required")
+		return
+	}
+
+	sessions, err := h.store.GetPromptSessions(ctx, promptID, callerID)
 	if err != nil {
 		if errors.Is(err, configstore.ErrNotFound) {
 			SendError(ctx, fasthttp.StatusNotFound, "prompt not found")
@@ -877,6 +922,10 @@ func (h *PromptsHandler) getSessionByID(ctx *fasthttp.RequestCtx) {
 	}
 
 	if !h.checkPromptAccess(ctx, session.PromptID) {
+		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
+		return
+	}
+	if !h.checkSessionOwnership(ctx, session) {
 		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
 		return
 	}
@@ -976,12 +1025,19 @@ func (h *PromptsHandler) createSession(ctx *fasthttp.RequestCtx) {
 		PromptID:    promptID,
 		VersionID:   req.VersionID,
 		Name:        req.Name,
+		UserID:      "",
 		ModelParams: req.ModelParams,
 		Provider:    req.Provider,
 		Model:       req.Model,
 		Variables:   req.Variables,
 		Messages:    messages,
 	}
+	callerID, _ := h.promptCallerIdentity(ctx)
+	if callerID == "" {
+		SendError(ctx, fasthttp.StatusUnauthorized, "authentication required")
+		return
+	}
+	session.UserID = callerID
 
 	if err := h.store.CreatePromptSession(ctx, session); err != nil {
 		logger.Error("failed to create session: %v", err)
@@ -1030,6 +1086,10 @@ func (h *PromptsHandler) updateSession(ctx *fasthttp.RequestCtx) {
 	}
 
 	if !h.checkPromptAccess(ctx, session.PromptID) {
+		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
+		return
+	}
+	if !h.checkSessionOwnership(ctx, session) {
 		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
 		return
 	}
@@ -1098,6 +1158,10 @@ func (h *PromptsHandler) deleteSession(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
 		return
 	}
+	if !h.checkSessionOwnership(ctx, session) {
+		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
+		return
+	}
 
 	if err := h.store.DeletePromptSession(ctx, uint(id)); err != nil {
 		if errors.Is(err, configstore.ErrNotFound) {
@@ -1150,6 +1214,10 @@ func (h *PromptsHandler) renameSession(ctx *fasthttp.RequestCtx) {
 	}
 
 	if !h.checkPromptAccess(ctx, session.PromptID) {
+		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
+		return
+	}
+	if !h.checkSessionOwnership(ctx, session) {
 		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
 		return
 	}
@@ -1207,6 +1275,10 @@ func (h *PromptsHandler) commitSession(ctx *fasthttp.RequestCtx) {
 	}
 
 	if !h.checkPromptAccess(ctx, session.PromptID) {
+		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
+		return
+	}
+	if !h.checkSessionOwnership(ctx, session) {
 		SendError(ctx, fasthttp.StatusForbidden, "Forbidden")
 		return
 	}
