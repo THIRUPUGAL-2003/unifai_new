@@ -4,7 +4,7 @@ UnifAI Guard — macOS ONLY checklist (you run this on a Mac)
 Windows side already prepared:
 - Agent modularized (agent_*.py)
 - Proxy parts + responses_inject.py in MANIFEST
-- Version 1.6.24 synced
+- Version 1.6.25 synced
 - UnifAI_Guard.macos.spec hiddenimports + build_macos.sh preflight
 - Install scripts / INSTALL_MACOS.txt ready
 
@@ -33,13 +33,13 @@ YOU MUST DO ON A REAL MAC (cannot run from Windows):
 4) Install test on that Mac:
    - Run Install_UnifAI_Guard.command (or open .pkg)
    - Open http://127.0.0.1:18085/
-   - Confirm: version 1.6.24, proxy_port OK, ca trusted
+   - Confirm: version 1.6.25, proxy_port OK, ca trusted
    - Cmd+Q browsers → reopen → test Target Website
 
 5) Deploy:
    Copy to server release folder:
    - UnifAI_Guard_macOS.zip
-   - UnifAI_Guard_1.6.24.pkg (if built)
+   - UnifAI_Guard_1.6.25.pkg (if built)
    Redeploy so website Mac download serves the new files.
 
 NOTE: release/UnifAI_Guard_macOS.zip on Windows may be STALE until you rebuild on Mac.

@@ -438,7 +438,11 @@ func (p *OAuth2Provider) InitiateOAuthFlow(ctx context.Context, config *schemas.
 		metadata, err := DiscoverOAuthMetadata(ctx, config.ServerURL)
 		if err != nil {
 			if needsEndpointDiscovery {
-				return nil, fmt.Errorf("OAuth discovery failed: %w. Please provide authorize_url, token_url, and registration_url manually", err)
+				redirectHint := ""
+				if config.RedirectURI != "" {
+					redirectHint = fmt.Sprintf(" Register redirect URI %q on the provider. Create an OAuth app there and provide client_id, authorize_url, and token_url manually.", config.RedirectURI)
+				}
+				return nil, fmt.Errorf("OAuth discovery failed: %w. Provide authorize_url, token_url (and client_id when Dynamic Client Registration is not supported).%s", err, redirectHint)
 			}
 			logger.Warn("OAuth resource discovery failed; continuing with manually configured endpoints: %v", err)
 		} else {
@@ -491,7 +495,11 @@ func (p *OAuth2Provider) InitiateOAuthFlow(ctx context.Context, config *schemas.
 	if clientID == "" {
 		// Check if registration URL is available
 		if registrationURL == nil || *registrationURL == "" {
-			return nil, fmt.Errorf("client_id is required when the OAuth provider does not support dynamic client registration (RFC 7591). Please provide client_id manually or use an OAuth provider that supports dynamic registration")
+			redirectHint := ""
+			if config.RedirectURI != "" {
+				redirectHint = fmt.Sprintf(" Use redirect URI %q when creating the OAuth app.", config.RedirectURI)
+			}
+			return nil, fmt.Errorf("client_id is required when the OAuth provider does not support dynamic client registration (RFC 7591). Create an OAuth app at the provider and provide client_id.%s", redirectHint)
 		}
 
 		logger.Debug("client_id not provided, attempting dynamic client registration (RFC 7591)")
@@ -513,7 +521,11 @@ func (p *OAuth2Provider) InitiateOAuthFlow(ctx context.Context, config *schemas.
 		// Perform dynamic registration
 		regResp, err := RegisterDynamicClient(ctx, *registrationURL, regReq)
 		if err != nil {
-			return nil, fmt.Errorf("dynamic client registration failed: %w. Please provide client_id manually", err)
+			redirectHint := ""
+			if config.RedirectURI != "" {
+				redirectHint = fmt.Sprintf(" Register redirect URI %q on the provider, then provide client_id (DCR is often restricted to allowlisted apps like Claude/Cursor).", config.RedirectURI)
+			}
+			return nil, fmt.Errorf("dynamic client registration failed: %w. Provide client_id manually.%s", err, redirectHint)
 		}
 
 		// Use dynamically registered credentials

@@ -38,7 +38,12 @@ from agent_heartbeat import (
     send_heartbeat,
 )
 from agent_identity import collect_agent_info, get_or_create_agent_id
-from agent_lifecycle import maybe_first_run_prompt, run_uninstall, run_uninstall_prompt, show_message
+from agent_lifecycle import (
+    maybe_first_run_prompt,
+    run_uninstall,
+    run_uninstall_prompt,
+    show_message_async,
+)
 from agent_logging import ensure_single_instance, get_resource_path, setup_file_logging
 from agent_pac_content import (
     check_backend,
@@ -153,7 +158,7 @@ def main() -> None:
         if not install_ca_certificate():
             print(f"[UnifAI Guard ERROR] CA trust failed — open {log_hint_path()}/ca_install_status.txt")
             print("[UnifAI Guard ERROR] Without CA trust, browsers will not accept MITM HTTPS. Fix cert then restart Guard.")
-            show_message(
+            show_message_async(
                 "UnifAI Guard — CA trust failed",
                 "Certificate install failed.\nHTTPS intercept / predict may not work until CA is trusted.\n\n"
                 f"See {log_hint_path()}/ca_install_status.txt",

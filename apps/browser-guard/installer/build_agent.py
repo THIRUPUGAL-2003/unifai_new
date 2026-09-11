@@ -16,7 +16,10 @@ CONFIG = ROOT / "config" / "unifai_guard_config.json"
 
 
 def run(cmd: list[str]) -> None:
-    print("+", " ".join(cmd))
+    try:
+        print("+", " ".join(cmd))
+    except UnicodeEncodeError:
+        print("+", " ".join(cmd).encode(sys.stdout.encoding or "utf-8", errors="replace").decode(sys.stdout.encoding or "utf-8", errors="replace"))
     subprocess.run(cmd, cwd=ROOT, check=True)
 
 

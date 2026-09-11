@@ -12,15 +12,21 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { getErrorMessage, useCreateMCPClientMutation } from "@/lib/store";
+import { getErrorMessage, useCreateMCPClientMutation, useGetCoreConfigQuery } from "@/lib/store";
 import { CreateMCPClientRequest, SecretVar, MCPAuthType, MCPLibraryEntry, MCPTLSConfig } from "@/lib/types/mcp";
 import { parseArrayFromText } from "@/lib/utils/array";
+import {
+	formatMcpOauthError,
+	mcpOAuthRedirectUri,
+	oauthLikelyNeedsPreRegisteredClient,
+} from "@/lib/utils/mcpOauthErrors";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
-import { Globe, Info, KeyRound, Radio, ShieldCheck, Terminal } from "lucide-react";
+import { Check, Copy, Globe, Info, KeyRound, Radio, ShieldCheck, Terminal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { MCPHeadersAuthorizer } from "../../views/mcpHeadersAuthorizer";
 import { OAuth2Authorizer } from "../../views/oauth2Authorizer";
+import { getExternalBaseUrl } from "../../views/mcpUsageGuide/utils";
 import { MCPLibraryIcon } from "./mcpLibraryIcon";
 
 interface MCPLibraryInstallSheetProps {
@@ -148,9 +154,9 @@ function authHelpText(authType?: MCPAuthType | string): string {
 		case "headers":
 			return "Add the request headers UnifAI should send with each tool call.";
 		case "oauth":
-			return "Create the MCP client, then complete the OAuth authorization flow.";
+			return "Most enterprise MCP servers need an OAuth app you create at the provider. Paste Client ID below, then Continue — empty Client ID only works when the provider allows open Dynamic Client Registration.";
 		case "per_user_oauth":
-			return "Create the MCP client, then authorize the first user OAuth connection.";
+			return "Configure the shared OAuth app (Client ID + Redirect URI), then each user completes their own login.";
 		case "per_user_headers":
 			return "Declare the header names each caller must supply, then verify a sample set on install.";
 		default:
@@ -162,9 +168,11 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 	const hasCreateMCPClientAccess = useRbac(RbacResource.MCPGateway, RbacOperation.Create);
 	const { toast } = useToast();
 	const [createMCPClient] = useCreateMCPClientMutation();
+	const { data: unifaiConfig } = useGetCoreConfigQuery({ fromDB: true }, { skip: !open });
 	const [isLoading, setIsLoading] = useState(false);
 	const [scopesText, setScopesText] = useState("");
 	const [envVars, setEnvVars] = useState<Record<string, string>>({});
+	const [copiedRedirect, setCopiedRedirect] = useState(false);
 	const [oauthFlow, setOauthFlow] = useState<{
 		authorizeUrl: string;
 		oauthConfigId: string;
@@ -210,6 +218,7 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 		if (kind === "oauth") {
 			setValue("auth_type", authScope === "per_user" ? "per_user_oauth" : "oauth");
 			setValue("headers", undefined);
+			setValue("oauth_config", { client_id: emptySecretVar });
 			return;
 		}
 		setValue("auth_type", authScope === "per_user" ? "per_user_headers" : "headers");
@@ -247,7 +256,17 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 		setNewHeaderKeyInput("");
 		setAuthScope("shared");
 		setIsLoading(false);
+		setCopiedRedirect(false);
 	}, [defaultValues, initialEnvVars, open, reset]);
+
+	const oauthRedirectUri = useMemo(
+		() => mcpOAuthRedirectUri(getExternalBaseUrl(unifaiConfig?.client_config)),
+		[unifaiConfig?.client_config],
+	);
+	const needsPreRegisteredOauth = useMemo(
+		() => oauthLikelyNeedsPreRegisteredClient(server.connection_url, server.name),
+		[server.connection_url, server.name],
+	);
 
 	const headersValidationError = useMemo(() => {
 		if ((authType !== "headers" && authType !== "per_user_headers") || !headers) return null;
@@ -416,11 +435,14 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 			}
 			const message = getErrorMessage(error);
 			const needsAuthHint = /\b401\b|\b403\b|unauthorized|authentication required|www-authenticate/i.test(message);
+			const isOauthError = /oauth|authorize_url|token_url|client_id|redirect uri|ims|discovery|registration/i.test(message);
 			toast({
-				title: "Error",
-				description: needsAuthHint
-					? `${message} — switch Authentication to Headers (or OAuth) and add a valid API key / token, then try again.`
-					: message,
+				title: isOauthError ? "OAuth setup needed" : "Error",
+				description: isOauthError
+					? formatMcpOauthError(message, oauthRedirectUri)
+					: needsAuthHint
+						? `${message} — switch Authentication to Headers (or OAuth) and add a valid API key / token, then try again.`
+						: message,
 				variant: "destructive",
 			});
 		}
@@ -658,82 +680,184 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 									</div>
 								)}
 
-								{isOauth && (
-									<Accordion type="single" collapsible className="w-full">
-										<AccordionItem value="oauth-advanced" className="border-b-0">
-											<AccordionTrigger className="py-0" data-testid="library-oauth-advanced-trigger">
-												<span className="text-sm font-medium">OAuth Client Advanced Settings</span>
-											</AccordionTrigger>
-											<AccordionContent className="space-y-4 pt-4 pb-0">
-												<FormField
-													control={control}
-													name="oauth_config.client_id"
-													render={({ field }) => (
-														<FormItem>
-															<div className="flex items-center gap-2">
-																<FormLabel>OAuth client ID</FormLabel>
-																<TooltipProvider>
-																	<Tooltip>
-																		<TooltipTrigger asChild>
-																			<Info className="text-muted-foreground h-4 w-4 cursor-help" />
-																		</TooltipTrigger>
-																		<TooltipContent className="max-w-xs">
-																			<p>Leave empty to use Dynamic Client Registration when the provider supports it.</p>
-																		</TooltipContent>
-																	</Tooltip>
-																</TooltipProvider>
-															</div>
-															<FormControl>
-																<SecretVarInput
-																	value={field.value}
-																	onChange={field.onChange}
-																	placeholder="your-client-id"
-																	data-testid="library-oauth-client-id"
-																/>
-															</FormControl>
-															<FormMessage />
-														</FormItem>
-													)}
-												/>
+				{isOauth && (
+									<div className="space-y-4 rounded-sm border p-4" data-testid="library-oauth-setup">
+										<div className="space-y-1">
+											<h4 className="text-sm font-medium">OAuth setup</h4>
+											<p className="text-muted-foreground text-sm">
+												{needsPreRegisteredOauth
+													? "This provider usually blocks automatic client registration. Create an OAuth app in the provider console first, then paste Client ID below."
+													: "If Continue fails with discovery or registration errors, create an OAuth app at the provider and fill Client ID + URLs here."}
+											</p>
+										</div>
 
-												<FormField
-													control={control}
-													name="oauth_config.client_secret"
-													render={({ field }) => (
-														<FormItem>
-															<FormLabel>OAuth client secret</FormLabel>
-															<FormControl>
-																<SecretVarInput
-																	value={field.value}
-																	onChange={field.onChange}
-																	placeholder="optional for PKCE"
-																	hideValueWhenEnv
-																	maskNonEnvValue
-																	data-testid="library-oauth-client-secret"
-																/>
-															</FormControl>
-															<FormMessage />
-														</FormItem>
-													)}
+										<div className="space-y-2">
+											<Label htmlFor="library-oauth-redirect-uri">Redirect URI (register on provider)</Label>
+											<div className="flex gap-2">
+												<Input
+													id="library-oauth-redirect-uri"
+													readOnly
+													value={oauthRedirectUri}
+													className="font-mono text-xs"
+													data-testid="library-oauth-redirect-uri"
 												/>
+												<Button
+													type="button"
+													variant="outline"
+													size="icon"
+													aria-label="Copy redirect URI"
+													data-testid="library-oauth-redirect-copy"
+													onClick={async () => {
+														try {
+															await navigator.clipboard.writeText(oauthRedirectUri);
+															setCopiedRedirect(true);
+															window.setTimeout(() => setCopiedRedirect(false), 2000);
+															toast({ title: "Copied", description: "Redirect URI copied to clipboard." });
+														} catch {
+															toast({
+																title: "Copy failed",
+																description: "Select and copy the Redirect URI manually.",
+																variant: "destructive",
+															});
+														}
+													}}
+												>
+													{copiedRedirect ? <Check className="size-4" /> : <Copy className="size-4" />}
+												</Button>
+											</div>
+										</div>
 
-												<div className="grid gap-4 sm:grid-cols-2">
+										<FormField
+											control={control}
+											name="oauth_config.client_id"
+											render={({ field }) => (
+												<FormItem>
+													<div className="flex items-center gap-2">
+														<FormLabel>OAuth client ID</FormLabel>
+														<TooltipProvider>
+															<Tooltip>
+																<TooltipTrigger asChild>
+																	<Info className="text-muted-foreground h-4 w-4 cursor-help" />
+																</TooltipTrigger>
+																<TooltipContent className="max-w-xs">
+																	<p>
+																		{needsPreRegisteredOauth
+																			? "Required for most Adobe / AWS / Google-style MCP servers. Empty Client ID only works when the provider allows open DCR for UnifAI."
+																			: "Leave empty only if the provider supports Dynamic Client Registration for UnifAI's redirect URI."}
+																	</p>
+																</TooltipContent>
+															</Tooltip>
+														</TooltipProvider>
+													</div>
+													<FormControl>
+														<SecretVarInput
+															value={field.value}
+															onChange={field.onChange}
+															placeholder={needsPreRegisteredOauth ? "Required — from provider OAuth app" : "your-client-id (or leave empty for DCR)"}
+															data-testid="library-oauth-client-id"
+														/>
+													</FormControl>
+													<FormMessage />
+												</FormItem>
+											)}
+										/>
+
+										<FormField
+											control={control}
+											name="oauth_config.client_secret"
+											render={({ field }) => (
+												<FormItem>
+													<FormLabel>OAuth client secret</FormLabel>
+													<FormControl>
+														<SecretVarInput
+															value={field.value}
+															onChange={field.onChange}
+															placeholder="optional for PKCE"
+															hideValueWhenEnv
+															maskNonEnvValue
+															data-testid="library-oauth-client-secret"
+														/>
+													</FormControl>
+													<FormMessage />
+												</FormItem>
+											)}
+										/>
+
+										<Accordion
+											type="single"
+											collapsible
+											className="w-full"
+											defaultValue={needsPreRegisteredOauth ? "oauth-endpoints" : undefined}
+										>
+											<AccordionItem value="oauth-endpoints" className="border-b-0">
+												<AccordionTrigger className="py-0" data-testid="library-oauth-advanced-trigger">
+													<span className="text-sm font-medium">Authorization / Token URLs (if auto-discovery fails)</span>
+												</AccordionTrigger>
+												<AccordionContent className="space-y-4 pt-4 pb-0">
+													<div className="grid gap-4 sm:grid-cols-2">
+														<FormField
+															control={control}
+															name="oauth_config.authorize_url"
+															render={({ field }) => (
+																<FormItem>
+																	<FormLabel>Authorization URL</FormLabel>
+																	<FormControl>
+																		<Input
+																			{...field}
+																			value={field.value ?? ""}
+																			onChange={(event) => {
+																				field.onChange(event);
+																				clearErrors("oauth_config.authorize_url");
+																			}}
+																			placeholder="https://…/authorize"
+																			data-testid="library-oauth-authorize-url"
+																		/>
+																	</FormControl>
+																	<FormMessage />
+																</FormItem>
+															)}
+														/>
+
+														<FormField
+															control={control}
+															name="oauth_config.token_url"
+															render={({ field }) => (
+																<FormItem>
+																	<FormLabel>Token URL</FormLabel>
+																	<FormControl>
+																		<Input
+																			{...field}
+																			value={field.value ?? ""}
+																			onChange={(event) => {
+																				field.onChange(event);
+																				clearErrors("oauth_config.token_url");
+																			}}
+																			placeholder="https://…/token"
+																			data-testid="library-oauth-token-url"
+																		/>
+																	</FormControl>
+																	<FormMessage />
+																</FormItem>
+															)}
+														/>
+													</div>
+
 													<FormField
 														control={control}
-														name="oauth_config.authorize_url"
+														name="oauth_config.registration_url"
 														render={({ field }) => (
 															<FormItem>
-																<FormLabel>Authorization URL</FormLabel>
+																<FormLabel>Registration URL (optional)</FormLabel>
 																<FormControl>
 																	<Input
 																		{...field}
 																		value={field.value ?? ""}
 																		onChange={(event) => {
 																			field.onChange(event);
-																			clearErrors("oauth_config.authorize_url");
+																			clearErrors("oauth_config.registration_url");
 																		}}
-																		placeholder="Auto-discovered"
-																		data-testid="library-oauth-authorize-url"
+																		placeholder="Only if provider documents DCR"
+																		data-testid="library-oauth-registration-url"
 																	/>
 																</FormControl>
 																<FormMessage />
@@ -741,65 +865,19 @@ export function MCPLibraryInstallSheet({ server, open, onClose, onInstalled }: M
 														)}
 													/>
 
-													<FormField
-														control={control}
-														name="oauth_config.token_url"
-														render={({ field }) => (
-															<FormItem>
-																<FormLabel>Token URL</FormLabel>
-																<FormControl>
-																	<Input
-																		{...field}
-																		value={field.value ?? ""}
-																		onChange={(event) => {
-																			field.onChange(event);
-																			clearErrors("oauth_config.token_url");
-																		}}
-																		placeholder="Auto-discovered"
-																		data-testid="library-oauth-token-url"
-																	/>
-																</FormControl>
-																<FormMessage />
-															</FormItem>
-														)}
-													/>
-												</div>
-
-												<FormField
-													control={control}
-													name="oauth_config.registration_url"
-													render={({ field }) => (
-														<FormItem>
-															<FormLabel>Registration URL</FormLabel>
-															<FormControl>
-																<Input
-																	{...field}
-																	value={field.value ?? ""}
-																	onChange={(event) => {
-																		field.onChange(event);
-																		clearErrors("oauth_config.registration_url");
-																	}}
-																	placeholder="Auto-discovered"
-																	data-testid="library-oauth-registration-url"
-																/>
-															</FormControl>
-															<FormMessage />
-														</FormItem>
-													)}
-												/>
-
-												<div className="space-y-2">
-													<Label>Scopes</Label>
-													<Input
-														value={scopesText}
-														onChange={(event) => setScopesText(event.target.value)}
-														placeholder="read, write, admin"
-														data-testid="library-oauth-scopes-input"
-													/>
-												</div>
-											</AccordionContent>
-										</AccordionItem>
-									</Accordion>
+													<div className="space-y-2">
+														<Label>Scopes</Label>
+														<Input
+															value={scopesText}
+															onChange={(event) => setScopesText(event.target.value)}
+															placeholder="read, write, admin"
+															data-testid="library-oauth-scopes-input"
+														/>
+													</div>
+												</AccordionContent>
+											</AccordionItem>
+										</Accordion>
+									</div>
 								)}
 
 								{/* TLS / Certificate — only for remote (HTTP/SSE) connections */}

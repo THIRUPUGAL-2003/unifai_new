@@ -1,12 +1,12 @@
-UnifAI Guard Windows install (v1.6.24)
+UnifAI Guard Windows install (v1.6.25)
 =====================================
 
 1. Fully quit old Guard (Task Manager → end ALL UnifAI_Guard.exe).
-2. Prefer UnifAI_Guard.exe from this ZIP (must match VERSION.txt = 1.6.24).
+2. Prefer UnifAI_Guard.exe from this ZIP (must match VERSION.txt = 1.6.25).
    Run it as Administrator once, or copy over:
    %LOCALAPPDATA%\Programs\UnifAI\Guard\UnifAI_Guard.exe
-3. Open http://127.0.0.1:18085/ — version must show 1.6.24, proxy_port OK.
-4. Guard Agents UI → Active row must show Version 1.6.24 (not 1.6.0).
+3. Open http://127.0.0.1:18085/ — version must show 1.6.25, proxy_port OK.
+4. Guard Agents UI → Active row must show Version 1.6.25 (not 1.6.0).
 5. Fully quit Chrome/Edge (all windows) and reopen.
 6. Test Target Website + multi-file upload + text Send.
 

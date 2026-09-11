@@ -2,7 +2,7 @@
 
 ## Already done on Windows (repo prep)
 - Agent split (`agent_*.py`) + proxy parts (`responses_inject.py` in MANIFEST)
-- Version **1.6.24** synced (`VERSION.txt`, Info.plist fields, docs)
+- Version **1.6.25** synced (`VERSION.txt`, Info.plist fields, docs)
 - `UnifAI_Guard.macos.spec` bundles `unifai_proxy_parts/` + agent hiddenimports
 - `build_macos.sh` preflight checks modules/MANIFEST and syncs CFBundle version
 - Employee install scripts + `INSTALL_MACOS.txt`

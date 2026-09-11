@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 
 from agent_config import AGENT_VERSION, UNIFAI_BACKEND_URL
 from agent_health import first_run_path
@@ -22,16 +23,37 @@ def show_message(title: str, text: str, flags: int = 0x40) -> None:
     platform_show_message(title, text, error=(flags & 0x10) != 0)
 
 
+def show_message_async(title: str, text: str, flags: int = 0x40) -> None:
+    """Show a dialog without blocking proxy / health startup."""
+    threading.Thread(
+        target=show_message,
+        args=(title, text, flags),
+        name="unifai-guard-msg",
+        daemon=True,
+    ).start()
+
+
 def maybe_first_run_prompt() -> None:
+    """Show first-run tips without blocking mitmproxy start.
+
+    A modal MessageBox on the main thread previously left health stuck on
+    "starting" and PAC unset until the user clicked OK — zero predicts.
+    """
     path = first_run_path()
     if os.path.isfile(path):
         return
+    # Mark seen immediately so a stuck dialog cannot block every restart.
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(AGENT_VERSION + "\n")
+    except Exception:
+        pass
     browsers = (
         "Chrome, Edge, Brave, Opera, Vivaldi, Firefox, Safari"
         if IS_MAC
         else "Chrome, Edge, Brave, Opera, Vivaldi, Firefox"
     )
-    show_message(
+    show_message_async(
         "UnifAI Guard installed",
         "UnifAI Guard is running.\n\n"
         "For Browser AI monitoring & predict to work:\n"
@@ -42,11 +64,6 @@ def maybe_first_run_prompt() -> None:
         f"Backend: {UNIFAI_BACKEND_URL}\n"
         f"Logs: {log_hint_path()}",
     )
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(AGENT_VERSION + "\n")
-    except Exception:
-        pass
 
 
 def prompt_uninstall_key() -> str | None:

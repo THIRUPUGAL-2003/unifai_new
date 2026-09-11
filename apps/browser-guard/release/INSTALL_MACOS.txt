@@ -1,4 +1,4 @@
-UnifAI Guard macOS install (v1.6.24)
+UnifAI Guard macOS install (v1.6.25)
 ===================================
 
 PREFERRED (production): install the signed .pkg if IT provided UnifAI_Guard_*.pkg
@@ -8,15 +8,15 @@ ZIP / pilot path:
 1. Fully quit old Guard if running:
    - Activity Monitor → quit "UnifAI Guard", OR
    - Terminal: pkill -f UnifAI_Guard ; launchctl unload ~/Library/LaunchAgents/com.unifai.guard.plist
-2. Unzip UnifAI_Guard_macOS.zip (must match VERSION.txt = 1.6.24).
+2. Unzip UnifAI_Guard_macOS.zip (must match VERSION.txt = 1.6.25).
 3. Double-click Install_UnifAI_Guard.command
    (Right-click → Open if Gatekeeper blocks — unsigned builds only)
    Installs to /Applications/UnifAI_Guard.app and starts Guard.
 4. Allow Keychain / admin prompts so the mitmproxy CA is trusted for HTTPS.
    If sites show certificate warnings: Keychain Access → search "mitmproxy" → Trust → Always Trust (SSL).
    Enterprise: IT should push the CA via MDM instead.
-5. Open http://127.0.0.1:18085/ — version must show 1.6.24, proxy_port OK, ca trusted.
-6. Guard Agents UI → Active row must show Version 1.6.24.
+5. Open http://127.0.0.1:18085/ — version must show 1.6.25, proxy_port OK, ca trusted.
+6. Guard Agents UI → Active row must show Version 1.6.25.
 7. Fully quit browsers (Cmd+Q) and reopen: Safari, Chrome, Edge, Brave, Firefox.
    Safari: turn OFF iCloud Private Relay (or MDM enforces it).
 8. Test Target Website + Send → confirm Prompt Logs.

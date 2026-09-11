@@ -9,7 +9,7 @@ import sys
 from guard_platform import data_dir
 
 DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
-AGENT_VERSION = "1.6.24"
+AGENT_VERSION = "1.6.25"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 _HEALTH_WHEN_PROXY_DOWN_SECONDS = 8

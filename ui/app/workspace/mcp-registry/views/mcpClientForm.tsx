@@ -12,15 +12,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { DOCS } from "@/lib/constants/docs";
 import { useToast } from "@/hooks/use-toast";
-import { getErrorMessage, useCreateMCPClientMutation } from "@/lib/store";
+import { getErrorMessage, useCreateMCPClientMutation, useGetCoreConfigQuery } from "@/lib/store";
 import { CreateMCPClientRequest, SecretVar, MCPAuthType, MCPConnectionType, MCPStdioConfig, MCPTLSConfig } from "@/lib/types/mcp";
 import { parseArrayFromText } from "@/lib/utils/array";
+import { formatMcpOauthError, mcpOAuthRedirectUri } from "@/lib/utils/mcpOauthErrors";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { Info } from "lucide-react";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { MCPHeadersAuthorizer } from "./mcpHeadersAuthorizer";
 import { OAuth2Authorizer } from "./oauth2Authorizer";
+import { getExternalBaseUrl } from "./mcpUsageGuide/utils";
 
 interface ClientFormProps {
 	open: boolean;
@@ -60,6 +62,11 @@ const ClientForm: React.FC<ClientFormProps> = ({ open, onClose, onSaved }) => {
 	const hasCreateMCPClientAccess = useRbac(RbacResource.MCPGateway, RbacOperation.Create);
 	const { toast } = useToast();
 	const [createMCPClient] = useCreateMCPClientMutation();
+	const { data: unifaiConfig } = useGetCoreConfigQuery({ fromDB: true }, { skip: !open });
+	const oauthRedirectUri = useMemo(
+		() => mcpOAuthRedirectUri(getExternalBaseUrl(unifaiConfig?.client_config)),
+		[unifaiConfig?.client_config],
+	);
 
 	const [isLoading, setIsLoading] = useState(false);
 	const [argsText, setArgsText] = useState("");
@@ -310,7 +317,13 @@ const ClientForm: React.FC<ClientFormProps> = ({ open, onClose, onSaved }) => {
 				setError("name", { message: getErrorMessage(error) });
 				return;
 			}
-			toast({ title: "Error", description: getErrorMessage(error), variant: "destructive" });
+			toast({
+				title: /oauth|authorize_url|token_url|client_id|redirect uri|ims|discovery|registration/i.test(getErrorMessage(error))
+					? "OAuth setup needed"
+					: "Error",
+				description: formatMcpOauthError(getErrorMessage(error), oauthRedirectUri),
+				variant: "destructive",
+			});
 		}
 	};
 
