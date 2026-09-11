@@ -79,6 +79,13 @@ def main() -> None:
             code = run_uninstall(key)
         sys.exit(code)
 
+    # MitM worker child — must NOT take single-instance lock (parent holds it).
+    if len(sys.argv) >= 2 and sys.argv[1] == "--mitm-worker":
+        setup_file_logging()
+        from agent_proxy_engine import run_mitm_worker_main
+
+        sys.exit(run_mitm_worker_main(sys.argv[1:]))
+
     log_path = setup_file_logging()
     if not ensure_single_instance():
         print("[UnifAI Guard] Already running. Exit.")

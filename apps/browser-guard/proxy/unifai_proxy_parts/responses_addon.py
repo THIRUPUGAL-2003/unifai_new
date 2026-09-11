@@ -330,12 +330,13 @@ class BrowserAIInterceptor:
                     f"[UnifAI Proxy] FILE CACHED (await Send — no log yet) | {domain} | "
                     f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
                 )
-            else:
-                print(
-                    f"[UnifAI Proxy] Ignoring weak upload signal | {host} | "
-                    f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
-                )
-            return
+                return
+            # Weak upload signal: do NOT abort — fall through so typed prompt / file Send
+            # on the same request still reaches Prompt Logs + Guard Rules.
+            print(
+                f"[UnifAI Proxy] Ignoring weak upload signal (continue evaluate) | {host} | "
+                f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
+            )
 
         # ── File Send: scan cached bytes; then still apply caption Guard Rules ──
         # Any admin Target Website — attachment markers OR pending upload cache.

@@ -57,28 +57,42 @@ def free_proxy_port(port: int) -> None:
     if not IS_MAC:
         return
     try:
-        completed = subprocess.run(
-            ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=5,
-            check=False,
-        )
         my_pid = os.getpid()
-        for raw in (completed.stdout or "").split():
-            pid_s = raw.strip()
-            if not pid_s.isdigit():
-                continue
-            pid = int(pid_s)
-            if pid == my_pid:
-                continue
+
+        def _listener_pids() -> list[int]:
+            completed = subprocess.run(
+                ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            out: list[int] = []
+            for raw in (completed.stdout or "").split():
+                pid_s = raw.strip()
+                if pid_s.isdigit():
+                    pid = int(pid_s)
+                    if pid != my_pid:
+                        out.append(pid)
+            return out
+
+        pids = _listener_pids()
+        for pid in pids:
             try:
                 os.kill(pid, signal.SIGTERM)
-                print(f"[UnifAI Guard] Freed stale listener pid={pid} on :{port}")
+                print(f"[UnifAI Guard] Freed stale listener pid={pid} on :{port} (SIGTERM)")
             except Exception:
                 pass
-        time.sleep(0.4)
+        time.sleep(0.5)
+        # MitM child can ignore SIGTERM while event-loop is wedged — escalate.
+        for pid in _listener_pids():
+            try:
+                os.kill(pid, signal.SIGKILL)
+                print(f"[UnifAI Guard] Freed stale listener pid={pid} on :{port} (SIGKILL)")
+            except Exception:
+                pass
+        time.sleep(0.3)
     except Exception as e:
         print(f"[UnifAI Guard WARNING] free_proxy_port: {e}")
 

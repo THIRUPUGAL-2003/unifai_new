@@ -790,9 +790,9 @@ def chat_carries_attachment(raw_text: str) -> bool:
         if '"data"' in low or "base64" in low or "extracted_content" in low:
             return True
 
-    # Filename with common document/image extension in this send
+    # Filename with common document/image/audio extension in this send
     if re.search(
-        r'"(?:file_name|filename|fileName|name|title)"\s*:\s*"[^"]+\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|webp|txt|csv)"',
+        r'"(?:file_name|filename|fileName|name|title)"\s*:\s*"[^"]+\.(?:pdf|docx?|xlsx?|pptx?|png|jpe?g|gif|webp|txt|csv|zip|mp3|wav|m4a|aac|ogg|webm|flac|mp4|mov)"',
         low,
     ):
         return True

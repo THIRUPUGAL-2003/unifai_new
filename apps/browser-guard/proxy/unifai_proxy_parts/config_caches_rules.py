@@ -190,6 +190,8 @@ CHAT_PATH_MARKERS = [
     "/generate_response", "/generate-response", "/user_message",
     "/rpc/chat", "/gateway/chat", "/assistant", "/bots/", "/bot/",
     "/inference", "/predict", "/respond", "/reply",
+    "/generate_reply", "/generate-reply", "/chat/completions",
+    "/v1/responses", "/responses", "/conversation/generate",
     # Gemini generate APIs (StreamGenerate is the real chat submit; batchexecute is mostly RPC noise)
     "/streamgenerate", "/streamgeneratecontent", "/generatecontent", "/_$stream",
     "bardfrontendservice", "/bardchatui", "/_/bard",
@@ -1238,11 +1240,10 @@ def _looks_like_binary_or_wire_garbage(text: str) -> bool:
     # Control characters (except tab / LF / CR)
     if any(ord(c) < 9 or (10 < ord(c) < 32 and ord(c) != 13) or ord(c) == 127 for c in t):
         return True
-    # Dense high-bit / mojibake on short strings
-    if len(t) < 100:
-        high = sum(1 for c in t if ord(c) > 127)
-        if high / len(t) >= 0.12:
-            return True
+    # Replacement-char mojibake only — NEVER treat Tamil/Chinese/Arabic/etc. as garbage.
+    # (Previously ord>127 ≥12% silently dropped non-English Prompt Logs on every Target.)
+    if "\ufffd" in t and t.count("\ufffd") / max(len(t), 1) >= 0.08:
+        return True
 
     alnum = sum(1 for c in t if c.isalnum())
     space = sum(1 for c in t if c.isspace())

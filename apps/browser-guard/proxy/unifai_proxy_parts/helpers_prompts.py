@@ -356,7 +356,10 @@ def _is_internal_wire_text(text: str) -> bool:
 
 
 def _body_has_user_send_payload(data) -> bool:
-    """True when JSON body carries an explicit user message/query — not sync/telemetry."""
+    """True when JSON body carries an explicit user message/query — not sync/telemetry.
+
+    Used for ANY admin-added Target domain (known products + future custom AIs).
+    """
     if not isinstance(data, dict):
         return False
     event = str(data.get("event") or data.get("type") or "").lower()
@@ -369,12 +372,25 @@ def _body_has_user_send_payload(data) -> bool:
         for msg in reversed(msgs):
             if isinstance(msg, dict) and _extract_from_message_obj(msg):
                 return True
-    for key in (
-        "query", "query_str", "prompt", "input", "message", "question",
-        "user_input", "user_query", "rawUserQuery", "utterance",
-    ):
+    # Nested OpenAI/Claude-style content.parts / content.text
+    content = data.get("content")
+    if isinstance(content, dict):
+        parts = content.get("parts")
+        if isinstance(parts, list) and any(
+            isinstance(p, str) and p.strip() for p in parts
+        ):
+            return True
+        for ck in ("text", "input_text", "message"):
+            cv = content.get(ck)
+            if isinstance(cv, str) and cv.strip():
+                return True
+    if isinstance(content, str) and content.strip() and looks_like_user_prompt(content.strip()):
+        return True
+    for key in _UNIVERSAL_PROMPT_KEYS:
         val = data.get(key)
         if isinstance(val, str) and val.strip() and looks_like_user_prompt(val.strip()):
+            return True
+        if isinstance(val, (int, float)) and str(val).strip():
             return True
     return False
 
@@ -417,7 +433,11 @@ def _is_clear_chat_submit(path: str, host: str, raw_text: str, raw_bytes: bytes 
 
 
 def _is_confident_chat_send(path: str, raw_text: str, raw_bytes: bytes = b"") -> bool:
-    """True when request is very likely a finished user Send (platform body shapes)."""
+    """True when request is very likely a finished user Send (platform body shapes).
+
+    Covers known products AND future admin-added AIs that POST JSON with a
+    clear user message / parts[] payload (no product hostname hardcoding).
+    """
     if _is_clear_chat_submit(path, "", raw_text, raw_bytes):
         return True
     path_l = (path or "").lower()
@@ -430,6 +450,25 @@ def _is_confident_chat_send(path: str, raw_text: str, raw_bytes: bytes = b"") ->
         return True
     if _is_anthropic_messages_api_shape(path, body):
         return True
+    # Unknown / new AI: chat path marker OR JSON user-send payload = finished Send.
+    if body.lstrip().startswith(("{", "[")):
+        try:
+            data = json.loads(body)
+            if isinstance(data, dict) and _body_has_user_send_payload(data):
+                if (
+                    _path_has_chat_marker(path_l)
+                    or _is_messages_conversation_path(path_l)
+                    or is_chat_path(path_l, "", body)
+                ):
+                    return True
+                # Strong body shapes alone (messages[] / parts / universal keys)
+                if isinstance(data.get("messages"), list) and data.get("messages"):
+                    return True
+                content = data.get("content")
+                if isinstance(content, dict) and isinstance(content.get("parts"), list):
+                    return True
+        except Exception:
+            pass
     return False
 
 
@@ -587,14 +626,20 @@ def _should_intercept_extracted_prompt(
         or _is_clear_chat_submit(path, host or "", raw_text, raw_bytes)
     ):
         return False
+    # Allow 1-char typed Sends (?, !, #, a, …) when body/path already looks like chat.
     if len(text) < 2 and not text.isdigit() and not _is_typed_numeric_prompt(text):
-        return False
+        if not (
+            is_chat_path(path, host, raw_text)
+            or _path_has_chat_marker(path)
+            or _is_clear_chat_submit(path, host or "", raw_text, raw_bytes)
+        ):
+            return False
     body = (raw_text or "").lstrip()
     if body.startswith(("{", "[")) and not _looks_like_messages_parts_body(body, raw_bytes):
         if not _path_has_chat_marker(path) and not is_chat_path(path, host, raw_text):
             return False
-    if is_duplicate_event(domain, text, ttl=DEDUPE_TTL, mark=False):
-        return False
+    # Never silent-drop duplicates here — caller reuses remembered Guard decision
+    # (returning False previously let the 2nd browser fire bypass Prompt Logs).
     return True
 
 
@@ -904,8 +949,16 @@ def wait_if_composer_unstable(domain: str, prompt: str) -> str | None:
         if cur_text != text:
             if _composer_related(cur_text, text):
                 if len(cur_text) > len(text):
-                    # Longer typing won — drop this stale keystroke request.
-                    return None
+                    # Longer typing won — follow it on THIS request (do not silent-drop;
+                    # the longer request may never arrive if the browser aborted).
+                    print(
+                        f"[UnifAI Proxy] Composer superseded → commit longer | {domain!r} | "
+                        f"{text[:40]!r} → {cur_text[:40]!r}"
+                    )
+                    text = cur_text
+                    hold = _composer_hold_seconds(text)
+                    deadline = max(deadline, time.time() + hold * 0.65)
+                    continue
                 # We grew (or matched longer stored) — follow the latest string.
                 text = cur_text
                 hold = _composer_hold_seconds(text)
@@ -925,11 +978,10 @@ def wait_if_composer_unstable(domain: str, prompt: str) -> str | None:
     if cur:
         cur_text = (cur[0] or "").strip()
         if cur_text and cur_text != text and _composer_related(cur_text, text):
-            if len(cur_text) > len(text):
-                return None
-            text = cur_text
+            text = cur_text if len(cur_text) >= len(text) else text
 
-    # Final guard: never commit a proper prefix of the live composer within PREFIX_WINDOW.
+    # Final guard: if live composer is a longer related prefix within PREFIX_WINDOW,
+    # commit the LONGER text (never silent-drop — that caused intermittent Prompt Log misses).
     with _composer_lock:
         cur = _composer_draft.get(domain)
     if cur:
@@ -942,7 +994,11 @@ def wait_if_composer_unstable(domain: str, prompt: str) -> str | None:
             and len(cur_text) > len(text)
             and (time.time() - float(cur_ts)) <= COMPOSER_PREFIX_WINDOW
         ):
-            return None
+            print(
+                f"[UnifAI Proxy] Composer prefix → commit longer | {domain!r} | "
+                f"{text[:40]!r} → {cur_text[:40]!r}"
+            )
+            text = cur_text
 
     return text
 
