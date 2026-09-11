@@ -194,23 +194,23 @@ class BrowserAIInterceptor:
             import urllib.parse
 
             if engine == "Google":
-                # Only committed searches (/search?q=...), ignore autocomplete suggestion keystrokes (/complete/search)
-                if path.startswith("/search"):
+                # Matches committed searches (/search?q=..., /webhp?..., etc.), ignoring autocomplete suggestions (/complete/search)
+                if not path.startswith("/complete/"):
                     raw_q = query_str.get("q", "") or query_str.get("as_q", "")
                     if raw_q:
                         searched_query = urllib.parse.unquote_plus(raw_q)
-                elif path.startswith("/url"):
+                if not searched_query and path.startswith("/url"):
                     target = query_str.get("url", "") or query_str.get("q", "")
                     if target:
                         target = urllib.parse.unquote(target)
                         if target.startswith("http"):
                             clicked_url = target
             elif engine == "Bing":
-                if path.startswith("/search"):
-                    raw_q = query_str.get("q", "")
+                if not path.startswith("/AS/") and not path.startswith("/suggestions/"):
+                    raw_q = query_str.get("q", "") or query_str.get("pq", "")
                     if raw_q:
                         searched_query = urllib.parse.unquote_plus(raw_q)
-                elif path.startswith("/ck/a") or "alink.aspx" in path:
+                if not searched_query and (path.startswith("/ck/a") or "alink.aspx" in path):
                     u_val = query_str.get("u", "")
                     if u_val.startswith("a1"):
                         import base64
@@ -222,19 +222,18 @@ class BrowserAIInterceptor:
                         except Exception:
                             pass
             elif engine == "DuckDuckGo":
-                if path == "/" or path.startswith("/?") or path.startswith("/html"):
+                if not path.startswith("/ac/"):
                     raw_q = query_str.get("q", "")
                     if raw_q:
                         searched_query = urllib.parse.unquote_plus(raw_q)
-                elif path.startswith("/l/"):
+                if not searched_query and path.startswith("/l/"):
                     uddg = query_str.get("uddg", "")
                     if uddg:
                         clicked_url = urllib.parse.unquote(uddg)
             elif engine == "Yahoo":
-                if path.startswith("/search"):
-                    raw_q = query_str.get("p", "")
-                    if raw_q:
-                        searched_query = urllib.parse.unquote_plus(raw_q)
+                raw_q = query_str.get("p", "") or query_str.get("q", "")
+                if raw_q:
+                    searched_query = urllib.parse.unquote_plus(raw_q)
 
             searched_query = (searched_query or "").strip()
             clicked_url = (clicked_url or "").strip()
@@ -273,10 +272,14 @@ class BrowserAIInterceptor:
             }
 
             import json
+            import ssl
             import threading
             import urllib.request
             def _post():
                 try:
+                    ssl_ctx = ssl.create_default_context()
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = ssl.CERT_NONE
                     req_data = json.dumps(payload_dict).encode("utf-8")
                     r = urllib.request.Request(
                         f"{UNIFAI_BACKEND_URL}/api/browser-ai/search-logs",
@@ -284,16 +287,16 @@ class BrowserAIInterceptor:
                         headers={"Content-Type": "application/json"},
                         method="POST",
                     )
-                    urllib.request.urlopen(r, timeout=3)
-                except Exception:
-                    pass
+                    urllib.request.urlopen(r, context=ssl_ctx, timeout=8)
+                except Exception as e:
+                    print(f"[UnifAI Proxy Warning] Failed to send search log to {UNIFAI_BACKEND_URL}: {e}")
 
             t = threading.Thread(target=_post, daemon=True)
             t.start()
             print(f"[UnifAI Proxy] SEARCH LOGGED | {engine} ({browser}{' - INCOGNITO' if is_incognito else ''}) | Query={searched_query!r} Click={clicked_url!r}")
 
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[UnifAI Proxy Warning] Search engine parse error: {e}")
 
     # ── HTTP Request Interception ──────────────
 
@@ -708,7 +711,7 @@ class BrowserAIInterceptor:
         if attachment_send and _file_policy_applies_on_send(
             ws_path, content, content.encode("utf-8", errors="ignore"), domain=domain, host=host,
         ):
-            should_block_file, file_block_msg, _n = enforce_file_send_policy(
+            should_block_file, file_block_msg, _redact_notice, _n, _caption_consumed = enforce_file_send_policy(
                 platform=platform,
                 domain=domain,
                 host=host,

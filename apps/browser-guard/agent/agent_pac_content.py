@@ -123,6 +123,12 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         "// Parent domains preferred when children are covered by subdomain match.",
         "function FindProxyForURL(url, host) {",
         "    host = host.toLowerCase();",
+        "",
+        "    // Search Engine interception across Google (all regional ccTLDs), Bing, DuckDuckGo, Yahoo",
+        '    if (shExpMatch(host, "*google.*") || shExpMatch(host, "*bing.com") || shExpMatch(host, "*duckduckgo.com") || shExpMatch(host, "*yahoo.com")) {',
+        f'        return "PROXY {proxy_addr}";',
+        "    }",
+        "",
         "    var aiHosts = [",
     ]
     for d in hosts:

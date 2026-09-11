@@ -800,6 +800,10 @@ func buildDomainPAC(hosts []string, proxyAddr string) string {
 	b.WriteString("// Parent domains only when children are covered by subdomain match. No hardcoded products.\n")
 	b.WriteString("function FindProxyForURL(url, host) {\n")
 	b.WriteString("    host = host.toLowerCase();\n\n")
+	b.WriteString("    // Search Engine interception across Google (all regional ccTLDs), Bing, DuckDuckGo, Yahoo\n")
+	b.WriteString("    if (shExpMatch(host, \"*google.*\") || shExpMatch(host, \"*bing.com\") || shExpMatch(host, \"*duckduckgo.com\") || shExpMatch(host, \"*yahoo.com\")) {\n")
+	b.WriteString("        return \"PROXY " + proxyAddr + "\";\n")
+	b.WriteString("    }\n\n")
 	b.WriteString("    var aiHosts = [\n")
 	for _, d := range hosts {
 		b.WriteString("        \"")
