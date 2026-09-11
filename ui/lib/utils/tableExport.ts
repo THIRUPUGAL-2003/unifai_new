@@ -150,7 +150,19 @@ export async function downloadDocTable(opts: {
 	);
 }
 
-/** PDF export with logo branding (reuses generatePdf). */
+/** Truncate for PDF cells — long regex/bot prompts must not blow page layout. */
+function pdfCellText(raw: string, maxChars: number): string {
+	const s = String(raw ?? "").replace(/\s+/g, " ").trim();
+	if (s.length <= maxChars) return s;
+	return s.slice(0, Math.max(0, maxChars - 1)) + "…";
+}
+
+/**
+ * PDF table export via jsPDF text drawing (NOT html2canvas).
+ *
+ * html2canvas fails on large exports (2000+ Guard Rules) — canvas height limits
+ * produce solid black pages. Text PDF stays readable and scales to any row count.
+ */
 export async function downloadPdfTable(opts: {
 	filename: string;
 	title: string;
@@ -159,30 +171,131 @@ export async function downloadPdfTable(opts: {
 	rows: ExportTableRow[];
 	logoSrc?: string;
 }): Promise<void> {
+	const { jsPDF } = await import("jspdf");
 	const logoDataUrl = await loadLogoDataUrl(opts.logoSrc || LOGO_SRC);
-	const html = buildHtmlDocument({
-		title: opts.title,
-		subtitle: opts.subtitle,
-		columns: opts.columns,
-		rows: opts.rows,
-		logoDataUrl,
+
+	const pdf = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
+	const pageW = pdf.internal.pageSize.getWidth();
+	const pageH = pdf.internal.pageSize.getHeight();
+	const margin = 10;
+	const usableW = pageW - margin * 2;
+	const footerH = 8;
+	const cols = opts.columns;
+	const colCount = Math.max(1, cols.length);
+
+	// Weight pattern/description columns wider; keep IDs/flags narrow.
+	const weights = cols.map((c) => {
+		const k = c.key.toLowerCase();
+		if (k.includes("pattern") || k.includes("prompt") || k.includes("description") || k.includes("policy")) return 2.4;
+		if (k.includes("name") || k.includes("domain") || k.includes("platform") || k.includes("query")) return 1.4;
+		if (k.includes("active") || k.includes("action") || k.includes("severity") || k.includes("type")) return 0.7;
+		return 1;
 	});
+	const weightSum = weights.reduce((a, b) => a + b, 0) || 1;
+	const colWidths = weights.map((w) => (w / weightSum) * usableW);
+	const maxCharsPerCol = colWidths.map((w) => Math.max(12, Math.floor(w / 1.35)));
 
-	const host = document.createElement("div");
-	host.style.cssText = "position:fixed;left:-10000px;top:0;width:900px;background:#fff;color:#111;";
-	host.innerHTML = html;
-	document.body.appendChild(host);
+	const rowLineH = 3.6;
+	const headerLineH = 4.2;
+	const cellPadX = 1.2;
 
-	try {
-		const { generatePdf } = await import("@/lib/utils/pdf");
-		await generatePdf([{ element: host, label: opts.title }], opts.filename, {
-			orientation: "landscape",
-			branding: {
-				logoSrc: opts.logoSrc || LOGO_SRC,
-				text: "Powered by",
-			},
-		});
-	} finally {
-		host.remove();
+	const drawHeaderBand = (y: number) => {
+		pdf.setFillColor(243, 244, 246);
+		pdf.rect(margin, y - 3.2, usableW, headerLineH + 1.5, "F");
+		pdf.setFont("helvetica", "bold");
+		pdf.setFontSize(8);
+		pdf.setTextColor(30, 30, 30);
+		let x = margin;
+		for (let i = 0; i < colCount; i++) {
+			const label = pdfCellText(cols[i].header, maxCharsPerCol[i]);
+			pdf.text(label, x + cellPadX, y);
+			x += colWidths[i];
+		}
+		pdf.setDrawColor(200, 200, 200);
+		pdf.setLineWidth(0.2);
+		pdf.line(margin, y + 1.8, margin + usableW, y + 1.8);
+		return y + headerLineH + 1.2;
+	};
+
+	const drawFooter = (pageNum: number, totalHint: string) => {
+		pdf.setFont("helvetica", "normal");
+		pdf.setFontSize(7);
+		pdf.setTextColor(140, 140, 140);
+		pdf.text(`Page ${pageNum} · ${totalHint}`, margin, pageH - 4);
+		pdf.text("Powered by UnifAI", pageW - margin, pageH - 4, { align: "right" });
+	};
+
+	// Title block (page 1)
+	let y = margin;
+	if (logoDataUrl) {
+		try {
+			pdf.addImage(logoDataUrl, "PNG", margin, y - 2, 18, 7);
+			y += 8;
+		} catch {
+			// continue without logo
+		}
 	}
+	pdf.setFont("helvetica", "bold");
+	pdf.setFontSize(14);
+	pdf.setTextColor(17, 17, 17);
+	pdf.text(opts.title || "Export", margin, y);
+	y += 6;
+	pdf.setFont("helvetica", "normal");
+	pdf.setFontSize(9);
+	pdf.setTextColor(100, 100, 100);
+	const sub = [opts.subtitle, `Exported ${new Date().toLocaleString()}`, `${opts.rows.length} row(s)`]
+		.filter(Boolean)
+		.join(" · ");
+	pdf.text(sub, margin, y);
+	y += 7;
+
+	y = drawHeaderBand(y);
+	let pageNum = 1;
+	const totalHint = `${opts.rows.length} row(s)`;
+
+	pdf.setFont("helvetica", "normal");
+	pdf.setFontSize(7.5);
+	pdf.setTextColor(20, 20, 20);
+
+	for (let r = 0; r < opts.rows.length; r++) {
+		const row = opts.rows[r];
+		const cells = cols.map((c, i) => pdfCellText(cellValue(row, c.key), maxCharsPerCol[i]));
+
+		// Wrap long cells within column width
+		const wrapped: string[][] = cells.map((text, i) => {
+			const lines = pdf.splitTextToSize(text || "—", Math.max(8, colWidths[i] - cellPadX * 2));
+			return Array.isArray(lines) ? lines.slice(0, 4) : [String(lines)];
+		});
+		const linesUsed = Math.max(1, ...wrapped.map((w) => w.length));
+		const blockH = linesUsed * rowLineH + 1.2;
+
+		if (y + blockH > pageH - margin - footerH) {
+			drawFooter(pageNum, totalHint);
+			pdf.addPage();
+			pageNum += 1;
+			y = margin;
+			y = drawHeaderBand(y);
+			pdf.setFont("helvetica", "normal");
+			pdf.setFontSize(7.5);
+			pdf.setTextColor(20, 20, 20);
+		}
+
+		if (r % 2 === 1) {
+			pdf.setFillColor(249, 250, 251);
+			pdf.rect(margin, y - 2.6, usableW, blockH, "F");
+		}
+
+		let x = margin;
+		for (let i = 0; i < colCount; i++) {
+			const lines = wrapped[i];
+			for (let li = 0; li < lines.length; li++) {
+				pdf.text(lines[li], x + cellPadX, y + li * rowLineH);
+			}
+			x += colWidths[i];
+		}
+		y += blockH;
+	}
+
+	drawFooter(pageNum, totalHint);
+	pdf.save(`${opts.filename}-${dateStamp()}.pdf`);
 }

@@ -96,7 +96,8 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         seen.add(d)
         hosts.append(d)
 
-    search_engines = ["google.com", "bing.com", "duckduckgo.com", "search.yahoo.com"]
+    # Search Logs: Google + Bing/Edge/MSN + DDG + Yahoo (any browser using Guard PAC)
+    search_engines = ["google.com", "bing.com", "msn.com", "duckduckgo.com", "search.brave.com", "search.yahoo.com"]
     for se in search_engines:
         if se not in seen:
             seen.add(se)
@@ -124,8 +125,8 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         "function FindProxyForURL(url, host) {",
         "    host = host.toLowerCase();",
         "",
-        "    // Search Engine interception across Google (all regional ccTLDs), Bing, DuckDuckGo, Yahoo",
-        '    if (shExpMatch(host, "*google.*") || shExpMatch(host, "*bing.com") || shExpMatch(host, "*duckduckgo.com") || shExpMatch(host, "*yahoo.com")) {',
+        "    // Search Logs (Win+Mac, any browser): Google, Bing/MSN, DDG, Brave, Yahoo",
+        '    if (shExpMatch(host, "*google.*") || shExpMatch(host, "*bing.com") || shExpMatch(host, "*msn.com") || shExpMatch(host, "*duckduckgo.com") || shExpMatch(host, "*search.brave.com") || shExpMatch(host, "*yahoo.com")) {',
         f'        return "PROXY {proxy_addr}";',
         "    }",
         "",

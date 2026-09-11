@@ -39,149 +39,12 @@ var (
 	searchLogsList []BrowserAISearchLogEntry
 )
 
-func init() {
-	// Seed initial realistic enterprise search logs to demonstrate the feature working immediately
-	now := time.Now()
-	searchLogsList = []BrowserAISearchLogEntry{
-		{
-			ID:             uuid.New().String(),
-			Timestamp:      now.Add(-2 * time.Minute),
-			Engine:         "Google",
-			Browser:        "Chrome",
-			IsIncognito:    true,
-			Query:          "merger acquisition confidential financial model 2026 xlsx download",
-			ClickedURL:     "https://sec-filings.corp-archive.internal/deals/q4-ma-brief.pdf",
-			ClickedTitle:   "sec-filings.corp-archive.internal",
-			URL:            "https://www.google.com/search?q=merger+acquisition+confidential+financial+model+2026+xlsx+download",
-			Host:           "www.google.com",
-			ClientIP:       "192.168.1.104",
-			AgentHostname:  "FINANCE-DESK-04",
-			AgentID:        "agent-fin-04",
-			RiskScore:      88,
-			PredictiveRisk: "CRITICAL",
-			RiskCategory:   "DLP / Data Leak",
-			CreatedAt:      now.Add(-2 * time.Minute).Format(time.RFC3339),
-		},
-		{
-			ID:             uuid.New().String(),
-			Timestamp:      now.Add(-8 * time.Minute),
-			Engine:         "Bing",
-			Browser:        "Edge",
-			IsIncognito:    true,
-			Query:          "how to kill background dlp service windows powershell bypass admin",
-			ClickedURL:     "https://github.com/adversary-tools/edr-silencer",
-			ClickedTitle:   "github.com/adversary-tools/edr-silencer",
-			URL:            "https://www.bing.com/search?q=how+to+kill+background+dlp+service+windows+powershell+bypass+admin",
-			Host:           "www.bing.com",
-			ClientIP:       "192.168.1.142",
-			AgentHostname:  "DEV-LAPTOP-09",
-			AgentID:        "agent-dev-09",
-			RiskScore:      92,
-			PredictiveRisk: "CRITICAL",
-			RiskCategory:   "Exploit / Bypass",
-			CreatedAt:      now.Add(-8 * time.Minute).Format(time.RFC3339),
-		},
-		{
-			ID:             uuid.New().String(),
-			Timestamp:      now.Add(-15 * time.Minute),
-			Engine:         "Safari / Apple",
-			Browser:        "Safari",
-			IsIncognito:    false,
-			Query:          "soc2 type 2 audit compliance requirements checklist 2026",
-			ClickedURL:     "https://www.aicpa-cima.com/resources/toolkit/soc-2-reporting",
-			ClickedTitle:   "aicpa-cima.com",
-			URL:            "https://www.google.com/search?q=soc2+type+2+audit+compliance+requirements+checklist+2026",
-			Host:           "www.google.com",
-			ClientIP:       "192.168.1.75",
-			AgentHostname:  "EXEC-MACBOOK-PRO",
-			AgentID:        "agent-exec-01",
-			RiskScore:      15,
-			PredictiveRisk: "LOW",
-			RiskCategory:   "General Search",
-			CreatedAt:      now.Add(-15 * time.Minute).Format(time.RFC3339),
-		},
-		{
-			ID:             uuid.New().String(),
-			Timestamp:      now.Add(-27 * time.Minute),
-			Engine:         "DuckDuckGo",
-			Browser:        "Firefox",
-			IsIncognito:    true,
-			Query:          "corporate employee ssn and payroll records leak database search",
-			ClickedURL:     "https://pastebin.com/raw/d84fK9m",
-			ClickedTitle:   "pastebin.com",
-			URL:            "https://duckduckgo.com/?q=corporate+employee+ssn+and+payroll+records+leak+database+search",
-			Host:           "duckduckgo.com",
-			ClientIP:       "192.168.1.189",
-			AgentHostname:  "HR-WORKSTATION-02",
-			AgentID:        "agent-hr-02",
-			RiskScore:      95,
-			PredictiveRisk: "CRITICAL",
-			RiskCategory:   "DLP / Data Leak",
-			CreatedAt:      now.Add(-27 * time.Minute).Format(time.RFC3339),
-		},
-		{
-			ID:             uuid.New().String(),
-			Timestamp:      now.Add(-42 * time.Minute),
-			Engine:         "Bing",
-			Browser:        "Edge",
-			IsIncognito:    false,
-			Query:          "latest enterprise generative ai security architecture whitepaper",
-			ClickedURL:     "https://learn.microsoft.com/en-us/security/cybersecurity/ai-guidance",
-			ClickedTitle:   "learn.microsoft.com",
-			URL:            "https://www.bing.com/search?q=latest+enterprise+generative+ai+security+architecture+whitepaper",
-			Host:           "www.bing.com",
-			ClientIP:       "192.168.1.104",
-			AgentHostname:  "FINANCE-DESK-04",
-			AgentID:        "agent-fin-04",
-			RiskScore:      10,
-			PredictiveRisk: "LOW",
-			RiskCategory:   "General Search",
-			CreatedAt:      now.Add(-42 * time.Minute).Format(time.RFC3339),
-		},
-		{
-			ID:             uuid.New().String(),
-			Timestamp:      now.Add(-65 * time.Minute),
-			Engine:         "Google",
-			Browser:        "Chrome",
-			IsIncognito:    true,
-			Query:          "competitor internal roadmap leaked confidential slideshare",
-			ClickedURL:     "",
-			ClickedTitle:   "",
-			URL:            "https://www.google.com/search?q=competitor+internal+roadmap+leaked+confidential+slideshare",
-			Host:           "www.google.com",
-			ClientIP:       "192.168.1.160",
-			AgentHostname:  "MARKETING-PC-07",
-			AgentID:        "agent-mkt-07",
-			RiskScore:      76,
-			PredictiveRisk: "HIGH",
-			RiskCategory:   "Reconnaissance",
-			CreatedAt:      now.Add(-65 * time.Minute).Format(time.RFC3339),
-		},
-		{
-			ID:             uuid.New().String(),
-			Timestamp:      now.Add(-90 * time.Minute),
-			Engine:         "Yahoo",
-			Browser:        "Safari",
-			IsIncognito:    false,
-			Query:          "top ai developer productivity tools 2026 review",
-			ClickedURL:     "https://techcrunch.com/2026/02/top-developer-tools",
-			ClickedTitle:   "techcrunch.com",
-			URL:            "https://search.yahoo.com/search?p=top+ai+developer+productivity+tools+2026+review",
-			Host:           "search.yahoo.com",
-			ClientIP:       "192.168.1.75",
-			AgentHostname:  "EXEC-MACBOOK-PRO",
-			AgentID:        "agent-exec-01",
-			RiskScore:      5,
-			PredictiveRisk: "LOW",
-			RiskCategory:   "General Search",
-			CreatedAt:      now.Add(-90 * time.Minute).Format(time.RFC3339),
-		},
+// computeSearchRisk assigns threat scores and category based on query / clicked URL keywords.
+func computeSearchRisk(text string) (int, string, string) {
+	q := strings.ToLower(strings.TrimSpace(text))
+	if q == "" {
+		return 10, "LOW", "General Search"
 	}
-}
-
-// computeSearchRisk assigns threat scores and category based on query keywords.
-func computeSearchRisk(query string) (int, string, string) {
-	q := strings.ToLower(query)
 	critKeywords := []string{"bypass", "kill agent", "disable dlp", "exploit", "ssn", "password", "private key", "secret key", "leak", "payroll", "unauthorized"}
 	for _, kw := range critKeywords {
 		if strings.Contains(q, kw) {
@@ -395,11 +258,13 @@ func (h *BrowserAIHandler) recordSearchLog(ctx *fasthttp.RequestCtx) {
 		body.Engine = "Google"
 	}
 	if body.Browser == "" {
-		body.Browser = "Chrome"
+		body.Browser = "Unknown"
 	}
 
-	if body.RiskScore == 0 && body.Query != "" {
-		score, risk, cat := computeSearchRisk(body.Query)
+	// Predictive risk from typed query and/or clicked result URL (any browser).
+	riskText := strings.TrimSpace(body.Query + " " + body.ClickedURL + " " + body.ClickedTitle)
+	if body.RiskScore == 0 && riskText != "" {
+		score, risk, cat := computeSearchRisk(riskText)
 		body.RiskScore = score
 		body.PredictiveRisk = risk
 		body.RiskCategory = cat
@@ -408,13 +273,16 @@ func (h *BrowserAIHandler) recordSearchLog(ctx *fasthttp.RequestCtx) {
 		body.RiskCategory = "General Search"
 	}
 
-	// 1. Persist to PostgreSQL database (visible in pgAdmin)
+	// 1. Persist to PostgreSQL (pgAdmin: browser_ai_search_logs)
 	if h.manager != nil && h.manager.GetDB() != nil {
 		dbEntry := toLogstoreSearchLog(&body)
-		_ = h.manager.RecordSearchLog(ctx, dbEntry)
+		if err := h.manager.RecordSearchLog(ctx, dbEntry); err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to save search log: "+err.Error())
+			return
+		}
 	}
 
-	// 2. Also keep in-memory buffer
+	// 2. Also keep in-memory buffer (fallback when DB unavailable)
 	searchLogsMu.Lock()
 	searchLogsList = append([]BrowserAISearchLogEntry{body}, searchLogsList...)
 	if len(searchLogsList) > 500 {

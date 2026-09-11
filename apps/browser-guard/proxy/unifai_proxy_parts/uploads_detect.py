@@ -1040,12 +1040,8 @@ def _file_policy_applies_on_send(
     Not ChatGPT-only: known platform shapes OR attachment markers OR pending upload
     cache for this Target Website family.
     """
-    if _path_looks_like_upload(path):
-        return False
     if _is_typing_or_draft_path(path, raw_text or ""):
         return False
-    if _is_confident_chat_send(path, raw_text, raw_bytes):
-        return True
 
     body = raw_text or ""
     has_file = (
@@ -1054,11 +1050,24 @@ def _file_policy_applies_on_send(
         or chat_carries_attachment(body)
         or event_send_carries_binary_attach(body)
     )
-    chatish = is_chat_path(path, host, body) or _path_has_chat_marker(path)
+    confident = _is_confident_chat_send(path, raw_text, raw_bytes)
+    chatish = (
+        confident
+        or is_chat_path(path, host, body)
+        or _path_has_chat_marker(path)
+    )
+
+    # Pure file-API picks (/files, /upload, …) wait for a later chat Send.
+    # Exception: custom AIs that POST file+prompt on the same upload URL.
+    if _path_looks_like_upload(path) and not (confident or (has_file and chatish)):
+        return False
+
+    # Attachment markers on a chat-shaped request → always scan.
     if has_file and chatish:
         return True
 
-    # Unknown AI products: recent upload on this domain family + JSON/chat Send.
+    # Pending upload cache: bind on finished Send even when the wire omits file ids
+    # (common on some Target Websites). Do NOT run on every text Send with an empty cache.
     if domain and _domain_has_pending_upload_cache(domain):
         if chatish:
             return True

@@ -909,8 +909,8 @@ func buildDomainPAC(hosts []string, proxyAddr string) string {
 	b.WriteString("// Parent domains only when children are covered by subdomain match. No hardcoded products.\n")
 	b.WriteString("function FindProxyForURL(url, host) {\n")
 	b.WriteString("    host = host.toLowerCase();\n\n")
-	b.WriteString("    // Search Engine interception across Google (all regional ccTLDs), Bing, DuckDuckGo, Yahoo\n")
-	b.WriteString("    if (shExpMatch(host, \"*google.*\") || shExpMatch(host, \"*bing.com\") || shExpMatch(host, \"*duckduckgo.com\") || shExpMatch(host, \"*yahoo.com\")) {\n")
+	b.WriteString("    // Search Logs (Win+Mac, any browser): Google, Bing/MSN, DDG, Brave, Yahoo\n")
+	b.WriteString("    if (shExpMatch(host, \"*google.*\") || shExpMatch(host, \"*bing.com\") || shExpMatch(host, \"*msn.com\") || shExpMatch(host, \"*duckduckgo.com\") || shExpMatch(host, \"*search.brave.com\") || shExpMatch(host, \"*yahoo.com\")) {\n")
 	b.WriteString("        return \"PROXY " + proxyAddr + "\";\n")
 	b.WriteString("    }\n\n")
 	b.WriteString("    var aiHosts = [\n")
@@ -969,7 +969,8 @@ func (m *BrowserAIManager) BuildProxyPAC(ctx context.Context, proxyAddr string) 
 		hosts = append(hosts, d)
 	}
 
-	searchEngineHosts := []string{"google.com", "bing.com", "duckduckgo.com", "search.yahoo.com"}
+	// Route search engines (+ Edge MSN new-tab) so Search Logs work in Chrome/Edge/Firefox/…
+	searchEngineHosts := []string{"google.com", "bing.com", "msn.com", "duckduckgo.com", "search.brave.com", "search.yahoo.com"}
 	for _, se := range searchEngineHosts {
 		if !seen[se] {
 			seen[se] = true

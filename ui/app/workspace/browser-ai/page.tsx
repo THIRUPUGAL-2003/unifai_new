@@ -1753,7 +1753,7 @@ export default function BrowserAiPage() {
 								<CardTitle className="text-3xl font-bold">{totalSearchLogs}</CardTitle>
 							</CardHeader>
 							<CardContent>
-								<p className="text-xs text-muted-foreground">Google, Edge/Bing, Safari, DDG, Yahoo</p>
+								<p className="text-xs text-muted-foreground">Google, Bing, DDG, Yahoo — Chrome / Edge / Firefox / Brave / Safari</p>
 							</CardContent>
 						</Card>
 
@@ -1804,7 +1804,7 @@ export default function BrowserAiPage() {
 										Search Engine Activity &amp; Privacy Audit
 									</CardTitle>
 									<CardDescription>
-										Real-time search queries and clicked links captured across Google, Edge (Bing), Safari, DuckDuckGo, Yahoo in both Standard and Incognito/InPrivate modes.
+										Real-time search queries and clicked links from any Guard browser (Chrome, Edge, Firefox, Brave, Opera, Safari) — Google, Bing/MSN, DuckDuckGo, Yahoo — including Incognito/InPrivate. Saved to Postgres.
 									</CardDescription>
 								</div>
 								<div className="flex items-center gap-2">
@@ -1839,9 +1839,10 @@ export default function BrowserAiPage() {
 									<SelectContent>
 										<SelectItem value="all">All Engines</SelectItem>
 										<SelectItem value="google">Google</SelectItem>
-										<SelectItem value="bing">Bing / Edge</SelectItem>
+										<SelectItem value="bing">Bing</SelectItem>
 										<SelectItem value="safari">Safari / Apple</SelectItem>
 										<SelectItem value="duck">DuckDuckGo</SelectItem>
+										<SelectItem value="brave">Brave Search</SelectItem>
 										<SelectItem value="yahoo">Yahoo</SelectItem>
 									</SelectContent>
 								</Select>
@@ -1856,6 +1857,8 @@ export default function BrowserAiPage() {
 										<SelectItem value="safari">Safari</SelectItem>
 										<SelectItem value="firefox">Firefox</SelectItem>
 										<SelectItem value="brave">Brave</SelectItem>
+										<SelectItem value="opera">Opera</SelectItem>
+										<SelectItem value="vivaldi">Vivaldi</SelectItem>
 									</SelectContent>
 								</Select>
 								<Select value={searchIncognitoFilter} onValueChange={setSearchIncognitoFilter}>
@@ -1894,7 +1897,7 @@ export default function BrowserAiPage() {
 														<Search className="h-6 w-6 text-muted-foreground/50" />
 														<p>No search events logged yet.</p>
 														<p className="text-xs text-muted-foreground/70">
-															Searches in Google, Edge/Bing, or Safari pass through UnifAI Guard and appear here in real-time.
+															Searches in Google, Bing, DuckDuckGo, or Yahoo from Chrome/Edge/Firefox/Brave appear here in real-time.
 														</p>
 													</div>
 												</TableCell>
@@ -1917,7 +1920,7 @@ export default function BrowserAiPage() {
 																</Badge>
 															) : e.includes("bing") ? (
 																<Badge className="bg-cyan-950/80 text-cyan-300 border-cyan-800/80 gap-1 font-medium text-xs">
-																	<Compass className="h-3 w-3 text-cyan-400" /> Bing / Edge
+																	<Compass className="h-3 w-3 text-cyan-400" /> Bing
 																</Badge>
 															) : e.includes("safari") || e.includes("apple") ? (
 																<Badge className="bg-sky-950/80 text-sky-300 border-sky-800/80 gap-1 font-medium text-xs">
@@ -1926,6 +1929,10 @@ export default function BrowserAiPage() {
 															) : e.includes("duck") ? (
 																<Badge className="bg-amber-950/80 text-amber-300 border-amber-800/80 gap-1 font-medium text-xs">
 																	<Globe className="h-3 w-3 text-amber-400" /> DuckDuckGo
+																</Badge>
+															) : e.includes("brave") ? (
+																<Badge className="bg-orange-950/80 text-orange-300 border-orange-800/80 gap-1 font-medium text-xs">
+																	<Globe className="h-3 w-3 text-orange-400" /> Brave Search
 																</Badge>
 															) : (
 																<Badge className="bg-purple-950/80 text-purple-300 border-purple-800/80 gap-1 font-medium text-xs">

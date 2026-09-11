@@ -122,10 +122,13 @@ export async function generatePdf(sections: PdfSection[], filename: string, opti
 
 			const sliceCanvas = document.createElement("canvas");
 			sliceCanvas.width = canvas.width;
-			sliceCanvas.height = Math.round(sourceH);
+			sliceCanvas.height = Math.max(1, Math.round(sourceH));
 			const ctx = sliceCanvas.getContext("2d");
 			if (ctx) {
-				ctx.drawImage(canvas, 0, sourceY, canvas.width, sourceH, 0, 0, canvas.width, Math.round(sourceH));
+				// Always paint white first — empty/oversized captures otherwise become solid black pages.
+				ctx.fillStyle = "#ffffff";
+				ctx.fillRect(0, 0, sliceCanvas.width, sliceCanvas.height);
+				ctx.drawImage(canvas, 0, sourceY, canvas.width, sourceH, 0, 0, canvas.width, sliceCanvas.height);
 				const sliceImg = sliceCanvas.toDataURL("image/jpeg", quality);
 				pdf.addImage(sliceImg, "JPEG", margin, cursorY, contentWidth, sliceHeight);
 			}

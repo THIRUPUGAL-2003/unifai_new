@@ -140,124 +140,250 @@ class BrowserAIInterceptor:
                 print(f"[UnifAI Proxy Warning] FILE REDACT inject failed: {e}")
         return False, n_processed, caption_consumed
 
+    def _detect_search_browser(self, flow: http.HTTPFlow) -> str:
+        """Identify the employee browser from UA / Client Hints — any Chromium or Gecko browser."""
+        user_agent = flow.request.headers.get("user-agent", "") or ""
+        sec_ch_ua = (flow.request.headers.get("sec-ch-ua", "") or "").lower()
+        ua = user_agent.lower()
+
+        # Order matters: Edge/Opera/Brave/Vivaldi embed "chrome/" in UA.
+        if (
+            "edg/" in ua
+            or "edga/" in ua
+            or "edgios/" in ua
+            or "microsoft edge" in sec_ch_ua
+            or '"microsoft edge"' in sec_ch_ua
+        ):
+            return "Edge"
+        if "opr/" in ua or "opera" in sec_ch_ua:
+            return "Opera"
+        if "brave" in sec_ch_ua or "brave/" in ua:
+            return "Brave"
+        if "vivaldi" in ua or "vivaldi" in sec_ch_ua:
+            return "Vivaldi"
+        if "firefox/" in ua or "fxios/" in ua:
+            return "Firefox"
+        if ("safari/" in ua or "version/" in ua) and "chrome" not in ua and "chromium" not in ua:
+            return "Safari"
+        if "chrome/" in ua or "crios/" in ua or "google chrome" in sec_ch_ua or "chromium" in sec_ch_ua:
+            return "Chrome"
+        return "Unknown"
+
+    @staticmethod
+    def _decode_bing_click_u(u_val: str) -> str:
+        """Decode Bing/Edge result redirect `u=a1…` (base64url) to the destination URL."""
+        import base64
+        import urllib.parse
+
+        raw = (u_val or "").strip()
+        if not raw:
+            return ""
+        # Plain URL sometimes appears without a1 prefix
+        if raw.startswith("http://") or raw.startswith("https://"):
+            return raw
+        # a1 / a1aHR0… — strip leading letter+digit marker then pad base64
+        payload = raw
+        if len(raw) > 2 and raw[0].isalpha() and raw[1].isdigit():
+            payload = raw[2:]
+        pad = "=" * ((4 - (len(payload) % 4)) % 4)
+        for candidate in (payload + pad, payload):
+            try:
+                decoded = base64.urlsafe_b64decode(candidate.encode("ascii", errors="ignore")).decode(
+                    "utf-8", errors="ignore"
+                )
+                decoded = (decoded or "").strip()
+                if decoded.startswith("http://") or decoded.startswith("https://"):
+                    return decoded
+                # Sometimes nested once
+                if decoded and not decoded.startswith("http"):
+                    again = urllib.parse.unquote(decoded)
+                    if again.startswith("http"):
+                        return again
+            except Exception:
+                continue
+        return ""
+
     def _maybe_record_search_engine(self, flow: http.HTTPFlow, host: str) -> None:
-        """Capture search engine queries and result link clicks across Google, Bing, Safari, DDG, Yahoo."""
+        """Capture search queries + result clicks for ANY browser (Chrome/Edge/Firefox/…).
+
+        Engines: Google, Bing (incl. Edge/MSN), DuckDuckGo, Yahoo.
+        Saves via POST /api/browser-ai/search-logs → Postgres.
+        """
         try:
-            h_lower = (host or "").lower()
+            import urllib.parse
+
+            h_lower = (host or "").lower().strip(".")
             engine = ""
+            # Edge new-tab / MSN often fronts Bing — treat as Bing for Search Logs.
             if "google." in h_lower:
                 engine = "Google"
-            elif "bing.com" in h_lower:
+            elif (
+                "bing.com" in h_lower
+                or h_lower.endswith("msn.com")
+                or h_lower == "msn.com"
+                or "edgeservices.bing" in h_lower
+                or h_lower.endswith(".msn.com")
+            ):
                 engine = "Bing"
             elif "duckduckgo.com" in h_lower:
                 engine = "DuckDuckGo"
-            elif "search.yahoo.com" in h_lower or "yahoo.com" in h_lower:
+            elif "search.brave.com" in h_lower or h_lower == "search.brave.com":
+                engine = "Brave Search"
+            elif "search.yahoo.com" in h_lower or h_lower.endswith("yahoo.com") or h_lower == "yahoo.com":
                 engine = "Yahoo"
             else:
                 return
 
-            # Detect Browser
-            user_agent = flow.request.headers.get("user-agent", "")
-            sec_ch_ua = flow.request.headers.get("sec-ch-ua", "")
-            ua_lower = user_agent.lower()
-            browser = "Chrome"
-            if "edg/" in ua_lower or "microsoft edge" in sec_ch_ua.lower():
-                browser = "Edge"
-            elif "safari" in ua_lower and "chrome" not in ua_lower:
-                browser = "Safari"
-            elif "firefox/" in ua_lower:
-                browser = "Firefox"
-            elif "brave" in sec_ch_ua.lower():
-                browser = "Brave"
-            elif "chrome/" in ua_lower:
-                browser = "Chrome"
+            browser = self._detect_search_browser(flow)
 
-            # Detect Incognito / InPrivate
-            cookie = flow.request.headers.get("cookie", "")
+            cookie = flow.request.headers.get("cookie", "") or ""
             is_incognito = False
-            if not cookie or len(cookie.strip()) < 15:
+            if flow.request.headers.get("x-edge-inprivate", ""):
                 is_incognito = True
-            elif "google" in engine.lower() and ("SAPISID=" not in cookie and "SID=" not in cookie):
+            elif not cookie or len(cookie.strip()) < 15:
                 is_incognito = True
-            elif "bing" in engine.lower() and ("MUID=" not in cookie and "_EDGE_S=" not in cookie):
+            elif engine == "Google" and ("SAPISID=" not in cookie and "SID=" not in cookie):
                 is_incognito = True
-            elif flow.request.headers.get("x-edge-inprivate", ""):
+            elif engine == "Bing" and ("MUID=" not in cookie and "_EDGE_S=" not in cookie and "USRLOC=" not in cookie):
                 is_incognito = True
 
-            # Extract Query or Clicked Destination
             path = flow.request.path or ""
+            path_l = path.lower().split("?", 1)[0]
             query_str = flow.request.query or {}
             searched_query = ""
             clicked_url = ""
             clicked_title = ""
 
-            import urllib.parse
+            def _q(*keys: str) -> str:
+                for k in keys:
+                    v = query_str.get(k, "")
+                    if isinstance(v, (list, tuple)):
+                        v = v[0] if v else ""
+                    v = (v or "").strip()
+                    if v:
+                        return urllib.parse.unquote_plus(v)
+                return ""
 
             if engine == "Google":
-                # Matches committed searches (/search?q=..., /webhp?..., etc.), ignoring autocomplete suggestions (/complete/search)
-                if not path.startswith("/complete/"):
-                    raw_q = query_str.get("q", "") or query_str.get("as_q", "")
-                    if raw_q:
-                        searched_query = urllib.parse.unquote_plus(raw_q)
-                if not searched_query and path.startswith("/url"):
-                    target = query_str.get("url", "") or query_str.get("q", "")
-                    if target:
-                        target = urllib.parse.unquote(target)
-                        if target.startswith("http"):
-                            clicked_url = target
+                # Skip autocomplete / suggest noise — keep committed /search and link redirects.
+                if "/complete/" in path_l or path_l.endswith("/complete/search"):
+                    return
+                if not any(x in path_l for x in ("/gen_204", "/client_204", "/async/", "/csi", "/verify/")):
+                    raw_q = _q("q", "as_q", "query")
+                    if raw_q and not raw_q.startswith("http"):
+                        searched_query = raw_q
+                # Result link click: /url?url=… or /url?q=https://…
+                if path_l.startswith("/url") or "/url?" in (flow.request.path or "").lower() or path_l == "/url":
+                    target = _q("url", "q", "qurl")
+                    if target.startswith("http"):
+                        clicked_url = target
+                        searched_query = ""  # click row — don't also store redirect junk as query
+                # Image result click
+                if not clicked_url and ("/imgres" in path_l or path_l.startswith("/imgres")):
+                    target = _q("imgurl", "imgrefurl", "q")
+                    if target.startswith("http"):
+                        clicked_url = target
+
             elif engine == "Bing":
-                if not path.startswith("/AS/") and not path.startswith("/suggestions/"):
-                    raw_q = query_str.get("q", "") or query_str.get("pq", "")
-                    if raw_q:
-                        searched_query = urllib.parse.unquote_plus(raw_q)
-                if not searched_query and (path.startswith("/ck/a") or "alink.aspx" in path):
-                    u_val = query_str.get("u", "")
-                    if u_val.startswith("a1"):
-                        import base64
-                        b64_part = u_val[2:] + "=="
-                        try:
-                            decoded = base64.urlsafe_b64decode(b64_part.encode("ascii")).decode("utf-8", errors="ignore")
-                            if decoded.startswith("http"):
-                                clicked_url = decoded
-                        except Exception:
-                            pass
+                # Skip suggest / telemetry
+                if any(path_l.startswith(p) for p in ("/as/", "/suggestions/", "/fd/ls", "/notifications/", "/api/")):
+                    if not (path_l.startswith("/ck/") or "alink.aspx" in path_l or path_l.startswith("/aclick")):
+                        return
+                raw_q = _q("q", "pq", "query")
+                if raw_q and not raw_q.startswith("http"):
+                    searched_query = raw_q
+                # Edge/Bing result click redirects
+                if (
+                    path_l.startswith("/ck/")
+                    or "alink.aspx" in path_l
+                    or path_l.startswith("/aclick")
+                    or path_l.startswith("/news/apiclick")
+                    or "r.msn.com" in h_lower
+                    or path_l.startswith("/cl/")
+                ):
+                    u_val = query_str.get("u", "") or query_str.get("url", "") or query_str.get("r", "")
+                    if isinstance(u_val, (list, tuple)):
+                        u_val = u_val[0] if u_val else ""
+                    decoded = self._decode_bing_click_u(str(u_val or ""))
+                    if not decoded:
+                        decoded = _q("url", "r", "u")
+                        if not (decoded.startswith("http")):
+                            decoded = ""
+                    if decoded.startswith("http"):
+                        clicked_url = decoded
+                        # Prefer click row without duplicating the search q from referrer noise
+                        if path_l.startswith("/ck/") or "alink" in path_l:
+                            searched_query = searched_query if searched_query and len(searched_query) < 200 else ""
+
             elif engine == "DuckDuckGo":
-                if not path.startswith("/ac/"):
-                    raw_q = query_str.get("q", "")
-                    if raw_q:
-                        searched_query = urllib.parse.unquote_plus(raw_q)
-                if not searched_query and path.startswith("/l/"):
-                    uddg = query_str.get("uddg", "")
-                    if uddg:
-                        clicked_url = urllib.parse.unquote(uddg)
+                if path_l.startswith("/ac/"):
+                    return
+                raw_q = _q("q", "query")
+                if raw_q and not raw_q.startswith("http"):
+                    searched_query = raw_q
+                if path_l.startswith("/l/") or path_l.startswith("/y.js"):
+                    uddg = _q("uddg", "u")
+                    if uddg.startswith("http"):
+                        clicked_url = uddg
+                        searched_query = ""
+
+            elif engine == "Brave Search":
+                raw_q = _q("q", "query")
+                if raw_q and not raw_q.startswith("http"):
+                    searched_query = raw_q
+                # Brave often links out directly; capture redirect helpers when present
+                target = _q("url", "u")
+                if target.startswith("http") and ("/redirect" in path_l or path_l.startswith("/out")):
+                    clicked_url = target
+                    searched_query = ""
+
             elif engine == "Yahoo":
-                raw_q = query_str.get("p", "") or query_str.get("q", "")
-                if raw_q:
-                    searched_query = urllib.parse.unquote_plus(raw_q)
+                raw_q = _q("p", "q", "query")
+                if raw_q and not raw_q.startswith("http"):
+                    searched_query = raw_q
+                # Yahoo click redirects
+                if "/RU=" in (flow.request.url or "") or path_l.startswith("/click") or "rds.yahoo" in h_lower:
+                    ru = ""
+                    full = flow.request.url or ""
+                    if "/RU=" in full:
+                        try:
+                            part = full.split("/RU=", 1)[1]
+                            part = part.split("/RK=", 1)[0].split("/RS=", 1)[0]
+                            ru = urllib.parse.unquote(part)
+                        except Exception:
+                            ru = ""
+                    if not ru:
+                        ru = _q("RU", "url")
+                    if ru.startswith("http"):
+                        clicked_url = ru
+                        searched_query = searched_query if searched_query else ""
 
             searched_query = (searched_query or "").strip()
             clicked_url = (clicked_url or "").strip()
-
             if not searched_query and not clicked_url:
                 return
 
+            # Drop obvious non-user noise queries
+            if searched_query and len(searched_query) > 500:
+                searched_query = searched_query[:500]
+            if clicked_url and len(clicked_url) > 2000:
+                clicked_url = clicked_url[:2000]
+
             if clicked_url:
                 try:
-                    import urllib.parse
                     p = urllib.parse.urlparse(clicked_url)
                     clicked_title = p.netloc or clicked_url[:40]
                 except Exception:
                     clicked_title = clicked_url[:40]
 
-            # Deduplicate repeated identical requests within 3 seconds
-            event_key = f"{engine}:{searched_query}:{clicked_url}"
-            if is_duplicate_event("search-engine", event_key, ttl=3):
+            client_ip = get_client_ip(flow)
+            # Include browser + IP so Edge is not dropped when Chrome searched the same term.
+            event_key = f"{engine}:{browser}:{client_ip}:{searched_query}:{clicked_url}"
+            if is_duplicate_event("search-engine", event_key, ttl=4):
                 return
             mark_duplicate_event("search-engine", event_key)
 
-            client_ip = get_client_ip(flow)
             wire_fields = _agent_wire_fields() if "_agent_wire_fields" in globals() else {}
-
             payload_dict = {
                 "engine": engine,
                 "browser": browser,
@@ -275,6 +401,7 @@ class BrowserAIInterceptor:
             import ssl
             import threading
             import urllib.request
+
             def _post():
                 try:
                     ssl_ctx = ssl.create_default_context()
@@ -287,13 +414,20 @@ class BrowserAIInterceptor:
                         headers={"Content-Type": "application/json"},
                         method="POST",
                     )
-                    urllib.request.urlopen(r, context=ssl_ctx, timeout=8)
+                    with urllib.request.urlopen(r, context=ssl_ctx, timeout=8) as resp:
+                        if getattr(resp, "status", 200) >= 400:
+                            print(
+                                f"[UnifAI Proxy Warning] search-log HTTP {resp.status} → {UNIFAI_BACKEND_URL}"
+                            )
                 except Exception as e:
                     print(f"[UnifAI Proxy Warning] Failed to send search log to {UNIFAI_BACKEND_URL}: {e}")
 
-            t = threading.Thread(target=_post, daemon=True)
-            t.start()
-            print(f"[UnifAI Proxy] SEARCH LOGGED | {engine} ({browser}{' - INCOGNITO' if is_incognito else ''}) | Query={searched_query!r} Click={clicked_url!r}")
+            threading.Thread(target=_post, daemon=True).start()
+            print(
+                f"[UnifAI Proxy] SEARCH LOGGED | {engine} ({browser}"
+                f"{' - INCOGNITO' if is_incognito else ''}) | "
+                f"Query={searched_query!r} Click={clicked_url!r}"
+            )
 
         except Exception as e:
             print(f"[UnifAI Proxy Warning] Search engine parse error: {e}")
@@ -387,15 +521,10 @@ class BrowserAIInterceptor:
         client_ip = get_client_ip(flow)
         method = (flow.request.method or "").upper()
 
-        # Search engines & email (google.com, mail.google.com, bing.com, duckduckgo.com, yahoo.com)
-        # Search traffic belongs in Search Logs — non-Gemini search traffic must not generate fake AI prompt logs.
-        h_low = host.lower()
-        if (
-            ("google." in h_low or "mail.google." in h_low or "bing.com" in h_low or "duckduckgo.com" in h_low or "yahoo.com" in h_low)
-            and "gemini.google" not in h_low
-            and "bard.google" not in h_low
-        ):
-            return
+        # Do NOT brand-skip google.*/bing.*/yahoo.* here.
+        # Search Logs already recorded above; non-targets fall through to CDN bind then return.
+        # Admin Target Websites on those hosts (clients6.google.com, notebooklm.google.com,
+        # aistudio.google.com, bing Copilot, …) must still cache uploads + run Guard Rules.
 
         if not is_target:
             # File CDNs are often NOT the chat Target Website. Bind via Referer/Origin
@@ -486,7 +615,8 @@ class BrowserAIInterceptor:
                 host=host,
                 path=path,
             )
-            # Upload pick: cache bytes only — no predict, no log, no block until user presses Send.
+            # Upload pick: cache bytes — pure picks wait for Send; combined file+prompt
+            # on the same request must fall through so extract + Guard Rules still run.
             if confident:
                 file_ids = _extract_file_ids_from_chat(raw_text)
                 cache_upload_file(
@@ -501,13 +631,24 @@ class BrowserAIInterceptor:
                     f"[UnifAI Proxy] FILE CACHED (await Send — no log yet) | {domain} | "
                     f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
                 )
-                return
+                combined_send = bool(
+                    has_prompt
+                    or attachment_send
+                    or _is_confident_chat_send(path, raw_text, raw_bytes)
+                    or _send_carries_attachment(raw_text)
+                )
+                if not combined_send:
+                    return
+                print(
+                    f"[UnifAI Proxy] Upload also looks like chat Send — continue extract/rules | {domain}"
+                )
             # Weak upload signal: do NOT abort — fall through so typed prompt / file Send
             # on the same request still reaches Prompt Logs + Guard Rules.
-            print(
-                f"[UnifAI Proxy] Ignoring weak upload signal (continue evaluate) | {host} | "
-                f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
-            )
+            else:
+                print(
+                    f"[UnifAI Proxy] Ignoring weak upload signal (continue evaluate) | {host} | "
+                    f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
+                )
 
         # ── File Send: scan cached bytes; then still apply caption Guard Rules ──
         # Any admin Target Website — attachment markers OR pending upload cache.
