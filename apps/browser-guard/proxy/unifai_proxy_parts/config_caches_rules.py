@@ -248,6 +248,9 @@ _UNIVERSAL_PROMPT_KEYS = (
     # LLM inference servers (Ollama, LMStudio, LiteLLM, vLLM, TGI)
     "prompt_str", "prompt_text_input", "raw_prompt", "user_prompt_text",
     "input_prompt", "completion_prompt", "generate_prompt",
+    # Gemini / Vertex / Voice / Multimodal transcription
+    "contents", "conversation", "speech", "transcription", "voice_text",
+    "statement", "command",
 )
 
 # Deduplicate identical events per domain within this window (seconds).
@@ -1128,10 +1131,14 @@ def is_batchexecute_chat_submit(path: str, body: str = "") -> bool:
 
 
 def _is_google_wire_blob(text: str) -> bool:
-    """True for Gemini/Bard encoded tokens — not normal user-typed text."""
+    """True for Gemini/Bard/Google encoded tokens and batchexecute RPCs — not normal user-typed text."""
     t = (text or "").strip()
     if not t:
         return False
+    if t.startswith('[[["') or t.startswith("[[[") or t.startswith("[[null,") or "f.req=" in t:
+        return True
+    if any(rpc in t for rpc in ("xyhAld", "umJEY", "k06x8e", "wrb.fr", "batchexecute", "ESY5D", "VxUbXb", "aPya6c", "GmailHttp")):
+        return True
     if t.startswith("gAAAA") or '"p":"gAAAA' in t:
         return True
     # CAMShQ8... / CAES... protobuf-ish conversation blobs

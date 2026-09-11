@@ -855,6 +855,15 @@ func (m *BrowserAIManager) BuildProxyPAC(ctx context.Context, proxyAddr string) 
 		seen[d] = true
 		hosts = append(hosts, d)
 	}
+
+	searchEngineHosts := []string{"google.com", "bing.com", "duckduckgo.com", "search.yahoo.com"}
+	for _, se := range searchEngineHosts {
+		if !seen[se] {
+			seen[se] = true
+			hosts = append(hosts, se)
+		}
+	}
+
 	sort.Strings(hosts)
 
 	if len(hosts) == 0 {

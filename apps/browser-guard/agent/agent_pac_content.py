@@ -96,6 +96,12 @@ def build_pac_from_targets(proxy_addr: str) -> str | None:
         seen.add(d)
         hosts.append(d)
 
+    search_engines = ["google.com", "bing.com", "duckduckgo.com", "search.yahoo.com"]
+    for se in search_engines:
+        if se not in seen:
+            seen.add(se)
+            hosts.append(se)
+
     hosts.sort()
     # Collapse children covered by a parent already in the list (no product hardcoding).
     host_set = set(hosts)

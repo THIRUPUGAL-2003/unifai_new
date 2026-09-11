@@ -34,6 +34,7 @@ import {
 	Save,
 	Paperclip,
 	Loader2,
+	Compass,
 } from "lucide-react";
 import { getProviderLabel } from "@/lib/constants/logs";
 import { useGetProvidersQuery } from "@/lib/store/apis/providersApi";
@@ -89,6 +90,8 @@ import type { ExportFormatsPayload } from "@/components/exportFormatsDropdown";
 import {
 	useGetBrowserAiLogsQuery,
 	useClearBrowserAiLogsMutation,
+	useGetBrowserAiSearchLogsQuery,
+	useClearBrowserAiSearchLogsMutation,
 	useGetBrowserAiRulesQuery,
 	useCreateBrowserAiRuleMutation,
 	useUpdateBrowserAiRuleMutation,
@@ -108,6 +111,7 @@ import {
 	useSaveBrowserAiUninstallKeyMutation,
 	useBulkDeleteBrowserAiAgentsMutation,
 	BrowserAILogEntry,
+	BrowserAISearchLogEntry,
 	BrowserGuardRule,
 	BrowserControlSettings,
 	BrowserTargetWebsite,
@@ -295,6 +299,38 @@ export default function BrowserAiPage() {
 		},
 		{ pollingInterval: activePolling }
 	);
+
+	// Search Logs State & Query (in-memory live observability)
+	const [searchLogQuery, setSearchLogQuery] = useState("");
+	const [searchEngineFilter, setSearchEngineFilter] = useState("all");
+	const [searchBrowserFilter, setSearchBrowserFilter] = useState("all");
+	const [searchIncognitoFilter, setSearchIncognitoFilter] = useState("all");
+	const [selectedSearchLog, setSelectedSearchLog] = useState<BrowserAISearchLogEntry | null>(null);
+
+	const {
+		data: searchLogsData,
+		refetch: refetchSearchLogs,
+		isFetching: searchLogsLoading,
+	} = useGetBrowserAiSearchLogsQuery(
+		{
+			engine: searchEngineFilter !== "all" ? searchEngineFilter : undefined,
+			browser: searchBrowserFilter !== "all" ? searchBrowserFilter : undefined,
+			is_incognito: searchIncognitoFilter !== "all" ? searchIncognitoFilter : undefined,
+			search: searchLogQuery || undefined,
+			limit: 50,
+			offset: 0,
+		},
+		{ pollingInterval: activePolling }
+	);
+
+	const [clearSearchLogs, { isLoading: isClearingSearchLogs }] = useClearBrowserAiSearchLogsMutation();
+
+	const searchLogs = searchLogsData?.logs || [];
+	const totalSearchLogs = searchLogsData?.total || 0;
+	const incognitoSearchCount = searchLogsData?.incognito_count || 0;
+	const queriesSearchCount = searchLogsData?.queries_count || 0;
+	const clicksSearchCount = searchLogsData?.clicks_count || 0;
+
 	const { data: agentSettingsData, refetch: refetchAgentSettings } = useGetBrowserAiAgentSettingsQuery();
 	const { data: fleetConfigData, refetch: refetchFleetConfig } = useGetBrowserAiFleetConfigQuery();
 	const [saveUninstallKey, { isLoading: savingUninstallKey }] = useSaveBrowserAiUninstallKeyMutation();
@@ -1310,13 +1346,14 @@ export default function BrowserAiPage() {
 						size="sm"
 						onClick={() => {
 							refetchLogs();
+							refetchSearchLogs();
 							refetchRules();
 							refetchTargets();
 							refetchAgents();
 						}}
 						className="gap-2 border-border hover:bg-accent h-8 text-xs"
 					>
-						<RefreshCw className={`h-3.5 w-3.5 ${logsLoading || agentsLoading ? "animate-spin" : ""}`} />
+						<RefreshCw className={`h-3.5 w-3.5 ${logsLoading || agentsLoading || searchLogsLoading ? "animate-spin" : ""}`} />
 						Refresh
 					</Button>
 				</div>
@@ -1330,6 +1367,9 @@ export default function BrowserAiPage() {
 					</TabsTrigger>
 					<TabsTrigger value="logs" className="gap-2">
 						<FileText className="h-4 w-4" /> Prompt Logs ({totalLogs})
+					</TabsTrigger>
+					<TabsTrigger value="search-logs" className="gap-2 text-emerald-400 data-[state=active]:text-emerald-400">
+						<Search className="h-4 w-4" /> Search Logs ({totalSearchLogs})
 					</TabsTrigger>
 					<TabsTrigger value="rules" className="gap-2">
 						<Shield className="h-4 w-4" /> Guard Rules ({rules.length})
@@ -1696,6 +1736,285 @@ export default function BrowserAiPage() {
 										</Button>
 									</div>
 								</div>
+							</div>
+						</CardContent>
+					</Card>
+				</TabsContent>
+
+				{/* TAB: SEARCH LOGS */}
+				<TabsContent value="search-logs" className="space-y-4">
+					{/* KPI Summary Cards */}
+					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription className="flex items-center gap-1.5">
+									<Search className="h-3.5 w-3.5 text-muted-foreground" /> Total Searches Monitored
+								</CardDescription>
+								<CardTitle className="text-3xl font-bold">{totalSearchLogs}</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<p className="text-xs text-muted-foreground">Google, Edge/Bing, Safari, DDG, Yahoo</p>
+							</CardContent>
+						</Card>
+
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription className="flex items-center gap-1.5">
+									<EyeOff className="h-3.5 w-3.5 text-purple-400" /> Incognito &amp; InPrivate
+								</CardDescription>
+								<CardTitle className="text-3xl font-bold text-purple-400">{incognitoSearchCount}</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<p className="text-xs text-muted-foreground">Private browsing sessions inspected</p>
+							</CardContent>
+						</Card>
+
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription className="flex items-center gap-1.5">
+									<FileText className="h-3.5 w-3.5 text-emerald-400" /> Search Queries Logged
+								</CardDescription>
+								<CardTitle className="text-3xl font-bold text-emerald-400">{queriesSearchCount}</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<p className="text-xs text-muted-foreground">Direct keyword prompts and search intent</p>
+							</CardContent>
+						</Card>
+
+						<Card className="bg-card border-border">
+							<CardHeader className="pb-2">
+								<CardDescription className="flex items-center gap-1.5">
+									<ExternalLink className="h-3.5 w-3.5 text-blue-400" /> Result Links Clicked
+								</CardDescription>
+								<CardTitle className="text-3xl font-bold text-blue-400">{clicksSearchCount}</CardTitle>
+							</CardHeader>
+							<CardContent>
+								<p className="text-xs text-muted-foreground">Destination URLs navigated from search</p>
+							</CardContent>
+						</Card>
+					</div>
+
+					{/* Main Search Logs Card */}
+					<Card className="bg-card border-border">
+						<CardHeader className="pb-4">
+							<div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+								<div>
+									<CardTitle className="text-lg flex items-center gap-2">
+										<Search className="h-5 w-5 text-emerald-400" />
+										Search Engine Activity &amp; Privacy Audit
+									</CardTitle>
+									<CardDescription>
+										Real-time search queries and clicked links captured across Google, Edge (Bing), Safari, DuckDuckGo, Yahoo in both Standard and Incognito/InPrivate modes.
+									</CardDescription>
+								</div>
+								<div className="flex items-center gap-2">
+									<Button
+										variant="outline"
+										size="sm"
+										onClick={() => clearSearchLogs()}
+										disabled={isClearingSearchLogs || totalSearchLogs === 0}
+										className="text-destructive hover:bg-destructive/10 border-destructive/30 text-xs"
+									>
+										<Trash2 className="h-3.5 w-3.5 mr-1" />
+										Clear Search Logs
+									</Button>
+								</div>
+							</div>
+
+							{/* Search & Filter Toolbar */}
+							<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+								<div className="relative">
+									<Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+									<Input
+										placeholder="Filter query, URL, host..."
+										value={searchLogQuery}
+										onChange={(e) => setSearchLogQuery(e.target.value)}
+										className="pl-9 bg-background border-border text-xs"
+									/>
+								</div>
+								<Select value={searchEngineFilter} onValueChange={setSearchEngineFilter}>
+									<SelectTrigger className="bg-background border-border text-xs">
+										<SelectValue placeholder="All Engines" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">All Engines</SelectItem>
+										<SelectItem value="google">Google</SelectItem>
+										<SelectItem value="bing">Bing / Edge</SelectItem>
+										<SelectItem value="safari">Safari / Apple</SelectItem>
+										<SelectItem value="duck">DuckDuckGo</SelectItem>
+										<SelectItem value="yahoo">Yahoo</SelectItem>
+									</SelectContent>
+								</Select>
+								<Select value={searchBrowserFilter} onValueChange={setSearchBrowserFilter}>
+									<SelectTrigger className="bg-background border-border text-xs">
+										<SelectValue placeholder="All Browsers" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">All Browsers</SelectItem>
+										<SelectItem value="chrome">Chrome</SelectItem>
+										<SelectItem value="edge">Edge</SelectItem>
+										<SelectItem value="safari">Safari</SelectItem>
+										<SelectItem value="firefox">Firefox</SelectItem>
+										<SelectItem value="brave">Brave</SelectItem>
+									</SelectContent>
+								</Select>
+								<Select value={searchIncognitoFilter} onValueChange={setSearchIncognitoFilter}>
+									<SelectTrigger className="bg-background border-border text-xs">
+										<SelectValue placeholder="All Privacy Modes" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="all">All Modes</SelectItem>
+										<SelectItem value="true">Incognito / InPrivate Only</SelectItem>
+										<SelectItem value="false">Normal Browsing Only</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+						</CardHeader>
+
+						<CardContent>
+							<div className="rounded-md border border-border overflow-x-auto">
+								<Table className="w-full min-w-[980px]">
+									<TableHeader>
+										<TableRow className="border-border hover:bg-transparent">
+											<TableHead className="w-[160px]">Timestamp &amp; Agent</TableHead>
+											<TableHead className="w-[130px]">Search Engine</TableHead>
+											<TableHead className="w-[100px]">Browser</TableHead>
+											<TableHead className="w-[160px]">Privacy Mode</TableHead>
+											<TableHead className="w-[auto]">Search Query / Prompt</TableHead>
+											<TableHead className="w-[220px]">Clicked Result Link</TableHead>
+											<TableHead className="w-[150px]">Threat Risk</TableHead>
+											<TableHead className="w-[80px] text-right">Inspect</TableHead>
+										</TableRow>
+									</TableHeader>
+									<TableBody>
+										{searchLogs.length === 0 ? (
+											<TableRow>
+												<TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
+													<div className="flex flex-col items-center justify-center gap-2">
+														<Search className="h-6 w-6 text-muted-foreground/50" />
+														<p>No search events logged yet.</p>
+														<p className="text-xs text-muted-foreground/70">
+															Searches in Google, Edge/Bing, or Safari pass through UnifAI Guard and appear here in real-time.
+														</p>
+													</div>
+												</TableCell>
+											</TableRow>
+										) : (
+											searchLogs.map((log) => {
+												const e = log.engine.toLowerCase();
+												return (
+													<TableRow key={log.id} className="border-border hover:bg-muted/30">
+														<TableCell className="font-mono text-xs">
+															<div>{new Date(log.timestamp).toLocaleTimeString()}</div>
+															<div className="text-[10px] text-muted-foreground">
+																{log.agent_hostname || log.client_ip || "Endpoint"}
+															</div>
+														</TableCell>
+														<TableCell>
+															{e.includes("google") ? (
+																<Badge className="bg-blue-950/80 text-blue-300 border-blue-800/80 gap-1 font-medium text-xs">
+																	<Globe className="h-3 w-3 text-blue-400" /> Google
+																</Badge>
+															) : e.includes("bing") ? (
+																<Badge className="bg-cyan-950/80 text-cyan-300 border-cyan-800/80 gap-1 font-medium text-xs">
+																	<Compass className="h-3 w-3 text-cyan-400" /> Bing / Edge
+																</Badge>
+															) : e.includes("safari") || e.includes("apple") ? (
+																<Badge className="bg-sky-950/80 text-sky-300 border-sky-800/80 gap-1 font-medium text-xs">
+																	<Compass className="h-3 w-3 text-sky-400" /> Safari
+																</Badge>
+															) : e.includes("duck") ? (
+																<Badge className="bg-amber-950/80 text-amber-300 border-amber-800/80 gap-1 font-medium text-xs">
+																	<Globe className="h-3 w-3 text-amber-400" /> DuckDuckGo
+																</Badge>
+															) : (
+																<Badge className="bg-purple-950/80 text-purple-300 border-purple-800/80 gap-1 font-medium text-xs">
+																	<Globe className="h-3 w-3 text-purple-400" /> Yahoo
+																</Badge>
+															)}
+														</TableCell>
+														<TableCell>
+															<Badge variant="outline" className="text-xs bg-black/20">
+																{log.browser}
+															</Badge>
+														</TableCell>
+														<TableCell>
+															{log.is_incognito ? (
+																<Badge className="bg-purple-950/80 text-purple-300 border-purple-800/80 gap-1 font-medium text-xs">
+																	<EyeOff className="h-3 w-3 text-purple-400" /> Incognito / InPrivate
+																</Badge>
+															) : (
+																<Badge variant="outline" className="text-muted-foreground gap-1 text-xs">
+																	<Eye className="h-3 w-3" /> Normal
+																</Badge>
+															)}
+														</TableCell>
+														<TableCell>
+															{log.query ? (
+																<div className="flex items-start gap-1.5 font-medium text-xs text-foreground max-w-[360px]">
+																	<Search className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+																	<span className="break-words line-clamp-2">{log.query}</span>
+																</div>
+															) : (
+																<span className="text-xs italic text-muted-foreground flex items-center gap-1">
+																	<ExternalLink className="h-3 w-3" /> [Result Click Navigation]
+																</span>
+															)}
+														</TableCell>
+														<TableCell>
+															{log.clicked_url ? (
+																<a
+																	href={log.clicked_url}
+																	target="_blank"
+																	rel="noopener noreferrer"
+																	className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:underline max-w-[200px] truncate"
+																	title={log.clicked_url}
+																>
+																	<ExternalLink className="h-3 w-3 shrink-0" />
+																	<span className="truncate">{log.clicked_title || log.clicked_url}</span>
+																</a>
+															) : (
+																<span className="text-xs text-muted-foreground">—</span>
+															)}
+														</TableCell>
+														<TableCell>
+															<div className="space-y-0.5">
+																{log.predictive_risk === "CRITICAL" ? (
+																	<Badge className="bg-red-950/80 text-red-400 border-red-800/80 text-[10px] font-semibold">
+																		CRITICAL ({log.risk_score}%)
+																	</Badge>
+																) : log.predictive_risk === "HIGH" ? (
+																	<Badge className="bg-amber-950/80 text-amber-400 border-amber-800/80 text-[10px] font-semibold">
+																		HIGH ({log.risk_score}%)
+																	</Badge>
+																) : log.predictive_risk === "MEDIUM" ? (
+																	<Badge className="bg-yellow-950/80 text-yellow-400 border-yellow-800/80 text-[10px] font-semibold">
+																		MEDIUM ({log.risk_score}%)
+																	</Badge>
+																) : (
+																	<Badge variant="outline" className="text-muted-foreground text-[10px]">
+																		LOW ({log.risk_score}%)
+																	</Badge>
+																)}
+																<div className="text-[10px] text-muted-foreground">{log.risk_category || "General"}</div>
+															</div>
+														</TableCell>
+														<TableCell className="text-right">
+															<Button
+																variant="ghost"
+																size="sm"
+																onClick={() => setSelectedSearchLog(log)}
+																className="h-7 text-xs hover:bg-accent"
+															>
+																Inspect
+															</Button>
+														</TableCell>
+													</TableRow>
+												);
+											})
+										)}
+									</TableBody>
+								</Table>
 							</div>
 						</CardContent>
 					</Card>
@@ -3954,6 +4273,104 @@ export default function BrowserAiPage() {
 							</div>
 						</>
 					)}
+				</DialogContent>
+			</Dialog>
+
+			{/* Search Log Inspection Dialog */}
+			<Dialog open={selectedSearchLog !== null} onOpenChange={(open) => !open && setSelectedSearchLog(null)}>
+				<DialogContent className="max-w-xl bg-card border-border">
+					<DialogHeader>
+						<DialogTitle className="flex items-center gap-2 text-base font-semibold">
+							<Search className="h-4 w-4 text-emerald-400" />
+							Search Event Inspection
+						</DialogTitle>
+						<DialogDescription>
+							Detailed telemetry captured from search engine session
+						</DialogDescription>
+					</DialogHeader>
+
+					{selectedSearchLog && (
+						<div className="space-y-4 text-xs">
+							{/* Query box */}
+							<div className="rounded-md border border-border bg-background p-3 space-y-1">
+								<p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Search Query / Prompt</p>
+								<p className="font-mono text-sm text-foreground font-semibold">
+									{selectedSearchLog.query || "[Direct Result Navigation without Query]"}
+								</p>
+							</div>
+
+							{/* Clicked link if any */}
+							{selectedSearchLog.clicked_url && (
+								<div className="rounded-md border border-border bg-background p-3 space-y-1">
+									<p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Clicked Destination Link</p>
+									<a
+										href={selectedSearchLog.clicked_url}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="inline-flex items-center gap-1.5 text-blue-400 hover:underline font-mono text-xs break-all"
+									>
+										<ExternalLink className="h-3 w-3 shrink-0" />
+										{selectedSearchLog.clicked_url}
+									</a>
+								</div>
+							)}
+
+							{/* Threat Assessment */}
+							<div className="grid grid-cols-2 gap-3">
+								<div className="rounded-md border border-border bg-background p-3 space-y-1">
+									<p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Predictive Threat Risk</p>
+									<div className="flex items-center gap-2">
+										<Badge
+											className={
+												selectedSearchLog.predictive_risk === "CRITICAL"
+													? "bg-red-950/80 text-red-400 border-red-800/80 font-bold"
+													: selectedSearchLog.predictive_risk === "HIGH"
+													? "bg-amber-950/80 text-amber-400 border-amber-800/80 font-bold"
+													: "bg-emerald-950/80 text-emerald-400 border-emerald-800/80"
+											}
+										>
+											{selectedSearchLog.predictive_risk} ({selectedSearchLog.risk_score}%)
+										</Badge>
+										<span className="text-muted-foreground">{selectedSearchLog.risk_category}</span>
+									</div>
+								</div>
+
+								<div className="rounded-md border border-border bg-background p-3 space-y-1">
+									<p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Privacy Mode</p>
+									<div>
+										{selectedSearchLog.is_incognito ? (
+											<Badge className="bg-purple-950/80 text-purple-300 border-purple-800/80 gap-1 font-medium">
+												<EyeOff className="h-3 w-3 text-purple-400" /> Incognito / InPrivate Mode
+											</Badge>
+										) : (
+											<Badge variant="outline" className="text-muted-foreground gap-1">
+												<Eye className="h-3 w-3" /> Normal Browsing
+											</Badge>
+										)}
+									</div>
+								</div>
+							</div>
+
+							{/* Technical Details */}
+							<div className="rounded-md border border-border bg-background p-3 space-y-2">
+								<p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Technical Metadata</p>
+								<div className="grid grid-cols-2 gap-2 text-muted-foreground font-mono text-[11px]">
+									<div><span className="text-foreground font-semibold">Engine:</span> {selectedSearchLog.engine}</div>
+									<div><span className="text-foreground font-semibold">Browser:</span> {selectedSearchLog.browser}</div>
+									<div><span className="text-foreground font-semibold">Client IP:</span> {selectedSearchLog.client_ip}</div>
+									<div><span className="text-foreground font-semibold">Device:</span> {selectedSearchLog.agent_hostname || "Local Endpoint"}</div>
+									<div className="col-span-2 break-all"><span className="text-foreground font-semibold">Host:</span> {selectedSearchLog.host}</div>
+									<div className="col-span-2"><span className="text-foreground font-semibold">Timestamp:</span> {new Date(selectedSearchLog.timestamp).toLocaleString()}</div>
+								</div>
+							</div>
+						</div>
+					)}
+
+					<DialogFooter>
+						<Button variant="outline" size="sm" onClick={() => setSelectedSearchLog(null)}>
+							Close
+						</Button>
+					</DialogFooter>
 				</DialogContent>
 			</Dialog>
 		</div>

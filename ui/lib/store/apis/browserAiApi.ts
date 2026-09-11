@@ -26,6 +26,26 @@ export interface BrowserAILogEntry {
 	created_at: string;
 }
 
+export interface BrowserAISearchLogEntry {
+	id: string;
+	timestamp: string;
+	engine: string;
+	browser: string;
+	is_incognito: boolean;
+	query: string;
+	clicked_url?: string;
+	clicked_title?: string;
+	url: string;
+	host: string;
+	client_ip: string;
+	agent_hostname?: string;
+	agent_id?: string;
+	risk_score?: number;
+	predictive_risk?: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+	risk_category?: string;
+	created_at: string;
+}
+
 export interface BrowserAIAgent {
 	id: string;
 	hostname: string;
@@ -137,6 +157,42 @@ export const browserAiApi = baseApi.injectEndpoints({
 				method: "DELETE",
 			}),
 			invalidatesTags: ["BrowserAiLogs" as any],
+		}),
+
+		getBrowserAiSearchLogs: builder.query<
+			{
+				logs: BrowserAISearchLogEntry[];
+				total: number;
+				incognito_count: number;
+				queries_count: number;
+				clicks_count: number;
+				limit: number;
+				offset: number;
+			},
+			{ engine?: string; browser?: string; is_incognito?: string; search?: string; limit?: number; offset?: number } | void
+		>({
+			query: (params) => ({
+				url: "/browser-ai/search-logs",
+				params: params || {},
+			}),
+			providesTags: ["BrowserAiSearchLogs" as any],
+		}),
+
+		clearBrowserAiSearchLogs: builder.mutation<void, void>({
+			query: () => ({
+				url: "/browser-ai/search-logs",
+				method: "DELETE",
+			}),
+			invalidatesTags: ["BrowserAiSearchLogs" as any],
+		}),
+
+		recordBrowserAiSearchLog: builder.mutation<{ status: string; log: BrowserAISearchLogEntry }, Partial<BrowserAISearchLogEntry>>({
+			query: (body) => ({
+				url: "/browser-ai/search-logs",
+				method: "POST",
+				body,
+			}),
+			invalidatesTags: ["BrowserAiSearchLogs" as any],
 		}),
 
 		getBrowserAiRules: builder.query<{ rules: BrowserGuardRule[] }, void>({
@@ -347,6 +403,9 @@ export const browserAiApi = baseApi.injectEndpoints({
 export const {
 	useGetBrowserAiLogsQuery,
 	useClearBrowserAiLogsMutation,
+	useGetBrowserAiSearchLogsQuery,
+	useClearBrowserAiSearchLogsMutation,
+	useRecordBrowserAiSearchLogMutation,
 	useGetBrowserAiRulesQuery,
 	useGetBrowserAiOllamaModelsQuery,
 	useCreateBrowserAiRuleMutation,

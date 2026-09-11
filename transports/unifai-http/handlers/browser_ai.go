@@ -86,6 +86,10 @@ func (h *BrowserAIHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.GET("/api/browser-ai/logs", lib.ChainMiddlewares(h.getLogs, middlewares...))
 	r.DELETE("/api/browser-ai/logs", lib.ChainMiddlewares(h.deleteLogs, middlewares...))
 
+	r.GET("/api/browser-ai/search-logs", lib.ChainMiddlewares(h.getSearchLogs, middlewares...))
+	r.POST("/api/browser-ai/search-logs", lib.ChainMiddlewares(h.recordSearchLog, middlewares...))
+	r.DELETE("/api/browser-ai/search-logs", lib.ChainMiddlewares(h.deleteSearchLogs, middlewares...))
+
 	r.GET("/api/browser-ai/rules", lib.ChainMiddlewares(h.getRules, middlewares...))
 	r.POST("/api/browser-ai/rules", lib.ChainMiddlewares(h.createRule, middlewares...))
 	r.PUT("/api/browser-ai/rules/{id}", lib.ChainMiddlewares(h.updateRule, middlewares...))

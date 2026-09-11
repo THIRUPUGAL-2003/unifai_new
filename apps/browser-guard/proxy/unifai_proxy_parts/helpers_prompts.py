@@ -255,6 +255,12 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
     if _is_ai_chrome_url(t):
         return False
+    if _is_google_wire_blob(t):
+        return False
+    if t.startswith('[[["') or t.startswith("[[[") or t.startswith("[[null,") or "f.req=" in t:
+        return False
+    if any(rpc in t for rpc in ("xyhAld", "umJEY", "k06x8e", "wrb.fr", "batchexecute", "GmailHttp")):
+        return False
     if _is_opaque_wire_blob(t):
         return False
     if _is_internal_wire_text(t):
@@ -420,6 +426,11 @@ def _body_has_user_send_payload(data) -> bool:
     msgs = data.get("messages")
     if isinstance(msgs, list):
         for msg in reversed(msgs):
+            if isinstance(msg, dict) and _extract_from_message_obj(msg):
+                return True
+    contents = data.get("contents")
+    if isinstance(contents, list):
+        for msg in reversed(contents):
             if isinstance(msg, dict) and _extract_from_message_obj(msg):
                 return True
     # Nested OpenAI/Claude-style content.parts / content.text
@@ -969,7 +980,7 @@ def is_composer_typing_draft(domain: str, prompt: str) -> bool:
         return True
     # We just grew from prev within window — still typing; commit waits for quiet.
     if text.startswith(prev_text) and 1 <= (len(text) - len(prev_text)) <= COMPOSER_DRAFT_MAX_GROW:
-        return False
+        return True
     if prev_text.startswith(text) and 1 <= (len(prev_text) - len(text)) <= COMPOSER_DRAFT_MAX_GROW:
         return True
     return False
@@ -1013,8 +1024,8 @@ def wait_if_composer_unstable(domain: str, prompt: str) -> str | None:
                     # Longer typing won — follow it on THIS request (do not silent-drop;
                     # the longer request may never arrive if the browser aborted).
                     print(
-                        f"[UnifAI Proxy] Composer superseded → commit longer | {domain!r} | "
-                        f"{text[:40]!r} → {cur_text[:40]!r}"
+                        f"[UnifAI Proxy] Composer superseded -> commit longer | {domain!r} | "
+                        f"{text[:40]!r} -> {cur_text[:40]!r}"
                     )
                     text = cur_text
                     hold = _composer_hold_seconds(text)

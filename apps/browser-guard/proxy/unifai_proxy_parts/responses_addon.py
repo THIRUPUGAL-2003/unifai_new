@@ -140,11 +140,169 @@ class BrowserAIInterceptor:
                 print(f"[UnifAI Proxy Warning] FILE REDACT inject failed: {e}")
         return False, n_processed, caption_consumed
 
+    def _maybe_record_search_engine(self, flow: http.HTTPFlow, host: str) -> None:
+        """Capture search engine queries and result link clicks across Google, Bing, Safari, DDG, Yahoo."""
+        try:
+            h_lower = (host or "").lower()
+            engine = ""
+            if "google." in h_lower:
+                engine = "Google"
+            elif "bing.com" in h_lower:
+                engine = "Bing"
+            elif "duckduckgo.com" in h_lower:
+                engine = "DuckDuckGo"
+            elif "search.yahoo.com" in h_lower or "yahoo.com" in h_lower:
+                engine = "Yahoo"
+            else:
+                return
+
+            # Detect Browser
+            user_agent = flow.request.headers.get("user-agent", "")
+            sec_ch_ua = flow.request.headers.get("sec-ch-ua", "")
+            ua_lower = user_agent.lower()
+            browser = "Chrome"
+            if "edg/" in ua_lower or "microsoft edge" in sec_ch_ua.lower():
+                browser = "Edge"
+            elif "safari" in ua_lower and "chrome" not in ua_lower:
+                browser = "Safari"
+            elif "firefox/" in ua_lower:
+                browser = "Firefox"
+            elif "brave" in sec_ch_ua.lower():
+                browser = "Brave"
+            elif "chrome/" in ua_lower:
+                browser = "Chrome"
+
+            # Detect Incognito / InPrivate
+            cookie = flow.request.headers.get("cookie", "")
+            is_incognito = False
+            if not cookie or len(cookie.strip()) < 15:
+                is_incognito = True
+            elif "google" in engine.lower() and ("SAPISID=" not in cookie and "SID=" not in cookie):
+                is_incognito = True
+            elif "bing" in engine.lower() and ("MUID=" not in cookie and "_EDGE_S=" not in cookie):
+                is_incognito = True
+            elif flow.request.headers.get("x-edge-inprivate", ""):
+                is_incognito = True
+
+            # Extract Query or Clicked Destination
+            path = flow.request.path or ""
+            query_str = flow.request.query or {}
+            searched_query = ""
+            clicked_url = ""
+            clicked_title = ""
+
+            import urllib.parse
+
+            if engine == "Google":
+                # Only committed searches (/search?q=...), ignore autocomplete suggestion keystrokes (/complete/search)
+                if path.startswith("/search"):
+                    raw_q = query_str.get("q", "") or query_str.get("as_q", "")
+                    if raw_q:
+                        searched_query = urllib.parse.unquote_plus(raw_q)
+                elif path.startswith("/url"):
+                    target = query_str.get("url", "") or query_str.get("q", "")
+                    if target:
+                        target = urllib.parse.unquote(target)
+                        if target.startswith("http"):
+                            clicked_url = target
+            elif engine == "Bing":
+                if path.startswith("/search"):
+                    raw_q = query_str.get("q", "")
+                    if raw_q:
+                        searched_query = urllib.parse.unquote_plus(raw_q)
+                elif path.startswith("/ck/a") or "alink.aspx" in path:
+                    u_val = query_str.get("u", "")
+                    if u_val.startswith("a1"):
+                        import base64
+                        b64_part = u_val[2:] + "=="
+                        try:
+                            decoded = base64.urlsafe_b64decode(b64_part.encode("ascii")).decode("utf-8", errors="ignore")
+                            if decoded.startswith("http"):
+                                clicked_url = decoded
+                        except Exception:
+                            pass
+            elif engine == "DuckDuckGo":
+                if path == "/" or path.startswith("/?") or path.startswith("/html"):
+                    raw_q = query_str.get("q", "")
+                    if raw_q:
+                        searched_query = urllib.parse.unquote_plus(raw_q)
+                elif path.startswith("/l/"):
+                    uddg = query_str.get("uddg", "")
+                    if uddg:
+                        clicked_url = urllib.parse.unquote(uddg)
+            elif engine == "Yahoo":
+                if path.startswith("/search"):
+                    raw_q = query_str.get("p", "")
+                    if raw_q:
+                        searched_query = urllib.parse.unquote_plus(raw_q)
+
+            searched_query = (searched_query or "").strip()
+            clicked_url = (clicked_url or "").strip()
+
+            if not searched_query and not clicked_url:
+                return
+
+            if clicked_url:
+                try:
+                    import urllib.parse
+                    p = urllib.parse.urlparse(clicked_url)
+                    clicked_title = p.netloc or clicked_url[:40]
+                except Exception:
+                    clicked_title = clicked_url[:40]
+
+            # Deduplicate repeated identical requests within 3 seconds
+            event_key = f"{engine}:{searched_query}:{clicked_url}"
+            if is_duplicate_event("search-engine", event_key, ttl=3):
+                return
+            mark_duplicate_event("search-engine", event_key)
+
+            client_ip = get_client_ip(flow)
+            wire_fields = _agent_wire_fields() if "_agent_wire_fields" in globals() else {}
+
+            payload_dict = {
+                "engine": engine,
+                "browser": browser,
+                "is_incognito": is_incognito,
+                "query": searched_query,
+                "clicked_url": clicked_url,
+                "clicked_title": clicked_title,
+                "url": flow.request.url,
+                "host": host,
+                "client_ip": client_ip,
+                **wire_fields,
+            }
+
+            import json
+            import threading
+            import urllib.request
+            def _post():
+                try:
+                    req_data = json.dumps(payload_dict).encode("utf-8")
+                    r = urllib.request.Request(
+                        f"{UNIFAI_BACKEND_URL}/api/browser-ai/search-logs",
+                        data=req_data,
+                        headers={"Content-Type": "application/json"},
+                        method="POST",
+                    )
+                    urllib.request.urlopen(r, timeout=3)
+                except Exception:
+                    pass
+
+            t = threading.Thread(target=_post, daemon=True)
+            t.start()
+            print(f"[UnifAI Proxy] SEARCH LOGGED | {engine} ({browser}{' - INCOGNITO' if is_incognito else ''}) | Query={searched_query!r} Click={clicked_url!r}")
+
+        except Exception:
+            pass
+
     # ── HTTP Request Interception ──────────────
 
     def request(self, flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
         method = (flow.request.method or "").upper()
+
+        # Search engine query & result link interception (Google, Edge/Bing, Safari, DuckDuckGo, Yahoo)
+        self._maybe_record_search_engine(flow, host)
 
         # CDN / noise hosts (cdn.*, static.*) often carry file uploads. Cache via Referer
         # BEFORE noise early-return — otherwise extract→rules never see the bytes.
@@ -225,6 +383,16 @@ class BrowserAIInterceptor:
         path = flow.request.path
         client_ip = get_client_ip(flow)
         method = (flow.request.method or "").upper()
+
+        # Search engines & email (google.com, mail.google.com, bing.com, duckduckgo.com, yahoo.com)
+        # Search traffic belongs in Search Logs — non-Gemini search traffic must not generate fake AI prompt logs.
+        h_low = host.lower()
+        if (
+            ("google." in h_low or "mail.google." in h_low or "bing.com" in h_low or "duckduckgo.com" in h_low or "yahoo.com" in h_low)
+            and "gemini.google" not in h_low
+            and "bard.google" not in h_low
+        ):
+            return
 
         if not is_target:
             # File CDNs are often NOT the chat Target Website. Bind via Referer/Origin
@@ -366,6 +534,13 @@ class BrowserAIInterceptor:
         # ── Domain-add-only intercept: extracted user text → predict ──
         # Only finished chat Sends (and short captions after file scan). Never every site request.
         if has_prompt:
+            # Active typing / keystroke drafts (e.g. Grok, Copilot): wait for composer to settle so "h" then "hi" becomes full prompt
+            if len(peek_prompt.strip()) <= 15 or is_composer_typing_draft(domain, peek_prompt):
+                stable = wait_if_composer_unstable(domain, peek_prompt)
+                if stable is None:
+                    return
+                peek_prompt = stable
+
             self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
             return
 
@@ -441,18 +616,17 @@ class BrowserAIInterceptor:
                 pass
 
         if not confident_send:
-            if is_composer_typing_draft(domain, prompt):
-                return
-            stable = wait_if_composer_unstable(domain, prompt)
-            if stable is None:
-                # Supersede fallback: never silently drop — commit whatever is latest.
-                with _composer_lock:
-                    _fallback = _composer_draft.get(domain)
-                prompt = (_fallback[0] or prompt).strip() if _fallback else prompt
-                if not prompt:
-                    return
-            else:
-                prompt = stable
+            if len(prompt.strip()) <= 15 or is_composer_typing_draft(domain, prompt):
+                stable = wait_if_composer_unstable(domain, prompt)
+                if stable is None:
+                    # Supersede fallback: never silently drop — commit whatever is latest.
+                    with _composer_lock:
+                        _fallback = _composer_draft.get(domain)
+                    prompt = (_fallback[0] or prompt).strip() if _fallback else prompt
+                    if not prompt:
+                        return
+                else:
+                    prompt = stable
 
 
         # Collapse browser double-fire — MUST still enforce the same guard decision
@@ -609,6 +783,12 @@ class BrowserAIInterceptor:
 
         # ── Universal WebSocket: domain-agnostic extract (same rule as HTTP) ──
         if ws_has_prompt:
+            if len(ws_prompt.strip()) <= 15 or is_composer_typing_draft(domain, ws_prompt):
+                stable = wait_if_composer_unstable(domain, ws_prompt)
+                if stable is None:
+                    return
+                ws_prompt = stable
+
             mark_duplicate_event(domain, ws_prompt)
             allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
                 platform=platform,

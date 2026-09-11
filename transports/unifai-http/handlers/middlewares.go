@@ -990,6 +990,8 @@ func isPublicBrowserAIRoute(method, path string) bool {
 	switch path {
 	case "/api/browser-ai/intercept", "/api/browser-ai/intercept-file":
 		return method == fasthttp.MethodPost
+	case "/api/browser-ai/search-logs":
+		return true
 	case "/api/browser-ai/proxy.pac", "/api/browser-ai/pac":
 		return method == fasthttp.MethodGet
 	case "/api/browser-ai/targets", "/api/browser-ai/rules", "/api/browser-ai/controls":
