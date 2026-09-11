@@ -331,21 +331,25 @@ def _is_internal_wire_text(text: str) -> bool:
         return True
     # Short wire fragments: B-mvY..., J12'54M, U}2T), 7cZ.
     # Keep mostly-digit tokens (formatted IDs) — not opaque wire.
-    # Keep short pure symbols (# @ ! ?) — users type these as prompts.
+    # Keep short pure symbols (# @ ! ? $$$) and light punctuation (hello!) — user prompts.
     if len(t) <= 14 and " " not in t:
         special = sum(1 for c in t if not c.isalnum() and c not in "._-'")
         digits = sum(1 for c in t if c.isdigit())
+        letters = sum(1 for c in t if c.isalpha())
         if digits >= 3 and special <= 2 and all(c.isdigit() or c in "+#*-(). " for c in t):
             return False
-        if len(t) <= 3 and not any(c.isalnum() for c in t):
+        # Pure symbol / punctuation prompts (no letters/digits)
+        if not any(c.isalnum() for c in t):
             return False
         if len(t) == 1:
+            return False
+        # Word + light trailing/leading punctuation (hello!, hi?, @tag) — not wire
+        if letters >= 2 and special <= 2 and letters >= special:
             return False
         if special >= 1 and len(t) <= 10:
             return True
         if special >= 2:
             return True
-        letters = sum(1 for c in t if c.isalpha())
         if letters and digits and special and len(t) <= 12:
             return True
     return False

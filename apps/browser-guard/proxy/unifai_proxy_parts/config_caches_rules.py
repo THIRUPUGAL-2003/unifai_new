@@ -1248,6 +1248,14 @@ def _looks_like_binary_or_wire_garbage(text: str) -> bool:
     space = sum(1 for c in t if c.isspace())
     other = len(t) - alnum - space
     specials = {c for c in t if not c.isalnum() and not c.isspace()}
+    letters = sum(1 for c in t if c.isalpha())
+
+    # User-typed short symbols / light punctuation must stay in Prompt Logs
+    # (confident Send: "#@!", "$$$", "?", "hello!"). Do not treat as IDE soup.
+    if len(t) <= 16 and alnum == 0 and other >= 1:
+        return False
+    if len(t) <= 24 and letters >= 2 and other <= 2 and letters >= other:
+        return False
 
     # Short / medium strings with symbol soup (IDE wire frames, encrypted chunks)
     if len(t) <= 96:
@@ -1255,7 +1263,6 @@ def _looks_like_binary_or_wire_garbage(text: str) -> bool:
             return True
         if other / len(t) >= 0.42 and other >= 3:
             return True
-        letters = sum(1 for c in t if c.isalpha())
         vowels = sum(1 for c in t.lower() if c in "aeiou")
         if letters >= 4 and other >= 5 and vowels <= 1:
             return True
