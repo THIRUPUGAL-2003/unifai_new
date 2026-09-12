@@ -1,7 +1,7 @@
 UnifAI Guard — macOS Employee Install Guide
 ==========================================
 
-Company server: (set SERVER_DOMAIN in .env — run sync_config_from_env.py)
+Company server: https://unifaiv2.dev-yp.com
 (If IT gave you a different backend URL, use the config in this ZIP.)
 
 INSTALL (turn ON)

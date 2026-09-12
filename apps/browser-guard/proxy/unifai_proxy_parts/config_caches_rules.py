@@ -33,8 +33,13 @@ from mitmproxy import http
 # Configuration
 # ─────────────────────────────────────────────
 
-# Backend URL (set by docker-compose environment variable)
-UNIFAI_BACKEND_URL = os.getenv("UNIFAI_BACKEND_URL", "https://unifaiv2.dev-yp.com")
+# Backend URL — set UNIFAI_BACKEND_URL (compose/agent). No customer domain in source.
+UNIFAI_BACKEND_URL = (os.getenv("UNIFAI_BACKEND_URL") or os.getenv("SERVER_DOMAIN") or "").rstrip("/")
+if not UNIFAI_BACKEND_URL:
+	print(
+		"[UnifAI Proxy WARNING] UNIFAI_BACKEND_URL / SERVER_DOMAIN not set — "
+		"set it in .env / compose (do not hardcode domains in source)"
+	)
 UNIFAI_AGENT_ID = os.getenv("UNIFAI_AGENT_ID", "")
 UNIFAI_AGENT_HOSTNAME = os.getenv("UNIFAI_AGENT_HOSTNAME", "")
 UNIFAI_AGENT_TYPE = (os.getenv("UNIFAI_AGENT_TYPE") or "").strip().lower()

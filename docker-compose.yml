@@ -1,29 +1,32 @@
 services:
   # Employees: Guard EXE on each laptop (local :8085) AND/OR shared network proxy below.
   # Both report to the same Browser AI dashboard (Prompt Logs + Agents + shared rules).
+  # Secrets and environment-specific hosts MUST come from .env — no hardcoded fallbacks.
   zen_gauss_v1:
     image: unifai-local:latest
     container_name: zen_gauss_v1
+    env_file:
+      - .env
     environment:
       - APP_DIR=${APP_DIR:-/app/data}
       - APP_PORT=${APP_PORT:-8081}
       - APP_HOST=${APP_HOST:-0.0.0.0}
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_STYLE=${LOG_STYLE:-json}
-      - SERVER_DOMAIN=${SERVER_DOMAIN:-https://unifaiv2.dev-yp.com}
-      # Database (DB_TYPE=postgres|mysql|mariadb|sqlite — same HOST/USER/PASSWORD/NAME)
+      - SERVER_DOMAIN=${SERVER_DOMAIN:?set SERVER_DOMAIN in .env}
       - DB_TYPE=${DB_TYPE:-postgres}
-      - DB_HOST=${DB_HOST:-76.13.243.253}
-      - DB_PORT=${DB_PORT:-32768}
-      - DB_NAME=${DB_NAME:-Unifai_test}
-      - DB_USER=${DB_USER:-Unifai_test}
-      - DB_PASSWORD=${DB_PASSWORD:-YP2025-2026yp}
+      - DB_HOST=${DB_HOST:?set DB_HOST in .env}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:?set DB_NAME in .env}
+      - DB_USER=${DB_USER:?set DB_USER in .env}
+      - DB_PASSWORD=${DB_PASSWORD:?set DB_PASSWORD in .env}
       - DB_SSL_MODE=${DB_SSL_MODE:-disable}
-      # Admin Credentials
-      - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@yespanchi.com}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-YP2025-2026yp}
-      # AI Guard Bot → Ollama
-      - BROWSER_AI_OLLAMA_URL=${OLLAMA_URL:-http://1Panel-ollama-IjuM:11434}
+      - ADMIN_EMAIL=${ADMIN_EMAIL:?set ADMIN_EMAIL in .env}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
+      - BROWSER_AI_OLLAMA_URL=${OLLAMA_URL:?set OLLAMA_URL in .env}
+      - OLLAMA_URL=${OLLAMA_URL:?set OLLAMA_URL in .env}
+      - UNIFAI_COMPANY_NAME=${UNIFAI_COMPANY_NAME:-UnifAI}
+      - UNIFAI_COMPANY_LOGO=${UNIFAI_COMPANY_LOGO:-/logo.png}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
@@ -44,7 +47,6 @@ services:
 
   # Shared/network Guard proxy — same UnifAI Browser AI dashboard as laptop EXE.
   # Point office PAC/GPO to: https://<backend>/api/browser-ai/pac?proxy=<this-host>:8082
-  # Avoid double-MITM: do not also force laptop Guard PAC for the same office traffic.
   unifai_broswer_proxy:
     image: mitmproxy/mitmproxy:latest
     container_name: unifai_broswer_proxy

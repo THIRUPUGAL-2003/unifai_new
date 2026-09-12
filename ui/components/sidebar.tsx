@@ -65,7 +65,7 @@ import {
 	useSidebar,
 } from "@/components/ui/sidebar";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import { IS_ENTERPRISE } from "@/lib/constants/config";
+import { IS_ENTERPRISE, COMPANY_NAME, COMPANY_LOGO, COMPANY_SHORT_NAME } from "@/lib/constants/config";
 import { useGetCoreConfigQuery, useGetLatestReleaseQuery, useGetVersionQuery, useLogoutMutation, useIsAuthEnabledQuery } from "@/lib/store";
 import {
 	parseAdminAllowedSections,
@@ -124,19 +124,7 @@ const productionSetupHelpCard = {
 	title: "Need help with production setup?",
 	description: (
 		<>
-			We offer help with production setup including custom integrations and dedicated support.
-			<br />
-			<br />
-			Book a demo with our team{" "}
-			<a
-				href="https://calendly.com/maximai/unifai-demo?utm_source=bfd_sdbr"
-				target="_blank"
-				className="text-primary font-medium underline"
-				rel="noopener noreferrer"
-			>
-				here
-			</a>
-			.
+			We offer help with production setup including custom integrations and dedicated enterprise support.
 		</>
 	),
 	dismissible: true,
@@ -1270,8 +1258,8 @@ export default function AppSidebar() {
 	};
 
 	// Always render the light theme version for SSR to avoid hydration mismatch
-	const logoSrc = "/yes-panchi-logo.png";
-	const iconSrc = "/yes-panchi-logo.png";
+	const logoSrc = COMPANY_LOGO;
+	const iconSrc = COMPANY_LOGO;
 
 	const { isConnected: isWebSocketConnected } = useWebSocket();
 
@@ -1367,7 +1355,7 @@ export default function AppSidebar() {
 				{/* Expanded state: horizontal layout */}
 				<div className="flex h-10 w-full items-center justify-between px-1.5 group-data-[collapsible=icon]:hidden">
 					<Link to="/workspace/logs" className="group flex items-center gap-2 pl-2">
-						<img className="h-8 w-auto max-w-[140px] object-contain" src={logoSrc} alt="YesPanchi Group of Companies" width={140} height={32} />
+						<img className="h-8 w-auto max-w-[140px] object-contain" src={logoSrc} alt={COMPANY_NAME} width={140} height={32} />
 					</Link>
 					<button
 						onClick={toggleSidebar}
@@ -1384,7 +1372,7 @@ export default function AppSidebar() {
 					className="hidden w-full cursor-pointer flex-col items-center gap-2 py-2 group-data-[collapsible=icon]:flex"
 					onClick={toggleSidebar}
 				>
-					<img className="h-7 w-auto max-w-[28px] object-contain" src={iconSrc} alt="YesPanchi" width={28} height={28} />
+					<img className="h-7 w-auto max-w-[28px] object-contain" src={iconSrc} alt={COMPANY_SHORT_NAME} width={28} height={28} />
 				</div>
 			</SidebarHeader>
 			{envLabel && (

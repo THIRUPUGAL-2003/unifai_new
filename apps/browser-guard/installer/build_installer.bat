@@ -20,9 +20,14 @@ if not exist config\unifai_guard_config.json (
   exit /b 1
 )
 
-findstr /C:"unifaiv2.dev-yp.com" config\unifai_guard_config.json >nul
+findstr /C:"backend_url" config\unifai_guard_config.json >nul
 if errorlevel 1 (
-  echo WARNING: backend_url may not be production unifaiv2.dev-yp.com — check config\unifai_guard_config.json
+  echo WARNING: config\unifai_guard_config.json missing backend_url — run sync_config_from_env.py
+)
+python scripts\sync_config_from_env.py
+if errorlevel 1 (
+  echo ERROR: set SERVER_DOMAIN in repo .env then: python apps/browser-guard/scripts/sync_config_from_env.py
+  exit /b 1
 )
 
 echo.
@@ -43,7 +48,7 @@ if not exist installer\staging mkdir installer\staging
 if not exist release mkdir release
 
 copy /Y dist\UnifAI_Guard.exe installer\staging\UnifAI_Guard.exe >nul
-copy /Y config\unifai_guard_config.json installer\staging\unifai_guard_config.json >nul
+copy /Y release\unifai_guard_config.json installer\staging\unifai_guard_config.json >nul
 copy /Y installer\unifai_guard.ico installer\staging\unifai_guard.ico >nul
 if exist installer\EMPLOYEE_README.txt copy /Y installer\EMPLOYEE_README.txt installer\staging\EMPLOYEE_README.txt >nul
 
@@ -75,7 +80,7 @@ echo    release\UnifAI_Guard_Setup.exe
 echo  Portable EXE:
 echo    release\UnifAI_Guard.exe  (and dist\UnifAI_Guard.exe)
 echo  Backend:
-echo    https://unifaiv2.dev-yp.com
+echo  Backend: (from .env SERVER_DOMAIN — see config\unifai_guard_config.json)
 echo ============================================================
 dir release\UnifAI_Guard_Setup.exe
 dir release\UnifAI_Guard.exe

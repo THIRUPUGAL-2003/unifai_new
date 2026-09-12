@@ -13,17 +13,7 @@ const NotAvailableBanner = () => {
 					<AlertDescription className="mt-2 space-y-2 text-xs">
 						<div>The UI requires a database connection to store configuration data, but no database is currently configured.</div>
 						<div className="text-muted-foreground">
-							To enable the UI, please add the database settings to your config.json (see{" "}
-							<a
-								href="https://www.getmaxim.ai/unifai/docs/quickstart/gateway/setting-up#two-configuration-modes"
-								target="_blank"
-								rel="noopener noreferrer"
-								className="font-medium underline underline-offset-2"
-								data-testid="config-store-documentation-link"
-							>
-								documentation
-							</a>
-							).
+							To enable the UI, please configure the database settings in your .env or config.json.
 						</div>
 					</AlertDescription>
 				</Alert>

@@ -1,10 +1,10 @@
 {
-  "backend_url": "https://unifaiv2.dev-yp.com",
+  "backend_url": "",
   "proxy_addr": "127.0.0.1:8085",
   "pac_sync_seconds": 3,
   "server_mode": false,
   "agent_type": "endpoint",
   "listen_host": "127.0.0.1",
   "pac_advertise_addr": "",
-  "_comment": "Endpoint (default): install on each laptop. Network/server: set server_mode=true, listen_host=0.0.0.0, proxy_addr + pac_advertise_addr to corp DNS:port. Same UnifAI Browser AI dashboard for both."
+  "_comment": "Source template \u2014 run sync_config_from_env.py before packaging (fills from .env)"
 }

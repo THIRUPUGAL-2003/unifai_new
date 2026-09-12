@@ -1,4 +1,5 @@
 import { ThemeProvider } from "@/components/themeProvider";
+import { COMPANY_LOGO, COMPANY_NAME } from "@/lib/constants/config";
 import { ReduxProvider } from "@/lib/store/provider";
 import { getLoginGotoFromSearch } from "@/lib/utils/loginGoto";
 import { fetchSessionAuth, resolvePostLoginPath } from "@/lib/utils/workspaceAccess";
@@ -27,7 +28,7 @@ function PendingComponent() {
 				<div className="w-full max-w-md">
 					<div className="border-border bg-card w-full space-y-6 rounded-sm border p-8">
 						<div className="flex items-center justify-center">
-							<img src="/yes-panchi-logo.png" alt="YesPanchi Group of Companies" width={160} height={26} />
+							<img src={COMPANY_LOGO} alt={COMPANY_NAME} width={160} height={26} />
 						</div>
 						<div className="flex items-center justify-center py-6">
 							<div className="text-muted-foreground text-sm">Checking authentication...</div>

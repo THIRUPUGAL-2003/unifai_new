@@ -30,7 +30,7 @@ def _parts_dir() -> Path:
     here = Path(__file__).resolve().parent
     cand = here / _PARTS_DIR_NAME
     if cand.is_dir():
-        return cand
+                return cand
     # PyInstaller: datas land in _MEIPASS
     meipass = getattr(sys, "_MEIPASS", None)
     if meipass:
@@ -52,7 +52,7 @@ def _load_parts() -> None:
             for ln in manifest.read_text(encoding="utf-8-sig").splitlines()
             if ln.strip().lstrip("\ufeff")
         ]
-    else:
+            else:
         names = sorted(p.name for p in parts.glob("*.py") if not p.name.startswith("_"))
     if not names:
         raise RuntimeError(f"No proxy parts found in {parts}")

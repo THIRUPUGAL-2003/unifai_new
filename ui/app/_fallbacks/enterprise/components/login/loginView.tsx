@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { COMPANY_LOGO, COMPANY_NAME } from "@/lib/constants/config";
 import { getErrorMessage, useForgotPasswordMutation, useLoginMutation, useResetPasswordMutation } from "@/lib/store/apis";
 import { resolvePostLoginPath } from "@/lib/utils/workspaceAccess";
 import { Activity, Eye, EyeOff, Globe, Lock, Shield, ShieldAlert, Upload } from "lucide-react";
@@ -65,14 +66,14 @@ export default function LoginView() {
 				<header className="flex items-center justify-between">
 					<div className="flex min-w-0 items-center gap-4">
 						<img
-							src="/yes-panchi-logo.png"
-							alt="YesPanchi Group of Companies"
+							src={COMPANY_LOGO}
+							alt={COMPANY_NAME}
 							className="h-14 sm:h-[4.25rem] w-auto max-w-[min(56vw,280px)] shrink-0 object-contain object-left"
 						/>
 						<div className="hidden h-10 w-px shrink-0 bg-white/15 sm:block" />
 						<div className="min-w-0">
 							<p className="text-xl font-bold tracking-tight text-white">UnifAI Guard</p>
-							<p className="text-[11px] tracking-[0.16em] text-[#7d8896] uppercase">YesPanchi Group of Companies</p>
+							<p className="text-[11px] tracking-[0.16em] text-[#7d8896] uppercase">{COMPANY_NAME}</p>
 						</div>
 					</div>
 					<div className="hidden items-center gap-2 rounded-full border border-[#1f2833] bg-[#12141c]/70 px-3 py-1.5 text-xs text-[#8b949e] sm:flex">
@@ -332,7 +333,7 @@ export default function LoginView() {
 
 			<footer className="relative z-10 mt-auto border-t border-[#1f2833]/80 bg-[#07080c]/85 backdrop-blur-md">
 				<p className="px-5 py-3.5 text-center text-[11px] font-medium tracking-[0.18em] text-[#7d8896] uppercase">
-					YesPanchi Group of Companies
+					{COMPANY_NAME}
 				</p>
 			</footer>
 		</div>

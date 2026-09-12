@@ -8,7 +8,7 @@ import sys
 
 from guard_platform import data_dir
 
-DEFAULT_BACKEND = "https://unifaiv2.dev-yp.com"
+DEFAULT_BACKEND = ""  # Set UNIFAI_BACKEND_URL or SERVER_DOMAIN / unifai_guard_config.json backend_url
 AGENT_VERSION = "1.6.25"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
@@ -74,7 +74,14 @@ def load_runtime_config() -> dict:
             return str(val).strip()
         return default
 
-    backend = pick("UNIFAI_BACKEND_URL", "backend_url", DEFAULT_BACKEND).rstrip("/")
+    backend = pick("UNIFAI_BACKEND_URL", "backend_url", "").rstrip("/")
+    if not backend:
+        backend = (os.environ.get("SERVER_DOMAIN") or DEFAULT_BACKEND or "").strip().rstrip("/")
+    if not backend:
+        print(
+            "[UnifAI Guard ERROR] backend_url missing — set UNIFAI_BACKEND_URL / SERVER_DOMAIN "
+            "or backend_url in unifai_guard_config.json"
+        )
     proxy_addr = pick("UNIFAI_PROXY_ADDR", "proxy_addr", "127.0.0.1:8085")
     pac_url = pick("UNIFAI_PAC_URL", "pac_url", f"{backend}/api/browser-ai/pac")
     # Default 3s: Monitor/Block host list enters PAC same few seconds (not 10–30s wait).

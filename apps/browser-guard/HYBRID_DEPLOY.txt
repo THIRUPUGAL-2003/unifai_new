@@ -66,5 +66,5 @@ Verify
   Agents tab shows network agent heartbeat
   Prompt on a Target Website appears in Prompt Logs
 
-Configured backend (edit before rollout):
-  https://unifaiv2.dev-yp.com
+Configured backend (from .env SERVER_DOMAIN — run sync_config_from_env.py):
+  ${SERVER_DOMAIN}

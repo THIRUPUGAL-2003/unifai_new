@@ -8,7 +8,6 @@ import { useEffect, useMemo } from "react";
 import BigQueryView from "./plugins/bigqueryView";
 import DatadogView from "./plugins/datadogView";
 import KafkaView from "./plugins/kafkaView";
-import MaximView from "./plugins/maximView";
 import NewrelicView from "./plugins/newRelicView";
 import OtelView from "./plugins/otelView";
 import PrometheusView from "./plugins/prometheusView";
@@ -43,11 +42,6 @@ const supportedPlatformsList = (resolvedTheme: string): SupportedPlatform[] => [
 		id: "prometheus",
 		name: "Prometheus",
 		icon: <img alt="Prometheus" src="/images/prometheus-logo.svg" width={21} height={21} className="-ml-0.5" />,
-	},
-	{
-		id: "maxim",
-		name: "Maxim",
-		icon: <img alt="Maxim" src={`/maxim-logo${resolvedTheme === "dark" ? "-dark" : ""}.webp`} width={19} height={19} />,
 	},
 	{
 		id: "datadog",
@@ -182,7 +176,6 @@ export default function ObservabilityView() {
 			<div className="w-full pt-4">
 				{selectedPluginId === "prometheus" && <PrometheusView />}
 				{selectedPluginId === "otel" && <OtelView />}
-				{selectedPluginId === "maxim" && <MaximView />}
 				{selectedPluginId === "kafka" && <KafkaView />}
 				{selectedPluginId === "datadog" && <DatadogView />}
 				{selectedPluginId === "bigquery" && <BigQueryView />}

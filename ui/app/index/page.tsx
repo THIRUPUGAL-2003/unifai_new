@@ -17,6 +17,7 @@ import {
 import { useEffect, useState } from "react";
 import { getApiBaseUrl } from "@/lib/utils/port";
 import { DOCS } from "@/lib/constants/docs";
+import { COMPANY_LOGO, COMPANY_NAME } from "@/lib/constants/config";
 
 export default function LandingPage() {
 	const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -81,9 +82,9 @@ const response = await openai.chat.completions.create({
 console.log(response.choices[0].message.content);`
 	};
 
-	const companyLogoSrc = "/yes-panchi-logo.png";
+	const companyLogoSrc = COMPANY_LOGO;
 	const productName = "UniFAI";
-	const companyFullName = "YesPanchi Group of Companies";
+	const companyFullName = COMPANY_NAME;
 
 	return (
 		<div className="bg-[#0b0c10] text-[#c5c6c7] min-h-screen font-sans selection:bg-[#45f3ff]/30 selection:text-white overflow-x-hidden">
@@ -278,7 +279,7 @@ console.log(response.choices[0].message.content);`
 					<div className="p-1 sm:p-2 bg-gradient-to-b from-[#12141c] to-[#0b0c10]">
 						<img
 							src="/static/mockup.png"
-							alt="YesPanchi Gateway Dashboard"
+							alt={`${companyFullName} Gateway Dashboard`}
 							className="w-full h-auto rounded-lg border border-[#1f2833]/20 object-cover"
 							onError={(e) => {
 								// Fallback: If image fails to load, replace it with a styled grid dashboard skeleton

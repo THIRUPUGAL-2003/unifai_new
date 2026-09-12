@@ -73,7 +73,7 @@ func addOllamaURLCandidate(seen map[string]bool, out *[]string, raw string) {
 func ollamaBaseURLCandidates() []string {
 	seen := map[string]bool{}
 	out := make([]string, 0, 8)
-	for _, key := range []string{"BROWSER_AI_OLLAMA_URL", "OLLAMA_BASE_URL"} {
+	for _, key := range []string{"BROWSER_AI_OLLAMA_URL", "OLLAMA_URL", "OLLAMA_BASE_URL"} {
 		addOllamaURLCandidate(seen, &out, os.Getenv(key))
 	}
 	ollamaURLCacheMu.RLock()
@@ -81,16 +81,10 @@ func ollamaBaseURLCandidates() []string {
 		addOllamaURLCandidate(seen, &out, cachedOllamaBaseURL)
 	}
 	ollamaURLCacheMu.RUnlock()
-	// 1Panel Ollama on shared docker network (zen_gauss_v1 + 1Panel-ollama-*)
-	addOllamaURLCandidate(seen, &out, "http://1Panel-ollama-IjuM:11434")
+	// Generic local / compose service names only — no deployment-specific hosts.
 	addOllamaURLCandidate(seen, &out, "http://ollama:11434")
 	addOllamaURLCandidate(seen, &out, "http://host.docker.internal:11434")
-	addOllamaURLCandidate(seen, &out, "http://172.17.0.1:11434")
 	addOllamaURLCandidate(seen, &out, "http://127.0.0.1:11434")
-	// Opt-in legacy remote only when explicitly allowed (avoids burning eval timeout).
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("BROWSER_AI_OLLAMA_ALLOW_LEGACY")), "1") {
-		addOllamaURLCandidate(seen, &out, "http://76.13.243.253:11434")
-	}
 	return out
 }
 

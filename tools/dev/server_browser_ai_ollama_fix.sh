@@ -1,9 +1,9 @@
 #!/bin/sh
-# Wire AI Guard Bot → Ollama on srv1405395 (same host as unifaiv2.dev-yp.com).
-# Run on the server as root:  sh tools/dev/server_browser_ai_ollama_fix.sh
+# Wire AI Guard Bot → Ollama. All hosts come from env (.env / BROWSER_AI_OLLAMA_URL / OLLAMA_URL).
+# Run:  sh tools/dev/server_browser_ai_ollama_fix.sh
 set -e
 
-OLLAMA_URL="${BROWSER_AI_OLLAMA_URL:-http://127.0.0.1:11434}"
+OLLAMA_URL="${BROWSER_AI_OLLAMA_URL:-${OLLAMA_URL:-http://127.0.0.1:11434}}"
 
 echo "=== 1) Ollama health (host) ==="
 if ! curl -sf "${OLLAMA_URL}/api/tags" >/dev/null; then
@@ -49,18 +49,9 @@ if docker exec "$CID" wget -q -O - "${DOCKER_OLLAMA}/api/tags" 2>/dev/null | hea
   echo "OK: container can reach Ollama at ${DOCKER_OLLAMA}"
   OLLAMA_FOR_CONTAINER="$DOCKER_OLLAMA"
 else
-  PUB="http://76.13.243.253:11434"
-  if docker exec "$CID" wget -q -O - "${PUB}/api/tags" 2>/dev/null | head -c 120; then
-    echo ""
-    echo "OK: container can reach Ollama at ${PUB}"
-    OLLAMA_FOR_CONTAINER="$PUB"
-  else
-    echo "FAIL: backend container cannot reach Ollama."
-    echo "Add to UnifAI docker-compose / 1Panel env:"
-    echo "  BROWSER_AI_OLLAMA_URL=http://host.docker.internal:11434"
-    echo "  extra_hosts: host.docker.internal:host-gateway"
-    exit 1
-  fi
+  echo "FAIL: backend container cannot reach Ollama at ${DOCKER_OLLAMA}"
+  echo "Set BROWSER_AI_OLLAMA_URL / OLLAMA_URL to a URL reachable from the container (see .env)."
+  exit 1
 fi
 
 echo ""

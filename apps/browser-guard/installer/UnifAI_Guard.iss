@@ -4,7 +4,7 @@
 #define MyAppName "UnifAI Guard"
 #define MyAppVersion "1.6.25"
 #define MyAppPublisher "UnifAI"
-#define MyAppURL "https://unifaiv2.dev-yp.com"
+#define MyAppURL "http://127.0.0.1:8081"
 #define MyAppExeName "UnifAI_Guard.exe"
 
 [Setup]

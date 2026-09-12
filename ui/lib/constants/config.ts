@@ -343,3 +343,8 @@ export const PROVIDER_SUPPORTED_REQUESTS: Record<BaseProvider, string[]> = {
 
 export const IS_ENTERPRISE = process.env.UNIFAI_IS_ENTERPRISE === "true";
 export const TRIAL_EXPIRY = parseTrialExpiry(process.env.UNIFAI_ENTERPRISE_TRIAL_EXPIRY);
+
+/** Dashboard branding — set UNIFAI_COMPANY_NAME / UNIFAI_COMPANY_LOGO in .env (build/runtime). */
+export const COMPANY_NAME = (process.env.UNIFAI_COMPANY_NAME || "UnifAI").trim() || "UnifAI";
+export const COMPANY_LOGO = (process.env.UNIFAI_COMPANY_LOGO || "/logo.png").trim() || "/logo.png";
+export const COMPANY_SHORT_NAME = COMPANY_NAME.split(/\s+/)[0] || "UnifAI";
