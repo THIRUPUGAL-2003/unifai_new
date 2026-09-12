@@ -86,6 +86,7 @@ type WorkspaceStore interface {
 
 	GetWorkspaceSetting(ctx context.Context, key string) (*tables.TableWorkspaceSetting, error)
 	UpsertWorkspaceSetting(ctx context.Context, key, data string) error
+	DeleteWorkspaceSetting(ctx context.Context, key string) error
 
 	ListAuditLogs(ctx context.Context, query AuditLogQuery) ([]tables.TableAuditLog, int64, error)
 	CreateAuditLog(ctx context.Context, row *tables.TableAuditLog) error
@@ -383,6 +384,17 @@ func (s *RDBConfigStore) UpsertWorkspaceSetting(ctx context.Context, key, data s
 		Columns:   []clause.Column{{Name: "key"}},
 		DoUpdates: clause.AssignmentColumns([]string{"data", "updated_at"}),
 	}).Create(&row).Error
+}
+
+func (s *RDBConfigStore) DeleteWorkspaceSetting(ctx context.Context, key string) error {
+	res := s.DB().WithContext(ctx).Where("key = ?", key).Delete(&tables.TableWorkspaceSetting{})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (s *RDBConfigStore) ListAuditLogs(ctx context.Context, query AuditLogQuery) ([]tables.TableAuditLog, int64, error) {

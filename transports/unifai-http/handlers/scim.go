@@ -94,6 +94,32 @@ func (h *WorkspaceHandler) listSCIMProviders(ctx *fasthttp.RequestCtx) {
 	SendJSON(ctx, []map[string]any{{"provider": cfg.Provider, "enabled": cfg.Enabled}})
 }
 
+func (h *WorkspaceHandler) listConnectors(ctx *fasthttp.RequestCtx) {
+	store := h.requireStore(ctx)
+	if store == nil {
+		return
+	}
+	out := make([]map[string]any, 0, len(connectors.ConnectorNames))
+	for _, name := range connectors.ConnectorNames {
+		row, err := store.GetWorkspaceSetting(ctx, configstore.WorkspaceSettingConnector(name))
+		if isStoreNotFound(err) {
+			continue
+		}
+		if err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "failed to load connectors")
+			return
+		}
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(row.Data), &payload); err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "failed to parse connector")
+			return
+		}
+		payload["name"] = name
+		out = append(out, payload)
+	}
+	SendJSON(ctx, map[string]any{"connectors": out, "count": len(out)})
+}
+
 func (h *WorkspaceHandler) getConnector(ctx *fasthttp.RequestCtx) {
 	store := h.requireStore(ctx)
 	if store == nil {
@@ -120,6 +146,29 @@ func (h *WorkspaceHandler) getConnector(ctx *fasthttp.RequestCtx) {
 	}
 	payload["name"] = name
 	SendJSON(ctx, payload)
+}
+
+func (h *WorkspaceHandler) deleteConnector(ctx *fasthttp.RequestCtx) {
+	store := h.requireStore(ctx)
+	if store == nil {
+		return
+	}
+	name := pathID(ctx, "name")
+	if !connectors.IsKnown(name) {
+		SendError(ctx, fasthttp.StatusNotFound, "unknown connector")
+		return
+	}
+	if err := store.DeleteWorkspaceSetting(ctx, configstore.WorkspaceSettingConnector(name)); err != nil {
+		if isStoreNotFound(err) {
+			SendError(ctx, fasthttp.StatusNotFound, "connector not configured")
+			return
+		}
+		SendError(ctx, fasthttp.StatusInternalServerError, "failed to delete connector")
+		return
+	}
+	connectors.Default.Remove(name)
+	ReloadEnterpriseRuntimeFromStore(store, h.store)
+	SendJSON(ctx, map[string]any{"name": name, "deleted": true})
 }
 
 func (h *WorkspaceHandler) updateConnector(ctx *fasthttp.RequestCtx) {

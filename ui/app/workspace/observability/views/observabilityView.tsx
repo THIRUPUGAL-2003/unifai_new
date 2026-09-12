@@ -1,10 +1,25 @@
 import FullPageLoader from "@/components/fullPageLoader";
 import { Badge } from "@/components/ui/badge";
-import { setSelectedPlugin, useAppDispatch, useGetPluginsQuery } from "@/lib/store";
+import {
+	getErrorMessage,
+	setSelectedPlugin,
+	useAppDispatch,
+	useCreatePluginMutation,
+	useDeletePluginMutation,
+	useGetPluginsQuery,
+} from "@/lib/store";
 import { cn } from "@/lib/utils";
+import {
+	useDeleteConnectorMutation,
+	useGetConnectorsQuery,
+	useUpdateConnectorMutation,
+} from "@enterprise/lib/store/apis/connectorsApi";
+import { Cable } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useQueryState } from "nuqs";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { AddConnectorDropdown } from "./addConnectorDropdown";
 import BigQueryView from "./plugins/bigqueryView";
 import DatadogView from "./plugins/datadogView";
 import KafkaView from "./plugins/kafkaView";
@@ -17,14 +32,20 @@ type SupportedPlatform = {
 	id: string;
 	name: string;
 	icon: React.ReactNode;
+	kind: "plugin" | "connector";
+	pluginName?: string;
 	tag?: string;
 	disabled?: boolean;
 };
 
-const supportedPlatformsList = (resolvedTheme: string): SupportedPlatform[] => [
+const ENTERPRISE_CONNECTOR_IDS = new Set(["datadog", "bigquery", "kafka", "pubsub", "newrelic"]);
+
+const supportedPlatformsList = (_resolvedTheme: string): SupportedPlatform[] => [
 	{
 		id: "otel",
 		name: "Open Telemetry",
+		kind: "plugin",
+		pluginName: "otel",
 		icon: (
 			<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width={21} height={21}>
 				<path
@@ -41,31 +62,38 @@ const supportedPlatformsList = (resolvedTheme: string): SupportedPlatform[] => [
 	{
 		id: "prometheus",
 		name: "Prometheus",
+		kind: "plugin",
+		pluginName: "telemetry",
 		icon: <img alt="Prometheus" src="/images/prometheus-logo.svg" width={21} height={21} className="-ml-0.5" />,
 	},
 	{
 		id: "datadog",
 		name: "Datadog",
+		kind: "connector",
 		icon: <img alt="Datadog" src="/images/datadog-logo.webp" width={32} height={32} className="-ml-0.5" />,
 	},
 	{
 		id: "bigquery",
 		name: "BigQuery",
+		kind: "connector",
 		icon: <img alt="BigQuery" src="/images/bigquery-logo.svg" width={21} height={21} className="-ml-0.5" />,
 	},
 	{
 		id: "kafka",
 		name: "Kafka",
+		kind: "connector",
 		icon: <img alt="Kafka" src="/images/kafka-logo.svg" width={21} height={21} className="-ml-0.5" />,
 	},
 	{
 		id: "pubsub",
 		name: "Pub/Sub",
+		kind: "connector",
 		icon: <img alt="Pub/Sub" src="/images/pubsub-logo.svg" width={21} height={21} className="-ml-0.5" />,
 	},
 	{
 		id: "newrelic",
 		name: "New Relic",
+		kind: "connector",
 		icon: (
 			<svg viewBox="0 0 832.8 959.8" xmlns="http://www.w3.org/2000/svg" width="19" height="19">
 				<path d="M672.6 332.3l160.2-92.4v480L416.4 959.8V775.2l256.2-147.6z" fill="#00ac69" />
@@ -78,51 +106,142 @@ const supportedPlatformsList = (resolvedTheme: string): SupportedPlatform[] => [
 
 export default function ObservabilityView() {
 	const dispatch = useAppDispatch();
-	const { data: plugins, isLoading } = useGetPluginsQuery();
+	const { data: plugins, isLoading: isLoadingPlugins } = useGetPluginsQuery();
+	const { data: connectors, isLoading: isLoadingConnectors } = useGetConnectorsQuery();
+	const [createPlugin] = useCreatePluginMutation();
+	const [deletePlugin, { isLoading: isDeletingPlugin }] = useDeletePluginMutation();
+	const [updateConnector] = useUpdateConnectorMutation();
+	const [deleteConnector, { isLoading: isDeletingConnector }] = useDeleteConnectorMutation();
 	const [selectedPluginId, setSelectedPluginId] = useQueryState("plugin");
 	const { resolvedTheme } = useTheme();
+	const [addingId, setAddingId] = useState<string | null>(null);
 
 	const supportedPlatforms = useMemo(() => supportedPlatformsList(resolvedTheme || "light"), [resolvedTheme]);
 
-	// Map UI tab IDs to actual plugin names (prometheus tab uses telemetry plugin)
 	const getPluginNameForTab = (tabId: string) => (tabId === "prometheus" ? "telemetry" : tabId);
 
-	useEffect(() => {
-		if (!plugins || plugins.length === 0) return;
-		if (!selectedPluginId) {
-			setSelectedPluginId(supportedPlatforms[0].id);
-		} else {
-			const pluginName = getPluginNameForTab(selectedPluginId);
-			const plugin = plugins.find((plugin) => plugin.name === pluginName) ?? {
-				name: selectedPluginId,
-				enabled: false,
-				config: {},
-				isCustom: false,
-				path: "",
-			};
-			dispatch(setSelectedPlugin(plugin));
+	const addedIds = useMemo(() => {
+		const ids = new Set<string>();
+		for (const connector of connectors ?? []) {
+			if (ENTERPRISE_CONNECTOR_IDS.has(connector.name)) {
+				ids.add(connector.name);
+			}
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [plugins]);
+		for (const plugin of plugins ?? []) {
+			if (plugin.name === "otel") ids.add("otel");
+			if (plugin.name === "telemetry") ids.add("prometheus");
+		}
+		return ids;
+	}, [connectors, plugins]);
+
+	const addedPlatforms = useMemo(
+		() => supportedPlatforms.filter((platform) => addedIds.has(platform.id)),
+		[supportedPlatforms, addedIds],
+	);
+
+	const existingInSidebar = useMemo(() => new Set(addedPlatforms.map((p) => p.id)), [addedPlatforms]);
 
 	useEffect(() => {
-		if (selectedPluginId) {
-			const pluginName = getPluginNameForTab(selectedPluginId);
-			const plugin = plugins?.find((plugin) => plugin.name === pluginName) ?? {
-				name: selectedPluginId,
-				enabled: false,
-				config: {},
-				isCustom: false,
-				path: "",
-			};
-			dispatch(setSelectedPlugin(plugin));
-		} else {
-			setSelectedPluginId(supportedPlatforms[0].id);
+		if (isLoadingPlugins || isLoadingConnectors) return;
+		if (addedPlatforms.length === 0) {
+			if (selectedPluginId) setSelectedPluginId(null);
+			return;
 		}
-	}, [selectedPluginId]);
+		if (!selectedPluginId || !addedIds.has(selectedPluginId)) {
+			setSelectedPluginId(addedPlatforms[0].id);
+			return;
+		}
+		const pluginName = getPluginNameForTab(selectedPluginId);
+		const plugin = plugins?.find((p) => p.name === pluginName) ?? {
+			name: selectedPluginId,
+			enabled: false,
+			config: {},
+			isCustom: false,
+			path: "",
+		};
+		dispatch(setSelectedPlugin(plugin));
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [plugins, connectors, selectedPluginId, addedIds, addedPlatforms, isLoadingPlugins, isLoadingConnectors]);
+
+	const handleAddConnector = async (id: string) => {
+		const platform = supportedPlatforms.find((p) => p.id === id);
+		if (!platform) return;
+		setAddingId(id);
+		try {
+			if (platform.kind === "connector") {
+				await updateConnector({ name: id, enabled: false, config: {} }).unwrap();
+			} else {
+				const pluginName = platform.pluginName ?? id;
+				await createPlugin({
+					name: pluginName,
+					path: "",
+					enabled: pluginName === "telemetry",
+					config: pluginName === "otel" ? { profiles: [] } : { metrics_enabled: true },
+				}).unwrap();
+			}
+			setSelectedPluginId(id);
+			toast.success(`${platform.name} added`);
+		} catch (err: any) {
+			if (err?.status === 409) {
+				setSelectedPluginId(id);
+				return;
+			}
+			toast.error("Failed to add connector", { description: getErrorMessage(err) });
+		} finally {
+			setAddingId(null);
+		}
+	};
+
+	const handleDelete = async () => {
+		if (!selectedPluginId) return;
+		const platform = supportedPlatforms.find((p) => p.id === selectedPluginId);
+		if (!platform) return;
+		try {
+			if (platform.kind === "connector") {
+				await deleteConnector(selectedPluginId).unwrap();
+			} else {
+				await deletePlugin(platform.pluginName ?? selectedPluginId).unwrap();
+			}
+			toast.success(`${platform.name} removed`);
+			const remaining = addedPlatforms.filter((p) => p.id !== selectedPluginId);
+			setSelectedPluginId(remaining[0]?.id ?? null);
+		} catch (err) {
+			toast.error("Failed to remove connector", { description: getErrorMessage(err) });
+		}
+	};
+
+	const isDeleting = isDeletingConnector || isDeletingPlugin;
+	const isLoading = isLoadingPlugins || isLoadingConnectors;
 
 	if (isLoading) {
 		return <FullPageLoader />;
+	}
+
+	const addDropdown = (
+		<AddConnectorDropdown
+			disabled={!!addingId}
+			existingInSidebar={existingInSidebar}
+			knownConnectors={supportedPlatforms.map(({ id, name, icon }) => ({ id, name, icon }))}
+			onSelectConnector={handleAddConnector}
+			variant={addedPlatforms.length === 0 ? "empty" : "default"}
+		/>
+	);
+
+	if (addedPlatforms.length === 0) {
+		return (
+			<div className="flex min-h-[60vh] w-full flex-col items-center justify-center gap-4 py-16 text-center">
+				<div className="text-muted-foreground">
+					<Cable className="h-[5.5rem] w-[5.5rem]" strokeWidth={1} />
+				</div>
+				<div className="flex flex-col gap-1">
+					<h1 className="text-muted-foreground text-xl font-medium">Add a connector to export traces</h1>
+					<div className="text-muted-foreground mx-auto mt-2 max-w-[560px] text-sm font-normal">
+						Connect Datadog, BigQuery, Kafka, Pub/Sub, New Relic, OpenTelemetry, or Prometheus — then enable and save.
+					</div>
+					<div className="mx-auto mt-6 flex flex-row flex-wrap items-center justify-center gap-2">{addDropdown}</div>
+				</div>
+			</div>
+		);
 	}
 
 	return (
@@ -131,8 +250,8 @@ export default function ObservabilityView() {
 				<div className="flex w-[270px] flex-col gap-2 pb-10">
 					<div className="rounded-md bg-zinc-100/10 p-4 dark:bg-zinc-800/20">
 						<div className="flex flex-col gap-1">
-							<div className="text-muted-foreground mb-2 text-xs font-medium">Providers</div>
-							{supportedPlatforms.map((tab) => (
+							<div className="text-muted-foreground mb-2 text-xs font-medium">Connectors</div>
+							{addedPlatforms.map((tab) => (
 								<button
 									type="button"
 									key={tab.id}
@@ -150,10 +269,8 @@ export default function ObservabilityView() {
 												: "hover:bg-secondary cursor-pointer border-transparent opacity-100 hover:border",
 									)}
 									onClick={() => {
-										if (tab.disabled) {
-											return;
-										}
-										setSelectedPluginId(tab.id ?? supportedPlatforms[0].id);
+										if (tab.disabled) return;
+										setSelectedPluginId(tab.id);
 									}}
 								>
 									<div className="w-[24px]">{tab.icon}</div> {tab.name}
@@ -162,25 +279,21 @@ export default function ObservabilityView() {
 											{tab.tag.toUpperCase()}
 										</Badge>
 									)}
-									{tab.disabled && (
-										<Badge variant="secondary" className="text-muted-foreground ml-auto text-[10px] font-medium">
-											{"Coming soon".toUpperCase()}
-										</Badge>
-									)}
 								</button>
 							))}
+							<div className="mt-2">{addDropdown}</div>
 						</div>
 					</div>
 				</div>
 			</div>
 			<div className="w-full pt-4">
-				{selectedPluginId === "prometheus" && <PrometheusView />}
-				{selectedPluginId === "otel" && <OtelView />}
-				{selectedPluginId === "kafka" && <KafkaView />}
-				{selectedPluginId === "datadog" && <DatadogView />}
-				{selectedPluginId === "bigquery" && <BigQueryView />}
-				{selectedPluginId === "pubsub" && <PubSubView />}
-				{selectedPluginId === "newrelic" && <NewrelicView />}
+				{selectedPluginId === "prometheus" && <PrometheusView onDelete={handleDelete} isDeleting={isDeleting} />}
+				{selectedPluginId === "otel" && <OtelView onDelete={handleDelete} isDeleting={isDeleting} />}
+				{selectedPluginId === "kafka" && <KafkaView onDelete={handleDelete} isDeleting={isDeleting} />}
+				{selectedPluginId === "datadog" && <DatadogView onDelete={handleDelete} isDeleting={isDeleting} />}
+				{selectedPluginId === "bigquery" && <BigQueryView onDelete={handleDelete} isDeleting={isDeleting} />}
+				{selectedPluginId === "pubsub" && <PubSubView onDelete={handleDelete} isDeleting={isDeleting} />}
+				{selectedPluginId === "newrelic" && <NewrelicView onDelete={handleDelete} isDeleting={isDeleting} />}
 			</div>
 		</div>
 	);

@@ -1,5 +1,16 @@
 import NewRelicConnectorView from "@enterprise/components/data-connectors/newrelic/newRelicConnectorView";
 
-export default function NewrelicView() {
-	return <NewRelicConnectorView />;
+interface NewrelicViewProps {
+	onDelete?: () => void;
+	isDeleting?: boolean;
+}
+
+export default function NewrelicView({ onDelete, isDeleting }: NewrelicViewProps) {
+	return (
+		<div className="flex w-full flex-col gap-4">
+			<div className="flex w-full flex-col gap-3">
+				<NewRelicConnectorView onDelete={onDelete} isDeleting={isDeleting} />
+			</div>
+		</div>
+	);
 }

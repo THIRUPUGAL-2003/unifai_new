@@ -125,8 +125,10 @@ func (h *WorkspaceHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 	r.PUT("/api/prompt-deployments/{id}", wrap(h.updatePromptDeployment))
 	r.DELETE("/api/prompt-deployments/{id}", wrap(h.deletePromptDeployment))
 
+	r.GET("/api/connectors", wrap(h.listConnectors))
 	r.GET("/api/connectors/{name}", wrap(h.getConnector))
 	r.PUT("/api/connectors/{name}", wrap(h.updateConnector))
+	r.DELETE("/api/connectors/{name}", wrap(h.deleteConnector))
 	r.POST("/api/connectors/{name}/test", wrap(h.testConnector))
 
 	// Cluster peer KV replication (no dashboard RBAC — peers authenticate via header).

@@ -146,3 +146,11 @@ func (r *Runtime) ApplySettings(cfg Settings) {
 	r.byName[cfg.Name] = cfg
 	r.enabled[cfg.Name] = cfg.Enabled
 }
+
+// Remove clears one connector from the in-memory runtime (after delete).
+func (r *Runtime) Remove(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.byName, name)
+	delete(r.enabled, name)
+}
