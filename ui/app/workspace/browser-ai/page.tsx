@@ -3775,26 +3775,46 @@ export default function BrowserAiPage() {
 						</CardHeader>
 						<CardContent className="pt-0 space-y-3">
 							<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-								<div className="rounded-md border border-border/80 p-3 bg-muted/20">
-									<div className="flex items-center gap-2 font-medium text-xs text-foreground mb-1">
-										<span className="h-2 w-2 rounded-full bg-sky-400"></span>
-										Windows Package (<code className="bg-black/40 px-1 rounded text-[11px]">UnifAI_Guard_Windows.zip</code>)
+								<div className="rounded-md border border-border p-3 bg-card">
+									<div className="flex flex-wrap items-center gap-2 font-medium text-xs text-foreground mb-1">
+										<span className="h-2 w-2 rounded-full bg-sky-500 shrink-0"></span>
+										Windows Package (
+										<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] text-foreground">
+											UnifAI_Guard_Windows.zip
+										</code>
+										)
 									</div>
-									<p className="text-xs text-muted-foreground">
-										Includes <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code> installer with auto-start and enterprise proxy routing.
+									<p className="text-xs text-foreground/80 leading-relaxed">
+										Includes{" "}
+										<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-foreground">
+											UnifAI_Guard_Setup.exe
+										</code>{" "}
+										installer with auto-start and enterprise proxy routing.
 									</p>
 								</div>
-								<div className="rounded-md border border-border/80 p-3 bg-muted/20">
-									<div className="flex items-center gap-2 font-medium text-xs text-foreground mb-1">
-										<span className="h-2 w-2 rounded-full bg-primary"></span>
-										macOS Package (<code className="bg-black/40 px-1 rounded text-[11px]">UnifAI_Guard_macOS.zip</code>)
+								<div className="rounded-md border border-border p-3 bg-card">
+									<div className="flex flex-wrap items-center gap-2 font-medium text-xs text-foreground mb-1">
+										<span className="h-2 w-2 rounded-full bg-primary shrink-0"></span>
+										macOS Package (
+										<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-[11px] text-foreground">
+											UnifAI_Guard_macOS.zip
+										</code>
+										)
 									</div>
-									<p className="text-xs text-muted-foreground">
-										Includes <code className="bg-black/40 px-1 rounded">UnifAI_Guard.app</code> + <code className="bg-black/40 px-1 rounded">Install_UnifAI_Guard.command</code>.
+									<p className="text-xs text-foreground/80 leading-relaxed">
+										Includes{" "}
+										<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-foreground">
+											UnifAI_Guard.app
+										</code>{" "}
+										+{" "}
+										<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-foreground">
+											Install_UnifAI_Guard.command
+										</code>
+										.
 									</p>
 								</div>
 							</div>
-							{setupPackageError ? <p className="mt-2 text-sm text-red-400">{setupPackageError}</p> : null}
+							{setupPackageError ? <p className="mt-2 text-sm text-destructive">{setupPackageError}</p> : null}
 						</CardContent>
 					</Card>
 
@@ -3805,58 +3825,95 @@ export default function BrowserAiPage() {
 						</CardHeader>
 						<CardContent className="space-y-6">
 							<div className="space-y-4">
-								<div className="flex items-center gap-2 font-semibold">
+								<div className="flex items-center gap-2 font-semibold text-foreground">
 									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">1</span>
 									<span>Download the package for your OS</span>
 								</div>
-								<p className="text-xs text-muted-foreground pl-8">
+								<p className="text-sm text-foreground/80 pl-8 leading-relaxed">
 									Click <strong>Download for Windows</strong> or <strong>Download for Mac</strong> above based on your device.
 								</p>
 							</div>
 
 							<div className="space-y-4">
-								<div className="flex items-center gap-2 font-semibold">
+								<div className="flex items-center gap-2 font-semibold text-foreground">
 									<span className="flex h-6 min-w-6 px-1.5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">Win</span>
 									<span>Windows</span>
 								</div>
-								<p className="text-xs text-muted-foreground pl-8">
-									Run <code className="bg-black/40 px-1 rounded">UnifAI_Guard_Setup.exe</code>. Keep autostart enabled so Guard starts at Windows login.
-									To turn OFF / uninstall: Windows Settings → Apps → UnifAI Guard → Uninstall (company uninstall key).
+								<p className="text-sm text-foreground/80 pl-8 leading-relaxed">
+									Run{" "}
+									<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-foreground">
+										UnifAI_Guard_Setup.exe
+									</code>
+									. Keep autostart enabled so Guard starts at Windows login. To turn OFF / uninstall: Windows Settings → Apps →
+									UnifAI Guard → Uninstall (company uninstall key).
 								</p>
 							</div>
 
 							<div className="space-y-4">
-								<div className="flex items-center gap-2 font-semibold">
+								<div className="flex items-center gap-2 font-semibold text-foreground">
 									<span className="flex h-6 min-w-6 px-1.5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">Mac</span>
 									<span>Mac</span>
 								</div>
-								<p className="text-xs text-muted-foreground pl-8">
-									Unzip <code className="bg-black/40 px-1 rounded">UnifAI_Guard_macOS.zip</code>, then double-click{" "}
-									<code className="bg-black/40 px-1 rounded">Install_UnifAI_Guard.command</code>
-									{" "}(Right-click → Open if Gatekeeper blocks). See <code className="bg-black/40 px-1 rounded">INSTALL_MACOS.txt</code>.
-									To turn OFF / uninstall: double-click <code className="bg-black/40 px-1 rounded">Uninstall_UnifAI_Guard.command</code>
-									{" "}and enter the same company uninstall key (<code className="bg-black/40 px-1 rounded">UNINSTALL_MACOS.txt</code>).
+								<p className="text-sm text-foreground/80 pl-8 leading-relaxed">
+									Unzip{" "}
+									<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-foreground">
+										UnifAI_Guard_macOS.zip
+									</code>
+									, then double-click{" "}
+									<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-foreground">
+										Install_UnifAI_Guard.command
+									</code>{" "}
+									(Right-click → Open if Gatekeeper blocks). See{" "}
+									<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-foreground">INSTALL_MACOS.txt</code>. To
+									turn OFF / uninstall: double-click{" "}
+									<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-foreground">
+										Uninstall_UnifAI_Guard.command
+									</code>{" "}
+									and enter the same company uninstall key (
+									<code className="rounded border border-border bg-muted px-1.5 py-0.5 text-foreground">UNINSTALL_MACOS.txt</code>
+									).
 								</p>
 							</div>
 
 							<div className="space-y-4">
-								<div className="flex items-center gap-2 font-semibold">
+								<div className="flex items-center gap-2 font-semibold text-foreground">
 									<span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs">3</span>
 									<span>Open monitored AI websites and verify logs</span>
 								</div>
-								<p className="text-xs text-muted-foreground pl-8">
-									Fully quit browsers, reopen, visit a monitored AI site, send a test prompt.
-									Confirm in Prompt Logs and Agents.
+								<p className="text-sm text-foreground/80 pl-8 leading-relaxed">
+									Fully quit browsers, reopen, visit a monitored AI site, send a test prompt. Confirm in Prompt Logs and Agents.
 								</p>
 							</div>
 
-							<div className="rounded-md border border-border bg-background p-4 text-xs space-y-2">
+							<div className="rounded-md border border-border bg-muted/40 p-4 text-sm space-y-2">
 								<p className="font-semibold text-foreground">Package contents</p>
-								<ul className="list-disc pl-5 text-muted-foreground space-y-1">
-									<li><code>UnifAI_Guard_Windows.zip</code> — Windows <code>UnifAI_Guard_Setup.exe</code> installer &amp; docs</li>
-									<li><code>UnifAI_Guard_macOS.zip</code> — macOS <code>UnifAI_Guard.app</code> + Install &amp; Uninstall scripts</li>
-									<li><code>INSTALL_WINDOWS.txt</code> / <code>INSTALL_MACOS.txt</code> / <code>UNINSTALL_MACOS.txt</code></li>
-									<li><code>VERSION.txt</code></li>
+								<ul className="list-disc pl-5 text-foreground/80 space-y-1.5">
+									<li>
+										<code className="rounded border border-border bg-card px-1.5 py-0.5 text-foreground">
+											UnifAI_Guard_Windows.zip
+										</code>{" "}
+										— Windows{" "}
+										<code className="rounded border border-border bg-card px-1.5 py-0.5 text-foreground">
+											UnifAI_Guard_Setup.exe
+										</code>{" "}
+										installer &amp; docs
+									</li>
+									<li>
+										<code className="rounded border border-border bg-card px-1.5 py-0.5 text-foreground">
+											UnifAI_Guard_macOS.zip
+										</code>{" "}
+										— macOS{" "}
+										<code className="rounded border border-border bg-card px-1.5 py-0.5 text-foreground">UnifAI_Guard.app</code> +
+										Install &amp; Uninstall scripts
+									</li>
+									<li>
+										<code className="rounded border border-border bg-card px-1.5 py-0.5 text-foreground">INSTALL_WINDOWS.txt</code> /{" "}
+										<code className="rounded border border-border bg-card px-1.5 py-0.5 text-foreground">INSTALL_MACOS.txt</code> /{" "}
+										<code className="rounded border border-border bg-card px-1.5 py-0.5 text-foreground">UNINSTALL_MACOS.txt</code>
+									</li>
+									<li>
+										<code className="rounded border border-border bg-card px-1.5 py-0.5 text-foreground">VERSION.txt</code>
+									</li>
 								</ul>
 							</div>
 						</CardContent>

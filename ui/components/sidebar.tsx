@@ -61,6 +61,7 @@ import {
 	SidebarMenuSub,
 	SidebarMenuSubButton,
 	SidebarMenuSubItem,
+	SidebarRail,
 	useSidebar,
 } from "@/components/ui/sidebar";
 import { useWebSocket } from "@/hooks/useWebSocket";
@@ -1553,6 +1554,7 @@ export default function AppSidebar() {
 					) : null}
 				</div>
 			</SidebarContent>
+			<SidebarRail />
 		</Sidebar>
 	);
 }
