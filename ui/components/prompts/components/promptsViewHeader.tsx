@@ -8,7 +8,7 @@ import { Message, MessageRole } from "@/lib/message";
 import { getErrorMessage, useIsAuthEnabledQuery } from "@/lib/store";
 import { useGetModelsQuery } from "@/lib/store/apis/providersApi";
 import { ComboboxSelect } from "@/components/ui/combobox";
-import { useCreateSessionMutation, useGetSessionsQuery, useGetVersionsQuery, useRenameSessionMutation } from "@/lib/store/apis/promptsApi";
+import { useCreateSessionMutation, useGetSessionsQuery, useGetVersionsQuery, useRenameSessionMutation, useUpdateSessionMutation } from "@/lib/store/apis/promptsApi";
 import { ModelParams, PromptSession } from "@/lib/types/prompts";
 import { cn } from "@/lib/utils";
 import { Check, GitCommit, PencilIcon, Save, Trash2 } from "lucide-react";
@@ -101,6 +101,7 @@ export default function PromptsViewHeader() {
 
 	// Mutations
 	const [createSession, { isLoading: isCreatingSession }] = useCreateSessionMutation();
+	const [updateSession, { isLoading: isUpdatingSession }] = useUpdateSessionMutation();
 	const [renameSession] = useRenameSessionMutation();
 
 	const versions = versionsData?.versions ?? [];
@@ -124,23 +125,46 @@ export default function PromptsViewHeader() {
 
 	const handleSaveSession = useCallback(async () => {
 		if (!selectedPrompt || !hasChanges || isStreaming) return;
+		const data = {
+			messages: Message.serializeAll(messages),
+			model_params: buildSaveParams(),
+			provider,
+			model,
+			variables: Object.keys(variables).length > 0 ? variables : undefined,
+		};
 		try {
-			const result = await createSession({
-				promptId: selectedPrompt.id,
-				data: {
-					messages: Message.serializeAll(messages),
-					model_params: buildSaveParams(),
-					provider,
-					model,
-					variables: Object.keys(variables).length > 0 ? variables : undefined,
-				},
-			}).unwrap();
-			setUrlState({ sessionId: result.session.id, versionId: null });
-			toast.success("Session saved");
+			if (selectedSessionId) {
+				await updateSession({
+					id: selectedSessionId,
+					promptId: selectedPrompt.id,
+					data,
+				}).unwrap();
+				toast.success("Session saved");
+			} else {
+				const result = await createSession({
+					promptId: selectedPrompt.id,
+					data,
+				}).unwrap();
+				setUrlState({ sessionId: result.session.id, versionId: null });
+				toast.success("Session saved");
+			}
 		} catch (err) {
 			toast.error("Failed to save session", { description: getErrorMessage(err) });
 		}
-	}, [selectedPrompt?.id, messages, buildSaveParams, provider, model, variables, createSession, setUrlState, hasChanges, isStreaming]);
+	}, [
+		selectedPrompt?.id,
+		selectedSessionId,
+		messages,
+		buildSaveParams,
+		provider,
+		model,
+		variables,
+		createSession,
+		updateSession,
+		setUrlState,
+		hasChanges,
+		isStreaming,
+	]);
 
 	// Cmd+S / Ctrl+S to save session
 	useHotkeys(
@@ -149,9 +173,9 @@ export default function PromptsViewHeader() {
 		{
 			preventDefault: true,
 			enableOnFormTags: ["input", "textarea", "select"],
-			enabled: !!selectedPrompt && !isCreatingSession && !isStreaming,
+			enabled: !!selectedPrompt && !isCreatingSession && !isUpdatingSession && !isStreaming,
 		},
-		[handleSaveSession, selectedPrompt, isCreatingSession, isStreaming],
+		[handleSaveSession, selectedPrompt, isCreatingSession, isUpdatingSession, isStreaming],
 	);
 
 	const handleCommitVersion = useCallback(async () => {
@@ -242,8 +266,8 @@ export default function PromptsViewHeader() {
 					<>
 						<SplitButton
 							onClick={handleSaveSession}
-							disabled={isCreatingSession || isStreaming}
-							isLoading={isCreatingSession}
+							disabled={isCreatingSession || isUpdatingSession || isStreaming}
+							isLoading={isCreatingSession || isUpdatingSession}
 							dropdownContent={{
 								className: "w-72 p-0",
 								open: sessionsOpen,

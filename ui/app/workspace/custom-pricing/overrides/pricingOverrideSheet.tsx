@@ -17,7 +17,7 @@ import {
 	useGetVirtualKeysQuery,
 	useUpdatePricingOverrideMutation,
 } from "@/lib/store";
-import { useGetAllKeysQuery } from "@/lib/store/apis/providersApi";
+import { useGetAllKeysQuery, useGetModelsQuery } from "@/lib/store/apis/providersApi";
 import { ModelProvider, RequestType } from "@/lib/types/config";
 import {
 	CreatePricingOverrideRequest,
@@ -283,13 +283,13 @@ export const patchKeys = PRICING_FIELDS.map((field) => field.key) as PricingFiel
 
 export function patternError(matchType: PricingOverrideMatchType, pattern: string): string | undefined {
 	const trimmed = pattern.trim();
-	if (!trimmed) return "Pattern is required";
+	if (!trimmed) return "Model is required";
 	if (matchType === "exact") {
-		if (trimmed.includes("*")) return "Exact pattern cannot contain *";
+		if (trimmed.includes("*")) return "Exact model cannot contain *";
 	} else if (matchType === "wildcard") {
 		const starCount = (trimmed.match(/\*/g) || []).length;
-		if (starCount === 0) return "Wildcard pattern must end with * (example: gpt-5*)";
-		if (starCount > 1) return "Wildcard pattern can include only one *";
+		if (starCount === 0) return "Wildcard model must end with * (example: gpt-5*)";
+		if (starCount > 1) return "Wildcard model can include only one *";
 		if (!trimmed.endsWith("*")) return "Wildcard supports prefix-only trailing *";
 	}
 	return undefined;
@@ -489,6 +489,29 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 	const matchType = watch("matchType");
 	const requestTypes = watch("requestTypes");
 	const pricingValues = watch("pricingValues");
+	const pattern = watch("pattern");
+
+	const { data: modelsData, isLoading: isModelsLoading, error: modelsError } = useGetModelsQuery(
+		{ provider: providerID || undefined, limit: 1000, unfiltered: true },
+		{ skip: !open },
+	);
+
+	const modelOptions = useMemo(() => {
+		const seen = new Set<string>();
+		const options: { label: string; value: string }[] = [];
+		for (const model of modelsData?.models ?? []) {
+			const name = String(model?.name || "").trim();
+			if (!name || seen.has(name)) continue;
+			seen.add(name);
+			options.push({ label: name, value: name });
+		}
+		const current = String(pattern || "").trim();
+		if (current && !seen.has(current) && matchType === "exact") {
+			options.unshift({ label: current, value: current });
+		}
+		options.sort((a, b) => a.label.localeCompare(b.label));
+		return options;
+	}, [modelsData, pattern, matchType]);
 
 	const shouldLockScope = useMemo(() => !editingOverride && isCompleteScopeLock(scopeLock), [editingOverride, scopeLock]);
 
@@ -860,6 +883,8 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 															onValueChange={(value) => {
 																field.onChange(value === "__none__" ? "" : value);
 																setValue("providerKeyID", "");
+																setValue("pattern", "");
+																clearErrors("pattern");
 															}}
 														>
 															<FormControl>
@@ -970,20 +995,48 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 										render={({ field }) => (
 											<FormItem>
 												<FormLabel>
-													Pattern <span className="text-red-500">*</span>
+													Model <span className="text-red-500">*</span>
 												</FormLabel>
-												<FormControl>
-													<Input
-														data-testid="pricing-override-pattern-input"
-														placeholder={matchType === "exact" ? "e.g., gpt-4o" : "e.g., gpt-4*"}
-														{...field}
-														onChange={(e) => {
-															field.onChange(e);
-															clearErrors("pattern");
-														}}
-													/>
-												</FormControl>
-												<FormMessage />
+												{matchType === "exact" ? (
+													<FormControl>
+														<ComboboxSelect
+															data-testid="pricing-override-pattern-input"
+															options={modelOptions}
+															value={field.value || null}
+															onValueChange={(value) => {
+																field.onChange(value ?? "");
+																clearErrors("pattern");
+															}}
+															placeholder={
+																isModelsLoading
+																	? "Loading models..."
+																	: providerID
+																		? "Select model"
+																		: "Select model (all providers)"
+															}
+															disabled={isModelsLoading || !!modelsError}
+															noPortal
+															className="h-9"
+														/>
+													</FormControl>
+												) : (
+													<FormControl>
+														<Input
+															data-testid="pricing-override-pattern-input"
+															placeholder="e.g., gpt-4*"
+															{...field}
+															onChange={(e) => {
+																field.onChange(e);
+																clearErrors("pattern");
+															}}
+														/>
+													</FormControl>
+												)}
+												{modelsError && matchType === "exact" ? (
+													<p className="text-destructive mt-1 text-xs">Failed to load models: {getErrorMessage(modelsError)}</p>
+												) : (
+													<FormMessage />
+												)}
 											</FormItem>
 										)}
 									/>

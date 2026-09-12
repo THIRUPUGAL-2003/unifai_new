@@ -514,6 +514,46 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 		}
 	}, [deletePromptDialog.prompt, deletePrompt, selectedPromptId, setUrlState]);
 
+	// Persist playground chat to DB for every login (admin + user), keyed by user_id on the server.
+	const buildPersistParams = useCallback((): ModelParams => {
+		const params = { ...modelParams };
+		if (apiKeyId && apiKeyId !== "__auto__") {
+			params.api_key_id = apiKeyId;
+		}
+		return params;
+	}, [modelParams, apiKeyId]);
+
+	const persistPlaygroundSession = useCallback(
+		async (finalMessages: Message[]) => {
+			if (!selectedPrompt) return;
+			const data = {
+				messages: Message.serializeAll(finalMessages),
+				model_params: buildPersistParams(),
+				provider,
+				model,
+				variables: Object.keys(variables).length > 0 ? variables : undefined,
+			};
+			try {
+				if (selectedSessionId) {
+					await updateSession({
+						id: selectedSessionId,
+						promptId: selectedPrompt.id,
+						data,
+					}).unwrap();
+				} else {
+					const result = await createSession({
+						promptId: selectedPrompt.id,
+						data,
+					}).unwrap();
+					setUrlState({ sessionId: result.session.id, versionId: null });
+				}
+			} catch (e) {
+				console.error("Session persist failed:", e);
+			}
+		},
+		[selectedPrompt, selectedSessionId, buildPersistParams, provider, model, variables, updateSession, createSession, setUrlState],
+	);
+
 	const handleSendMessage = useCallback(
 		async (pendingMessage?: Message) => {
 			const runToken = Symbol();
@@ -554,88 +594,29 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 						if (!isActive()) return;
 						const finalMessages = [...messages];
 						if (pendingMessage) finalMessages.push(pendingMessage);
-						const responseMsg = Message.response(content, 0, usage);
-						finalMessages.push(responseMsg);
+						finalMessages.push(Message.response(content, 0, usage));
 						setMessages(finalMessages);
-
-						if (isUserRole && selectedPrompt) {
-							try {
-								if (selectedSessionId) {
-									await updateSession({
-										id: selectedSessionId,
-										promptId: selectedPrompt.id,
-										data: {
-											messages: Message.serializeAll(finalMessages),
-											model_params: { stream: true },
-											provider,
-											model,
-										},
-									}).unwrap();
-								} else {
-									const result = await createSession({
-										promptId: selectedPrompt.id,
-										data: {
-											messages: Message.serializeAll(finalMessages),
-											model_params: { stream: true },
-											provider,
-											model,
-										},
-									}).unwrap();
-									setUrlState({ sessionId: result.session.id, versionId: null });
-								}
-							} catch (e) {
-								console.error("Auto-save failed:", e);
-							}
-						}
+						await persistPlaygroundSession(finalMessages);
 					},
 					onToolCallComplete: async (content, toolCalls, usage) => {
 						if (!isActive()) return;
 						const finalMessages = [...messages];
 						if (pendingMessage) finalMessages.push(pendingMessage);
-						const responseMsg = Message.toolCallResponse(content, toolCalls, 0, usage);
-						finalMessages.push(responseMsg);
+						finalMessages.push(Message.toolCallResponse(content, toolCalls, 0, usage));
 						setMessages(finalMessages);
-
-						if (isUserRole && selectedPrompt) {
-							try {
-								if (selectedSessionId) {
-									await updateSession({
-										id: selectedSessionId,
-										promptId: selectedPrompt.id,
-										data: {
-											messages: Message.serializeAll(finalMessages),
-											model_params: { stream: true },
-											provider,
-											model,
-										},
-									}).unwrap();
-								} else {
-									const result = await createSession({
-										promptId: selectedPrompt.id,
-										data: {
-											messages: Message.serializeAll(finalMessages),
-											model_params: { stream: true },
-											provider,
-											model,
-										},
-									}).unwrap();
-									setUrlState({ sessionId: result.session.id, versionId: null });
-								}
-							} catch (e) {
-								console.error("Auto-save failed:", e);
-							}
-						}
+						await persistPlaygroundSession(finalMessages);
 					},
 					onEmptyResponse: () => {
 						if (!isActive()) return;
 						setMessages((prev) => prev.slice(0, -1));
 					},
-					onError: (error) => {
+					onError: async (error) => {
 						if (!isActive()) return;
-						setMessages((prev) => {
-							const withoutPlaceholder = prev.slice(0, -1);
-							return [...withoutPlaceholder, Message.error(error)];
-						});
+						const finalMessages = [...messages];
+						if (pendingMessage) finalMessages.push(pendingMessage);
+						finalMessages.push(Message.error(error));
+						setMessages(finalMessages);
+						await persistPlaygroundSession(finalMessages);
 					},
 					onFinally: () => {
 						if (!isActive()) return;
@@ -645,7 +626,20 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId],
+		[
+			messages,
+			provider,
+			model,
+			modelParams,
+			apiKeyId,
+			variables,
+			customHeaders,
+			skillSystemPrompt,
+			skillId,
+			isUserRole,
+			models,
+			persistPlaygroundSession,
+		],
 	);
 
 	const handleSubmitToolResult = useCallback(
@@ -692,32 +686,27 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 							return updated;
 						});
 					},
-					onComplete: (content, usage) => {
+					onComplete: async (content, usage) => {
 						if (!isActive()) return;
-						setMessages((prev) => {
-							const updated = [...prev];
-							updated[updated.length - 1] = Message.response(content, 0, usage);
-							return updated;
-						});
+						const finalMessages = [...newMessages, Message.response(content, 0, usage)];
+						setMessages(finalMessages);
+						await persistPlaygroundSession(finalMessages);
 					},
-					onToolCallComplete: (content, toolCalls, usage) => {
+					onToolCallComplete: async (content, toolCalls, usage) => {
 						if (!isActive()) return;
-						setMessages((prev) => {
-							const updated = [...prev];
-							updated[updated.length - 1] = Message.toolCallResponse(content, toolCalls, 0, usage);
-							return updated;
-						});
+						const finalMessages = [...newMessages, Message.toolCallResponse(content, toolCalls, 0, usage)];
+						setMessages(finalMessages);
+						await persistPlaygroundSession(finalMessages);
 					},
 					onEmptyResponse: () => {
 						if (!isActive()) return;
 						setMessages((prev) => prev.slice(0, -1));
 					},
-					onError: (error) => {
+					onError: async (error) => {
 						if (!isActive()) return;
-						setMessages((prev) => {
-							const withoutPlaceholder = prev.slice(0, -1);
-							return [...withoutPlaceholder, Message.error(error)];
-						});
+						const finalMessages = [...newMessages, Message.error(error)];
+						setMessages(finalMessages);
+						await persistPlaygroundSession(finalMessages);
 					},
 					onFinally: () => {
 						if (!isActive()) return;
@@ -727,7 +716,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId, persistPlaygroundSession],
 	);
 
 	const handleExecuteToolCall = useCallback(
@@ -795,32 +784,27 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 							return updated;
 						});
 					},
-					onComplete: (content, usage) => {
+					onComplete: async (content, usage) => {
 						if (!isActive()) return;
-						setMessages((prev) => {
-							const updated = [...prev];
-							updated[updated.length - 1] = Message.response(content, 0, usage);
-							return updated;
-						});
+						const finalMessages = [...newMessages, Message.response(content, 0, usage)];
+						setMessages(finalMessages);
+						await persistPlaygroundSession(finalMessages);
 					},
-					onToolCallComplete: (content, toolCalls, usage) => {
+					onToolCallComplete: async (content, toolCalls, usage) => {
 						if (!isActive()) return;
-						setMessages((prev) => {
-							const updated = [...prev];
-							updated[updated.length - 1] = Message.toolCallResponse(content, toolCalls, 0, usage);
-							return updated;
-						});
+						const finalMessages = [...newMessages, Message.toolCallResponse(content, toolCalls, 0, usage)];
+						setMessages(finalMessages);
+						await persistPlaygroundSession(finalMessages);
 					},
 					onEmptyResponse: () => {
 						if (!isActive()) return;
 						setMessages((prev) => prev.slice(0, -1));
 					},
-					onError: (error) => {
+					onError: async (error) => {
 						if (!isActive()) return;
-						setMessages((prev) => {
-							const withoutPlaceholder = prev.slice(0, -1);
-							return [...withoutPlaceholder, Message.error(error)];
-						});
+						const finalMessages = [...newMessages, Message.error(error)];
+						setMessages(finalMessages);
+						await persistPlaygroundSession(finalMessages);
 					},
 					onFinally: () => {
 						if (!isActive()) return;
@@ -830,7 +814,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, handleSubmitToolResult, skillSystemPrompt, skillId],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, handleSubmitToolResult, skillSystemPrompt, skillId, persistPlaygroundSession],
 	);
 
 	const handleExecuteAllToolCalls = useCallback(
