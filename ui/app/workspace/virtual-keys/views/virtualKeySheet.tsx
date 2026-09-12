@@ -45,9 +45,11 @@ import {
 	useRotateVirtualKeyMutation,
 	useUpdateVirtualKeyMutation,
 } from "@/lib/store";
+import { useGetSessionUsersQuery } from "@/lib/store/apis/sessionUsersApi";
 import { KnownProvider } from "@/lib/types/config";
 import { CreateVirtualKeyRequest, Customer, Team, UpdateVirtualKeyRequest, VirtualKey } from "@/lib/types/governance";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
+import { useSetVirtualKeyUserMutation } from "@enterprise/lib/store/apis/virtualKeyUsersApi";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useNavigate } from "@tanstack/react-router";
 import { formatDistanceToNow } from "date-fns";
@@ -252,6 +254,8 @@ export default function VirtualKeySheet({ virtualKey, teams, customers, defaultT
 	// of assignees — directly-attached users don't imply an access-profile relation.
 	const { assignedUsers, isManagedByProfile: isManagedByProfileHook } = useVirtualKeyUsage(virtualKey);
 	const isManagedByProfile = isEditing && isManagedByProfileHook;
+	const { data: sessionUsers = [] } = useGetSessionUsersQuery(undefined, { skip: !isEditing });
+	const [setVirtualKeyUser, { isLoading: isAssigningUser }] = useSetVirtualKeyUserMutation();
 	// Team attachment: when creating from a team context (defaultTeamId provided), the entity
 	// assignment is pre-set and locked. When editing an existing VK the assignment can be changed.
 	const attachedTeamId = isEditing ? virtualKey?.team_id || "" : defaultTeamId || "";
@@ -923,16 +927,64 @@ export default function VirtualKeySheet({ virtualKey, teams, customers, defaultT
 								</Alert>
 							)}
 
-							{/* Assigned User */}
-							{assignedUsers.length > 0 && (
-								<div className="space-y-1">
-									<Label className="text-sm font-medium">Assigned To</Label>
+							{/* Assigned User — required for Access Profile–managed VK UX */}
+							{isEditing && virtualKey?.id ? (
+								<div className="space-y-2">
+									<Label className="text-sm font-medium">Assigned user</Label>
+									<p className="text-muted-foreground text-xs">
+										Link this virtual key to a dashboard user so Access Profiles and per-user budgets apply.
+									</p>
 									<div className="flex items-center gap-2">
-										<Users className="text-muted-foreground h-4 w-4" />
-										<span className="text-sm">{assignedUsers.map((u) => u.name || u.email).join(", ")}</span>
+										<Select
+											value={assignedUsers[0]?.id || ""}
+											disabled={isAssigningUser || !hasUpdateAccess}
+											onValueChange={async (userId) => {
+												if (!userId || !virtualKey?.id) return;
+												try {
+													await setVirtualKeyUser({ vkId: virtualKey.id, user_id: userId }).unwrap();
+													toast.success("Virtual key assigned to user");
+													onSave();
+												} catch (e) {
+													toast.error(getErrorMessage(e) || "Failed to assign user");
+												}
+											}}
+										>
+											<SelectTrigger className="w-full" data-testid="vk-assigned-user-select">
+												<SelectValue placeholder={assignedUsers.length ? undefined : "Select a user…"} />
+											</SelectTrigger>
+											<SelectContent>
+												{(() => {
+													const approved = sessionUsers.filter((u) => (u.status || "approved") === "approved");
+													const assignedId = assignedUsers[0]?.id;
+													const options =
+														assignedId && !approved.some((u) => u.id === assignedId)
+															? [
+																	{
+																		id: assignedId,
+																		username: assignedUsers[0]?.name || assignedUsers[0]?.email || assignedId,
+																		email: assignedUsers[0]?.email,
+																		status: "approved",
+																	},
+																	...approved,
+																]
+															: approved;
+													return options.map((u) => (
+														<SelectItem key={u.id} value={u.id}>
+															{u.username}
+															{u.email ? ` (${u.email})` : ""}
+														</SelectItem>
+													));
+												})()}
+											</SelectContent>
+										</Select>
 									</div>
+									{assignedUsers.length > 0 ? (
+										<p className="text-muted-foreground text-xs">
+											Current: {assignedUsers.map((u) => u.name || u.email || u.id).join(", ")}
+										</p>
+									) : null}
 								</div>
-							)}
+							) : null}
 
 							{/* Basic Information */}
 							<div className="space-y-4">

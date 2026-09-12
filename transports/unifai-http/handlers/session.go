@@ -31,6 +31,33 @@ func NewSessionHandler(configStore configstore.ConfigStore, wsTicketStore *WSTic
 	}
 }
 
+// normalizeUserRole accepts admin/user or a custom RBAC role that exists in the workspace store.
+// Returns ("", false) when the role is invalid so callers can 400 instead of silently coercing to "user".
+func (h *SessionHandler) normalizeUserRole(ctx *fasthttp.RequestCtx, role string) (string, bool) {
+	role = strings.TrimSpace(role)
+	if role == "" {
+		return "user", true
+	}
+	if role == "admin" || role == "user" {
+		return role, true
+	}
+	ws, ok := configstore.AsWorkspaceStore(h.configStore)
+	if !ok || ws == nil {
+		return "", false
+	}
+	_ = ws.EnsureRBACRoles(ctx)
+	rows, err := ws.ListRBACRoles(ctx)
+	if err != nil {
+		return "", false
+	}
+	for _, row := range rows {
+		if strings.EqualFold(strings.TrimSpace(row.Name), role) {
+			return row.Name, true
+		}
+	}
+	return "", false
+}
+
 // RegisterRoutes registers the session-related routes
 func (h *SessionHandler) RegisterRoutes(r *router.Router, middlewares ...schemas.UnifAIHTTPMiddleware) {
 	r.POST("/api/session/login", lib.ChainMiddlewares(h.login, middlewares...))
@@ -462,9 +489,12 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Password must include "+strings.Join(failures, ", "))
 		return
 	}
-	if payload.Role != "admin" && payload.Role != "user" {
-		payload.Role = "user"
+	role, roleOK := h.normalizeUserRole(ctx, payload.Role)
+	if !roleOK {
+		SendError(ctx, fasthttp.StatusBadRequest, "Unknown role — create it under Roles & Permissions first, or use admin/user")
+		return
 	}
+	payload.Role = role
 
 	hashedPassword, err := encrypt.Hash(payload.Password)
 	if err != nil {
@@ -769,8 +799,13 @@ func (h *SessionHandler) updateUser(ctx *fasthttp.RequestCtx) {
 		}
 		existingUser.Password = hashedPassword
 	}
-	if payload.Role == "admin" || payload.Role == "user" {
-		existingUser.Role = payload.Role
+	if payload.Role != "" {
+		role, ok := h.normalizeUserRole(ctx, payload.Role)
+		if !ok {
+			SendError(ctx, fasthttp.StatusBadRequest, "Unknown role — create it under Roles & Permissions first, or use admin/user")
+			return
+		}
+		existingUser.Role = role
 	}
 	existingUser.Budget = payload.Budget
 	existingUser.RateLimit = payload.RateLimit

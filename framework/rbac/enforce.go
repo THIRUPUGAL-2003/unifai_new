@@ -73,9 +73,10 @@ func allowAll() PermissionSet {
 }
 
 // HasPermission reports whether the set allows a resource operation.
+// An empty set means deny (unknown/unseeded role) — admin uses allowAll() via ResolvePermissions.
 func HasPermission(set PermissionSet, resource, operation string) bool {
 	if len(set) == 0 {
-		return true
+		return false
 	}
 	ops, ok := set[resource]
 	if !ok {

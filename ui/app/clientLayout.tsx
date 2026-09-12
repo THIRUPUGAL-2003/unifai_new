@@ -170,7 +170,7 @@ function FullPage({ config, children }: { config: UnifAIConfig | undefined; chil
 export function ClientLayout({ children }: { children: React.ReactNode }) {
 	return (
 		<ProgressProvider>
-			<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+			<ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
 				<Toaster closeButton />
 				<ReduxProvider>
 					<NuqsAdapter>

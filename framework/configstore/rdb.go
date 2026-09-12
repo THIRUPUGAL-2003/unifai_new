@@ -2928,14 +2928,22 @@ func (s *RDBConfigStore) UpsertModelPricingAttributes(ctx context.Context, model
 		value = string(encoded)
 	}
 
-	res := db.Model(&tables.TableModelPricing{}).
+	// GORM RowsAffected is 0 when the UPDATE is a no-op (same JSON). Treat any
+	// existing pricing row as success so catalog attribute saves never 500.
+	var existing int64
+	if err := db.Model(&tables.TableModelPricing{}).
 		Where("model = ? AND provider = ?", model, provider).
-		Update("additional_attributes", value)
-	if res.Error != nil {
-		return 0, s.parseGormError(res.Error)
+		Count(&existing).Error; err != nil {
+		return 0, s.parseGormError(err)
 	}
-	if res.RowsAffected > 0 {
-		return res.RowsAffected, nil
+	if existing > 0 {
+		res := db.Model(&tables.TableModelPricing{}).
+			Where("model = ? AND provider = ?", model, provider).
+			Update("additional_attributes", value)
+		if res.Error != nil {
+			return 0, s.parseGormError(res.Error)
+		}
+		return 1, nil
 	}
 
 	// No pricing row yet — seed a chat stub so catalog description/attributes
@@ -2954,8 +2962,12 @@ func (s *RDBConfigStore) UpsertModelPricingAttributes(ctx context.Context, model
 		if retry.Error != nil {
 			return 0, s.parseGormError(retry.Error)
 		}
-		if retry.RowsAffected > 0 {
-			return retry.RowsAffected, nil
+		var after int64
+		_ = db.Model(&tables.TableModelPricing{}).
+			Where("model = ? AND provider = ?", model, provider).
+			Count(&after)
+		if after > 0 {
+			return 1, nil
 		}
 		return 0, s.parseGormError(err)
 	}

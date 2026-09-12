@@ -2189,8 +2189,8 @@ export default function BrowserAiPage() {
 											) : null}
 										</>
 									) : (
-										<div className="rounded-md border border-amber-800/40 bg-amber-950/20 px-3 py-2">
-											<p className="text-xs text-amber-100/90 whitespace-pre-wrap break-words">
+										<div className="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 dark:border-amber-800/40 dark:bg-amber-950/20">
+											<p className="text-xs text-amber-950 whitespace-pre-wrap break-words dark:text-amber-100">
 												{(controls.upload_warning || "").trim()}
 											</p>
 										</div>
@@ -2438,35 +2438,37 @@ export default function BrowserAiPage() {
 												</p>
 
 												{rule.warning_message ? (
-													<div className="rounded-md border border-amber-800/40 bg-amber-950/20 px-3 py-2">
-														<p className="text-[10px] uppercase tracking-wide text-amber-300/80 mb-1">
+													<div className="rounded-md border border-amber-300/70 bg-amber-50 px-3 py-2 dark:border-amber-800/40 dark:bg-amber-950/20">
+														<p className="text-[10px] uppercase tracking-wide text-amber-800 mb-1 dark:text-amber-300/80">
 															{guardRuleNoticeCopy(rule.action === "BLOCK" ? "BLOCK" : "REDACT").listLabel}
 														</p>
-														<p className="text-xs text-amber-100/90 whitespace-pre-wrap break-words">{rule.warning_message}</p>
+														<p className="text-xs text-amber-950 whitespace-pre-wrap break-words dark:text-amber-100">
+															{rule.warning_message}
+														</p>
 													</div>
 												) : null}
 
 												{rule.rule_type === "ai_bot" ? (
-													<div className="rounded-md border border-purple-900/40 bg-purple-950/20 px-3 py-2 space-y-1">
+													<div className="rounded-md border border-purple-300/70 bg-purple-50 px-3 py-2 space-y-1 dark:border-purple-900/40 dark:bg-purple-950/20">
 														{!rule.bot_prompt && !rule.bot_reference_image ? (
-															<p className="text-xs text-red-300 font-medium">
+															<p className="text-xs text-red-700 font-medium dark:text-red-300">
 																Incomplete — set the Security Policy prompt and/or reference template, then Save.
 															</p>
 														) : null}
-														<div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-purple-300/80">
+														<div className="flex items-center justify-between text-[10px] uppercase tracking-wide text-purple-800 dark:text-purple-300/80">
 															<span>AI Security Policy (Prompt)</span>
-															<Badge variant="outline" className="text-[10px] py-0 px-1.5 text-purple-300 border-purple-800">
+															<Badge variant="outline" className="text-[10px] py-0 px-1.5 text-purple-800 border-purple-300 dark:text-purple-300 dark:border-purple-800">
 																{rule.bot_provider || GUARD_BOT_OLLAMA_PROVIDER} / {rule.bot_model || GUARD_BOT_OLLAMA_MODEL}
 															</Badge>
 														</div>
-														<p className="text-xs text-purple-100/90 whitespace-pre-wrap break-words font-mono">
+														<p className="text-xs text-purple-950 whitespace-pre-wrap break-words font-mono dark:text-purple-100">
 															{rule.bot_prompt || "(empty)"}
 														</p>
 													</div>
 												) : (
 													<div className="rounded-md border border-border bg-muted/30 px-3 py-2">
 														<p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">Regex Pattern</p>
-														<code className="block text-xs font-mono text-emerald-400 whitespace-pre-wrap break-all">
+														<code className="block text-xs font-mono text-emerald-800 whitespace-pre-wrap break-all dark:text-emerald-400">
 															{rule.pattern}
 														</code>
 													</div>
@@ -2475,7 +2477,7 @@ export default function BrowserAiPage() {
 
 											<div className="flex items-center justify-between gap-3 lg:flex-col lg:items-end lg:justify-start shrink-0 border-t border-border pt-3 lg:border-t-0 lg:pt-0 lg:pl-4">
 												<div className="flex items-center gap-2">
-													<span className={`text-xs font-medium ${rule.active ? "text-emerald-400" : "text-muted-foreground"}`}>
+													<span className={`text-xs font-medium ${rule.active ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground"}`}>
 														{rule.active ? "Active" : "Disabled"}
 													</span>
 													<Switch

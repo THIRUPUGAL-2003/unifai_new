@@ -21,7 +21,7 @@ import OAuth2ConsentPage from "./page";
 // them from ClientLayout.
 function RouteComponent() {
 	return (
-		<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+		<ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
 			<ReduxProvider>
 				<NuqsAdapter>
 					<Toaster closeButton />

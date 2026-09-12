@@ -35,7 +35,7 @@ export function RegexLiveTestPanel({ pattern }: { pattern: string }) {
 				onChange={(e) => setSample(e.target.value)}
 				className="h-8 text-xs"
 			/>
-			<p className={`text-[11px] font-medium ${result.ok ? "text-emerald-400" : "text-amber-300"}`}>{result.msg}</p>
+			<p className={`text-[11px] font-medium ${result.ok ? "text-emerald-700 dark:text-emerald-400" : "text-amber-800 dark:text-amber-300"}`}>{result.msg}</p>
 			<p className="text-[10px] text-muted-foreground">
 				Bare digits like <code className="text-[10px]">613002</code> need a pattern that matches digits alone (e.g.{" "}
 				<code className="text-[10px]">{"\\b[1-9][0-9]{5}\\b"}</code>), not only “pin/otp …”.

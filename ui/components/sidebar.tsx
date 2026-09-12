@@ -574,7 +574,8 @@ export default function AppSidebar() {
 	const hasAuditLogsAccess = useRbac(RbacResource.AuditLogs, RbacOperation.View);
 	const hasCustomersAccess = useRbac(RbacResource.Customers, RbacOperation.View);
 	const hasTeamsAccess = useRbac(RbacResource.Teams, RbacOperation.View);
-	const hasBusinessUnitsAccess = useRbac(RbacResource.UserProvisioning, RbacOperation.View);
+	// Align with backend PathRequirement: business-units APIs use Governance resource.
+	const hasBusinessUnitsAccess = useRbac(RbacResource.Governance, RbacOperation.View);
 	const hasRbacAccess = useRbac(RbacResource.RBAC, RbacOperation.View);
 	const hasVirtualKeysAccess = useRbac(RbacResource.VirtualKeys, RbacOperation.View);
 	const hasGovernanceLegacyAccess = useRbac(RbacResource.Governance, RbacOperation.View);
@@ -857,7 +858,7 @@ export default function AppSidebar() {
 				url: "/workspace/guardrails",
 				icon: Construction,
 				description: "Guardrails configuration",
-				hasAccess: hasGuardrailsConfigAccess || hasGuardrailsProvidersAccess,
+				hasAccess: hasGuardrailsConfigAccess || hasGuardrailsProvidersAccess || hasClusterConfigAccess,
 				subItems: [
 					{
 						title: "Rules",
@@ -873,14 +874,14 @@ export default function AppSidebar() {
 						description: "Guardrail providers configuration",
 						hasAccess: hasGuardrailsProvidersAccess,
 					},
+					{
+						title: "Cluster Config",
+						url: "/workspace/cluster",
+						icon: Network,
+						description: "Manage cluster",
+						hasAccess: hasClusterConfigAccess,
+					},
 				],
-			},
-			{
-				title: "Cluster Config",
-				url: "/workspace/cluster",
-				icon: Network,
-				description: "Manage cluster",
-				hasAccess: hasClusterConfigAccess,
 			},
 			{
 				title: "Adaptive Routing",

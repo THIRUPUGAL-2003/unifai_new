@@ -6,7 +6,7 @@ import SignupPage from "./page";
 
 function RouteComponent() {
 	return (
-		<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+		<ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
 			<ReduxProvider>
 				<NuqsAdapter>
 					<div className="bg-background min-h-screen">

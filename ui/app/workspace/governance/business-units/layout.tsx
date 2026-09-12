@@ -4,7 +4,8 @@ import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import GovernanceBusinessUnitsPage from "./page";
 
 function RouteComponent() {
-	const hasAccess = useRbac(RbacResource.UserProvisioning, RbacOperation.View);
+	// Must match API RBAC: /api/governance/business-units* → Governance.
+	const hasAccess = useRbac(RbacResource.Governance, RbacOperation.View);
 	if (!hasAccess) {
 		return <NoPermissionView entity="business units" />;
 	}
