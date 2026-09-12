@@ -46,8 +46,8 @@ func (h *GovernanceHandler) setVirtualKeyUser(ctx *fasthttp.RequestCtx) {
 	var body struct {
 		UserID string `json:"user_id"`
 	}
-	if err := json.Unmarshal(ctx.PostBody(), &body); err != nil || body.UserID == "" {
-		SendError(ctx, fasthttp.StatusBadRequest, "user_id is required")
+	if err := json.Unmarshal(ctx.PostBody(), &body); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "invalid request body")
 		return
 	}
 	ws, ok := configstore.AsWorkspaceStore(h.configStore)
@@ -59,13 +59,39 @@ func (h *GovernanceHandler) setVirtualKeyUser(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusNotFound, "virtual key not found")
 		return
 	}
+	if body.UserID == "" || body.UserID == "__unassigned__" {
+		if err := ws.DeleteVirtualKeyUser(ctx, vkID); err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "failed to unassign user from virtual key: "+err.Error())
+			return
+		}
+		SendJSON(ctx, map[string]any{"users": []any{}})
+		return
+	}
 	if user, err := h.configStore.GetUserByID(ctx, body.UserID); err != nil || user == nil {
 		SendError(ctx, fasthttp.StatusNotFound, "user not found")
 		return
 	}
 	if err := ws.SetVirtualKeyUser(ctx, vkID, body.UserID); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "failed to assign user to virtual key")
+		SendError(ctx, fasthttp.StatusInternalServerError, "failed to assign user to virtual key: "+err.Error())
 		return
 	}
 	h.getVirtualKeyUsers(ctx)
+}
+
+func (h *GovernanceHandler) deleteVirtualKeyUser(ctx *fasthttp.RequestCtx) {
+	vkID := pathID(ctx, "vk_id")
+	if vkID == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "invalid virtual key id")
+		return
+	}
+	ws, ok := configstore.AsWorkspaceStore(h.configStore)
+	if !ok || ws == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "workspace store is not available")
+		return
+	}
+	if err := ws.DeleteVirtualKeyUser(ctx, vkID); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "failed to unassign user from virtual key: "+err.Error())
+		return
+	}
+	SendJSON(ctx, map[string]any{"users": []any{}})
 }

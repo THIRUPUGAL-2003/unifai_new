@@ -248,6 +248,9 @@ export default function VirtualKeySheet({ virtualKey, teams, customers, defaultT
 
 	const hasCreateAccess = useRbac(RbacResource.VirtualKeys, RbacOperation.Create);
 	const hasUpdateAccess = useRbac(RbacResource.VirtualKeys, RbacOperation.Update);
+	// VK↔user assign hits PUT /api/governance/virtual-keys/.../users (Governance Update).
+	const hasGovernanceUpdate = useRbac(RbacResource.Governance, RbacOperation.Update);
+	const canAssignUser = hasUpdateAccess && hasGovernanceUpdate;
 	const canSubmit = isEditing ? hasUpdateAccess : hasCreateAccess;
 
 	// Detect AP-managed status via the managing profile's virtual_key_ids, not just by the presence
@@ -934,10 +937,15 @@ export default function VirtualKeySheet({ virtualKey, teams, customers, defaultT
 									<p className="text-muted-foreground text-xs">
 										Link this virtual key to a dashboard user so Access Profiles and per-user budgets apply.
 									</p>
+									{!canAssignUser ? (
+										<p className="text-destructive text-xs">
+											Need Virtual Keys + Governance update permission to assign a user.
+										</p>
+									) : null}
 									<div className="flex items-center gap-2">
 										<Select
-											value={assignedUsers[0]?.id || ""}
-											disabled={isAssigningUser || !hasUpdateAccess}
+											value={assignedUsers[0]?.id || undefined}
+											disabled={isAssigningUser || !canAssignUser}
 											onValueChange={async (userId) => {
 												if (!userId || !virtualKey?.id) return;
 												try {
@@ -968,6 +976,13 @@ export default function VirtualKeySheet({ virtualKey, teams, customers, defaultT
 																	...approved,
 																]
 															: approved;
+													if (options.length === 0) {
+														return (
+															<div className="text-muted-foreground px-2 py-1.5 text-xs">
+																No approved users — create one under Governance → Users first.
+															</div>
+														);
+													}
 													return options.map((u) => (
 														<SelectItem key={u.id} value={u.id}>
 															{u.username}

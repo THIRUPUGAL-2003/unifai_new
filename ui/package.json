@@ -7,7 +7,7 @@
 		"build-enterprise": "vite build && npm run typecheck",
 		"typecheck": "tsc --noEmit",
 		"build": "vite build && npm run typecheck && npm run copy-build",
-		"copy-build": "rm -rf ../transports/unifai-http/ui && cp -r out ../transports/unifai-http/ui",
+		"copy-build": "node -e \"const fs=require('fs'); fs.rmSync('../transports/unifai-http/ui', {recursive:true, force:true}); fs.cpSync('out', '../transports/unifai-http/ui', {recursive:true});\"",
 		"start": "vite preview",
 		"lint": "oxlint",
 		"format": "oxfmt",

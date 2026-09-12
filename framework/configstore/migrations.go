@@ -449,6 +449,7 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"add_smtp_auth_security_tables"}, run: migrationAddSMTPAuthSecurityTables},
 	{IDs: []string{"add_auth_login_devices"}, run: migrationAddAuthLoginDevices},
 	{IDs: []string{"add_user_id_to_prompt_sessions"}, run: migrationAddUserIDToPromptSessions},
+	{IDs: []string{"add_governance_virtual_key_users_table"}, run: migrationAddGovernanceVirtualKeyUsersTable},
 }
 
 // quoteSQLiteIdentifier quotes a SQLite identifier, escaping any double quotes.
@@ -11007,3 +11008,35 @@ func migrationAddUserIDToPromptSessions(ctx context.Context, db *gorm.DB, logger
 	}
 	return nil
 }
+
+func migrationAddGovernanceVirtualKeyUsersTable(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_governance_virtual_key_users_table"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			mg := tx.Migrator()
+			if !mg.HasTable(&tables.TableVirtualKeyUser{}) {
+				if err := mg.CreateTable(&tables.TableVirtualKeyUser{}); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			mg := tx.Migrator()
+			if mg.HasTable(&tables.TableVirtualKeyUser{}) {
+				return mg.DropTable(&tables.TableVirtualKeyUser{})
+			}
+			return nil
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+

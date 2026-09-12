@@ -279,7 +279,7 @@ func (TableWorkspaceSetting) TableName() string { return "workspace_settings" }
 type TableVirtualKeyUser struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
 	VirtualKeyID string    `gorm:"type:varchar(255);not null;uniqueIndex" json:"virtual_key_id"`
-	UserID       string    `gorm:"type:varchar(36);not null;index" json:"user_id"`
+	UserID       string    `gorm:"type:varchar(255);not null;index" json:"user_id"`
 	CreatedAt    time.Time `gorm:"not null" json:"created_at"`
 	UpdatedAt    time.Time `gorm:"not null" json:"updated_at"`
 }

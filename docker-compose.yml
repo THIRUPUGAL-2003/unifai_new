@@ -25,8 +25,8 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in .env}
       - BROWSER_AI_OLLAMA_URL=${OLLAMA_URL:?set OLLAMA_URL in .env}
       - OLLAMA_URL=${OLLAMA_URL:?set OLLAMA_URL in .env}
-      - UNIFAI_COMPANY_NAME=${UNIFAI_COMPANY_NAME:-UnifAI}
-      - UNIFAI_COMPANY_LOGO=${UNIFAI_COMPANY_LOGO:-/logo.png}
+      - UNIFAI_COMPANY_NAME=${UNIFAI_COMPANY_NAME:-YesPanchi Group of Companies}
+      - UNIFAI_COMPANY_LOGO=${UNIFAI_COMPANY_LOGO:-/yes-panchi-logo.png}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

@@ -100,6 +100,12 @@ console.log(response.choices[0].message.content);`
 							src={companyLogoSrc}
 							alt={companyFullName}
 							className="h-11 sm:h-12 w-auto max-w-[min(46vw,220px)] shrink-0 object-contain object-left"
+							onError={(e) => {
+								const target = e.currentTarget;
+								if (!target.src.endsWith("/header_logo.png")) {
+									target.src = "/header_logo.png";
+								}
+							}}
 						/>
 						<span className="text-xl font-bold tracking-tight text-white">{productName}</span>
 					</a>
@@ -217,6 +223,12 @@ console.log(response.choices[0].message.content);`
 						src={companyLogoSrc}
 						alt={companyFullName}
 						className="h-20 sm:h-28 w-auto max-w-[min(100%,420px)] object-contain"
+						onError={(e) => {
+							const target = e.currentTarget;
+							if (!target.src.endsWith("/header_logo.png")) {
+								target.src = "/header_logo.png";
+							}
+						}}
 					/>
 					<p className="text-sm sm:text-base font-semibold tracking-[0.22em] text-[#c5a962] uppercase">
 						{companyFullName}

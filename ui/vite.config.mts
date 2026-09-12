@@ -48,6 +48,8 @@ export default defineConfig({
 		"process.env.UNIFAI_IS_ENTERPRISE": JSON.stringify(isEnterpriseBuild ? "true" : "false"),
 		"process.env.UNIFAI_DISABLE_PROFILER": JSON.stringify(process.env.UNIFAI_DISABLE_PROFILER ?? ""),
 		"process.env.UNIFAI_ENTERPRISE_TRIAL_EXPIRY": JSON.stringify(process.env.ENTERPRISE_TRIAL_EXPIRY ?? ""),
+		"process.env.UNIFAI_COMPANY_NAME": JSON.stringify(process.env.UNIFAI_COMPANY_NAME ?? "YesPanchi Group of Companies"),
+		"process.env.UNIFAI_COMPANY_LOGO": JSON.stringify(process.env.UNIFAI_COMPANY_LOGO ?? "/logo.png"),
 		"process.env.UNIFAI_PORT": JSON.stringify(process.env.UNIFAI_PORT ?? ""),
 	},
 	server: {

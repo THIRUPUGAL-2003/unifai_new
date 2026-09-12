@@ -321,19 +321,29 @@ func (s *RDBConfigStore) DeletePromptDeployment(ctx context.Context, id uint) er
 	return deleteByID[tables.TablePromptDeployment](s.DB().WithContext(ctx), id)
 }
 
+func (s *RDBConfigStore) ensureVirtualKeyUsersTable(ctx context.Context) {
+	db := s.DB().WithContext(ctx)
+	if !db.Migrator().HasTable(&tables.TableVirtualKeyUser{}) {
+		_ = db.AutoMigrate(&tables.TableVirtualKeyUser{})
+	}
+}
+
 func (s *RDBConfigStore) ListVirtualKeyUsers(ctx context.Context, virtualKeyID string) ([]tables.TableVirtualKeyUser, error) {
+	s.ensureVirtualKeyUsersTable(ctx)
 	var rows []tables.TableVirtualKeyUser
 	err := s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).Find(&rows).Error
 	return rows, err
 }
 
 func (s *RDBConfigStore) ListVirtualKeysForUser(ctx context.Context, userID string) ([]tables.TableVirtualKeyUser, error) {
+	s.ensureVirtualKeyUsersTable(ctx)
 	var rows []tables.TableVirtualKeyUser
 	err := s.DB().WithContext(ctx).Where("user_id = ?", userID).Find(&rows).Error
 	return rows, err
 }
 
 func (s *RDBConfigStore) SetVirtualKeyUser(ctx context.Context, virtualKeyID, userID string) error {
+	s.ensureVirtualKeyUsersTable(ctx)
 	now := time.Now().UTC()
 	var existing tables.TableVirtualKeyUser
 	err := s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).First(&existing).Error
@@ -351,6 +361,7 @@ func (s *RDBConfigStore) SetVirtualKeyUser(ctx context.Context, virtualKeyID, us
 }
 
 func (s *RDBConfigStore) DeleteVirtualKeyUser(ctx context.Context, virtualKeyID string) error {
+	s.ensureVirtualKeyUsersTable(ctx)
 	return s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).Delete(&tables.TableVirtualKeyUser{}).Error
 }
 
