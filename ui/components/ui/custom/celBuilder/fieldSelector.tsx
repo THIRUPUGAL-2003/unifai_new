@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useGetCoreConfigQuery } from "@/lib/store/apis/configApi";
 import { ListFilter, PenLine } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FieldSelectorProps, RuleGroupType, RuleType } from "react-querybuilder";
 
 // Popular pre-configured Header suggestions
@@ -53,6 +53,13 @@ const COMMON_PARAM_SUGGESTIONS: ComboboxSelectOption[] = [
 	{ label: "debug (Debug Mode)", value: "debug" },
 ];
 
+function normalizeHeaderKey(raw: string): string {
+	return String(raw || "")
+		.trim()
+		.toLowerCase()
+		.replace(/^x-uf-eh-/i, "");
+}
+
 /**
  * Recursively find and update a rule's value by path in the query tree.
  */
@@ -63,11 +70,9 @@ function updateRuleValueAtPath(query: RuleGroupType, targetPath: number[], newVa
 	const newRules = [...query.rules];
 
 	if (restPath.length === 0) {
-		// We're at the target rule
 		const rule = newRules[currentIndex] as RuleType;
 		newRules[currentIndex] = { ...rule, value: newValue };
 	} else {
-		// Recurse into nested group
 		newRules[currentIndex] = updateRuleValueAtPath(newRules[currentIndex] as RuleGroupType, restPath, newValue);
 	}
 
@@ -75,25 +80,41 @@ function updateRuleValueAtPath(query: RuleGroupType, targetPath: number[], newVa
 }
 
 export function FieldSelector({ value, handleOnChange, options, rule, path, schema }: FieldSelectorProps) {
-	// Toggle between searchable combobox and manual input
 	const [isManualInput, setIsManualInput] = useState(false);
 
-	// Check if this is a keyValue field (headers/params)
-	const fieldData = useMemo(() => (schema?.fields?.find((f) => "value" in f && f.value === value) as any) ?? null, [schema?.fields, value]);
-	const isKeyValueField = Boolean(fieldData && fieldData.inputType === "keyValue");
+	// Resolve field by name or value — RQB Field objects keep custom props (inputType) from our mapping.
+	const fieldData = useMemo(() => {
+		const fields = schema?.fields ?? [];
+		for (const field of fields) {
+			if (!field || typeof field !== "object" || "options" in field) continue;
+			const candidate = field as { name?: string; value?: string; inputType?: string; label?: string };
+			if (candidate.name === value || candidate.value === value) {
+				return candidate;
+			}
+		}
+		return null;
+	}, [schema?.fields, value]);
 
 	const isHeaderField = fieldData?.name === "headers" || value === "headers";
 	const isParamField = fieldData?.name === "params" || value === "params";
+	// Fallback: headers/params are always keyValue even if schema lookup misses custom props.
+	const isKeyValueField = Boolean(fieldData?.inputType === "keyValue" || isHeaderField || isParamField);
 
-	// Dynamically include organization-configured headers from CoreConfig
+	useEffect(() => {
+		setIsManualInput(false);
+	}, [value]);
+
 	const { data: coreConfig } = useGetCoreConfigQuery({});
 
 	const headerOptions = useMemo(() => {
 		const rawReq = coreConfig?.client_config?.required_headers || [];
 		const rawLog = coreConfig?.client_config?.logging_headers || [];
-		const configured = Array.from(new Set([...rawReq, ...rawLog].map((h) => String(h).trim().toLowerCase()))).filter(Boolean);
+		const rawAllow = coreConfig?.client_config?.header_filter_config?.allowlist || [];
+		const configured = Array.from(
+			new Set([...rawReq, ...rawLog, ...rawAllow].map((h) => normalizeHeaderKey(String(h))).filter(Boolean)),
+		);
 
-		const existingKeys = new Set(COMMON_HEADER_SUGGESTIONS.map((s) => s.value));
+		const existingKeys = new Set(COMMON_HEADER_SUGGESTIONS.map((s) => s.value.toLowerCase()));
 		const customConfiguredOptions: ComboboxSelectOption[] = configured
 			.filter((key) => !existingKeys.has(key))
 			.map((key) => ({
@@ -104,7 +125,6 @@ export function FieldSelector({ value, handleOnChange, options, rule, path, sche
 		return [...COMMON_HEADER_SUGGESTIONS, ...customConfiguredOptions];
 	}, [coreConfig]);
 
-	// Parse the key from the rule's value ("key:value" or just "key")
 	const headerKey = useMemo(() => {
 		if (!isKeyValueField || !rule?.value || typeof rule.value !== "string") return "";
 		const colonIndex = rule.value.indexOf(":");
@@ -112,19 +132,18 @@ export function FieldSelector({ value, handleOnChange, options, rule, path, sche
 		return rule.value.trim();
 	}, [isKeyValueField, rule?.value]);
 
-	// Prepare selectable suggestions based on whether it's headers or query params
 	const keyOptions = useMemo(() => {
-		const base = isHeaderField ? headerOptions : COMMON_PARAM_SUGGESTIONS;
-		if (headerKey && !base.some((o) => o.value === headerKey)) {
-			return [{ label: headerKey, value: headerKey }, ...base];
+		const base = isHeaderField ? headerOptions : isParamField ? COMMON_PARAM_SUGGESTIONS : [];
+		const current = headerKey.trim();
+		if (current && !base.some((o) => o.value.toLowerCase() === current.toLowerCase())) {
+			return [{ label: current, value: current }, ...base];
 		}
 		return base;
-	}, [isHeaderField, headerOptions, headerKey]);
+	}, [isHeaderField, isParamField, headerOptions, headerKey]);
 
 	const handleKeyChange = useCallback(
 		(newKey: string) => {
 			if (!schema || !path) return;
-			// Preserve the existing value part
 			const currentValue = typeof rule?.value === "string" ? rule.value : "";
 			const colonIndex = currentValue.indexOf(":");
 			const valuePart = colonIndex > 0 ? currentValue.substring(colonIndex + 1).trim() : "";
@@ -138,7 +157,6 @@ export function FieldSelector({ value, handleOnChange, options, rule, path, sche
 				updatedValue = "";
 			}
 
-			// Update the rule value via query dispatch
 			const currentQuery = schema.getQuery() as RuleGroupType;
 			const updatedQuery = updateRuleValueAtPath(currentQuery, path, updatedValue);
 			schema.dispatchQuery(updatedQuery);
@@ -146,20 +164,25 @@ export function FieldSelector({ value, handleOnChange, options, rule, path, sche
 		[schema, path, rule?.value],
 	);
 
+	const handleFieldChange = useCallback(
+		(nextField: string) => {
+			handleOnChange(nextField);
+		},
+		[handleOnChange],
+	);
+
 	return (
 		<div className="flex items-center gap-2">
-			<Select value={value || ""} onValueChange={handleOnChange}>
+			<Select value={value || ""} onValueChange={handleFieldChange}>
 				<SelectTrigger className="w-[180px]" data-testid="cel-builder-field-selector-select">
 					<SelectValue placeholder="Select field..." />
 				</SelectTrigger>
 				<SelectContent>
 					{options.map((opt) => {
-						const option = opt as any;
-						// Handle option groups (not currently used, but type-safe)
-						if ("options" in option) {
+						const option = opt as { name?: string; label?: string; disabled?: boolean; options?: unknown };
+						if ("options" in option && option.options) {
 							return null;
 						}
-						// Handle regular options - skip empty values
 						if (!option.name) {
 							return null;
 						}
@@ -193,9 +216,10 @@ export function FieldSelector({ value, handleOnChange, options, rule, path, sche
 								type="button"
 								variant="ghost"
 								size="icon"
-								className="h-8 w-8 text-muted-foreground hover:text-foreground"
+								className="text-muted-foreground hover:text-foreground h-8 w-8"
 								onClick={() => setIsManualInput(true)}
 								title="Switch to manual text typing"
+								data-testid="cel-builder-field-selector-manual-toggle"
 							>
 								<PenLine className="h-3.5 w-3.5" />
 							</Button>
@@ -206,7 +230,13 @@ export function FieldSelector({ value, handleOnChange, options, rule, path, sche
 								type="text"
 								value={headerKey}
 								onChange={(e) => handleKeyChange(e.target.value)}
-								placeholder={`${fieldData?.label || "Key"} name (e.g., x-api-key)`}
+								placeholder={
+									isHeaderField
+										? "Header name (e.g., x-api-key)"
+										: isParamField
+											? "Param name (e.g., user_id)"
+											: `${fieldData?.label || "Key"} name`
+								}
 								className="w-[230px]"
 								data-testid="cel-builder-field-selector-key-input"
 								autoFocus
@@ -215,9 +245,10 @@ export function FieldSelector({ value, handleOnChange, options, rule, path, sche
 								type="button"
 								variant="ghost"
 								size="icon"
-								className="h-8 w-8 text-muted-foreground hover:text-foreground"
+								className="text-muted-foreground hover:text-foreground h-8 w-8"
 								onClick={() => setIsManualInput(false)}
 								title="Switch to dropdown list"
+								data-testid="cel-builder-field-selector-dropdown-toggle"
 							>
 								<ListFilter className="h-3.5 w-3.5" />
 							</Button>
