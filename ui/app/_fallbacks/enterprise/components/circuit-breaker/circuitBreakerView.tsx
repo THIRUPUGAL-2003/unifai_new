@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ComboboxSelect } from "@/components/ui/combobox";
+import { ComboboxSelect, type ComboboxSelectOption } from "@/components/ui/combobox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -20,7 +20,7 @@ import {
 	useUpdateCircuitBreakerPolicyMutation,
 } from "@enterprise/lib/store/apis/circuitBreakerApi";
 import { CircuitBreakerPolicy } from "@enterprise/lib/types/workspace";
-import { Plus, RotateCcw, Shield, Trash2 } from "lucide-react";
+import { ListFilter, PenLine, Plus, RotateCcw, Shield, Trash2 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +34,19 @@ const emptyPolicy = (): CircuitBreakerPolicy => ({
 	condition: { operator: "OR", signals: [{ source: "response_header", header_name: "" }] },
 	default_cooldown: "30s",
 });
+
+const COMMON_CIRCUIT_BREAKER_HEADERS: ComboboxSelectOption[] = [
+	{ label: "x-ratelimit-remaining-requests (Remaining Calls)", value: "x-ratelimit-remaining-requests" },
+	{ label: "x-ratelimit-remaining-tokens (Remaining Tokens)", value: "x-ratelimit-remaining-tokens" },
+	{ label: "retry-after (HTTP 429 Backoff)", value: "retry-after" },
+	{ label: "x-ratelimit-limit-requests (RPM Limit)", value: "x-ratelimit-limit-requests" },
+	{ label: "x-ratelimit-limit-tokens (TPM Limit)", value: "x-ratelimit-limit-tokens" },
+	{ label: "x-ratelimit-reset-requests (Reset Duration)", value: "x-ratelimit-reset-requests" },
+	{ label: "x-ratelimit-reset-tokens (Reset Duration)", value: "x-ratelimit-reset-tokens" },
+	{ label: "ratelimit-remaining (IETF Standard)", value: "ratelimit-remaining" },
+	{ label: "x-circuit-breaker (Gateway Signal)", value: "x-circuit-breaker" },
+	{ label: "x-ms-is-spilled-over (Azure Spillover)", value: "x-ms-is-spilled-over" },
+];
 
 function validatePolicyForm(form: CircuitBreakerPolicy): string | null {
 	if (!form.name.trim()) return "Policy name is required";
@@ -52,6 +65,7 @@ function validatePolicyForm(form: CircuitBreakerPolicy): string | null {
 
 export default function CircuitBreakerView() {
 	const [open, setOpen] = useState(false);
+	const [isManualHeaderInput, setIsManualHeaderInput] = useState(false);
 	const [form, setForm] = useState<CircuitBreakerPolicy>(emptyPolicy());
 	const [editing, setEditing] = useState(false);
 	const { data: policyData, isLoading: loading } = useGetCircuitBreakerPoliciesQuery();
@@ -88,6 +102,28 @@ export default function CircuitBreakerView() {
 
 	const formError = useMemo(() => validatePolicyForm(form), [form]);
 	const saving = creating || updating;
+
+	const headerOptions = useMemo<ComboboxSelectOption[]>(() => {
+		const existing = new Set<string>();
+		for (const p of policies) {
+			for (const s of p.condition?.signals || []) {
+				if (s.header_name?.trim()) existing.add(s.header_name.trim());
+			}
+		}
+		const currentVal = form.condition.signals[0]?.header_name?.trim();
+		if (currentVal) existing.add(currentVal);
+
+		const base = [...COMMON_CIRCUIT_BREAKER_HEADERS];
+		const knownValues = new Set(base.map((b) => b.value.toLowerCase()));
+
+		for (const h of existing) {
+			if (!knownValues.has(h.toLowerCase())) {
+				base.push({ label: h, value: h });
+				knownValues.add(h.toLowerCase());
+			}
+		}
+		return base;
+	}, [policies, form.condition.signals]);
 
 	const updatePrimarySignal = useCallback(
 		(patch: Partial<CircuitBreakerPolicy["condition"]["signals"][number]>) => {
@@ -184,6 +220,7 @@ export default function CircuitBreakerView() {
 					onClick={() => {
 						setForm(emptyPolicy());
 						setEditing(false);
+						setIsManualHeaderInput(false);
 						setOpen(true);
 					}}
 				>
@@ -252,6 +289,7 @@ export default function CircuitBreakerView() {
 											onClick={() => {
 												setForm(policy);
 												setEditing(true);
+												setIsManualHeaderInput(false);
 												setOpen(true);
 											}}
 										>
@@ -351,19 +389,89 @@ export default function CircuitBreakerView() {
 							</div>
 						</div>
 						<div className="space-y-1">
-							<Label>Header name</Label>
-							<Input
-								placeholder="e.g. x-circuit-breaker or X-Ms-Is-Spilled-Over"
-								value={form.condition.signals[0]?.header_name || ""}
-								onChange={(e) => updatePrimarySignal({ header_name: e.target.value })}
-							/>
+							<div className="flex items-center justify-between">
+								<Label>Header name</Label>
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									className="text-muted-foreground hover:text-foreground h-6 px-1.5 text-xs gap-1"
+									onClick={() => setIsManualHeaderInput(!isManualHeaderInput)}
+									title={isManualHeaderInput ? "Switch to dropdown presets" : "Switch to manual text typing"}
+								>
+									{isManualHeaderInput ? (
+										<>
+											<ListFilter className="h-3 w-3" />
+											<span>Presets list</span>
+										</>
+									) : (
+										<>
+											<PenLine className="h-3 w-3" />
+											<span>Type manually</span>
+										</>
+									)}
+								</Button>
+							</div>
+
+							{!isManualHeaderInput ? (
+								<ComboboxSelect
+									options={headerOptions}
+									value={form.condition.signals[0]?.header_name || null}
+									onValueChange={(value) => updatePrimarySignal({ header_name: value ?? "" })}
+									placeholder="Select or type header to add..."
+									searchPlaceholder="Search or type header to add..."
+									creatable
+									createLabel={(val) => `+ Add "${val}"`}
+									noPortal
+									data-testid="circuit-breaker-header-name"
+								/>
+							) : (
+								<Input
+									placeholder="e.g. x-circuit-breaker or X-Ms-Is-Spilled-Over"
+									value={form.condition.signals[0]?.header_name || ""}
+									onChange={(e) => updatePrimarySignal({ header_name: e.target.value })}
+									autoFocus
+								/>
+							)}
+
 							<p className="text-muted-foreground text-xs">
 								UnifAI watches this header on the primary provider response. When it matches, traffic fails over to the fallback until cooldown
 								expires.
 							</p>
 						</div>
 						<div className="space-y-1">
-							<Label>Header value (optional)</Label>
+							<div className="flex items-center justify-between">
+								<Label>Header value (optional)</Label>
+								<div className="flex items-center gap-1">
+									<span className="text-muted-foreground text-[11px]">Quick:</span>
+									<button
+										type="button"
+										onClick={() => updatePrimarySignal({ header_value: "0" })}
+										className="hover:bg-accent rounded border px-1.5 py-0.5 text-[11px] font-mono"
+										title="Trip when quota hits 0"
+									>
+										0
+									</button>
+									<button
+										type="button"
+										onClick={() => updatePrimarySignal({ header_value: "true" })}
+										className="hover:bg-accent rounded border px-1.5 py-0.5 text-[11px] font-mono"
+										title="Trip on boolean true flag"
+									>
+										true
+									</button>
+									{form.condition.signals[0]?.header_value ? (
+										<button
+											type="button"
+											onClick={() => updatePrimarySignal({ header_value: "" })}
+											className="hover:bg-accent rounded border px-1.5 py-0.5 text-[11px] text-muted-foreground"
+											title="Clear value (trips on any non-empty value)"
+										>
+											Clear
+										</button>
+									) : null}
+								</div>
+							</div>
 							<Input
 								placeholder="Exact value required when set — empty means any non-empty header value"
 								value={form.condition.signals[0]?.header_value || ""}
