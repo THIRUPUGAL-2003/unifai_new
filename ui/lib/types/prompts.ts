@@ -211,9 +211,10 @@ export interface CreateSessionRequest {
 	name?: string;
 	version_id?: number;
 	messages?: PromptMessage[];
-	model_params: ModelParams;
-	provider: string;
-	model: string;
+	/** Optional when version_id is set — server copies from the committed version. */
+	model_params?: ModelParams;
+	provider?: string;
+	model?: string;
 	variables?: Record<string, string>;
 }
 

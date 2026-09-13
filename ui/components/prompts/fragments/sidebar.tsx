@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dropdownMenu";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scrollArea";
-import { Folder, Prompt } from "@/lib/types/prompts";
+import { CreateSessionRequest, Folder, Prompt } from "@/lib/types/prompts";
 import { cn } from "@/lib/utils";
 import { DragDropProvider, useDraggable, useDroppable } from "@dnd-kit/react";
 import {
@@ -218,18 +218,19 @@ export function PromptSidebar() {
 							if (!selectedPrompt) return;
 							try {
 								const latestVersion = selectedPrompt.latest_version;
-								const sessionData: Record<string, unknown> = {};
-
-								if (latestVersion?.id) {
-									// Let the server copy provider/model/params/messages from the committed version.
-									sessionData.version_id = latestVersion.id;
-								} else {
-									const rawMessages = latestVersion?.messages ?? [];
-									const loaded = Message.fromLegacyAll(rawMessages.map((m) => m.message));
-									const systemMsg = loaded.find((m) => m.role === "system") || Message.system("");
-									sessionData.messages = Message.serializeAll([systemMsg]);
-									sessionData.model_params = { stream: true };
-								}
+								const sessionData: CreateSessionRequest = latestVersion?.id
+									? // Server copies provider/model/params/messages from the committed version.
+										{ version_id: latestVersion.id }
+									: {
+											messages: Message.serializeAll([
+												Message.fromLegacyAll((latestVersion?.messages ?? []).map((m) => m.message)).find(
+													(m) => m.role === "system",
+												) || Message.system(""),
+											]),
+											model_params: { stream: true },
+											provider: latestVersion?.provider ?? "",
+											model: latestVersion?.model ?? "",
+										};
 
 								const result = await createSession({
 									promptId: selectedPrompt.id,
