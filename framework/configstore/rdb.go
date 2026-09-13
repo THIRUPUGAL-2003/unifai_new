@@ -122,6 +122,14 @@ func lockBudgetOwner(ctx context.Context, txDB *gorm.DB, budget tables.TableBudg
 			}
 			return err
 		}
+	case budget.UserID != nil && *budget.UserID != "":
+		var user tables.TableUser
+		if err := dbForUpdate(txDB.WithContext(ctx)).First(&user, "id = ?", *budget.UserID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
 	}
 	return nil
 }
@@ -4750,6 +4758,12 @@ func (s *RDBConfigStore) UpdateBudget(ctx context.Context, budget *tables.TableB
 		}
 		if ownerBudget.CustomerID == nil {
 			ownerBudget.CustomerID = existing.CustomerID
+		}
+		if ownerBudget.UserID == nil {
+			ownerBudget.UserID = existing.UserID
+		}
+		if ownerBudget.ModelConfigID == nil {
+			ownerBudget.ModelConfigID = existing.ModelConfigID
 		}
 		if err := lockBudgetOwner(ctx, txDB, ownerBudget); err != nil {
 			return err

@@ -442,6 +442,11 @@ var configstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"add_user_registration_status"}, run: migrationAddUserRegistrationStatus},
 	{IDs: []string{"ensure_user_registration_columns"}, run: migrationEnsureUserRegistrationColumns},
 	{IDs: []string{"add_external_id_to_governance_users"}, run: migrationAddExternalIDToGovernanceUsers},
+	{IDs: []string{"add_user_budget_rate_limit_columns"}, run: migrationAddUserBudgetRateLimitColumns},
+	{IDs: []string{"ensure_user_budget_rate_limit_columns"}, run: migrationEnsureUserBudgetRateLimitColumns},
+	{IDs: []string{"add_user_id_to_governance_budgets"}, run: migrationAddUserIDToGovernanceBudgets},
+	{IDs: []string{"ensure_user_id_on_governance_budgets"}, run: migrationEnsureUserIDOnGovernanceBudgets},
+	{IDs: []string{"ensure_governance_team_members_table"}, run: migrationEnsureGovernanceTeamMembersTable},
 	{IDs: []string{"backfill_vk_provider_allow_all_keys"}, run: migrationBackfillVKProviderAllowAllKeys},
 	{IDs: []string{"add_oauth_resource_indicator"}, run: migrationAddOAuthResourceIndicator},
 	{IDs: []string{"add_workspace_feature_tables"}, run: migrationAddWorkspaceFeatureTables},
@@ -10589,6 +10594,137 @@ func migrationAddExternalIDToGovernanceUsers(ctx context.Context, db *gorm.DB, l
 			tx = tx.WithContext(ctx)
 			return dropColumnIfExists(tx, logger, &tables.TableUser{}, "external_id")
 		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+// migrationAddUserBudgetRateLimitColumns ensures governance_users can store per-user
+// budget/rate-limit fields and the materialized budget_id / rate_limit_id FKs used by
+// Users → Add New User. Older DBs created the table before these columns existed.
+func migrationAddUserBudgetRateLimitColumns(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_user_budget_rate_limit_columns"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			for _, col := range []string{"budget", "rate_limit", "budget_id", "rate_limit_id"} {
+				if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, col); err != nil {
+					return fmt.Errorf("add %s to governance_users: %w", col, err)
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			_ = dropColumnIfExists(tx, logger, &tables.TableUser{}, "budget_id")
+			_ = dropColumnIfExists(tx, logger, &tables.TableUser{}, "rate_limit_id")
+			return nil
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+// migrationEnsureUserBudgetRateLimitColumns re-applies budget columns if a prior
+// migration ID was recorded without successfully adding them.
+func migrationEnsureUserBudgetRateLimitColumns(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "ensure_user_budget_rate_limit_columns"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			for _, col := range []string{"budget", "rate_limit", "budget_id", "rate_limit_id"} {
+				if err := addColumnIfNotExists(tx, logger, &tables.TableUser{}, col); err != nil {
+					return fmt.Errorf("ensure %s on governance_users: %w", col, err)
+				}
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error { return nil },
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+// migrationAddUserIDToGovernanceBudgets adds governance_budgets.user_id so per-user
+// budgets created from Users UI can be owned by a governance user.
+func migrationAddUserIDToGovernanceBudgets(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "add_user_id_to_governance_budgets"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			if err := addColumnIfNotExists(tx, logger, &tables.TableBudget{}, "user_id"); err != nil {
+				return fmt.Errorf("add user_id to governance_budgets: %w", err)
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			return dropColumnIfExists(tx, logger, &tables.TableBudget{}, "user_id")
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+// migrationEnsureUserIDOnGovernanceBudgets re-applies budgets.user_id if needed.
+func migrationEnsureUserIDOnGovernanceBudgets(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "ensure_user_id_on_governance_budgets"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			if err := addColumnIfNotExists(tx, logger, &tables.TableBudget{}, "user_id"); err != nil {
+				return fmt.Errorf("ensure user_id on governance_budgets: %w", err)
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error { return nil },
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error running %s migration: %w", migrationName, err)
+	}
+	return nil
+}
+
+// migrationEnsureGovernanceTeamMembersTable creates governance_team_members when
+// older workspaces ran add_workspace_feature_tables before TableTeamMember existed.
+func migrationEnsureGovernanceTeamMembersTable(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "ensure_governance_team_members_table"
+	logger.Info("[configstore] starting migration %s", migrationName)
+	defer logger.Info("[configstore] finished migration %s", migrationName)
+	m := migrator.New(db, migrator.DefaultOptions, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			mg := tx.Migrator()
+			if mg.HasTable(&tables.TableTeamMember{}) {
+				return nil
+			}
+			if err := mg.CreateTable(&tables.TableTeamMember{}); err != nil {
+				return fmt.Errorf("create governance_team_members: %w", err)
+			}
+			return nil
+		},
+		Rollback: func(tx *gorm.DB) error { return nil },
 	}})
 	if err := m.Migrate(); err != nil {
 		return fmt.Errorf("error running %s migration: %w", migrationName, err)

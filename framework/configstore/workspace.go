@@ -3,6 +3,7 @@ package configstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/unifai/unifai/framework/configstore/tables"
@@ -371,29 +372,39 @@ func (s *RDBConfigStore) DeleteVirtualKeyUser(ctx context.Context, virtualKeyID 
 	return s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).Delete(&tables.TableVirtualKeyUser{}).Error
 }
 
-func (s *RDBConfigStore) ensureTeamMembersTable(ctx context.Context) {
+func (s *RDBConfigStore) ensureTeamMembersTable(ctx context.Context) error {
 	db := s.DB().WithContext(ctx)
-	if !db.Migrator().HasTable(&tables.TableTeamMember{}) {
-		_ = db.AutoMigrate(&tables.TableTeamMember{})
+	if db.Migrator().HasTable(&tables.TableTeamMember{}) {
+		return nil
 	}
+	if err := db.AutoMigrate(&tables.TableTeamMember{}); err != nil {
+		return fmt.Errorf("ensure governance_team_members table: %w", err)
+	}
+	return nil
 }
 
 func (s *RDBConfigStore) ListTeamMembers(ctx context.Context, teamID string) ([]tables.TableTeamMember, error) {
-	s.ensureTeamMembersTable(ctx)
+	if err := s.ensureTeamMembersTable(ctx); err != nil {
+		return nil, err
+	}
 	var rows []tables.TableTeamMember
 	err := s.DB().WithContext(ctx).Where("team_id = ?", teamID).Find(&rows).Error
 	return rows, err
 }
 
 func (s *RDBConfigStore) ListTeamsForUser(ctx context.Context, userID string) ([]tables.TableTeamMember, error) {
-	s.ensureTeamMembersTable(ctx)
+	if err := s.ensureTeamMembersTable(ctx); err != nil {
+		return nil, err
+	}
 	var rows []tables.TableTeamMember
 	err := s.DB().WithContext(ctx).Where("user_id = ?", userID).Find(&rows).Error
 	return rows, err
 }
 
 func (s *RDBConfigStore) AddTeamMember(ctx context.Context, teamID, userID string) error {
-	s.ensureTeamMembersTable(ctx)
+	if err := s.ensureTeamMembersTable(ctx); err != nil {
+		return err
+	}
 	now := time.Now().UTC()
 	var existing tables.TableTeamMember
 	err := s.DB().WithContext(ctx).Where("team_id = ? AND user_id = ?", teamID, userID).First(&existing).Error
@@ -409,7 +420,9 @@ func (s *RDBConfigStore) AddTeamMember(ctx context.Context, teamID, userID strin
 }
 
 func (s *RDBConfigStore) RemoveTeamMember(ctx context.Context, teamID, userID string) error {
-	s.ensureTeamMembersTable(ctx)
+	if err := s.ensureTeamMembersTable(ctx); err != nil {
+		return err
+	}
 	return s.DB().WithContext(ctx).Where("team_id = ? AND user_id = ?", teamID, userID).Delete(&tables.TableTeamMember{}).Error
 }
 

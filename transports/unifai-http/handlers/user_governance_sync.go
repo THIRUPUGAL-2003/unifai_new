@@ -2,10 +2,13 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/unifai/unifai/framework/configstore"
 	"github.com/unifai/unifai/framework/configstore/tables"
+	"gorm.io/gorm"
 )
 
 // UserGovernanceSyncer pushes materialized user budget/rate-limit rows into the
@@ -22,12 +25,17 @@ const (
 
 // materializeUserGovernanceLimits turns Users.Budget / Users.RateLimit UI fields
 // into live TableBudget / TableRateLimit rows owned by the user, then syncs memory.
-func (h *SessionHandler) materializeUserGovernanceLimits(ctx context.Context, user *tables.TableUser) error {
+// Optional tx keeps create/update + materialize atomic when passed from ExecuteTransaction.
+func (h *SessionHandler) materializeUserGovernanceLimits(ctx context.Context, user *tables.TableUser, tx ...*gorm.DB) error {
 	if h == nil || h.configStore == nil || user == nil || user.ID == "" {
 		return nil
 	}
 	now := time.Now().UTC()
 	uid := user.ID
+	var txArgs []*gorm.DB
+	if len(tx) > 0 && tx[0] != nil {
+		txArgs = tx
+	}
 
 	var budget *tables.TableBudget
 	if user.Budget > 0 {
@@ -38,10 +46,12 @@ func (h *SessionHandler) materializeUserGovernanceLimits(ctx context.Context, us
 				existing.ResetDuration = userBudgetResetDuration
 				existing.UserID = &uid
 				existing.UpdatedAt = now
-				if err := h.configStore.UpdateBudget(ctx, existing); err != nil {
+				if err := h.configStore.UpdateBudget(ctx, existing, txArgs...); err != nil {
 					return err
 				}
 				budget = existing
+			} else if err != nil && !errors.Is(err, configstore.ErrNotFound) {
+				return err
 			}
 		}
 		if budget == nil {
@@ -56,13 +66,15 @@ func (h *SessionHandler) materializeUserGovernanceLimits(ctx context.Context, us
 				CreatedAt:     now,
 				UpdatedAt:     now,
 			}
-			if err := h.configStore.CreateBudget(ctx, budget); err != nil {
+			if err := h.configStore.CreateBudget(ctx, budget, txArgs...); err != nil {
 				return err
 			}
 			user.BudgetID = &bid
 		}
 	} else if user.BudgetID != nil && *user.BudgetID != "" {
-		_ = h.configStore.DeleteBudget(ctx, *user.BudgetID)
+		if err := h.configStore.DeleteBudget(ctx, *user.BudgetID, txArgs...); err != nil && !errors.Is(err, configstore.ErrNotFound) {
+			return err
+		}
 		user.BudgetID = nil
 	}
 
@@ -76,10 +88,12 @@ func (h *SessionHandler) materializeUserGovernanceLimits(ctx context.Context, us
 				existing.RequestMaxLimit = &maxReq
 				existing.RequestResetDuration = &reset
 				existing.UpdatedAt = now
-				if err := h.configStore.UpdateRateLimit(ctx, existing); err != nil {
+				if err := h.configStore.UpdateRateLimit(ctx, existing, txArgs...); err != nil {
 					return err
 				}
 				rateLimit = existing
+			} else if err != nil && !errors.Is(err, configstore.ErrNotFound) {
+				return err
 			}
 		}
 		if rateLimit == nil {
@@ -93,17 +107,20 @@ func (h *SessionHandler) materializeUserGovernanceLimits(ctx context.Context, us
 				CreatedAt:            now,
 				UpdatedAt:            now,
 			}
-			if err := h.configStore.CreateRateLimit(ctx, rateLimit); err != nil {
+			if err := h.configStore.CreateRateLimit(ctx, rateLimit, txArgs...); err != nil {
 				return err
 			}
 			user.RateLimitID = &rid
 		}
 	} else if user.RateLimitID != nil && *user.RateLimitID != "" {
-		_ = h.configStore.DeleteRateLimit(ctx, *user.RateLimitID)
+		if err := h.configStore.DeleteRateLimit(ctx, *user.RateLimitID, txArgs...); err != nil && !errors.Is(err, configstore.ErrNotFound) {
+			return err
+		}
 		user.RateLimitID = nil
 	}
 
-	if h.userGovernance != nil {
+	// Memory sync is best-effort and stays outside DB transactions.
+	if len(txArgs) == 0 && h.userGovernance != nil {
 		if budget == nil && rateLimit == nil {
 			h.userGovernance.DeleteUserGovernance(ctx, user.ID)
 		} else {
@@ -111,4 +128,28 @@ func (h *SessionHandler) materializeUserGovernanceLimits(ctx context.Context, us
 		}
 	}
 	return nil
+}
+
+// syncUserGovernanceMemory refreshes in-memory meters after a committed DB write.
+func (h *SessionHandler) syncUserGovernanceMemory(ctx context.Context, user *tables.TableUser) {
+	if h == nil || h.userGovernance == nil || user == nil || user.ID == "" {
+		return
+	}
+	var budget *tables.TableBudget
+	var rateLimit *tables.TableRateLimit
+	if user.BudgetID != nil && *user.BudgetID != "" {
+		if b, err := h.configStore.GetBudget(ctx, *user.BudgetID); err == nil {
+			budget = b
+		}
+	}
+	if user.RateLimitID != nil && *user.RateLimitID != "" {
+		if r, err := h.configStore.GetRateLimit(ctx, *user.RateLimitID); err == nil {
+			rateLimit = r
+		}
+	}
+	if budget == nil && rateLimit == nil {
+		h.userGovernance.DeleteUserGovernance(ctx, user.ID)
+		return
+	}
+	h.userGovernance.SyncUserGovernance(ctx, user.ID, budget, rateLimit)
 }

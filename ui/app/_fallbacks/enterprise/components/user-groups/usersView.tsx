@@ -226,10 +226,24 @@ export default function UsersView() {
 		try {
 			const created = await createUser({ ...userPayload(), password }).unwrap();
 			if (created?.id && role) {
-				await assignUserRole({ id: created.id, role_name: role }).unwrap();
+				try {
+					await assignUserRole({ id: created.id, role_name: role }).unwrap();
+				} catch (roleErr) {
+					toast.warning(`User created, but role assign failed: ${getErrorMessage(roleErr)}`);
+					setIsCreateOpen(false);
+					resetForm();
+					return;
+				}
 			}
 			if (created?.id && role !== "admin") {
-				await syncUserTeam(created.id, teamId, "");
+				try {
+					await syncUserTeam(created.id, teamId, "");
+				} catch (teamErr) {
+					toast.warning(`User created, but team assign failed: ${getErrorMessage(teamErr)}`);
+					setIsCreateOpen(false);
+					resetForm();
+					return;
+				}
 			}
 			if (created?.email_sent) {
 				toast.success("User created — welcome email sent (username + password)");

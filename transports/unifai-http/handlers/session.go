@@ -15,6 +15,7 @@ import (
 	"github.com/unifai/unifai/framework/encrypt"
 	"github.com/unifai/unifai/transports/unifai-http/lib"
 	"github.com/valyala/fasthttp"
+	"gorm.io/gorm"
 )
 
 // SessionHandler manages HTTP requests for session operations
@@ -387,6 +388,24 @@ func alreadyRegisteredMessage(existing *tables.TableUser) string {
 	}
 }
 
+// userCreateFailureMessage maps DB/create errors into a clear admin-facing toast.
+func userCreateFailureMessage(err error) string {
+	if err == nil {
+		return "Failed to create user"
+	}
+	errLower := strings.ToLower(err.Error())
+	if strings.Contains(errLower, "duplicate") || strings.Contains(errLower, "unique") {
+		if strings.Contains(errLower, "email") {
+			return "This email is already registered with another account"
+		}
+		return "Username is already registered"
+	}
+	if strings.Contains(errLower, "column") || strings.Contains(errLower, "does not exist") {
+		return "Database is missing user columns (budget/rate limit); restart the gateway to apply migrations"
+	}
+	return "Failed to create user"
+}
+
 // assertEmailAvailable rejects when another user already owns this email.
 // exceptUserID allows the same user to keep/update their own email.
 // Returns false after sending the HTTP error.
@@ -396,7 +415,15 @@ func (h *SessionHandler) assertEmailAvailable(ctx *fasthttp.RequestCtx, email, e
 		return true
 	}
 	other, err := h.configStore.GetUserByEmail(ctx, email)
-	if err != nil || other == nil {
+	if err != nil {
+		if errors.Is(err, configstore.ErrNotFound) {
+			return true
+		}
+		logger.Error("failed to validate email availability: %v", err)
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to validate email — check database connection")
+		return false
+	}
+	if other == nil {
 		return true
 	}
 	if exceptUserID != "" && other.ID == exceptUserID {
@@ -528,7 +555,13 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 	}
 
 	now := time.Now()
-	if existing, err := h.configStore.GetUserByUsername(ctx, payload.Username); err == nil && existing != nil {
+	existing, err := h.configStore.GetUserByUsername(ctx, payload.Username)
+	if err != nil && !errors.Is(err, configstore.ErrNotFound) {
+		logger.Error("failed to lookup governance user username=%s: %v", payload.Username, err)
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to validate username — check database connection")
+		return
+	}
+	if existing != nil {
 		if existing.IsApproved() {
 			SendError(ctx, fasthttp.StatusConflict, "Username is already registered")
 			return
@@ -549,19 +582,9 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		existing.AllowedSections = payload.AllowedSections
 		existing.ReviewedAt = &now
 		existing.UpdatedAt = now
-		if err := h.configStore.UpdateUser(ctx, existing); err != nil {
-			logger.Error("failed to update pending governance user username=%s: %v", payload.Username, err)
-			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
-			return
-		}
-		if err := h.materializeUserGovernanceLimits(ctx, existing); err != nil {
-			logger.Error("failed to materialize user governance username=%s: %v", payload.Username, err)
-			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to apply user budget")
-			return
-		}
-		if err := h.configStore.UpdateUser(ctx, existing); err != nil {
-			logger.Error("failed to persist user governance ids username=%s: %v", payload.Username, err)
-			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
+		if err := h.persistUserWithGovernance(ctx, existing, false); err != nil {
+			logger.Error("failed to activate pending governance user username=%s: %v", payload.Username, err)
+			SendError(ctx, fasthttp.StatusInternalServerError, userCreateFailureMessage(err))
 			return
 		}
 		existing.Password = ""
@@ -608,28 +631,9 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		UpdatedAt:          now,
 	}
 
-	if err := h.configStore.CreateUser(ctx, user); err != nil {
+	if err := h.persistUserWithGovernance(ctx, user, true); err != nil {
 		logger.Error("failed to create governance user username=%s: %v", payload.Username, err)
-		errLower := strings.ToLower(err.Error())
-		if strings.Contains(errLower, "duplicate") || strings.Contains(errLower, "unique") {
-			SendError(ctx, fasthttp.StatusConflict, "Username is already registered")
-			return
-		}
-		if strings.Contains(errLower, "column") && (strings.Contains(errLower, "status") || strings.Contains(errLower, "email") || strings.Contains(errLower, "reviewed_at") || strings.Contains(errLower, "external_id")) {
-			SendError(ctx, fasthttp.StatusInternalServerError, "Database is missing user registration columns; restart the server to apply migrations")
-			return
-		}
-		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
-		return
-	}
-	if err := h.materializeUserGovernanceLimits(ctx, user); err != nil {
-		logger.Error("failed to materialize user governance username=%s: %v", payload.Username, err)
-		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to apply user budget")
-		return
-	}
-	if err := h.configStore.UpdateUser(ctx, user); err != nil {
-		logger.Error("failed to persist user governance ids username=%s: %v", payload.Username, err)
-		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
+		SendError(ctx, fasthttp.StatusInternalServerError, userCreateFailureMessage(err))
 		return
 	}
 
@@ -651,6 +655,31 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		"email_sent":           emailSent,
 		"email_error":          emailErr,
 	})
+}
+
+// persistUserWithGovernance writes the user + budget/rate-limit rows in one DB transaction.
+// create=true inserts the user; create=false updates an existing row.
+func (h *SessionHandler) persistUserWithGovernance(ctx *fasthttp.RequestCtx, user *tables.TableUser, create bool) error {
+	err := h.configStore.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		if create {
+			if err := h.configStore.CreateUser(ctx, user, tx); err != nil {
+				return err
+			}
+		} else {
+			if err := h.configStore.UpdateUser(ctx, user, tx); err != nil {
+				return err
+			}
+		}
+		if err := h.materializeUserGovernanceLimits(ctx, user, tx); err != nil {
+			return err
+		}
+		return h.configStore.UpdateUser(ctx, user, tx)
+	})
+	if err != nil {
+		return err
+	}
+	h.syncUserGovernanceMemory(ctx, user)
+	return nil
 }
 
 // forgotPassword emails a 6-digit OTP when the account has an email on file.
@@ -866,12 +895,8 @@ func (h *SessionHandler) updateUser(ctx *fasthttp.RequestCtx) {
 	}
 	existingUser.UpdatedAt = time.Now()
 
-	if err := h.materializeUserGovernanceLimits(ctx, existingUser); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to apply user budget: "+err.Error())
-		return
-	}
-	if err := h.configStore.UpdateUser(ctx, existingUser); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to update user: "+err.Error())
+	if err := h.persistUserWithGovernance(ctx, existingUser, false); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, userCreateFailureMessage(err))
 		return
 	}
 
@@ -888,6 +913,38 @@ func (h *SessionHandler) deleteUser(ctx *fasthttp.RequestCtx) {
 	id, ok := h.extractParam(ctx, "id")
 	if !ok {
 		return
+	}
+
+	existing, err := h.configStore.GetUserByID(ctx, id)
+	if err != nil {
+		if errors.Is(err, configstore.ErrNotFound) {
+			SendError(ctx, fasthttp.StatusNotFound, "User not found")
+			return
+		}
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to load user: "+err.Error())
+		return
+	}
+
+	// Clean related governance rows before deleting the user so DB stays consistent.
+	if existing.BudgetID != nil && *existing.BudgetID != "" {
+		if err := h.configStore.DeleteBudget(ctx, *existing.BudgetID); err != nil && !errors.Is(err, configstore.ErrNotFound) {
+			logger.Error("failed to delete user budget id=%s: %v", *existing.BudgetID, err)
+		}
+	}
+	_ = h.configStore.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		return tx.Where("user_id = ?", id).Delete(&tables.TableBudget{}).Error
+	})
+	if existing.RateLimitID != nil && *existing.RateLimitID != "" {
+		if err := h.configStore.DeleteRateLimit(ctx, *existing.RateLimitID); err != nil && !errors.Is(err, configstore.ErrNotFound) {
+			logger.Error("failed to delete user rate limit id=%s: %v", *existing.RateLimitID, err)
+		}
+	}
+	if ws, ok := configstore.AsWorkspaceStore(h.configStore); ok && ws != nil {
+		if memberships, err := ws.ListTeamsForUser(ctx, id); err == nil {
+			for _, m := range memberships {
+				_ = ws.RemoveTeamMember(ctx, m.TeamID, id)
+			}
+		}
 	}
 
 	if err := h.configStore.DeleteUser(ctx, id); err != nil {
