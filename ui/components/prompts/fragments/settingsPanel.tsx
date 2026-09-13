@@ -22,6 +22,7 @@ import { useIsAuthEnabledQuery } from "@/lib/store";
 
 export function SettingsPanel() {
 	const {
+		selectedPrompt,
 		provider,
 		setProvider,
 		model,
@@ -204,31 +205,47 @@ export function SettingsPanel() {
 							className="min-h-0 flex-1 overflow-y-auto pt-0 pb-2"
 						>
 							<div className="space-y-6">
-								<div className="flex flex-col gap-2" data-testid="settings-provider">
-									<Label className="text-muted-foreground text-xs font-medium uppercase">Provider</Label>
-									<ComboboxSelect
-										options={providerOptions}
-										value={provider}
-										onValueChange={(v) => v && onProviderChange(v)}
-										placeholder="Select provider"
-										hideClear
-									/>
-								</div>
+								{isMemberOnly && selectedPrompt?.latest_version ? (
+									<div className="space-y-3 rounded-lg border bg-muted/40 p-3" data-testid="settings-locked-model">
+										<div className="flex flex-col gap-1">
+											<Label className="text-muted-foreground text-xs font-medium uppercase">Assigned Model</Label>
+											<div className="font-semibold text-sm">
+												{String(selectedPrompt.latest_version.provider || provider).toUpperCase()} — {selectedPrompt.latest_version.model || model}
+											</div>
+										</div>
+										<p className="text-xs text-muted-foreground">
+											This prompt is locked to its committed version model for members.
+										</p>
+									</div>
+								) : (
+									<>
+										<div className="flex flex-col gap-2" data-testid="settings-provider">
+											<Label className="text-muted-foreground text-xs font-medium uppercase">Provider</Label>
+											<ComboboxSelect
+												options={providerOptions}
+												value={provider}
+												onValueChange={(v) => v && onProviderChange(v)}
+												placeholder="Select provider"
+												hideClear
+											/>
+										</div>
 
-								<div className="flex flex-col gap-2" data-testid="settings-model">
-									<Label className="text-muted-foreground text-xs font-medium uppercase">Model</Label>
-									<ModelMultiselect
-										provider={provider}
-										keys={filterKeys && filterKeys.length > 0 ? filterKeys : undefined}
-										vks={filterVks}
-										value={model}
-										onChange={(v) => onModelChange(v)}
-										isSingleSelect
-										placeholder={!provider ? "Select a provider first" : "Select model"}
-										disabled={!provider}
-										unfiltered={true}
-									/>
-								</div>
+										<div className="flex flex-col gap-2" data-testid="settings-model">
+											<Label className="text-muted-foreground text-xs font-medium uppercase">Model</Label>
+											<ModelMultiselect
+												provider={provider}
+												keys={filterKeys && filterKeys.length > 0 ? filterKeys : undefined}
+												vks={filterVks}
+												value={model}
+												onChange={(v) => onModelChange(v)}
+												isSingleSelect
+												placeholder={!provider ? "Select a provider first" : "Select model"}
+												disabled={!provider}
+												unfiltered={true}
+											/>
+										</div>
+									</>
+								)}
 
 								{(providerKeys.length > 0 || providerVirtualKeys.length > 0) && !!provider && (
 									<ApiKeySelectorView

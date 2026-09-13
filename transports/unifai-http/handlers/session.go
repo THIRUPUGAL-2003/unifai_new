@@ -158,8 +158,26 @@ func dashboardAuthType(isEnabled bool) string {
 	return "none"
 }
 
+// recordAuthAudit logs authentication lifecycle events (login/logout) to the workspace audit trail.
+func (h *SessionHandler) recordAuthAudit(ctx *fasthttp.RequestCtx, action, outcome, username, path string, start time.Time) {
+	if ws, ok := configstore.AsWorkspaceStore(h.configStore); ok && ws != nil && username != "" {
+		_ = ws.CreateAuditLog(ctx, &tables.TableAuditLog{
+			Action:     action,
+			Outcome:    outcome,
+			Initiator:  username,
+			Target:     path,
+			Method:     "POST",
+			Path:       path,
+			IP:         ctx.RemoteIP().String(),
+			DurationMs: time.Since(start).Milliseconds(),
+			CreatedAt:  time.Now().UTC(),
+		})
+	}
+}
+
 // login handles POST /api/session/login - Login a user
 func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
+	start := time.Now()
 	if h.configStore == nil {
 		SendError(ctx, fasthttp.StatusForbidden, "Authentication is not enabled")
 		return
@@ -216,6 +234,7 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 		}
 		compare, err := encrypt.CompareHash(dbUser.Password, payload.Password)
 		if err != nil || !compare {
+			h.recordAuthAudit(ctx, "login", "failure", payload.Username, "/api/session/login", start)
 			if locked, retryAfter := recordLoginFailure(h.configStore, ctx, payload.Username); locked {
 				mins := int(retryAfter.Minutes()) + 1
 				SendError(ctx, fasthttp.StatusTooManyRequests, fmt.Sprintf("Too many failed login attempts. Account locked for about %d minutes", mins))
@@ -228,6 +247,7 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 		notifyEmail = dbUser.Email
 	} else {
 		if payload.Username != authConfig.AdminUserName.GetValue() {
+			h.recordAuthAudit(ctx, "login", "failure", payload.Username, "/api/session/login", start)
 			if locked, retryAfter := recordLoginFailure(h.configStore, ctx, payload.Username); locked {
 				mins := int(retryAfter.Minutes()) + 1
 				SendError(ctx, fasthttp.StatusTooManyRequests, fmt.Sprintf("Too many failed login attempts. Account locked for about %d minutes", mins))
@@ -238,6 +258,7 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 		}
 		compare, err := encrypt.CompareHash(authConfig.AdminPassword.GetValue(), payload.Password)
 		if err != nil || !compare {
+			h.recordAuthAudit(ctx, "login", "failure", payload.Username, "/api/session/login", start)
 			if locked, retryAfter := recordLoginFailure(h.configStore, ctx, payload.Username); locked {
 				mins := int(retryAfter.Minutes()) + 1
 				SendError(ctx, fasthttp.StatusTooManyRequests, fmt.Sprintf("Too many failed login attempts. Account locked for about %d minutes", mins))
@@ -282,6 +303,7 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.SetCookie(cookie)
 
 	trySendLoginNoticeEmail(h.configStore, ctx, sessionUsername, notifyEmail)
+	h.recordAuthAudit(ctx, "login", "success", sessionUsername, "/api/session/login", start)
 
 	SendJSON(ctx, map[string]any{
 		"message": "Login successful",
@@ -291,6 +313,7 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 
 // logout handles POST /api/session/logout - Logout a user
 func (h *SessionHandler) logout(ctx *fasthttp.RequestCtx) {
+	start := time.Now()
 	if h.configStore == nil {
 		SendError(ctx, fasthttp.StatusForbidden, "Authentication is not enabled")
 		return
@@ -302,6 +325,13 @@ func (h *SessionHandler) logout(ctx *fasthttp.RequestCtx) {
 	// If no token in header, try to get from cookie
 	if token == "" {
 		token = string(ctx.Request.Header.Cookie("token"))
+	}
+
+	logoutUsername := "unknown"
+	if token != "" {
+		if sess, err := h.configStore.GetSession(ctx, token); err == nil && sess != nil {
+			logoutUsername = sess.Username
+		}
 	}
 
 	// clear token from cookies
@@ -327,6 +357,10 @@ func (h *SessionHandler) logout(ctx *fasthttp.RequestCtx) {
 			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to invalidate session. Please try again.")
 			return
 		}
+	}
+
+	if logoutUsername != "unknown" {
+		h.recordAuthAudit(ctx, "logout", "success", logoutUsername, "/api/session/logout", start)
 	}
 
 	SendJSON(ctx, map[string]any{

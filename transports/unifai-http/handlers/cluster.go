@@ -187,8 +187,23 @@ func (h *WorkspaceHandler) getLoadBalancerRoutes(ctx *fasthttp.RequestCtx) {
 						})
 					}
 				}
+				status := "not_configured"
+				if keyCount > 0 {
+					anyEnabled := false
+					for _, key := range keys {
+						if key.Enabled == nil || *key.Enabled {
+							anyEnabled = true
+							break
+						}
+					}
+					if anyEnabled {
+						status = "healthy"
+					} else {
+						status = "disabled"
+					}
+				}
 				directions = append(directions, map[string]any{
-					"provider": provider.Name, "key_count": keyCount, "status": provider.Status,
+					"provider": provider.Name, "key_count": keyCount, "status": status,
 				})
 			}
 		}
