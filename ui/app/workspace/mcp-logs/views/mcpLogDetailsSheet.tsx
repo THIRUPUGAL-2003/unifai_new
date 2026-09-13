@@ -280,6 +280,69 @@ export function MCPLogDetailSheet({
 									}
 								/>
 							)}
+							{!displayLog.virtual_key && displayLog.virtual_key_id && (
+								<LogEntryDetailsView className="w-full" label="Virtual Key" value={displayLog.virtual_key_name || displayLog.virtual_key_id} />
+							)}
+							{displayLog.user_id && (
+								<LogEntryDetailsView
+									className="w-full"
+									label="User"
+									value={
+										<Link
+											to="/workspace/mcp-logs"
+											search={{ user_ids: [displayLog.user_id] }}
+											className="text-blue-600 hover:underline dark:text-blue-400"
+										>
+											{displayLog.user_id}
+										</Link>
+									}
+								/>
+							)}
+							{displayLog.team_id && (
+								<LogEntryDetailsView
+									className="w-full"
+									label="Team"
+									value={
+										<Link
+											to="/workspace/mcp-logs"
+											search={{ team_ids: [displayLog.team_id] }}
+											className="text-blue-600 hover:underline dark:text-blue-400"
+										>
+											{displayLog.team_id}
+										</Link>
+									}
+								/>
+							)}
+							{displayLog.customer_id && (
+								<LogEntryDetailsView
+									className="w-full"
+									label="Customer"
+									value={
+										<Link
+											to="/workspace/mcp-logs"
+											search={{ customer_ids: [displayLog.customer_id] }}
+											className="text-blue-600 hover:underline dark:text-blue-400"
+										>
+											{displayLog.customer_id}
+										</Link>
+									}
+								/>
+							)}
+							{displayLog.business_unit_id && (
+								<LogEntryDetailsView
+									className="w-full"
+									label="Business Unit"
+									value={
+										<Link
+											to="/workspace/mcp-logs"
+											search={{ business_unit_ids: [displayLog.business_unit_id] }}
+											className="text-blue-600 hover:underline dark:text-blue-400"
+										>
+											{displayLog.business_unit_id}
+										</Link>
+									}
+								/>
+							)}
 							{displayLog.llm_request_id && (
 								<LogEntryDetailsView
 									className="col-span-3 w-full"

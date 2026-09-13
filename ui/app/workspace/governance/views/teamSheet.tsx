@@ -18,7 +18,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { resetDurationOptions, supportsCalendarAlignment } from "@/lib/constants/governance";
-import { getErrorMessage, useCreateTeamMutation, useUpdateTeamMutation } from "@/lib/store";
+import { getErrorMessage, useCreateTeamMutation, useUpdateTeamMutation, useGetTeamMembersQuery, useAddTeamMemberMutation, useRemoveTeamMemberMutation } from "@/lib/store";
 import { CreateTeamRequest, Customer, Team, UpdateTeamRequest } from "@/lib/types/governance";
 import { formatCurrency } from "@/lib/utils/governance";
 import { Validator } from "@/lib/utils/validation";
@@ -28,6 +28,7 @@ import isEqual from "lodash.isequal";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { v4 as uuid } from "uuid";
+import { useGetSessionUsersQuery } from "@/lib/store";
 
 interface TeamSheetProps {
 	team?: Team | null;
@@ -107,6 +108,36 @@ export default function TeamSheet({ team, customers, onSave, onCancel }: TeamShe
 	const [createTeam, { isLoading: isCreating }] = useCreateTeamMutation();
 	const [updateTeam, { isLoading: isUpdating }] = useUpdateTeamMutation();
 	const loading = isCreating || isUpdating;
+
+	const { data: membersData } = useGetTeamMembersQuery(team?.id || "", { skip: !team?.id });
+	const { data: sessionUsers } = useGetSessionUsersQuery(undefined, { skip: !team?.id });
+	const [addTeamMember, { isLoading: isAddingMember }] = useAddTeamMemberMutation();
+	const [removeTeamMember, { isLoading: isRemovingMember }] = useRemoveTeamMemberMutation();
+	const [memberToAdd, setMemberToAdd] = useState("");
+
+	const memberIds = new Set((membersData?.members || []).map((m) => m.user_id || m.id));
+	const availableUsers = (sessionUsers || []).filter((u) => u.role !== "admin" && !memberIds.has(u.id));
+
+	const handleAddMember = async () => {
+		if (!team?.id || !memberToAdd) return;
+		try {
+			await addTeamMember({ teamId: team.id, userId: memberToAdd }).unwrap();
+			setMemberToAdd("");
+			toast.success("Team member added");
+		} catch (error) {
+			toast.error(`Failed to add member: ${getErrorMessage(error)}`);
+		}
+	};
+
+	const handleRemoveMember = async (userId: string) => {
+		if (!team?.id) return;
+		try {
+			await removeTeamMember({ teamId: team.id, userId }).unwrap();
+			toast.success("Team member removed");
+		} catch (error) {
+			toast.error(`Failed to remove member: ${getErrorMessage(error)}`);
+		}
+	};
 
 	// Team-wide calendar-align toggle: confirmation only fires on the off→on
 	// transition for an existing team (mirrors the VK sheet behavior).
@@ -579,6 +610,55 @@ export default function TeamSheet({ team, customers, onSave, onCancel }: TeamShe
 							</div>
 						)}
 					</div>
+
+					{isEditing && team?.id && (
+						<div className="space-y-3 border-t pt-6">
+							<Label>Team members</Label>
+							<p className="text-muted-foreground text-sm">Assign users to this team for org membership and BU rankings.</p>
+							{(membersData?.members || []).length === 0 ? (
+								<p className="text-muted-foreground text-xs">No members yet.</p>
+							) : (
+								<ul className="space-y-2">
+									{(membersData?.members || []).map((m) => (
+										<li key={m.user_id || m.id} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+											<div>
+												<span className="font-medium">{m.username}</span>
+												{m.email ? <span className="text-muted-foreground ml-2 text-xs">{m.email}</span> : null}
+											</div>
+											<Button
+												type="button"
+												variant="ghost"
+												size="sm"
+												disabled={!hasUpdateAccess || isRemovingMember}
+												onClick={() => handleRemoveMember(m.user_id || m.id)}
+											>
+												Remove
+											</Button>
+										</li>
+									))}
+								</ul>
+							)}
+							<div className="flex gap-2">
+								<Select value={memberToAdd || "__none__"} onValueChange={(v) => setMemberToAdd(v === "__none__" ? "" : v)}>
+									<SelectTrigger className="w-full">
+										<SelectValue placeholder="Select a user" />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="__none__">Select a user</SelectItem>
+										{availableUsers.map((u) => (
+											<SelectItem key={u.id} value={u.id}>
+												{u.username}
+												{u.email ? ` (${u.email})` : ""}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<Button type="button" variant="outline" disabled={!memberToAdd || !hasUpdateAccess || isAddingMember} onClick={handleAddMember}>
+									Add
+								</Button>
+							</div>
+						</div>
+					)}
 
 					<div className="border-border bg-card sticky bottom-0 z-10 border-t px-8 py-4">
 						<div className="flex justify-end gap-2">

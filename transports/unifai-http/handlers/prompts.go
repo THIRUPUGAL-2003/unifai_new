@@ -352,7 +352,7 @@ func (h *PromptsHandler) getPrompts(ctx *fasthttp.RequestCtx) {
 	if token, ok := tokenVal.(string); ok && token != "" {
 		session, err := h.store.GetSession(ctx, token)
 		if err == nil && session != nil {
-			if session.Role == "user" {
+			if !isWorkspaceAdminRole(session.Role) {
 				isUserRole = true
 				dbUser, err := h.store.GetUserByUsername(ctx, session.Username)
 				if err == nil && dbUser != nil {
@@ -740,7 +740,7 @@ func (h *PromptsHandler) checkPromptAccess(ctx *fasthttp.RequestCtx, promptID st
 	if err != nil || session == nil {
 		return true
 	}
-	if session.Role != "user" {
+	if isWorkspaceAdminRole(session.Role) {
 		return true
 	}
 	dbUser, err := h.store.GetUserByUsername(ctx, session.Username)

@@ -174,6 +174,10 @@ export default function DashboardPage() {
 			...(urlState.virtual_key_ids.length > 0 && {
 				virtual_key_ids: urlState.virtual_key_ids,
 			}),
+			...(urlState.user_ids.length > 0 && { user_ids: urlState.user_ids }),
+			...(urlState.team_ids.length > 0 && { team_ids: urlState.team_ids }),
+			...(urlState.customer_ids.length > 0 && { customer_ids: urlState.customer_ids }),
+			...(urlState.business_unit_ids.length > 0 && { business_unit_ids: urlState.business_unit_ids }),
 		}),
 		[
 			urlState.period,
@@ -183,6 +187,10 @@ export default function DashboardPage() {
 			selectedMcpServerLabels,
 			urlState.status,
 			urlState.virtual_key_ids,
+			urlState.user_ids,
+			urlState.team_ids,
+			urlState.customer_ids,
+			urlState.business_unit_ids,
 		],
 	);
 

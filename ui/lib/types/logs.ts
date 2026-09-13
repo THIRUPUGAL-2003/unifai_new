@@ -1067,6 +1067,10 @@ export interface MCPToolLogEntry {
 	server_label?: string; // MCP server that provided the tool
 	virtual_key_id?: string;
 	virtual_key_name?: string;
+	user_id?: string;
+	team_id?: string;
+	customer_id?: string;
+	business_unit_id?: string;
 	arguments?: Record<string, unknown> | string; // JSON parsed tool arguments
 	result?: Record<string, unknown> | string; // JSON parsed tool result
 	error_details?: UnifAIError;
@@ -1084,6 +1088,10 @@ export interface MCPToolLogFilters {
 	server_labels?: string[];
 	status?: string[];
 	virtual_key_ids?: string[];
+	user_ids?: string[];
+	team_ids?: string[];
+	customer_ids?: string[];
+	business_unit_ids?: string[];
 	llm_request_ids?: string[];
 	start_time?: string; // RFC3339 format
 	end_time?: string; // RFC3339 format

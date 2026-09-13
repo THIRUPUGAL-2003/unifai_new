@@ -205,3 +205,6 @@ transports/unifai-http/unifai-http.exe
 # routing harness ledgers (local run journals, never committed)
 tests/e2e/api/routing/ledger-*
 apps/browser-guard/release/UnifAI_Guard.app/
+
+# Built gateway binary (must not push to GitHub)
+transports/unifai-http.exe

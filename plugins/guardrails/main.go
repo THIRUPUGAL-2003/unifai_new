@@ -171,7 +171,7 @@ func (p *GuardrailsPlugin) PreLLMHook(ctx *schemas.UnifAIContext, req *schemas.U
 				
 				if err := provider.ValidateInput(ctx, req); err != nil {
 					return req, &schemas.LLMPluginShortCircuit{
-						Error: guardrailViolationError(err.Error()),
+						Error: guardrailViolationError(fmt.Sprintf("Guardrail %q blocked input: %s", rule.Name, err.Error())),
 					}, nil
 				}
 			}
@@ -186,9 +186,19 @@ func (p *GuardrailsPlugin) PostLLMHook(ctx *schemas.UnifAIContext, resp *schemas
 		return resp, err, nil
 	}
 
+	accumulateStreamOutput(ctx, resp)
+
 	vars := map[string]interface{}{
 		"request.model":     modelNameFromResponse(resp),
 		"request.prompt_id": promptIDFromContext(ctx),
+	}
+
+	streamFinished := chatStreamFinished(resp)
+	accumulated := ""
+	if streamFinished {
+		if v, ok := ctx.Value(guardrailsStreamAccumKey).(string); ok {
+			accumulated = v
+		}
 	}
 
 	for _, rule := range p.config.GuardrailRules {
@@ -217,13 +227,64 @@ func (p *GuardrailsPlugin) PostLLMHook(ctx *schemas.UnifAIContext, resp *schemas
 				}
 
 				if validateErr := provider.ValidateOutput(ctx, nil, resp); validateErr != nil {
-					return nil, guardrailViolationError(validateErr.Error()), nil
+					return nil, guardrailViolationError(fmt.Sprintf("Guardrail %q blocked output: %s", rule.Name, validateErr.Error())), nil
+				}
+
+				// Streaming playground path: validate full accumulated text on final chunk.
+				if streamFinished && accumulated != "" {
+					if rp, ok := provider.(*RegexProvider); ok {
+						if matchErr := rp.MatchText(accumulated, "output"); matchErr != nil {
+							return nil, guardrailViolationError(fmt.Sprintf("Guardrail %q blocked output: %s", rule.Name, matchErr.Error())), nil
+						}
+					}
 				}
 			}
 		}
 	}
 
 	return resp, err, nil
+}
+
+const guardrailsStreamAccumKey schemas.UnifAIContextKey = "guardrails.stream_output_accum"
+
+func accumulateStreamOutput(ctx *schemas.UnifAIContext, resp *schemas.UnifAIResponse) {
+	if ctx == nil || resp == nil || resp.ChatResponse == nil {
+		return
+	}
+	for _, choice := range resp.ChatResponse.Choices {
+		if choice.ChatStreamResponseChoice == nil || choice.ChatStreamResponseChoice.Delta == nil {
+			continue
+		}
+		delta := choice.ChatStreamResponseChoice.Delta
+		chunk := ""
+		if delta.Content != nil {
+			chunk += *delta.Content
+		}
+		if delta.Refusal != nil {
+			chunk += *delta.Refusal
+		}
+		if chunk == "" {
+			continue
+		}
+		prev, _ := ctx.Value(guardrailsStreamAccumKey).(string)
+		ctx.SetValue(guardrailsStreamAccumKey, prev+chunk)
+	}
+}
+
+func chatStreamFinished(resp *schemas.UnifAIResponse) bool {
+	if resp == nil || resp.ChatResponse == nil {
+		return false
+	}
+	for _, choice := range resp.ChatResponse.Choices {
+		if choice.FinishReason != nil && *choice.FinishReason != "" {
+			return true
+		}
+		if choice.ChatStreamResponseChoice != nil {
+			// Some providers omit finish_reason on intermediate chunks only.
+			continue
+		}
+	}
+	return false
 }
 
 func promptIDFromContext(ctx *schemas.UnifAIContext) string {

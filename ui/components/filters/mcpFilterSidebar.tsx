@@ -6,7 +6,8 @@ import { ScrollArea } from "@/components/ui/scrollArea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TruncatedLabel } from "@/components/ui/truncatedLabel";
 import { Statuses } from "@/lib/constants/logs";
-import { useGetMCPLogsFilterDataQuery } from "@/lib/store";
+import { useGetMCPLogsFilterDataQuery, useGetTeamsQuery, useGetSessionUsersQuery, useGetCustomersQuery } from "@/lib/store";
+import { useGetBusinessUnitsQuery } from "@enterprise/lib/store/apis/businessUnitsApi";
 import type { MCPToolLogFilters } from "@/lib/types/logs";
 import { cn } from "@/lib/utils";
 import { ChevronDown, LoaderCircle, PanelLeftClose, PanelLeftOpen, Plus, RotateCcw, Search } from "lucide-react";
@@ -108,6 +109,10 @@ export function MCPFilterSidebar({ filters, onFiltersChange }: MCPFilterSidebarP
 					{/* Rest closed unless they have active filters */}
 					<ServersFilter filters={filters} onFiltersChange={onFiltersChange} />
 					<VirtualKeysFilter filters={filters} onFiltersChange={onFiltersChange} />
+					<TeamsFilter filters={filters} onFiltersChange={onFiltersChange} />
+					<UsersFilter filters={filters} onFiltersChange={onFiltersChange} />
+					<CustomersFilter filters={filters} onFiltersChange={onFiltersChange} />
+					<BusinessUnitsFilter filters={filters} onFiltersChange={onFiltersChange} />
 				</div>
 			</ScrollArea>
 		</div>
@@ -454,6 +459,116 @@ function VirtualKeysFilter({ filters, onFiltersChange, defaultOpen }: FilterComp
 				onToggle={toggle}
 				onSearch={setSearchQuery}
 				fetching={isFetching}
+			/>
+		</FilterSection>
+	);
+}
+
+function TeamsFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
+	const hasActive = (filters.team_ids || []).length > 0;
+	const [opened, setOpened] = useState(defaultOpen || hasActive);
+	const searchInputRef = useAutoFocusOnOpen(opened);
+	const { data: teamsData, isLoading } = useGetTeamsQuery({ limit: 500, offset: 0 }, { skip: !opened && !hasActive });
+	const teams = teamsData?.teams || [];
+	const items = useMemo(() => teams.map((t) => ({ key: t.id, label: t.name })), [teams]);
+
+	if (!isLoading && teams.length === 0 && !hasActive && !opened) return null;
+
+	return (
+		<FilterSection title="Teams" defaultOpen={defaultOpen || hasActive} loading={isLoading} onOpenChange={setOpened}>
+			<SearchableCheckboxList
+				inputRef={searchInputRef}
+				placeholder="Search teams"
+				items={items}
+				isSelected={(id) => (filters.team_ids || []).includes(id)}
+				onToggle={(id) => {
+					const current = filters.team_ids || [];
+					const next = current.includes(id) ? current.filter((v) => v !== id) : [...current, id];
+					onFiltersChange({ ...filters, team_ids: next });
+				}}
+			/>
+		</FilterSection>
+	);
+}
+
+function UsersFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
+	const hasActive = (filters.user_ids || []).length > 0;
+	const [opened, setOpened] = useState(defaultOpen || hasActive);
+	const searchInputRef = useAutoFocusOnOpen(opened);
+	const { data: users = [], isLoading } = useGetSessionUsersQuery(undefined, { skip: !opened && !hasActive });
+	const items = useMemo(
+		() => users.filter((u) => (u.status || "approved") === "approved").map((u) => ({ key: u.id, label: u.username })),
+		[users],
+	);
+
+	if (!isLoading && items.length === 0 && !hasActive && !opened) return null;
+
+	return (
+		<FilterSection title="Users" defaultOpen={defaultOpen || hasActive} loading={isLoading} onOpenChange={setOpened}>
+			<SearchableCheckboxList
+				inputRef={searchInputRef}
+				placeholder="Search users"
+				items={items}
+				isSelected={(id) => (filters.user_ids || []).includes(id)}
+				onToggle={(id) => {
+					const current = filters.user_ids || [];
+					const next = current.includes(id) ? current.filter((v) => v !== id) : [...current, id];
+					onFiltersChange({ ...filters, user_ids: next });
+				}}
+			/>
+		</FilterSection>
+	);
+}
+
+function CustomersFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
+	const hasActive = (filters.customer_ids || []).length > 0;
+	const [opened, setOpened] = useState(defaultOpen || hasActive);
+	const searchInputRef = useAutoFocusOnOpen(opened);
+	const { data: customersData, isLoading } = useGetCustomersQuery({ limit: 500, offset: 0 }, { skip: !opened && !hasActive });
+	const customers = customersData?.customers || [];
+	const items = useMemo(() => customers.map((c) => ({ key: c.id, label: c.name })), [customers]);
+
+	if (!isLoading && customers.length === 0 && !hasActive && !opened) return null;
+
+	return (
+		<FilterSection title="Customers" defaultOpen={defaultOpen || hasActive} loading={isLoading} onOpenChange={setOpened}>
+			<SearchableCheckboxList
+				inputRef={searchInputRef}
+				placeholder="Search customers"
+				items={items}
+				isSelected={(id) => (filters.customer_ids || []).includes(id)}
+				onToggle={(id) => {
+					const current = filters.customer_ids || [];
+					const next = current.includes(id) ? current.filter((v) => v !== id) : [...current, id];
+					onFiltersChange({ ...filters, customer_ids: next });
+				}}
+			/>
+		</FilterSection>
+	);
+}
+
+function BusinessUnitsFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
+	const hasActive = (filters.business_unit_ids || []).length > 0;
+	const [opened, setOpened] = useState(defaultOpen || hasActive);
+	const searchInputRef = useAutoFocusOnOpen(opened);
+	const { data: unitData, isLoading } = useGetBusinessUnitsQuery(undefined, { skip: !opened && !hasActive });
+	const units = unitData?.business_units || [];
+	const items = useMemo(() => units.map((u) => ({ key: u.id, label: u.name })), [units]);
+
+	if (!isLoading && units.length === 0 && !hasActive && !opened) return null;
+
+	return (
+		<FilterSection title="Business Units" defaultOpen={defaultOpen || hasActive} loading={isLoading} onOpenChange={setOpened}>
+			<SearchableCheckboxList
+				inputRef={searchInputRef}
+				placeholder="Search business units"
+				items={items}
+				isSelected={(id) => (filters.business_unit_ids || []).includes(id)}
+				onToggle={(id) => {
+					const current = filters.business_unit_ids || [];
+					const next = current.includes(id) ? current.filter((v) => v !== id) : [...current, id];
+					onFiltersChange({ ...filters, business_unit_ids: next });
+				}}
 			/>
 		</FilterSection>
 	);

@@ -19,16 +19,22 @@ import (
 
 // SessionHandler manages HTTP requests for session operations
 type SessionHandler struct {
-	configStore   configstore.ConfigStore
-	wsTicketStore *WSTicketStore
+	configStore     configstore.ConfigStore
+	wsTicketStore   *WSTicketStore
+	userGovernance  UserGovernanceSyncer
 }
 
-// NewSessionHandler creates a new session handler instance
-func NewSessionHandler(configStore configstore.ConfigStore, wsTicketStore *WSTicketStore) *SessionHandler {
-	return &SessionHandler{
+// NewSessionHandler creates a new session handler instance.
+// Optional userGovernance syncs Users.Budget into the live governance meter.
+func NewSessionHandler(configStore configstore.ConfigStore, wsTicketStore *WSTicketStore, userGovernance ...UserGovernanceSyncer) *SessionHandler {
+	h := &SessionHandler{
 		configStore:   configStore,
 		wsTicketStore: wsTicketStore,
 	}
+	if len(userGovernance) > 0 {
+		h.userGovernance = userGovernance[0]
+	}
+	return h
 }
 
 // normalizeUserRole accepts admin/user or a custom RBAC role that exists in the workspace store.
@@ -126,7 +132,7 @@ func (h *SessionHandler) isAuthEnabled(ctx *fasthttp.RequestCtx) {
 			if username == "" {
 				username = "admin"
 			}
-			if username != "" && (role == "admin" || role == "user") {
+			if username != "" {
 				if dbUser, err := h.configStore.GetUserByUsername(ctx, username); err == nil && dbUser != nil {
 					allowedSections = dbUser.AllowedSections
 				}
@@ -444,7 +450,7 @@ func (h *SessionHandler) getUsers(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
 	}
-	visible := make([]*tables.TableUser, 0, len(users))
+	visible := make([]map[string]any, 0, len(users))
 	for _, u := range users {
 		if u == nil {
 			continue
@@ -453,8 +459,27 @@ func (h *SessionHandler) getUsers(ctx *fasthttp.RequestCtx) {
 		if u.Status == tables.UserStatusRejected {
 			continue
 		}
-		u.Password = ""
-		visible = append(visible, u)
+		item := map[string]any{
+			"id":                   u.ID,
+			"username":             u.Username,
+			"email":                u.Email,
+			"role":                 u.Role,
+			"status":               u.Status,
+			"budget":               u.Budget,
+			"rate_limit":           u.RateLimit,
+			"budget_id":            u.BudgetID,
+			"rate_limit_id":        u.RateLimitID,
+			"allowed_prompt_repos": u.AllowedPromptRepos,
+			"allowed_sections":     u.AllowedSections,
+			"created_at":           u.CreatedAt,
+			"updated_at":           u.UpdatedAt,
+		}
+		if u.BudgetID != nil && *u.BudgetID != "" {
+			if b, err := h.configStore.GetBudget(ctx, *u.BudgetID); err == nil && b != nil {
+				item["budget_current_usage"] = b.CurrentUsage
+			}
+		}
+		visible = append(visible, item)
 	}
 	SendJSON(ctx, visible)
 }
@@ -529,6 +554,16 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
 			return
 		}
+		if err := h.materializeUserGovernanceLimits(ctx, existing); err != nil {
+			logger.Error("failed to materialize user governance username=%s: %v", payload.Username, err)
+			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to apply user budget")
+			return
+		}
+		if err := h.configStore.UpdateUser(ctx, existing); err != nil {
+			logger.Error("failed to persist user governance ids username=%s: %v", payload.Username, err)
+			SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
+			return
+		}
 		existing.Password = ""
 		emailTo := strings.TrimSpace(payload.Email)
 		if emailTo == "" {
@@ -543,6 +578,8 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 			"status":               existing.Status,
 			"budget":               existing.Budget,
 			"rate_limit":           existing.RateLimit,
+			"budget_id":            existing.BudgetID,
+			"rate_limit_id":        existing.RateLimitID,
 			"allowed_prompt_repos": existing.AllowedPromptRepos,
 			"allowed_sections":     existing.AllowedSections,
 			"created_at":           existing.CreatedAt,
@@ -585,6 +622,16 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
 		return
 	}
+	if err := h.materializeUserGovernanceLimits(ctx, user); err != nil {
+		logger.Error("failed to materialize user governance username=%s: %v", payload.Username, err)
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to apply user budget")
+		return
+	}
+	if err := h.configStore.UpdateUser(ctx, user); err != nil {
+		logger.Error("failed to persist user governance ids username=%s: %v", payload.Username, err)
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to create user")
+		return
+	}
 
 	user.Password = ""
 	emailSent, emailErr := trySendWelcomeEmail(h.configStore, ctx, payload.Username, payload.Email, payload.Password)
@@ -596,6 +643,8 @@ func (h *SessionHandler) createUser(ctx *fasthttp.RequestCtx) {
 		"status":               user.Status,
 		"budget":               user.Budget,
 		"rate_limit":           user.RateLimit,
+		"budget_id":            user.BudgetID,
+		"rate_limit_id":        user.RateLimitID,
 		"allowed_prompt_repos": user.AllowedPromptRepos,
 		"allowed_sections":     user.AllowedSections,
 		"created_at":           user.CreatedAt,
@@ -817,6 +866,10 @@ func (h *SessionHandler) updateUser(ctx *fasthttp.RequestCtx) {
 	}
 	existingUser.UpdatedAt = time.Now()
 
+	if err := h.materializeUserGovernanceLimits(ctx, existingUser); err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to apply user budget: "+err.Error())
+		return
+	}
 	if err := h.configStore.UpdateUser(ctx, existingUser); err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to update user: "+err.Error())
 		return
@@ -840,6 +893,9 @@ func (h *SessionHandler) deleteUser(ctx *fasthttp.RequestCtx) {
 	if err := h.configStore.DeleteUser(ctx, id); err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to delete user: "+err.Error())
 		return
+	}
+	if h.userGovernance != nil {
+		h.userGovernance.DeleteUserGovernance(ctx, id)
 	}
 
 	SendJSON(ctx, map[string]any{

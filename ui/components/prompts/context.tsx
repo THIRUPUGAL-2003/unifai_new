@@ -573,7 +573,17 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			await executePrompt(
 				messages,
 				pendingMessage,
-				{ provider: execProvider, model: execModel, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId },
+				{
+					provider: execProvider,
+					model: execModel,
+					modelParams,
+					apiKeyId,
+					variables,
+					customHeaders,
+					skillSystemPrompt,
+					skillId,
+					promptId: selectedPromptId ?? undefined,
+				},
 				{
 					onStreamingStart: (allMessages, placeholder) => {
 						if (!isActive()) return;
@@ -636,6 +646,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			customHeaders,
 			skillSystemPrompt,
 			skillId,
+			selectedPromptId,
 			isUserRole,
 			models,
 			persistPlaygroundSession,
@@ -669,7 +680,17 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			await executePrompt(
 				newMessages,
 				undefined,
-				{ provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId },
+				{
+					provider,
+					model,
+					modelParams,
+					apiKeyId,
+					variables,
+					customHeaders,
+					skillSystemPrompt,
+					skillId,
+					promptId: selectedPromptId ?? undefined,
+				},
 				{
 					onStreamingStart: (allMessages, placeholder) => {
 						if (!isActive()) return;
@@ -716,7 +737,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId, persistPlaygroundSession],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId, selectedPromptId, persistPlaygroundSession],
 	);
 
 	const handleExecuteToolCall = useCallback(
@@ -767,7 +788,17 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			await executePrompt(
 				newMessages,
 				undefined,
-				{ provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId },
+				{
+					provider,
+					model,
+					modelParams,
+					apiKeyId,
+					variables,
+					customHeaders,
+					skillSystemPrompt,
+					skillId,
+					promptId: selectedPromptId ?? undefined,
+				},
 				{
 					onStreamingStart: (allMessages, placeholder) => {
 						if (!isActive()) return;
@@ -814,7 +845,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, handleSubmitToolResult, skillSystemPrompt, skillId, persistPlaygroundSession],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, handleSubmitToolResult, skillSystemPrompt, skillId, selectedPromptId, persistPlaygroundSession],
 	);
 
 	const handleExecuteAllToolCalls = useCallback(

@@ -521,9 +521,8 @@ export default function AppSidebar() {
 	const { data: authStatus } = useIsAuthEnabledQuery();
 	const isAuthEnabled = authStatus?.is_auth_enabled || authStatus?.has_valid_token || false;
 	const scopedSidebarSections = useMemo(() => {
-		if (authStatus?.role === "user") {
-			return null;
-		}
+		// Only admins get workspace section scopes. Every other role (user, developer,
+		// custom RBAC) is locked to Prompt Repository — never fall through to full admin.
 		if (authStatus?.role === "admin") {
 			return parseAdminAllowedSections(authStatus.allowed_sections);
 		}
@@ -984,7 +983,8 @@ export default function AppSidebar() {
 				],
 			},
 		];
-		if (authStatus?.role === "user") {
+		// Non-admin (user / developer / any custom role) → Prompt Repository only.
+		if (authStatus?.role && authStatus.role !== "admin") {
 			return allItems.filter((item) => item.title === "Prompt Repository");
 		}
 		if (scopedSidebarSections) {
@@ -1089,7 +1089,8 @@ export default function AppSidebar() {
 	}, []);
 
 	useEffect(() => {
-		if (authStatus?.role === "user") {
+		// Any non-admin role is confined to Prompt Repository (URL hard-lock).
+		if (authStatus?.role && authStatus.role !== "admin") {
 			if (!pathname.startsWith("/workspace/prompt-repo")) {
 				navigate("/workspace/prompt-repo");
 			}

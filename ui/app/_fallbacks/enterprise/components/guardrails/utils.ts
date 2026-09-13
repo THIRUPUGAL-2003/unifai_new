@@ -84,3 +84,25 @@ export function formatRuleTriggerSummary(celExpression: string, promptNameById: 
 	}
 	return celExpression || "Custom expression";
 }
+
+export function formatRuleConnectionPreview(opts: {
+	applyTo: string;
+	promptScope: GuardrailPromptScope;
+	selectedPromptIds: string[];
+	promptNameById: Map<string, string>;
+	providerLabels: string[];
+}): string {
+	const phase =
+		opts.applyTo === "both" ? "user input and model output" : opts.applyTo === "output" ? "model output" : "user input";
+	const providers = opts.providerLabels.length > 0 ? opts.providerLabels.join(", ") : "no providers selected";
+	let when = "every chat/completions request through UnifAI";
+	if (opts.promptScope === "prompts") {
+		const names = opts.selectedPromptIds.map((id) => opts.promptNameById.get(id) || id).filter(Boolean);
+		when = names.length
+			? `only when Prompt Repo runs: ${names.join(", ")} (requires x-uf-prompt-id)`
+			: "selected Prompt Repo prompts (pick at least one)";
+	} else if (opts.promptScope === "custom") {
+		when = "when your custom CEL expression matches (request.model / request.prompt_id)";
+	}
+	return `Will scan ${phase} with [${providers}] on ${when}. Does not apply to Browser AI Guard or MCP-only traffic.`;
+}

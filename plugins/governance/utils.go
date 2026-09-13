@@ -8,6 +8,7 @@ import (
 
 	unifai "github.com/unifai/unifai/core"
 	"github.com/unifai/unifai/core/schemas"
+	"github.com/unifai/unifai/framework/configstore"
 	configstoreTables "github.com/unifai/unifai/framework/configstore/tables"
 	"github.com/valyala/fasthttp"
 )
@@ -89,6 +90,131 @@ func stampGovernanceCtxFromVK(ctx *schemas.UnifAIContext, vk *configstoreTables.
 		if vk.Customer != nil {
 			ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerName, vk.Customer.Name)
 		}
+	}
+}
+
+func teamIDFromVK(vk *configstoreTables.TableVirtualKey) string {
+	if vk == nil {
+		return ""
+	}
+	if vk.TeamID != nil && *vk.TeamID != "" {
+		return *vk.TeamID
+	}
+	if vk.Team != nil {
+		return vk.Team.ID
+	}
+	return ""
+}
+
+// stampGovernanceCtx stamps team/customer/BU identity from a VK onto the request context,
+// then resolves the assigned user (if missing) and merges team membership for rankings.
+func (p *GovernancePlugin) stampGovernanceCtx(ctx *schemas.UnifAIContext, vk *configstoreTables.TableVirtualKey) {
+	stampGovernanceCtxFromVK(ctx, vk)
+	if local, ok := p.store.(*LocalGovernanceStore); ok {
+		local.stampBusinessUnitsForTeam(ctx, teamIDFromVK(vk))
+	}
+	p.stampUserFromVKAssignment(ctx, vk)
+	p.stampUserOrgMembership(ctx)
+}
+
+// stampUserFromVKAssignment sets user_id/user_name from governance_virtual_key_users when
+// the request has a VK but no session/header user — so User rankings are never empty for assigned VKs.
+func (p *GovernancePlugin) stampUserFromVKAssignment(ctx *schemas.UnifAIContext, vk *configstoreTables.TableVirtualKey) {
+	if ctx == nil || vk == nil || p.configStore == nil {
+		return
+	}
+	if unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyUserID) != "" {
+		return
+	}
+	ws, ok := configstore.AsWorkspaceStore(p.configStore)
+	if !ok || ws == nil {
+		return
+	}
+	links, err := ws.ListVirtualKeyUsers(ctx, vk.ID)
+	if err != nil || len(links) == 0 {
+		return
+	}
+	uid := links[0].UserID
+	if uid == "" {
+		return
+	}
+	ctx.SetValue(schemas.UnifAIContextKeyUserID, uid)
+	if user, gerr := p.configStore.GetUserByID(ctx, uid); gerr == nil && user != nil && user.Username != "" {
+		ctx.SetValue(schemas.UnifAIContextKeyUserName, user.Username)
+	}
+}
+
+// stampUserOrgMembership loads governance_team_members for the request user and stamps
+// multi-team / multi-BU context keys used by LLM rankings and observability filters.
+func (p *GovernancePlugin) stampUserOrgMembership(ctx *schemas.UnifAIContext) {
+	if ctx == nil || p.configStore == nil {
+		return
+	}
+	userID := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyUserID)
+	if userID == "" {
+		return
+	}
+	ws, ok := configstore.AsWorkspaceStore(p.configStore)
+	if !ok || ws == nil {
+		return
+	}
+	links, err := ws.ListTeamsForUser(ctx, userID)
+	if err != nil || len(links) == 0 {
+		return
+	}
+
+	teamIDs := make([]string, 0, len(links)+1)
+	teamNames := make([]string, 0, len(links)+1)
+	seen := map[string]bool{}
+
+	// Keep VK primary team first when already stamped.
+	if primary := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceTeamID); primary != "" {
+		teamIDs = append(teamIDs, primary)
+		seen[primary] = true
+		if name := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceTeamName); name != "" {
+			teamNames = append(teamNames, name)
+		} else {
+			teamNames = append(teamNames, primary)
+		}
+	}
+
+	local, _ := p.store.(*LocalGovernanceStore)
+	for _, link := range links {
+		if link.TeamID == "" || seen[link.TeamID] {
+			continue
+		}
+		seen[link.TeamID] = true
+		name := link.TeamID
+		if local != nil {
+			if v, ok := local.teams.Load(link.TeamID); ok {
+				if t, ok := v.(*configstoreTables.TableTeam); ok && t != nil && t.Name != "" {
+					name = t.Name
+				}
+			}
+		}
+		if name == link.TeamID {
+			if team, gerr := p.configStore.GetTeam(ctx, link.TeamID); gerr == nil && team != nil && team.Name != "" {
+				name = team.Name
+			}
+		}
+		teamIDs = append(teamIDs, link.TeamID)
+		teamNames = append(teamNames, name)
+	}
+	if len(teamIDs) == 0 {
+		return
+	}
+
+	ctx.SetValue(schemas.UnifAIContextKeyGovernanceTeamIDs, teamIDs)
+	ctx.SetValue(schemas.UnifAIContextKeyGovernanceTeamNames, teamNames)
+
+	// If no VK team was stamped, use the user's first membership team as primary.
+	if unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceTeamID) == "" {
+		ctx.SetValue(schemas.UnifAIContextKeyGovernanceTeamID, teamIDs[0])
+		ctx.SetValue(schemas.UnifAIContextKeyGovernanceTeamName, teamNames[0])
+	}
+
+	if local != nil {
+		local.stampBusinessUnitsForTeams(ctx, teamIDs)
 	}
 }
 

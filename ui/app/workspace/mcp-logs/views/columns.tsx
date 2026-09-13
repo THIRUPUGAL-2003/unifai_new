@@ -105,6 +105,30 @@ export const createMCPColumns = (
 			return <div className="max-w-[180px] truncate font-mono text-xs">{value || "-"}</div>;
 		},
 	},
+	{
+		id: "user",
+		header: "User",
+		size: 140,
+		cell: ({ row }) => <div className="max-w-[140px] truncate font-mono text-xs">{row.original.user_id || "-"}</div>,
+	},
+	{
+		id: "team",
+		header: "Team",
+		size: 140,
+		cell: ({ row }) => <div className="max-w-[140px] truncate font-mono text-xs">{row.original.team_id || "-"}</div>,
+	},
+	{
+		id: "customer",
+		header: "Customer",
+		size: 140,
+		cell: ({ row }) => <div className="max-w-[140px] truncate font-mono text-xs">{row.original.customer_id || "-"}</div>,
+	},
+	{
+		id: "business_unit",
+		header: "Business Unit",
+		size: 140,
+		cell: ({ row }) => <div className="max-w-[140px] truncate font-mono text-xs">{row.original.business_unit_id || "-"}</div>,
+	},
 	...(hasDeleteAccess
 		? [
 				{

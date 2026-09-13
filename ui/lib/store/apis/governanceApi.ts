@@ -30,6 +30,7 @@ import {
 	RateLimit,
 	ResetUsageRequest,
 	Team,
+	TeamMember,
 	UpdateBudgetRequest,
 	UpdateCustomerRequest,
 	UpdateModelConfigRequest,
@@ -238,6 +239,39 @@ export const governanceApi = baseApi.injectEndpoints({
 					// Mutation failed
 				}
 			},
+		}),
+
+		getTeamMembers: builder.query<{ members: TeamMember[] }, string>({
+			query: (teamId) => `/governance/teams/${encodeURIComponent(teamId)}/members`,
+			providesTags: (result, error, teamId) => [{ type: "Teams", id: `${teamId}-members` }],
+		}),
+
+		addTeamMember: builder.mutation<{ members: TeamMember[] }, { teamId: string; userId: string }>({
+			query: ({ teamId, userId }) => ({
+				url: `/governance/teams/${encodeURIComponent(teamId)}/members`,
+				method: "POST",
+				body: { user_id: userId },
+			}),
+			invalidatesTags: (result, error, { teamId, userId }) => [
+				{ type: "Teams", id: `${teamId}-members` },
+				{ type: "Teams", id: `user-${userId}-teams` },
+			],
+		}),
+
+		removeTeamMember: builder.mutation<{ ok: boolean }, { teamId: string; userId: string }>({
+			query: ({ teamId, userId }) => ({
+				url: `/governance/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`,
+				method: "DELETE",
+			}),
+			invalidatesTags: (result, error, { teamId, userId }) => [
+				{ type: "Teams", id: `${teamId}-members` },
+				{ type: "Teams", id: `user-${userId}-teams` },
+			],
+		}),
+
+		getUserTeams: builder.query<{ teams: { id: string; name: string; team_id: string }[] }, string>({
+			query: (userId) => `/governance/users/${encodeURIComponent(userId)}/teams`,
+			providesTags: (result, error, userId) => [{ type: "Teams", id: `user-${userId}-teams` }],
 		}),
 
 		// Customers
@@ -840,6 +874,12 @@ export const {
 	useCreateTeamMutation,
 	useUpdateTeamMutation,
 	useDeleteTeamMutation,
+
+	// Team members
+	useGetTeamMembersQuery,
+	useAddTeamMemberMutation,
+	useRemoveTeamMemberMutation,
+	useGetUserTeamsQuery,
 
 	// Customers
 	useGetCustomersQuery,

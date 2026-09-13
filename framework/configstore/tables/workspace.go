@@ -314,6 +314,7 @@ func WorkspaceModels() []any {
 		&TableMCPToolGroup{},
 		&TablePromptDeployment{},
 		&TableVirtualKeyUser{},
+		&TableTeamMember{},
 		&TableWorkspaceSetting{},
 		&TableAuditLog{},
 	}

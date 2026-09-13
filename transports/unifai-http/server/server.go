@@ -767,6 +767,36 @@ func (s *UnifAIHTTPServer) GetGovernanceData(ctx context.Context) *governance.Go
 	return governancePlugin.GetGovernanceStore().GetGovernanceData(ctx)
 }
 
+// ReloadBusinessUnitTeamIndex refreshes team → business-unit lookups used for log stamping.
+func (s *UnifAIHTTPServer) ReloadBusinessUnitTeamIndex(ctx context.Context) {
+	governancePlugin, err := s.getGovernancePlugin()
+	if err != nil {
+		return
+	}
+	if local, ok := governancePlugin.GetGovernanceStore().(*governance.LocalGovernanceStore); ok {
+		local.ReloadBusinessUnitTeamIndex(ctx)
+	}
+}
+
+// SyncUserGovernance loads a user's materialized budget/rate-limit into memory.
+func (s *UnifAIHTTPServer) SyncUserGovernance(ctx context.Context, userID string, budget *tables.TableBudget, rateLimit *tables.TableRateLimit) {
+	governancePlugin, err := s.getGovernancePlugin()
+	if err != nil {
+		return
+	}
+	store := governancePlugin.GetGovernanceStore()
+	store.UpdateUserGovernanceInMemory(ctx, userID, budget, rateLimit)
+}
+
+// DeleteUserGovernance removes a user's in-memory budget/rate-limit entries.
+func (s *UnifAIHTTPServer) DeleteUserGovernance(ctx context.Context, userID string) {
+	governancePlugin, err := s.getGovernancePlugin()
+	if err != nil {
+		return
+	}
+	governancePlugin.GetGovernanceStore().DeleteUserGovernanceInMemory(ctx, userID)
+}
+
 // ReloadComplexityAnalyzerConfig reloads the complexity analyzer config into the governance plugin.
 func (s *UnifAIHTTPServer) ReloadComplexityAnalyzerConfig(ctx context.Context, config *complexity.AnalyzerConfig) error {
 	governancePlugin, err := s.getGovernancePlugin()
@@ -1414,7 +1444,7 @@ func (s *UnifAIHTTPServer) RegisterAPIRoutes(ctx context.Context, callbacks Serv
 	configHandler := handlers.NewConfigHandler(callbacks, s.Config)
 	guardrailsHandler := handlers.NewGuardrailsHandler(callbacks, s.Config)
 	pluginsHandler := handlers.NewPluginsHandler(callbacks, s.Config.ConfigStore)
-	sessionHandler := handlers.NewSessionHandler(s.Config.ConfigStore, s.WSTicketStore)
+	sessionHandler := handlers.NewSessionHandler(s.Config.ConfigStore, s.WSTicketStore, s)
 	promptsHandler := handlers.NewPromptsHandler(s.Config.ConfigStore, promptsReloader)
 	featureFlagsHandler := handlers.NewFeatureFlagsHandler(s.Config.FeatureFlags, s.Config.ConfigStore)
 	browserAIHandler := handlers.NewBrowserAIHandler(s.Config.ConfigStore, s.Config, s.Client)

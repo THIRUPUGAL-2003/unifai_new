@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Users, Plus, Search, Edit2, Trash2, Shield, Check, X, Clock, Key, DollarSign, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,9 +20,19 @@ import {
 	useGetSessionUsersQuery,
 	useRejectSessionUserMutation,
 	useUpdateSessionUserMutation,
+	useGetTeamsQuery,
+	useGetUserTeamsQuery,
+	useAddTeamMemberMutation,
+	useRemoveTeamMemberMutation,
 	type SessionUser,
 } from "@/lib/store";
-import { useAssignUserRoleMutation, useGetRolesQuery } from "@enterprise/lib/store/apis/rbacApi";
+import { useAssignUserRoleMutation } from "@enterprise/lib/store/apis/rbacApi";
+
+function UserTeamCell({ userId }: { userId: string }) {
+	const { data } = useGetUserTeamsQuery(userId);
+	const teamName = data?.teams?.[0]?.name;
+	return <span className="text-sm">{teamName || "—"}</span>;
+}
 
 export default function UsersView() {
 	const [searchQuery, setSearchQuery] = useState("");
@@ -30,14 +40,16 @@ export default function UsersView() {
 
 	const { data: users = [], isLoading: loading } = useGetSessionUsersQuery();
 	const { data: promptsData } = useGetPromptsQuery();
-	const { data: rolesData } = useGetRolesQuery();
-	const rbacRoles = rolesData?.roles || [];
+	const { data: teamsData } = useGetTeamsQuery({ limit: 500, offset: 0 });
+	const teams = teamsData?.teams || [];
 	const [createUser] = useCreateSessionUserMutation();
 	const [updateUser] = useUpdateSessionUserMutation();
 	const [deleteUser] = useDeleteSessionUserMutation();
 	const [approveUser] = useApproveSessionUserMutation();
 	const [assignUserRole] = useAssignUserRoleMutation();
 	const [rejectUser] = useRejectSessionUserMutation();
+	const [addTeamMember] = useAddTeamMemberMutation();
+	const [removeTeamMember] = useRemoveTeamMemberMutation();
 	const allPrompts = promptsData?.prompts || [];
 
 	// Dialog states
@@ -46,15 +58,28 @@ export default function UsersView() {
 	const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 	const [selectedUser, setSelectedUser] = useState<SessionUser | null>(null);
 
-	// Form states
+	// Form states — Role (permission) and Team (org membership) are separate.
 	const [username, setUsername] = useState("");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [role, setRole] = useState("user");
+	const [teamId, setTeamId] = useState("");
+	const [initialTeamId, setInitialTeamId] = useState("");
 	const [budget, setBudget] = useState(0);
 	const [rateLimit, setRateLimit] = useState(0);
 	const [allowedPromptRepos, setAllowedPromptRepos] = useState("");
 	const [allowedSections, setAllowedSections] = useState<Set<WorkspaceSectionKey>>(new Set());
+
+	const { data: editUserTeams } = useGetUserTeamsQuery(selectedUser?.id || "", {
+		skip: !selectedUser?.id || !isEditOpen,
+	});
+
+	useEffect(() => {
+		if (!isEditOpen || !selectedUser?.id) return;
+		const current = editUserTeams?.teams?.[0]?.id || "";
+		setTeamId(current);
+		setInitialTeamId(current);
+	}, [isEditOpen, selectedUser?.id, editUserTeams]);
 
 	const toggleSection = (key: WorkspaceSectionKey, checked: boolean) => {
 		setAllowedSections((prev) => {
@@ -67,6 +92,41 @@ export default function UsersView() {
 			return next;
 		});
 	};
+
+	const syncUserTeam = async (userId: string, nextTeamId: string, prevTeamId: string) => {
+		if (prevTeamId && prevTeamId !== nextTeamId) {
+			await removeTeamMember({ teamId: prevTeamId, userId }).unwrap();
+		}
+		if (nextTeamId && nextTeamId !== prevTeamId) {
+			await addTeamMember({ teamId: nextTeamId, userId }).unwrap();
+		}
+	};
+
+	const teamPicker =
+		role !== "admin" ? (
+			<div className="space-y-2">
+				<label className="text-muted-foreground text-sm font-medium">Team</label>
+				<p className="text-muted-foreground text-xs">
+					Assign this user to one team (e.g. Developer, Testing). Team is separate from Role.
+				</p>
+				<select
+					value={teamId || "__none__"}
+					onChange={(e) => setTeamId(e.target.value === "__none__" ? "" : e.target.value)}
+					className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
+					data-testid="user-team-select"
+				>
+					<option value="__none__">No team</option>
+					{teams.map((t) => (
+						<option key={t.id} value={t.id}>
+							{t.name}
+						</option>
+					))}
+				</select>
+				{teams.length === 0 && (
+					<p className="text-muted-foreground text-xs">No teams yet — create teams under Governance → Teams first.</p>
+				)}
+			</div>
+		) : null;
 
 	const workspaceAccessPicker =
 		role === "admin" ? (
@@ -92,10 +152,12 @@ export default function UsersView() {
 		) : null;
 
 	const promptReposPicker =
-		role === "user" ? (
+		role !== "admin" ? (
 			<div className="space-y-2">
 				<label className="text-muted-foreground text-sm font-medium">Allowed Prompt Repositories</label>
-				<p className="text-muted-foreground text-xs">Basic users can only open Prompt Repository — pick which repos they may use.</p>
+				<p className="text-muted-foreground text-xs">
+					Non-admin members only see Prompt Repository — pick which repos they may use.
+				</p>
 				<div className="border-border/50 bg-muted/10 max-h-40 space-y-2 overflow-y-auto rounded-lg border p-3">
 					{allPrompts.map((p) => {
 						const isChecked = allowedPromptRepos
@@ -137,7 +199,7 @@ export default function UsersView() {
 		role,
 		budget,
 		rate_limit: rateLimit,
-		allowed_prompt_repos: role === "user" ? allowedPromptRepos : "",
+		allowed_prompt_repos: role !== "admin" ? allowedPromptRepos : "",
 		allowed_sections: role === "admin" ? allowedSectionsToString(allowedSections) : "",
 	});
 
@@ -166,6 +228,9 @@ export default function UsersView() {
 			if (created?.id && role) {
 				await assignUserRole({ id: created.id, role_name: role }).unwrap();
 			}
+			if (created?.id && role !== "admin") {
+				await syncUserTeam(created.id, teamId, "");
+			}
 			if (created?.email_sent) {
 				toast.success("User created — welcome email sent (username + password)");
 			} else if (created?.email_error) {
@@ -186,6 +251,11 @@ export default function UsersView() {
 		try {
 			await updateUser({ id: selectedUser.id, updates: userPayload() }).unwrap();
 			await assignUserRole({ id: selectedUser.id, role_name: role }).unwrap();
+			if (role !== "admin") {
+				await syncUserTeam(selectedUser.id, teamId, initialTeamId);
+			} else if (initialTeamId) {
+				await syncUserTeam(selectedUser.id, "", initialTeamId);
+			}
 			toast.success("User updated successfully");
 			setIsEditOpen(false);
 			resetForm();
@@ -251,6 +321,8 @@ export default function UsersView() {
 		setEmail("");
 		setPassword("");
 		setRole("user");
+		setTeamId("");
+		setInitialTeamId("");
 		setBudget(0);
 		setRateLimit(0);
 		setAllowedPromptRepos("");
@@ -263,7 +335,10 @@ export default function UsersView() {
 		setUsername(user.username);
 		setEmail(user.email || "");
 		setPassword("");
-		setRole(user.role);
+		// Role is only Admin | User. Anything else (old custom names) maps to User.
+		setRole(user.role === "admin" ? "admin" : "user");
+		setTeamId("");
+		setInitialTeamId("");
 		setBudget(user.budget);
 		setRateLimit(user.rate_limit);
 		setAllowedPromptRepos(user.allowed_prompt_repos || "");
@@ -294,7 +369,7 @@ export default function UsersView() {
 						User Governance
 					</h1>
 					<p className="text-muted-foreground mt-1 text-sm">
-						Manage users, approve registrations, set budgets, rate limits, and permission roles.
+						Manage users, roles (Admin/User), team assignment, budgets, and prompt access.
 					</p>
 				</div>
 				<Button
@@ -423,6 +498,7 @@ export default function UsersView() {
 											<TableHead className="text-foreground/90 font-semibold">Username</TableHead>
 											<TableHead className="text-foreground/90 font-semibold">Email</TableHead>
 											<TableHead className="text-foreground/90 font-semibold">Role</TableHead>
+											<TableHead className="text-foreground/90 font-semibold">Team</TableHead>
 											<TableHead className="text-foreground/90 font-semibold">Budget (USD)</TableHead>
 											<TableHead className="text-foreground/90 font-semibold">Rate Limit (RPM)</TableHead>
 											<TableHead className="text-foreground/90 font-semibold">Allowed Repositories</TableHead>
@@ -449,10 +525,23 @@ export default function UsersView() {
 														}`}
 													>
 														<Shield className="h-3 w-3" />
-														{user.role}
+														{user.role === "admin" ? "Admin" : "User"}
 													</span>
 												</TableCell>
-												<TableCell className="font-mono text-xs">{user.budget > 0 ? `$${user.budget.toFixed(2)}` : "Unlimited"}</TableCell>
+												<TableCell>
+													{user.role === "admin" ? (
+														<span className="text-muted-foreground text-sm">—</span>
+													) : (
+														<UserTeamCell userId={user.id} />
+													)}
+												</TableCell>
+												<TableCell className="font-mono text-xs">
+													{user.budget > 0
+														? user.budget_current_usage != null
+															? `$${user.budget_current_usage.toFixed(2)} / $${user.budget.toFixed(2)}`
+															: `$${user.budget.toFixed(2)}`
+														: "Unlimited"}
+												</TableCell>
 												<TableCell className="font-mono text-xs">{user.rate_limit > 0 ? `${user.rate_limit} RPM` : "Unlimited"}</TableCell>
 												<TableCell
 													className="max-w-[200px] truncate text-xs"
@@ -546,6 +635,7 @@ export default function UsersView() {
 						</div>
 						<div className="space-y-2">
 							<label className="text-muted-foreground text-sm font-medium">Role</label>
+							<p className="text-muted-foreground text-xs">Permission only — Admin or User. Not a team name.</p>
 							<select
 								value={role}
 								onChange={(e) => {
@@ -553,24 +643,19 @@ export default function UsersView() {
 									setRole(nextRole);
 									if (nextRole === "admin") {
 										setAllowedPromptRepos("");
+										setTeamId("");
 									} else {
 										setAllowedSections(new Set());
 									}
 								}}
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
+								data-testid="user-role-select-create"
 							>
 								<option value="user">User (Prompt Repository only)</option>
-								<option value="admin">Admin (choose workspace sections)</option>
-								{rbacRoles
-									.filter((r) => r.name !== "admin" && r.name !== "user")
-									.map((r) => (
-										<option key={r.id} value={r.name}>
-											{r.name}
-											{r.description ? ` — ${r.description}` : ""}
-										</option>
-									))}
+								<option value="admin">Admin (workspace access)</option>
 							</select>
 						</div>
+						{teamPicker}
 						{workspaceAccessPicker}
 						{promptReposPicker}
 						<div className="grid grid-cols-2 gap-4">
@@ -658,6 +743,7 @@ export default function UsersView() {
 						</div>
 						<div className="space-y-2">
 							<label className="text-muted-foreground text-sm font-medium">Role</label>
+							<p className="text-muted-foreground text-xs">Permission only — Admin or User. Not a team name.</p>
 							<select
 								value={role}
 								onChange={(e) => {
@@ -665,24 +751,19 @@ export default function UsersView() {
 									setRole(nextRole);
 									if (nextRole === "admin") {
 										setAllowedPromptRepos("");
+										setTeamId("");
 									} else {
 										setAllowedSections(new Set());
 									}
 								}}
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
+								data-testid="user-role-select-edit"
 							>
 								<option value="user">User (Prompt Repository only)</option>
-								<option value="admin">Admin (choose workspace sections)</option>
-								{rbacRoles
-									.filter((r) => r.name !== "admin" && r.name !== "user")
-									.map((r) => (
-										<option key={r.id} value={r.name}>
-											{r.name}
-											{r.description ? ` — ${r.description}` : ""}
-										</option>
-									))}
+								<option value="admin">Admin (workspace access)</option>
 							</select>
 						</div>
+						{teamPicker}
 						{workspaceAccessPicker}
 						{promptReposPicker}
 						<div className="grid grid-cols-2 gap-4">

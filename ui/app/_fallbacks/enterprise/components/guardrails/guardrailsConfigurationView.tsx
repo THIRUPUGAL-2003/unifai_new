@@ -21,6 +21,7 @@ import {
 	buildCelFromPromptSelection,
 	collectGuardrailIds,
 	formatLinkedProviders,
+	formatRuleConnectionPreview,
 	formatRuleTriggerSummary,
 	GuardrailPromptScope,
 	nextGuardrailId,
@@ -211,7 +212,9 @@ export default function GuardrailsConfigurationView() {
 						IDs. Use the per-rule On switch or Enable all below.
 					</p>
 					<p className="text-muted-foreground mt-1 text-xs">
-						Limits: string chat messages only (not multimodal blocks / Responses API); streaming output is not blocked.
+						Scans chat text (including multimodal text blocks). Input rules work with streaming. Output rules run on
+						non-stream responses and on the final streamed chunk. Not Browser AI Guard / MCP-only traffic. Use Custom CEL
+						with <code>request.model</code> to limit models.
 					</p>
 				</div>
 				<div className="flex items-center gap-4">
@@ -422,16 +425,35 @@ export default function GuardrailsConfigurationView() {
 									id="expression"
 									value={editingRule?.cel_expression || ""}
 									onChange={(e) => setEditingRule({ ...editingRule, cel_expression: e.target.value })}
-									placeholder="e.g. request.model == 'gpt-4' or request.prompt_id == 'your-prompt-id'"
+									placeholder="e.g. request.model.contains('gpt-4') || request.prompt_id == 'your-prompt-id'"
 									className="font-mono text-sm"
 									rows={4}
 									data-testid="guardrails-rule-expression-input"
 								/>
 								<p className="text-muted-foreground text-xs">
-									Advanced mode. Variables: <code>request.model</code>, <code>request.prompt_id</code>.
+									Advanced mode. Variables: <code>request.model</code>, <code>request.prompt_id</code>. Use this to
+									limit rules to specific models — not every model blindly.
 								</p>
 							</div>
 						)}
+						<div
+							className="bg-muted/40 rounded-md border p-3 text-xs leading-relaxed"
+							data-testid="guardrails-rule-connection-preview"
+						>
+							<p className="text-foreground font-medium">Before you save — where this connects</p>
+							<p className="text-muted-foreground mt-1">
+								{formatRuleConnectionPreview({
+									applyTo: editingRule?.apply_to || "input",
+									promptScope,
+									selectedPromptIds,
+									promptNameById,
+									providerLabels: selectedProviderIds
+										.map((id) => providers.find((p) => String(p.id) === id))
+										.filter((p): p is NonNullable<typeof p> => p != null)
+										.map((p) => providerLabel(p)),
+								})}
+							</p>
+						</div>
 						{formError ? <p className="text-destructive text-xs">{formError}</p> : null}
 					</div>
 					<DialogFooter>

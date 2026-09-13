@@ -3582,6 +3582,18 @@ func (s *RDBLogStore) applyMCPFilters(baseQuery *gorm.DB, filters MCPToolLogSear
 	if len(filters.VirtualKeyIDs) > 0 {
 		baseQuery = baseQuery.Where("virtual_key_id IN ?", filters.VirtualKeyIDs)
 	}
+	if len(filters.UserIDs) > 0 {
+		baseQuery = baseQuery.Where("user_id IN ?", filters.UserIDs)
+	}
+	if len(filters.TeamIDs) > 0 {
+		baseQuery = baseQuery.Where("team_id IN ?", filters.TeamIDs)
+	}
+	if len(filters.CustomerIDs) > 0 {
+		baseQuery = baseQuery.Where("customer_id IN ?", filters.CustomerIDs)
+	}
+	if len(filters.BusinessUnitIDs) > 0 {
+		baseQuery = baseQuery.Where("business_unit_id IN ?", filters.BusinessUnitIDs)
+	}
 	if len(filters.LLMRequestIDs) > 0 {
 		baseQuery = baseQuery.Where("llm_request_id IN ?", filters.LLMRequestIDs)
 	}

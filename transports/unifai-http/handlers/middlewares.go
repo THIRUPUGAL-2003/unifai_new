@@ -20,6 +20,7 @@ import (
 	"github.com/unifai/unifai/framework/encrypt"
 	"github.com/unifai/unifai/framework/temptoken"
 	"github.com/unifai/unifai/framework/tracing"
+	"github.com/unifai/unifai/plugins/governance"
 	"github.com/unifai/unifai/transports/unifai-http/integrations"
 	"github.com/unifai/unifai/transports/unifai-http/lib"
 	"github.com/valyala/fasthttp"
@@ -739,6 +740,106 @@ func fasthttpResponseToHTTPResponse(ctx *fasthttp.RequestCtx, resp *schemas.HTTP
 	}
 }
 
+// isWorkspaceAdminRole is true only for dashboard super/sub-admins.
+// Every other role (user, developer, custom RBAC) is treated as a Prompt Repo member.
+func isWorkspaceAdminRole(role string) bool {
+	return role == "admin"
+}
+
+// enrichInferenceFromDashboardSession stamps user_id/user_name and binds the member's
+// assigned Virtual Key onto /v1 requests that arrive with a dashboard session cookie.
+// External API callers without a session cookie are unchanged.
+// Returns a non-empty error message when a non-admin member must be blocked.
+func (m *AuthMiddleware) enrichInferenceFromDashboardSession(ctx *fasthttp.RequestCtx) string {
+	if m == nil || m.store == nil {
+		return ""
+	}
+	token := string(ctx.Request.Header.Cookie("token"))
+	if token == "" {
+		if existing, ok := ctx.UserValue(schemas.UnifAIContextKeySessionToken).(string); ok {
+			token = existing
+		}
+	}
+	if token == "" {
+		return ""
+	}
+	session, err := m.store.GetSession(context.Background(), token)
+	if err != nil || session == nil || session.ExpiresAt.Before(time.Now()) {
+		return ""
+	}
+	ctx.SetUserValue(schemas.UnifAIContextKeySessionToken, token)
+
+	dbUser, err := m.store.GetUserByUsername(context.Background(), session.Username)
+	if err != nil || dbUser == nil {
+		// Bootstrap env admin may have no governance_users row — allow through.
+		if isWorkspaceAdminRole(session.Role) {
+			if session.Username != "" {
+				ctx.SetUserValue(schemas.UnifAIContextKeyUserName, session.Username)
+			}
+			return ""
+		}
+		return "User account not found. Contact your admin."
+	}
+	if dbUser.ID != "" {
+		ctx.SetUserValue(schemas.UnifAIContextKeyUserID, dbUser.ID)
+	}
+	if session.Username != "" {
+		ctx.SetUserValue(schemas.UnifAIContextKeyUserName, session.Username)
+	}
+
+	// Admins may pick any VK / Auto from the playground — do not force-bind.
+	if isWorkspaceAdminRole(session.Role) {
+		return ""
+	}
+
+	ws, ok := configstore.AsWorkspaceStore(m.store)
+	if !ok || ws == nil {
+		return "Virtual Key assignment store unavailable. Contact your admin."
+	}
+	links, err := ws.ListVirtualKeysForUser(context.Background(), dbUser.ID)
+	if err != nil {
+		return "Failed to resolve assigned Virtual Key. Contact your admin."
+	}
+	if len(links) == 0 {
+		return "No Virtual Key assigned. Ask your admin to assign a Virtual Key before using Prompt Repository."
+	}
+
+	existingVK := governance.ParseVirtualKeyFromFastHTTPRequest(ctx)
+	allowedValues := make(map[string]string, len(links)) // value → id
+	var firstValue string
+	for _, link := range links {
+		vk, gerr := m.store.GetVirtualKey(context.Background(), link.VirtualKeyID)
+		if gerr != nil || vk == nil || !vk.IsActiveValue() {
+			continue
+		}
+		val := strings.TrimSpace(vk.Value.GetValue())
+		if val == "" || !strings.HasPrefix(strings.ToLower(val), governance.VirtualKeyPrefix) {
+			continue
+		}
+		allowedValues[val] = vk.ID
+		if firstValue == "" {
+			firstValue = val
+		}
+	}
+	if firstValue == "" {
+		return "Assigned Virtual Key is inactive or invalid. Contact your admin."
+	}
+
+	if existingVK != nil && *existingVK != "" {
+		if _, ok := allowedValues[*existingVK]; !ok {
+			// Non-admin tried a foreign VK — replace with their assigned key.
+			ctx.Request.Header.Set("Authorization", "Bearer "+firstValue)
+			ctx.Request.Header.Del("x-uf-vk")
+			ctx.Request.Header.Del("x-api-key")
+		}
+		return ""
+	}
+
+	// Auto / no VK: force assigned Virtual Key so budget always ticks on the right meter.
+	ctx.Request.Header.Set("Authorization", "Bearer "+firstValue)
+	return ""
+}
+
 // validateSession checks if a session token is valid
 func validateSession(ctx *fasthttp.RequestCtx, store configstore.ConfigStore, token string) bool {
 	session, err := store.GetSession(context.Background(), token)
@@ -748,8 +849,8 @@ func validateSession(ctx *fasthttp.RequestCtx, store configstore.ConfigStore, to
 	if session.ExpiresAt.Before(time.Now()) {
 		return false
 	}
-	// Role check for non-admin users
-	if session.Role == "user" {
+	// Non-admin: Prompt Repository + inference + read-only config needed for playground.
+	if !isWorkspaceAdminRole(session.Role) {
 		path := string(ctx.Path())
 		isAllowed := strings.HasPrefix(path, "/v1/") ||
 			strings.HasPrefix(path, "/api/prompt-repo/") ||
@@ -760,7 +861,6 @@ func validateSession(ctx *fasthttp.RequestCtx, store configstore.ConfigStore, to
 			path == "/ws" ||
 			(path == "/api/config" && string(ctx.Method()) == "GET") ||
 			(strings.HasPrefix(path, "/api/providers") && string(ctx.Method()) == "GET") ||
-			(strings.HasPrefix(path, "/api/keys") && string(ctx.Method()) == "GET") ||
 			(strings.HasPrefix(path, "/api/governance/virtual-keys") && string(ctx.Method()) == "GET") ||
 			(strings.HasPrefix(path, "/api/governance/providers") && string(ctx.Method()) == "GET") ||
 			(strings.HasPrefix(path, "/api/models") && string(ctx.Method()) == "GET")
@@ -897,22 +997,21 @@ func (m *AuthMiddleware) tryTempTokenOrUnauthorized(ctx *fasthttp.RequestCtx, ne
 	SendError(ctx, fasthttp.StatusUnauthorized, "Unauthorized")
 }
 
-// InferenceMiddleware is for inference requests (including MCP routes). It always
-// passes the request through — inference authentication is owned entirely by the
-// governance plugin, not by this dashboard-auth middleware.
-//
-// Governance runs downstream on every inference request type (via RunLLMPreHooks) and
-// is the authoritative virtual-key validator: it rejects missing/unknown/revoked keys
-// and enforces whether a VK is mandatory (driven by ClientConfig.EnforceAuthOnInference).
-// In OSS it is loaded unconditionally and cannot be disabled, so delegating to it never
-// leaves inference ungated. Keeping admin-password checks out of this path is deliberate:
-// gating inference on dashboard credentials would reject virtual-key callers, since a VK
-// is not an admin/session credential. Admin-password auth therefore stays exclusive to
-// dashboard/API routes (APIMiddleware) and is never required for inference.
+// InferenceMiddleware is for inference requests (including MCP routes).
+// It does not require dashboard auth, but when a session cookie is present it
+// stamps user_id and auto-binds the member's assigned Virtual Key so Prompt Repo
+// usage always hits the correct VK → Team → Customer budget chain.
+// Non-admin members with a session but no assigned VK are rejected (fail-closed).
 func (m *AuthMiddleware) InferenceMiddleware() schemas.UnifAIHTTPMiddleware {
-	return m.middleware(func(authConfig *configstore.AuthConfig, url string) bool {
-		return true
-	})
+	return func(next fasthttp.RequestHandler) fasthttp.RequestHandler {
+		return func(ctx *fasthttp.RequestCtx) {
+			if errMsg := m.enrichInferenceFromDashboardSession(ctx); errMsg != "" {
+				SendError(ctx, fasthttp.StatusForbidden, errMsg)
+				return
+			}
+			next(ctx)
+		}
+	}
 }
 
 // APIMiddleware is for API requests if authConfig is set, it will verify authentication based on the request type.

@@ -993,6 +993,12 @@ func (h *GovernanceHandler) RegisterRoutes(r *router.Router, middlewares ...sche
 	r.GET("/api/governance/teams/{team_id}", lib.ChainMiddlewares(h.getTeam, middlewares...))
 	r.PUT("/api/governance/teams/{team_id}", lib.ChainMiddlewares(h.updateTeam, middlewares...))
 	r.DELETE("/api/governance/teams/{team_id}", lib.ChainMiddlewares(h.deleteTeam, middlewares...))
+	r.GET("/api/governance/teams/{team_id}/members", lib.ChainMiddlewares(h.getTeamMembers, middlewares...))
+	r.POST("/api/governance/teams/{team_id}/members", lib.ChainMiddlewares(h.addTeamMember, middlewares...))
+	r.DELETE("/api/governance/teams/{team_id}/members/{user_id}", lib.ChainMiddlewares(h.removeTeamMember, middlewares...))
+	r.GET("/api/governance/users/{user_id}/teams", lib.ChainMiddlewares(h.getUserTeams, middlewares...))
+	// Legacy alias for migration-cli
+	r.POST("/api/teams/{id}/members", lib.ChainMiddlewares(h.addTeamMember, middlewares...))
 
 	// Customer CRUD operations
 	r.GET("/api/governance/customers", lib.ChainMiddlewares(h.getCustomers, middlewares...))
@@ -1119,6 +1125,42 @@ func (h *GovernanceHandler) reloadComplexityAnalyzerConfig(ctx context.Context, 
 
 // Virtual Key CRUD Operations
 
+// allowedVKIDsForCaller returns (nil, false) for admins (no filter), or the set of
+// assigned VK IDs for non-admin members. Empty map = member sees no keys.
+func (h *GovernanceHandler) allowedVKIDsForCaller(ctx *fasthttp.RequestCtx) (map[string]bool, bool) {
+	if h == nil || h.configStore == nil {
+		return nil, false
+	}
+	token, _ := ctx.UserValue(schemas.UnifAIContextKeySessionToken).(string)
+	if token == "" {
+		token = string(ctx.Request.Header.Cookie("token"))
+	}
+	if token == "" {
+		return nil, false
+	}
+	session, err := h.configStore.GetSession(ctx, token)
+	if err != nil || session == nil || isWorkspaceAdminRole(session.Role) {
+		return nil, false
+	}
+	dbUser, err := h.configStore.GetUserByUsername(ctx, session.Username)
+	if err != nil || dbUser == nil {
+		return map[string]bool{}, true
+	}
+	ws, ok := configstore.AsWorkspaceStore(h.configStore)
+	if !ok || ws == nil {
+		return map[string]bool{}, true
+	}
+	links, err := ws.ListVirtualKeysForUser(ctx, dbUser.ID)
+	if err != nil {
+		return map[string]bool{}, true
+	}
+	allowed := make(map[string]bool, len(links))
+	for _, link := range links {
+		allowed[link.VirtualKeyID] = true
+	}
+	return allowed, true
+}
+
 // getVirtualKeys handles GET /api/governance/virtual-keys - Get all virtual keys with relationships
 func (h *GovernanceHandler) getVirtualKeys(ctx *fasthttp.RequestCtx) {
 	// Check if "from_memory" query parameter is set to true
@@ -1146,6 +1188,15 @@ func (h *GovernanceHandler) getVirtualKeys(ctx *fasthttp.RequestCtx) {
 			clone.ProviderConfigs = pcs
 			applyVKGovernanceFromModelConfigs(&clone, byKey)
 			hydratedVKs[i] = &clone
+		}
+		if allowed, filter := h.allowedVKIDsForCaller(ctx); filter {
+			filtered := make([]*configstoreTables.TableVirtualKey, 0, len(hydratedVKs))
+			for _, vk := range hydratedVKs {
+				if vk != nil && allowed[vk.ID] {
+					filtered = append(filtered, vk)
+				}
+			}
+			hydratedVKs = filtered
 		}
 		SendJSON(ctx, map[string]interface{}{
 			"virtual_keys": hydratedVKs,
@@ -1220,6 +1271,16 @@ func (h *GovernanceHandler) getVirtualKeys(ctx *fasthttp.RequestCtx) {
 		}
 		// Reverse-map governance from VK-scoped model configs for display.
 		h.hydrateVKListGovernance(ctx, virtualKeys)
+		if allowed, filter := h.allowedVKIDsForCaller(ctx); filter {
+			filtered := make([]configstoreTables.TableVirtualKey, 0, len(virtualKeys))
+			for _, vk := range virtualKeys {
+				if allowed[vk.ID] {
+					filtered = append(filtered, vk)
+				}
+			}
+			virtualKeys = filtered
+			totalCount = int64(len(filtered))
+		}
 		SendJSON(ctx, map[string]interface{}{
 			"virtual_keys": virtualKeys,
 			"count":        len(virtualKeys),
@@ -1238,6 +1299,15 @@ func (h *GovernanceHandler) getVirtualKeys(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	h.hydrateVKListGovernance(ctx, virtualKeys)
+	if allowed, filter := h.allowedVKIDsForCaller(ctx); filter {
+		filtered := make([]configstoreTables.TableVirtualKey, 0, len(virtualKeys))
+		for _, vk := range virtualKeys {
+			if allowed[vk.ID] {
+				filtered = append(filtered, vk)
+			}
+		}
+		virtualKeys = filtered
+	}
 	SendJSON(ctx, map[string]interface{}{
 		"virtual_keys": virtualKeys,
 		"count":        len(virtualKeys),

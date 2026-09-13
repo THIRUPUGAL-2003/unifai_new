@@ -1,6 +1,7 @@
-import { Message, type CompletionUsage, type ToolCall, type VariableMap, replaceVariablesInMessages } from "@/lib/message";
+import { Message, type CompletionUsage, type MessageContent, type ToolCall, type VariableMap, replaceVariablesInMessages } from "@/lib/message";
 import { getErrorMessage } from "@/lib/store";
 import type { ModelParams } from "@/lib/types/prompts";
+import { transcribeAudioFile, voiceTranscriptAttachment } from "./transcribeAudio";
 
 export interface ExecutionConfig {
 	provider: string;
@@ -13,6 +14,8 @@ export interface ExecutionConfig {
 	skillSystemPrompt?: string;
 	/** Prefer server-side inject via x-uf-skill-id when set. */
 	skillId?: string;
+	/** Prompt Repository id — stamps x-uf-prompt-id so Guardrails prompt-scoped rules match. */
+	promptId?: string;
 }
 
 function getBaseUrl() {
@@ -21,7 +24,7 @@ function getBaseUrl() {
 	return "";
 }
 
-function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders" | "skillId">): Record<string, string> {
+function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders" | "skillId" | "promptId">): Record<string, string> {
 	const headers: Record<string, string> = { "Content-Type": "application/json" };
 	if (config.apiKeyId && config.apiKeyId !== "__auto__") {
 		if (config.apiKeyId.startsWith("sk-uf-")) {
@@ -37,6 +40,9 @@ function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders"
 	if (config.skillId?.trim()) {
 		headers["x-uf-skill-id"] = config.skillId.trim();
 	}
+	if (config.promptId?.trim()) {
+		headers["x-uf-prompt-id"] = config.promptId.trim();
+	}
 	if (config.customHeaders) {
 		const reserved = new Set([
 			"content-type",
@@ -45,6 +51,8 @@ function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders"
 			"x-uf-mcp-include-clients",
 			"x-uf-mcp-include-tools",
 			"x-uf-skill-id",
+			"x-uf-prompt-id",
+			"x-uf-prompt-version",
 		]);
 		for (const [name, value] of Object.entries(config.customHeaders)) {
 			const trimmedName = name.trim();
@@ -60,6 +68,48 @@ function buildHeaders(config: Pick<ExecutionConfig, "apiKeyId" | "customHeaders"
 	return headers;
 }
 
+function formatPlaygroundError(raw: string, status?: number): string {
+	const text = (raw || "").trim();
+	const lower = text.toLowerCase();
+
+	if (!text || lower.includes("failed to fetch") || lower === "networkerror when attempting to fetch resource." || lower.includes("networkerror")) {
+		return "Network error talking to the gateway (not your laptop offline). Check VPN/proxy, gateway URL, and that the provider accepts this audio/file format.";
+	}
+	if (lower.includes("audio") && (lower.includes("format") || lower.includes("unsupported") || lower.includes("invalid"))) {
+		return `${text} — Voice was converted to WAV when possible. Prefer an audio-capable model, or attach a wav/mp3 file.`;
+	}
+	if (lower.includes("vision") || (lower.includes("image") && lower.includes("not support"))) {
+		return `${text} — Select a vision-capable model for images.`;
+	}
+	if (lower.includes("guardrail")) {
+		return text.startsWith("Guardrail") ? text : `Guardrail blocked this request: ${text}`;
+	}
+	if (status === 413 || lower.includes("too large") || lower.includes("payload")) {
+		return "Attachment or request is too large for this gateway/provider. Use a smaller file (max ~20 MB) or extract text and paste it.";
+	}
+	return text;
+}
+
+function parseErrorPayload(data: unknown, fallback: string): string {
+	if (!data || typeof data !== "object") return fallback;
+	const root = data as Record<string, unknown>;
+	const err = root.error;
+	if (typeof err === "string" && err.trim()) return err.trim();
+	if (err && typeof err === "object") {
+		const e = err as Record<string, unknown>;
+		const message = typeof e.message === "string" ? e.message : "";
+		const nested = typeof e.error === "string" ? e.error : "";
+		const code = typeof e.code === "string" ? e.code : typeof e.type === "string" ? e.type : "";
+		const base = (message || nested || "").trim() || fallback;
+		if (code && !base.toLowerCase().includes(code.toLowerCase())) {
+			return `${base} (${code})`;
+		}
+		return base;
+	}
+	if (typeof root.message === "string" && root.message.trim()) return root.message.trim();
+	return fallback;
+}
+
 export interface ExecutionCallbacks {
 	onStreamingStart: (allMessages: Message[], placeholder: Message) => void;
 	onStreamChunk: (content: string) => void;
@@ -68,6 +118,49 @@ export interface ExecutionCallbacks {
 	onEmptyResponse: () => void;
 	onError: (error: string) => void;
 	onFinally: () => void;
+}
+
+
+async function enrichVoiceWithWhisper(messages: Message[], apiKeyId: string, signal?: AbortSignal): Promise<Message[]> {
+	const out: Message[] = [];
+	for (const msg of messages) {
+		const attachments = msg.attachments;
+		if (!attachments.some((a) => a.type === "input_audio" && a.input_audio?.data)) {
+			out.push(msg);
+			continue;
+		}
+		const nextAttachments: MessageContent[] = [];
+		let changed = false;
+		for (const part of attachments) {
+			if (part.type !== "input_audio" || !part.input_audio?.data) {
+				nextAttachments.push(part);
+				continue;
+			}
+			const format = part.input_audio.format || "wav";
+			const mime = format === "mp3" ? "audio/mpeg" : `audio/${format}`;
+			try {
+				const binary = Uint8Array.from(atob(part.input_audio.data), (c) => c.charCodeAt(0));
+				const file = new File([binary], `voice.${format}`, { type: mime });
+				const transcript = await transcribeAudioFile(file, { apiKeyId, signal });
+				if (transcript?.text) {
+					nextAttachments.push(voiceTranscriptAttachment(`voice.${format}`, transcript.text));
+					changed = true;
+					continue;
+				}
+			} catch {
+				/* keep raw audio */
+			}
+			nextAttachments.push(part);
+		}
+		if (!changed) {
+			out.push(msg);
+			continue;
+		}
+		const clone = msg.clone();
+		clone.attachments = nextAttachments;
+		out.push(clone);
+	}
+	return out;
 }
 
 export async function executePrompt(
@@ -87,15 +180,14 @@ export async function executePrompt(
 	const placeholder = Message.response("");
 	callbacks.onStreamingStart(allMessages, placeholder);
 
-	// Replace Jinja2 variables before sending to the API
 	let resolvedMessages = config.variables ? replaceVariablesInMessages(allMessages, config.variables) : allMessages;
-	// Prefer server-side x-uf-skill-id inject; fall back to local system message.
 	const skillPrompt = !config.skillId?.trim() ? config.skillSystemPrompt?.trim() : "";
 	if (skillPrompt) {
 		resolvedMessages = [Message.system(skillPrompt), ...resolvedMessages];
 	}
 
 	try {
+		resolvedMessages = await enrichVoiceWithWhisper(resolvedMessages, config.apiKeyId, signal);
 		const headers = buildHeaders(config);
 
 		const { api_key_id: _, ...requestParams } = config.modelParams;
@@ -116,11 +208,11 @@ export async function executePrompt(
 			let errorMessage = `HTTP error! status: ${response.status}`;
 			try {
 				const data = await response.json();
-				errorMessage = data.error?.error || data.error?.message || errorMessage;
+				errorMessage = parseErrorPayload(data, errorMessage);
 			} catch (error) {
 				console.error("Failed to parse error response:", error);
 			}
-			throw new Error(errorMessage);
+			throw new Error(formatPlaygroundError(errorMessage, response.status));
 		}
 
 		const contentType = response.headers.get("content-type") || "";
@@ -154,7 +246,6 @@ export async function executePrompt(
 
 				buffer += decoder.decode(value, { stream: true });
 				const lines = buffer.split("\n");
-				// Keep the last (potentially incomplete) line in the buffer
 				buffer = lines.pop() ?? "";
 
 				for (const line of lines) {
@@ -163,48 +254,55 @@ export async function executePrompt(
 					const data = trimmed.slice(6);
 					if (data === "[DONE]") continue;
 
+					let parsed: Record<string, unknown>;
 					try {
-						const parsed = JSON.parse(data);
-						const delta = parsed.choices?.[0]?.delta;
+						parsed = JSON.parse(data) as Record<string, unknown>;
+					} catch {
+						continue;
+					}
 
-						if (parsed.usage) {
-							streamUsage = parsed.usage as CompletionUsage;
-						}
+					if (parsed.error) {
+						throw new Error(formatPlaygroundError(parseErrorPayload(parsed, "Stream error"), response.status));
+					}
 
-						const content = delta?.content;
-						if (content) {
-							assistantContent += content;
-							callbacks.onStreamChunk(assistantContent);
-						}
+					const choices = parsed.choices as Array<{ delta?: { content?: string; tool_calls?: unknown } }> | undefined;
+					const delta = choices?.[0]?.delta;
 
-						const deltaToolCalls = delta?.tool_calls as Array<{
-							index: number;
-							id?: string;
-							type?: string;
-							function?: { name?: string; arguments?: string };
-						}>;
-						if (deltaToolCalls) {
-							for (const dtc of deltaToolCalls) {
-								const idx = dtc.index;
-								const existing = toolCallsMap.get(idx);
-								if (existing) {
-									if (dtc.function?.arguments) {
-										existing.function.arguments += dtc.function.arguments;
-									}
-								} else {
-									toolCallsMap.set(idx, {
-										type: "function",
-										id: dtc.id ?? "",
-										function: {
-											name: dtc.function?.name ?? "",
-											arguments: dtc.function?.arguments ?? "",
-										},
-									});
+					if (parsed.usage) {
+						streamUsage = parsed.usage as CompletionUsage;
+					}
+
+					const content = delta?.content;
+					if (content) {
+						assistantContent += content;
+						callbacks.onStreamChunk(assistantContent);
+					}
+
+					const deltaToolCalls = delta?.tool_calls as Array<{
+						index: number;
+						id?: string;
+						type?: string;
+						function?: { name?: string; arguments?: string };
+					}>;
+					if (deltaToolCalls) {
+						for (const dtc of deltaToolCalls) {
+							const idx = dtc.index;
+							const existing = toolCallsMap.get(idx);
+							if (existing) {
+								if (dtc.function?.arguments) {
+									existing.function.arguments += dtc.function.arguments;
 								}
+							} else {
+								toolCallsMap.set(idx, {
+									type: "function",
+									id: dtc.id ?? "",
+									function: {
+										name: dtc.function?.name ?? "",
+										arguments: dtc.function?.arguments ?? "",
+									},
+								});
 							}
 						}
-					} catch {
-						// Ignore parse errors
 					}
 				}
 			}
@@ -222,7 +320,7 @@ export async function executePrompt(
 		if (err instanceof DOMException && err.name === "AbortError") {
 			// User cancelled — no error to display
 		} else {
-			callbacks.onError(getErrorMessage(err));
+			callbacks.onError(formatPlaygroundError(getErrorMessage(err)));
 		}
 	} finally {
 		callbacks.onFinally();
@@ -265,12 +363,12 @@ export async function executeToolCall(toolCall: ToolCall, config: Pick<Execution
 		let errorMessage = `HTTP error! status: ${response.status}`;
 		try {
 			const data = await response.json();
-			errorMessage = data.error?.message || data.error?.error || errorMessage;
+			errorMessage = parseErrorPayload(data, errorMessage);
 
-			const authRequired = data.extra_fields?.mcp_auth_required;
+			const authRequired = (data as { extra_fields?: { mcp_auth_required?: Record<string, string> } }).extra_fields?.mcp_auth_required;
 			if (authRequired) {
 				throw new MCPAuthRequiredError({
-					kind: authRequired.kind,
+					kind: (authRequired.kind as "oauth" | "headers") || "oauth",
 					mcpClientName: authRequired.mcp_client_name || "MCP server",
 					authorizeUrl: authRequired.authorize_url || authRequired.submit_url || "",
 					message: authRequired.message || errorMessage,
@@ -279,7 +377,7 @@ export async function executeToolCall(toolCall: ToolCall, config: Pick<Execution
 		} catch (e) {
 			if (e instanceof MCPAuthRequiredError) throw e;
 		}
-		throw new Error(errorMessage);
+		throw new Error(formatPlaygroundError(errorMessage, response.status));
 	}
 
 	const data = await response.json();

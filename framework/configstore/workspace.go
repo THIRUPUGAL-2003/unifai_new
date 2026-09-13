@@ -84,6 +84,11 @@ type WorkspaceStore interface {
 	DeleteVirtualKeyUser(ctx context.Context, virtualKeyID string) error
 	ListVirtualKeysForUser(ctx context.Context, userID string) ([]tables.TableVirtualKeyUser, error)
 
+	ListTeamMembers(ctx context.Context, teamID string) ([]tables.TableTeamMember, error)
+	AddTeamMember(ctx context.Context, teamID, userID string) error
+	RemoveTeamMember(ctx context.Context, teamID, userID string) error
+	ListTeamsForUser(ctx context.Context, userID string) ([]tables.TableTeamMember, error)
+
 	GetWorkspaceSetting(ctx context.Context, key string) (*tables.TableWorkspaceSetting, error)
 	UpsertWorkspaceSetting(ctx context.Context, key, data string) error
 	DeleteWorkspaceSetting(ctx context.Context, key string) error
@@ -364,6 +369,48 @@ func (s *RDBConfigStore) SetVirtualKeyUser(ctx context.Context, virtualKeyID, us
 func (s *RDBConfigStore) DeleteVirtualKeyUser(ctx context.Context, virtualKeyID string) error {
 	s.ensureVirtualKeyUsersTable(ctx)
 	return s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).Delete(&tables.TableVirtualKeyUser{}).Error
+}
+
+func (s *RDBConfigStore) ensureTeamMembersTable(ctx context.Context) {
+	db := s.DB().WithContext(ctx)
+	if !db.Migrator().HasTable(&tables.TableTeamMember{}) {
+		_ = db.AutoMigrate(&tables.TableTeamMember{})
+	}
+}
+
+func (s *RDBConfigStore) ListTeamMembers(ctx context.Context, teamID string) ([]tables.TableTeamMember, error) {
+	s.ensureTeamMembersTable(ctx)
+	var rows []tables.TableTeamMember
+	err := s.DB().WithContext(ctx).Where("team_id = ?", teamID).Find(&rows).Error
+	return rows, err
+}
+
+func (s *RDBConfigStore) ListTeamsForUser(ctx context.Context, userID string) ([]tables.TableTeamMember, error) {
+	s.ensureTeamMembersTable(ctx)
+	var rows []tables.TableTeamMember
+	err := s.DB().WithContext(ctx).Where("user_id = ?", userID).Find(&rows).Error
+	return rows, err
+}
+
+func (s *RDBConfigStore) AddTeamMember(ctx context.Context, teamID, userID string) error {
+	s.ensureTeamMembersTable(ctx)
+	now := time.Now().UTC()
+	var existing tables.TableTeamMember
+	err := s.DB().WithContext(ctx).Where("team_id = ? AND user_id = ?", teamID, userID).First(&existing).Error
+	if err == nil {
+		return nil // already a member
+	}
+	return s.DB().WithContext(ctx).Create(&tables.TableTeamMember{
+		TeamID:    teamID,
+		UserID:    userID,
+		CreatedAt: now,
+		UpdatedAt: now,
+	}).Error
+}
+
+func (s *RDBConfigStore) RemoveTeamMember(ctx context.Context, teamID, userID string) error {
+	s.ensureTeamMembersTable(ctx)
+	return s.DB().WithContext(ctx).Where("team_id = ? AND user_id = ?", teamID, userID).Delete(&tables.TableTeamMember{}).Error
 }
 
 func (s *RDBConfigStore) GetWorkspaceSetting(ctx context.Context, key string) (*tables.TableWorkspaceSetting, error) {

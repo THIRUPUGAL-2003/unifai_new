@@ -8,6 +8,9 @@ export interface SessionUser {
 	status?: string;
 	budget: number;
 	rate_limit: number;
+	budget_id?: string | null;
+	rate_limit_id?: string | null;
+	budget_current_usage?: number;
 	allowed_prompt_repos?: string;
 	allowed_sections?: string;
 	created_at: string;

@@ -13,6 +13,12 @@ import {
 	ToolResult,
 } from "./types";
 
+/** Extracted file / voice transcript text parts live in content[] but act as attachments. */
+function isEmbeddedAttachmentText(part: MessageContent): boolean {
+	if (part.type !== "text" || !part.text) return false;
+	return part.text.startsWith("Attached file:") || part.text.startsWith("Voice transcript");
+}
+
 export class Message {
 	readonly id: string;
 	readonly index: number;
@@ -186,8 +192,11 @@ export class Message {
 				const payload = this._payload as CompletionRequest;
 				if (!payload?.content) return "";
 				if (typeof payload.content === "string") return payload.content;
-				const textPart = payload.content.find((c) => c.type === "text");
-				return textPart?.text || "";
+				// User-typed text only — file/voice extracts are treated as attachments.
+				return payload.content
+					.filter((c) => c.type === "text" && !isEmbeddedAttachmentText(c))
+					.map((c) => c.text || "")
+					.join("\n\n");
 			}
 			case MessageType.CompletionResult:
 				return (this._payload as CompletionResult)?.choices?.[0]?.message?.content ?? "";
@@ -205,9 +214,10 @@ export class Message {
 				if (typeof payload.content === "string" || payload.content === null) {
 					this._payload = { ...payload, content } as CompletionRequest;
 				} else if (Array.isArray(payload.content)) {
-					const updated = JSON.parse(JSON.stringify(payload.content));
-					if (updated.length > 0 && updated[0].type === "text") {
-						updated[0].text = content;
+					const updated = JSON.parse(JSON.stringify(payload.content)) as MessageContent[];
+					const userIdx = updated.findIndex((c) => c.type === "text" && !isEmbeddedAttachmentText(c));
+					if (userIdx >= 0) {
+						updated[userIdx] = { ...updated[userIdx], text: content };
 					} else {
 						updated.unshift({ type: "text", text: content });
 					}
@@ -230,13 +240,13 @@ export class Message {
 		}
 	}
 
-	// Attachments (non-text content parts)
+	// Attachments (non-user-text content parts, including extracted file / voice transcript text)
 
 	public get attachments(): MessageContent[] {
 		if (this.originalType !== MessageType.CompletionRequest) return [];
 		const payload = this._payload as CompletionRequest;
 		if (!Array.isArray(payload?.content)) return [];
-		return payload.content.filter((c) => c.type !== "text");
+		return payload.content.filter((c) => c.type !== "text" || isEmbeddedAttachmentText(c));
 	}
 
 	public set attachments(parts: MessageContent[]) {

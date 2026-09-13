@@ -19,8 +19,10 @@ type TableUser struct {
 	Password           string     `gorm:"type:text;not null" json:"password"`
 	Role               string     `gorm:"type:varchar(50);not null" json:"role"`     // "admin" or "user"
 	Status             string     `gorm:"type:varchar(50);not null;default:approved;index" json:"status"` // pending | approved | rejected
-	Budget             float64    `json:"budget"`                                                          // Cost limit in USD
-	RateLimit          int        `json:"rate_limit"`                                                      // Requests per minute (RPM)
+	Budget             float64    `json:"budget"`                                                          // Cost limit in USD (UI); materialized to BudgetID row
+	RateLimit          int        `json:"rate_limit"`                                                      // Requests per minute (RPM); materialized to RateLimitID row
+	BudgetID           *string    `gorm:"type:varchar(255);index" json:"budget_id,omitempty"`               // Live TableBudget owner for this user
+	RateLimitID        *string    `gorm:"type:varchar(255);index" json:"rate_limit_id,omitempty"`           // Live TableRateLimit for this user
 	AllowedPromptRepos string     `gorm:"type:text" json:"allowed_prompt_repos"`                           // Comma-separated allowed prompt IDs
 	AllowedSections    string     `gorm:"type:text" json:"allowed_sections"`                             // Comma-separated sidebar section keys for role=user
 	ReviewedAt         *time.Time `json:"reviewed_at,omitempty"`

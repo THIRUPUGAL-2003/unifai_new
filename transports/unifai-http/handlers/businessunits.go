@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"time"
@@ -24,6 +25,17 @@ func businessUnitFromRow(row tables.TableBusinessUnit) businessUnitPayload {
 		ID: row.ID, Name: row.Name, TeamIDs: row.ParsedTeamIDs,
 		Budget: row.ParsedBudget, RateLimit: row.ParsedRateLimit,
 		CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
+	}
+}
+
+func (h *WorkspaceHandler) reloadBusinessUnitIndex(ctx *fasthttp.RequestCtx) {
+	if h == nil || h.governanceManager == nil {
+		return
+	}
+	if reloader, ok := h.governanceManager.(interface {
+		ReloadBusinessUnitTeamIndex(ctx context.Context)
+	}); ok {
+		reloader.ReloadBusinessUnitTeamIndex(ctx)
 	}
 }
 
@@ -105,6 +117,7 @@ func (h *WorkspaceHandler) createBusinessUnit(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to save business unit")
 		return
 	}
+	h.reloadBusinessUnitIndex(ctx)
 	SendJSON(ctx, map[string]any{"business_unit": businessUnitFromRow(row)})
 }
 
@@ -141,6 +154,7 @@ func (h *WorkspaceHandler) deleteBusinessUnit(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to delete business unit")
 		return
 	}
+	h.reloadBusinessUnitIndex(ctx)
 	SendJSON(ctx, map[string]string{"message": "deleted"})
 }
 
@@ -210,6 +224,7 @@ func (h *WorkspaceHandler) assignBusinessUnitTeam(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to assign team")
 		return
 	}
+	h.reloadBusinessUnitIndex(ctx)
 	SendJSON(ctx, map[string]string{"message": "team assigned"})
 }
 
@@ -240,6 +255,7 @@ func (h *WorkspaceHandler) removeBusinessUnitTeam(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "failed to remove team")
 		return
 	}
+	h.reloadBusinessUnitIndex(ctx)
 	SendJSON(ctx, map[string]string{"message": "team removed"})
 }
 

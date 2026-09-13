@@ -14,10 +14,11 @@ import { ModelProviderName } from "@/lib/types/config";
 import { ModelParams } from "@/lib/types/prompts";
 import { cn } from "@/lib/utils";
 import { PromptDeploymentsAccordionItem } from "@enterprise/components/prompt-deployments/promptDeploymentsAccordionItem";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiKeySelectorView } from "../components/apiKeySelectorView";
 import { VariablesTableView } from "../components/variablesTableView";
 import { usePromptContext } from "../context";
+import { useIsAuthEnabledQuery } from "@/lib/store";
 
 export function SettingsPanel() {
 	const {
@@ -38,6 +39,9 @@ export function SettingsPanel() {
 		requiredHeaders,
 		selectedPromptId,
 	} = usePromptContext();
+
+	const { data: authStatus } = useIsAuthEnabledQuery();
+	const isMemberOnly = Boolean(authStatus?.role && authStatus.role !== "admin");
 
 	const onProviderChange = useCallback(
 		(p: string) => {
@@ -95,18 +99,34 @@ export function SettingsPanel() {
 		return opts;
 	}, [configuredProviders, provider]);
 
-	const providerKeys = useMemo(() => (allKeys ?? []).filter((k) => k.provider === provider), [allKeys, provider]);
+	const providerKeys = useMemo(() => {
+		// Members must use assigned Virtual Keys only — never raw provider keys.
+		if (isMemberOnly) return [];
+		return (allKeys ?? []).filter((k) => k.provider === provider);
+	}, [allKeys, provider, isMemberOnly]);
 
 	// Virtual keys filtered by selected provider (align with backend deny-by-default:
 	// empty provider_configs means no providers, not all providers).
 	const providerVirtualKeys = useMemo(() => {
 		const vks = virtualKeysData?.virtual_keys ?? [];
 		return vks.filter((vk) => {
-			if (!vk.is_active) return false;
+			if (vk.is_active === false) return false;
+			// Members already receive only assigned VKs from API — show all of them.
+			if (isMemberOnly) return true;
 			if (!vk.provider_configs || vk.provider_configs.length === 0) return false;
 			return vk.provider_configs.some((pc) => pc.provider === provider);
 		});
-	}, [virtualKeysData, provider]);
+	}, [virtualKeysData, provider, isMemberOnly]);
+
+	// Auto-bind first assigned VK for members so usage hits the correct budget meter.
+	useEffect(() => {
+		if (!isMemberOnly) return;
+		const first = providerVirtualKeys.find((vk) => typeof vk.value === "string" && vk.value.startsWith("sk-uf-"));
+		if (!first?.value) return;
+		if (apiKeyId === "__auto__" || !providerVirtualKeys.some((vk) => vk.value === apiKeyId)) {
+			setApiKeyId(first.value);
+		}
+	}, [isMemberOnly, providerVirtualKeys, apiKeyId, setApiKeyId]);
 
 	// Separate keys/vks to pass to model fetch for filtering.
 	const filterKeys = useMemo(() => {

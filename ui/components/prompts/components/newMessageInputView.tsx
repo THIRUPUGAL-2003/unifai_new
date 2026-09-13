@@ -6,7 +6,7 @@ import { Paperclip, Play, Plus, Square } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { usePromptContext } from "../context";
-import { filesToAttachments } from "../utils/attachment";
+import { filesToAttachments, attachmentNeedsAudio, attachmentNeedsVision } from "../utils/attachment";
 import { AttachmentBadge } from "./messagesView/attachmentViews";
 import MessageRoleSwitcher from "./messagesView/messageRoleSwitcher";
 import { PromptFileImportBar } from "./promptFileImportBar";
@@ -185,7 +185,8 @@ export function NewMessageInputView() {
 		[canAttach, handleAddAttachments],
 	);
 
-	const hasImageAttachment = attachments.some((att) => att.type === "image_url");
+	const hasImageAttachment = attachmentNeedsVision(attachments);
+	const hasAudioAttachment = attachmentNeedsAudio(attachments);
 
 	return (
 		<div
@@ -224,6 +225,12 @@ export function NewMessageInputView() {
 			{canAttach && hasImageAttachment && !supportsVision && (
 				<p className="text-muted-foreground mb-2 text-xs">
 					Image attached. Select a vision-capable model if the provider should process images.
+				</p>
+			)}
+			{canAttach && hasAudioAttachment && (
+				<p className="text-muted-foreground mb-2 text-xs">
+					Voice attached. Whisper will transcribe to text when possible so any chat model can answer; otherwise raw audio
+					is sent.
 				</p>
 			)}
 			{attachments.length > 0 && (

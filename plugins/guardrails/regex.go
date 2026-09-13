@@ -48,7 +48,6 @@ func NewRegexProvider(config GuardrailProvider) (*RegexProvider, error) {
 			continue
 		}
 
-		// Simple regex compilation. We prepend case insensitive flag if requested
 		expr := patternStr
 		if flags == "i" {
 			expr = "(?i)" + expr
@@ -72,16 +71,13 @@ func NewRegexProvider(config GuardrailProvider) (*RegexProvider, error) {
 
 func (p *RegexProvider) ValidateInput(ctx *schemas.UnifAIContext, req *schemas.UnifAIRequest) error {
 	if req.ChatRequest == nil {
-		return nil // Only scanning chat requests for MVP
+		return nil
 	}
 
 	for _, msg := range req.ChatRequest.Input {
-		if msg.Content != nil && msg.Content.ContentStr != nil {
-			content := *msg.Content.ContentStr
-			for _, pattern := range p.patterns {
-				if pattern.compiled.MatchString(content) {
-					return fmt.Errorf("input matches blocked pattern: %s", pattern.Description)
-				}
+		for _, content := range extractChatMessageTexts(msg) {
+			if err := p.matchBlocked(content, "input"); err != nil {
+				return err
 			}
 		}
 	}
@@ -89,25 +85,60 @@ func (p *RegexProvider) ValidateInput(ctx *schemas.UnifAIContext, req *schemas.U
 }
 
 func (p *RegexProvider) ValidateOutput(ctx *schemas.UnifAIContext, req *schemas.UnifAIRequest, resp *schemas.UnifAIResponse) error {
-	if resp.ChatResponse == nil || len(resp.ChatResponse.Choices) == 0 {
-		return nil
-	}
-	
-	choice := resp.ChatResponse.Choices[0]
-	if choice.ChatNonStreamResponseChoice == nil || choice.ChatNonStreamResponseChoice.Message == nil {
-		return nil
-	}
-	
-	msg := choice.ChatNonStreamResponseChoice.Message
-	if msg.Content == nil || msg.Content.ContentStr == nil {
-		return nil
-	}
-
-	content := *msg.Content.ContentStr
-	for _, pattern := range p.patterns {
-		if pattern.compiled.MatchString(content) {
-			return fmt.Errorf("output matches blocked pattern: %s", pattern.Description)
+	for _, content := range extractChatOutputTexts(resp) {
+		if err := p.matchBlocked(content, "output"); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// MatchText runs patterns against an arbitrary string (used for streamed accumulation).
+func (p *RegexProvider) MatchText(content, phase string) error {
+	return p.matchBlocked(content, phase)
+}
+
+func (p *RegexProvider) matchBlocked(content, phase string) error {
+	for _, pattern := range p.patterns {
+		if pattern.compiled.MatchString(content) {
+			desc := pattern.Description
+			if desc == "" {
+				desc = pattern.Pattern
+			}
+			return fmt.Errorf("%s matches blocked pattern: %s", phase, desc)
+		}
+	}
+	return nil
+}
+
+func extractChatMessageTexts(msg schemas.ChatMessage) []string {
+	if msg.Content == nil {
+		return nil
+	}
+	var texts []string
+	if msg.Content.ContentStr != nil && *msg.Content.ContentStr != "" {
+		texts = append(texts, *msg.Content.ContentStr)
+	}
+	for _, block := range msg.Content.ContentBlocks {
+		if block.Type == schemas.ChatContentBlockTypeText && block.Text != nil && *block.Text != "" {
+			texts = append(texts, *block.Text)
+		}
+		if block.Type == schemas.ChatContentBlockTypeRefusal && block.Refusal != nil && *block.Refusal != "" {
+			texts = append(texts, *block.Refusal)
+		}
+	}
+	return texts
+}
+
+func extractChatOutputTexts(resp *schemas.UnifAIResponse) []string {
+	if resp == nil || resp.ChatResponse == nil || len(resp.ChatResponse.Choices) == 0 {
+		return nil
+	}
+	var texts []string
+	for _, choice := range resp.ChatResponse.Choices {
+		if choice.ChatNonStreamResponseChoice != nil && choice.ChatNonStreamResponseChoice.Message != nil {
+			texts = append(texts, extractChatMessageTexts(*choice.ChatNonStreamResponseChoice.Message)...)
+		}
+	}
+	return texts
 }

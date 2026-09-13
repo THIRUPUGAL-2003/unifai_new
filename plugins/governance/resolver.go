@@ -240,8 +240,9 @@ func (r *BudgetResolver) EvaluateUserRequest(ctx *schemas.UnifAIContext, userID 
 	}
 }
 
-// EvaluateVirtualKeyRequest evaluates virtual key-specific checks including validation, filtering, rate limits, and budgets
-// skipRateLimitsAndBudgets evaluates to true when we want to skip rate limits and budgets. This is used when user auth is present (user governance handles limits).
+// EvaluateVirtualKeyRequest evaluates virtual key-specific checks including validation, filtering, rate limits, and budgets.
+// skipRateLimitsAndBudgets is for read-only metadata calls (e.g. list models). Dashboard Prompt Repo
+// stamps UserID for rankings — callers must NOT skip VK budgets merely because UserID is set.
 func (r *BudgetResolver) EvaluateVirtualKeyRequest(ctx *schemas.UnifAIContext, virtualKeyValue string, provider schemas.ModelProvider, model string, requestType schemas.RequestType, skipRateLimitsAndBudgets bool) *EvaluationResult {
 	// 1. Validate virtual key exists and is active
 	vk, exists := r.store.GetVirtualKey(ctx, virtualKeyValue)
@@ -260,11 +261,36 @@ func (r *BudgetResolver) EvaluateVirtualKeyRequest(ctx *schemas.UnifAIContext, v
 		if vk.Team.Customer != nil {
 			ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerID, vk.Team.Customer.ID)
 			ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerName, vk.Team.Customer.Name)
+		} else if vk.Team.CustomerID != nil && *vk.Team.CustomerID != "" {
+			ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerID, *vk.Team.CustomerID)
+		}
+	} else if tid := teamIDFromVK(vk); tid != "" {
+		// Team FK present but relation not preloaded — still stamp for MCP/logs.
+		ctx.SetValue(schemas.UnifAIContextKeyGovernanceTeamID, tid)
+		if local, ok := r.store.(*LocalGovernanceStore); ok {
+			if v, ok := local.teams.Load(tid); ok {
+				if team, ok := v.(*configstoreTables.TableTeam); ok && team != nil {
+					ctx.SetValue(schemas.UnifAIContextKeyGovernanceTeamName, team.Name)
+					if team.CustomerID != nil && *team.CustomerID != "" {
+						ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerID, *team.CustomerID)
+					}
+					if team.Customer != nil {
+						ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerName, team.Customer.Name)
+					}
+				}
+			}
 		}
 	}
 	if vk.Customer != nil {
 		ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerID, vk.Customer.ID)
 		ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerName, vk.Customer.Name)
+	} else if vk.CustomerID != nil && *vk.CustomerID != "" {
+		if existing, _ := ctx.Value(schemas.UnifAIContextKeyGovernanceCustomerID).(string); existing == "" {
+			ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerID, *vk.CustomerID)
+		}
+	}
+	if local, ok := r.store.(*LocalGovernanceStore); ok {
+		local.stampBusinessUnitsForTeam(ctx, teamIDFromVK(vk))
 	}
 	if !vk.IsActiveValue() {
 		return &EvaluationResult{

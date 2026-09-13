@@ -36,6 +36,9 @@ type TableTeam struct {
 
 	CalendarAligned bool `gorm:"default:false" json:"calendar_aligned"`
 
+	// Members is not a DB relation preload by default — use governance_team_members APIs.
+	Members []TableTeamMember `gorm:"foreignKey:TeamID;constraint:OnDelete:CASCADE" json:"members,omitempty"`
+
 	// Config hash is used to detect the changes synced from config.json file
 	// Every time we sync the config.json file, we will update the config hash
 	ConfigHash string `gorm:"type:varchar(255);null" json:"config_hash"`
@@ -43,6 +46,17 @@ type TableTeam struct {
 	CreatedAt time.Time `gorm:"index;not null" json:"created_at"`
 	UpdatedAt time.Time `gorm:"index;not null" json:"updated_at"`
 }
+
+// TableTeamMember links a governance user to a team (org membership).
+type TableTeamMember struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	TeamID    string    `gorm:"type:varchar(255);not null;uniqueIndex:idx_team_user,priority:1;index" json:"team_id"`
+	UserID    string    `gorm:"type:varchar(255);not null;uniqueIndex:idx_team_user,priority:2;index" json:"user_id"`
+	CreatedAt time.Time `gorm:"not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
+}
+
+func (TableTeamMember) TableName() string { return "governance_team_members" }
 
 // TableName sets the table name for each model
 func (TableTeam) TableName() string { return "governance_teams" }

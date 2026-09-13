@@ -957,11 +957,15 @@ func (p *GovernancePlugin) filterMCPIncludeToolsByGroups(ctx *schemas.UnifAICont
 		return tools
 	}
 	userID := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyUserID)
+	customerID := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceScopedCustomerID)
+	if customerID == "" {
+		customerID = unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceCustomerID)
+	}
 	return mcptoolgroups.Default.FilterTools(tools, mcptoolgroups.RequestContext{
 		VirtualKeyID: virtualKey.ID,
 		UserID:       userID,
 		TeamID:       unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceTeamID),
-		CustomerID:   unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceScopedCustomerID),
+		CustomerID:   customerID,
 	})
 }
 
@@ -1039,7 +1043,9 @@ func (p *GovernancePlugin) EvaluateGovernanceRequest(ctx *schemas.UnifAIContext,
 	// Short-circuits with VirtualKeyBlocked / ProviderBlocked / ModelBlocked before
 	// we touch Customer / Team / User.
 	if result.Decision == DecisionAllow && evaluationRequest.VirtualKey != "" {
-		skipVKBudgetLimit := evaluationRequest.UserID != "" || skipBudgetsAndRateLimits
+		// VK remains the primary meter for Prompt Repo / dashboard session users.
+		// UserID is stamped for rankings/audit — it must NOT skip VK budget checks.
+		skipVKBudgetLimit := skipBudgetsAndRateLimits
 		result = p.resolver.EvaluateVirtualKeyRequest(ctx, evaluationRequest.VirtualKey, evaluationRequest.Provider, evaluationRequest.Model, requestType, skipVKBudgetLimit)
 	}
 
@@ -1137,6 +1143,11 @@ func (p *GovernancePlugin) EvaluateGovernanceRequest(ctx *schemas.UnifAIContext,
 		// successful fallback attempt.
 		if ctx != nil {
 			ctx.ClearValue(governanceRejectedContextKey)
+			// Ensure user + membership identity is stamped for logs/rankings.
+			if result.VirtualKey != nil {
+				p.stampUserFromVKAssignment(ctx, result.VirtualKey)
+			}
+			p.stampUserOrgMembership(ctx)
 		}
 		return result, nil
 
@@ -1267,7 +1278,7 @@ func (p *GovernancePlugin) PreRequestHook(ctx *schemas.UnifAIContext, req *schem
 		}
 	}
 
-	stampGovernanceCtxFromVK(ctx, virtualKey)
+	p.stampGovernanceCtx(ctx, virtualKey)
 
 	// Large-payload mode: the body streams to the provider unparsed, so req.Model is
 	// empty for routes where the model lives in the body (OpenAI/Anthropic chat,
@@ -1556,11 +1567,15 @@ func (p *GovernancePlugin) PreMCPHook(ctx *schemas.UnifAIContext, req *schemas.U
 				},
 			}}, nil
 		}
+		customerID := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceScopedCustomerID)
+		if customerID == "" {
+			customerID = unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceCustomerID)
+		}
 		if !mcptoolgroups.Default.IsToolAllowed(toolName, mcptoolgroups.RequestContext{
 			VirtualKeyID: vk.ID,
 			UserID:       userID,
 			TeamID:       unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceTeamID),
-			CustomerID:   unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyGovernanceScopedCustomerID),
+			CustomerID:   customerID,
 		}) {
 			ctx.SetValue(governanceRejectedContextKey, true)
 			return req, &schemas.MCPPluginShortCircuit{Error: &schemas.UnifAIError{
@@ -1688,18 +1703,7 @@ func (p *GovernancePlugin) PreMCPConnectionHook(ctx *schemas.UnifAIContext, req 
 	}
 	ctx.SetValue(schemas.UnifAIContextKeyGovernanceVirtualKeyID, vk.ID)
 	ctx.SetValue(schemas.UnifAIContextKeyGovernanceVirtualKeyName, vk.Name)
-	if vk.Team != nil {
-		ctx.SetValue(schemas.UnifAIContextKeyGovernanceTeamID, vk.Team.ID)
-		ctx.SetValue(schemas.UnifAIContextKeyGovernanceTeamName, vk.Team.Name)
-		if vk.Team.Customer != nil {
-			ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerID, vk.Team.Customer.ID)
-			ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerName, vk.Team.Customer.Name)
-		}
-	}
-	if vk.Customer != nil {
-		ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerID, vk.Customer.ID)
-		ctx.SetValue(schemas.UnifAIContextKeyGovernanceCustomerName, vk.Customer.Name)
-	}
+	p.stampGovernanceCtx(ctx, vk)
 	return req, nil, nil
 }
 
