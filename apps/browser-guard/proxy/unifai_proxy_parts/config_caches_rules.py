@@ -167,6 +167,11 @@ IGNORE_PATH_PATTERNS = [
     "/backend-api/settings", "/backend-api/prompts",
     "/backend-api/shared_conversations", "/backend-api/gizmos",
     "/backend-api/system_hints", "/backend-api/conversation/init",
+    # ChatGPT bootstrap / preference / feature-flag noise (often extracts as "set")
+    "/backend-api/user_system_messages", "/backend-api/memories",
+    "/backend-api/models", "/backend-api/subscriptions",
+    "/backend-api/payments", "/backend-api/invoices",
+    "/backend-api/user", "/f/conversation/init",
     # Cloudflare / bot challenges / fingerprint noise (NOT user prompts)
     "/cdn-cgi/", "/challenge-platform/", "/jsd/oneshot",
     "/api/v1/fm", "/cfm/", "/cf-challenge",
@@ -179,7 +184,7 @@ IGNORE_PATH_PATTERNS = [
 CHAT_PATH_MARKERS = [
     "/conversation", "/completion", "/completions", "/chat/completions",
     "/messages", "/append_message", "/human_message", "/prompt",
-    "/query", "/ask", "/generate", "/stream", "/batchexecute",
+    "/query", "/ask", "/generate", "/stream",
     "/backend-api/f/conversation", "/v1/messages", "/v1/chat",
     "/rest/prompts", "/api/chat", "/api/ask", "/api/query",
     "/api/openai/chat", "/perplexity_ask", "/rest/sse",
@@ -197,7 +202,9 @@ CHAT_PATH_MARKERS = [
     "/inference", "/predict", "/respond", "/reply",
     "/generate_reply", "/generate-reply", "/chat/completions",
     "/v1/responses", "/responses", "/conversation/generate",
-    # Gemini generate APIs (StreamGenerate is the real chat submit; batchexecute is mostly RPC noise)
+    # Gemini generate APIs (StreamGenerate is the real chat submit).
+    # Do NOT list /batchexecute here — history/settings RPCs share that path and
+    # must go through is_batchexecute_chat_submit() only.
     "/streamgenerate", "/streamgeneratecontent", "/generatecontent", "/_$stream",
     "bardfrontendservice", "/bardchatui", "/_/bard",
 ]
@@ -1086,7 +1093,7 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
     if "prepare" in p or "autocomplet" in p or "implicit" in p:
         return False
 
-    if is_batchexecute_chat_submit(p, body) or "f.req=" in body[:500]:
+    if is_batchexecute_chat_submit(p, body):
         return True
     if is_event_send_chat_submit(p, body):
         return True
@@ -1112,7 +1119,8 @@ def is_batchexecute_chat_submit(path: str, body: str = "") -> bool:
     """True only for the HTTP call that carries the user's typed Gemini prompt.
 
     StreamGenerate / GenerateContent / BardFrontendService / BardChatUi batchexecute.
-    Plain telemetry batchexecute without a prompt-shaped payload is rejected.
+    Plain telemetry / history batchexecute without a chat RPC is rejected — injecting
+    a fake wrb.fr into those calls leaves the Gemini sidebar spinning forever.
     """
     path_l = (path or "").lower()
     compact = path_l.replace("_", "")
@@ -1127,11 +1135,7 @@ def is_batchexecute_chat_submit(path: str, body: str = "") -> bool:
     if "batchexecute" in path_l and body:
         if any(rpc in body for rpc in GEMINI_CHAT_RPCS) or "StreamGenerate" in body:
             return True
-        # Typed prompt slot: [["user text",0, ...
-        if re.search(r'\[\s*\[\s*"(?:[^"\\]|\\.)+?"\s*,\s*0\s*,', body):
-            return True
-        if re.search(r'\\"(?:[^"\\]|\\.)+?\\"\s*,\s*0\s*,', body):
-            return True
+        # Do NOT match bare [["text",0, slots — history/settings RPCs use the same shape.
     return False
 
 
@@ -1195,10 +1199,25 @@ def _is_typed_numeric_prompt(text: str) -> bool:
     return False
 
 
+# Exact short tokens from API/settings bootstrap (e.g. ChatGPT open → "set").
+# Never treat these alone as a typed user prompt, even on confident chat paths.
+_CONTROL_PLANE_PROMPT_TOKENS = frozenset({
+    "set", "get", "put", "post", "patch", "delete",
+    "true", "false", "none", "null", "ok", "on", "off",
+    "enable", "disable", "enabled", "disabled",
+    "success", "error", "default", "auto", "manual",
+    "user", "system", "assistant", "tool",
+    "undefined", "generic",
+})
+
+
 def _is_clear_protocol_junk(text: str) -> bool:
     """True only for multipart / challenge / IDE binary — not normal typed chat."""
     t = (text or "").strip()
     if not t:
+        return True
+    # ChatGPT/settings control crumbs mis-extracted as prompts on page open
+    if " " not in t and "\n" not in t and t.lower() in _CONTROL_PLANE_PROMPT_TOKENS:
         return True
     low_head = t[:80].lower()
     if (

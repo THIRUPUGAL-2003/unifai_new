@@ -320,7 +320,9 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         return
 
     # ── Gemini / Bard (request shape) ──
-    if is_batchexecute_chat_submit(path, raw_body) or "f.req=" in raw_body:
+    # Only inject on real chat submits. History/settings batchexecute share f.req=
+    # — fake wrb.fr there leaves the sidebar spinning forever.
+    if is_batchexecute_chat_submit(path, raw_body):
         path_compact = path.replace("_", "")
         # StreamGenerate expects progressive Google JSON lines — OpenAI-style SSE leaves the UI spinning.
         if "streamgenerate" in path_compact or "generatecontent" in path_compact or "bardfrontend" in path:

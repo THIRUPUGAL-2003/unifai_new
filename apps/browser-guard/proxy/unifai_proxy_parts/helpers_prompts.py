@@ -286,8 +286,10 @@ def looks_like_user_prompt(text: str) -> bool:
     low = t.lower()
     if low in BATCHEXECUTE_LOCALE_JUNK or re.fullmatch(r"[a-z]{2}-[a-z]{2,3}", low):
         return False
+    if low in _CONTROL_PLANE_PROMPT_TOKENS:
+        return False
     if low in {
-        "null", "undefined", "generic", "batchexecute", "wrb.fr",
+        "batchexecute", "wrb.fr",
         "bard activity enabled", "activity enabled", "streamgenerate",
         "co.in", "com.au", "co.uk", "com.br", "co.jp", "co.kr",
     }:
@@ -480,6 +482,9 @@ def _is_clear_chat_submit(path: str, host: str, raw_text: str, raw_bytes: bytes 
     if _is_messages_conversation_path(path_l) or _looks_like_messages_parts_body(body, raw_bytes):
         return True
     if _path_has_chat_marker(path_l):
+        # Bare /batchexecute is history/settings noise — only StreamGenerate-shaped submits count.
+        if "batchexecute" in path_l and not is_batchexecute_chat_submit(path, body):
+            return False
         if is_noise(path, body):
             return False
         return True
@@ -671,6 +676,10 @@ def _should_intercept_extracted_prompt(
     if confident:
         # Exact user Send — do not drop number/symbol/short text via wire heuristics.
         if _is_clear_protocol_junk(text):
+            return False
+        # ChatGPT attach JSON often exposes "document.pdf" as content — that is the
+        # filename, not a typed prompt. File row is logged via post_upload_intercept.
+        if _looks_like_filename_only(text):
             return False
         if _is_ide_non_chat_noise(text, domain=domain) or _is_ide_non_chat_noise(text, domain=host):
             if not _is_digit_heavy_user_text(text) and not _is_typed_numeric_prompt(text):

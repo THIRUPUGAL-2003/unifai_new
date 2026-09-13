@@ -203,6 +203,61 @@ class BrowserAIInterceptor:
                 continue
         return ""
 
+    @staticmethod
+    def _is_committed_search_navigation(flow: http.HTTPFlow) -> bool:
+        """True only for top-level address-bar / Enter navigations — not page widgets or prefetch.
+
+        Edge/Bing SERP + MSN NTP fire dozens of subresource requests that carry `q=`
+        (related searches, cards, suggest). Google mostly uses dedicated suggest paths;
+        Bing reuses `/search?q=` so we must gate on Sec-Fetch document navigate.
+        """
+        method = (flow.request.method or "GET").upper()
+        if method not in ("GET", "HEAD"):
+            return False
+        dest = (flow.request.headers.get("sec-fetch-dest") or "").lower().strip()
+        mode = (flow.request.headers.get("sec-fetch-mode") or "").lower().strip()
+        user = (flow.request.headers.get("sec-fetch-user") or "").strip()
+        # Explicit user activation on a document navigation (typed + Enter / link open)
+        if dest == "document" and mode in ("navigate", "nested-navigate"):
+            return True
+        # Legacy clients without Sec-Fetch — allow; modern Edge/Chrome always send them.
+        if not dest and not mode:
+            return True
+        # sec-fetch-user: ? means user-initiated navigation even if dest is odd
+        if user == "?/" or user == "?":
+            if mode in ("navigate", "nested-navigate", ""):
+                return True
+        return False
+
+    @staticmethod
+    def _is_bing_committed_search_path(path_l: str) -> bool:
+        """Paths that represent a real Bing/Edge search results page (not NTP/MSN cards)."""
+        p = (path_l or "").split("?", 1)[0]
+        if p in ("/search", "/images/search", "/videos/search", "/news/search", "/shop", "/maps"):
+            return True
+        if p.startswith("/images/search") or p.startswith("/videos/search") or p.startswith("/news/search"):
+            return True
+        if p.startswith("/maps") and ("/search" in p or p == "/maps"):
+            return True
+        return False
+
+    @staticmethod
+    def _is_junk_search_query(q: str) -> bool:
+        """Drop single-letter / page-scrap fragments that are not typed searches."""
+        t = (q or "").strip()
+        if not t:
+            return True
+        # Single token 1–2 chars (e.g. "H", "U", "O") — Edge widget crumbs
+        if len(t) <= 2 and " " not in t:
+            return True
+        # Very short multi-token nonsense like "O Are Are"
+        words = t.split()
+        if len(words) >= 2 and all(len(w) <= 3 for w in words) and len(t) <= 12:
+            # Allow normal short queries: "how old", "ai ml"
+            if not any(len(w) >= 3 for w in words):
+                return True
+        return False
+
     def _maybe_record_search_engine(self, flow: http.HTTPFlow, host: str) -> None:
         """Capture search queries + result clicks for ANY browser (Chrome/Edge/Firefox/…).
 
@@ -269,9 +324,16 @@ class BrowserAIInterceptor:
                 if "/complete/" in path_l or path_l.endswith("/complete/search"):
                     return
                 if not any(x in path_l for x in ("/gen_204", "/client_204", "/async/", "/csi", "/verify/")):
-                    raw_q = _q("q", "as_q", "query")
-                    if raw_q and not raw_q.startswith("http"):
-                        searched_query = raw_q
+                    # Prefer real /search navigations; still allow classic / with q= for typed Enter.
+                    is_search_path = (
+                        path_l == "/search"
+                        or path_l.startswith("/search")
+                        or path_l in ("/", "/webhp")
+                    )
+                    if is_search_path and self._is_committed_search_navigation(flow):
+                        raw_q = _q("q", "as_q", "query")
+                        if raw_q and not raw_q.startswith("http") and not self._is_junk_search_query(raw_q):
+                            searched_query = raw_q
                 # Result link click: /url?url=… or /url?q=https://…
                 if path_l.startswith("/url") or "/url?" in (flow.request.path or "").lower() or path_l == "/url":
                     target = _q("url", "q", "qurl")
@@ -285,14 +347,52 @@ class BrowserAIInterceptor:
                         clicked_url = target
 
             elif engine == "Bing":
-                # Skip suggest / telemetry
-                if any(path_l.startswith(p) for p in ("/as/", "/suggestions/", "/fd/ls", "/notifications/", "/api/")):
+                # MSN / Edge NTP / edgeservices fire dozens of URLs with q= that are NOT searches.
+                is_msn = (
+                    h_lower.endswith("msn.com")
+                    or h_lower == "msn.com"
+                    or "edgeservices.bing" in h_lower
+                    or h_lower.startswith("ntp.")
+                )
+                # Skip suggest / telemetry / related-card APIs
+                if any(
+                    path_l.startswith(p)
+                    for p in (
+                        "/as/",
+                        "/suggestions/",
+                        "/fd/ls",
+                        "/notifications/",
+                        "/api/",
+                        "/hp/",
+                        "/homepage",
+                        "/rewards",
+                        "/th/",
+                        "/ts/",
+                        "/rs/",
+                        "/ans/",
+                        "/entityexplore",
+                        "/proactive",
+                        "/sa/",
+                        "/passport",
+                        "/msnicons",
+                    )
+                ) or path_l in ("/th", "/homepage", "/hp"):
+                ):
                     if not (path_l.startswith("/ck/") or "alink.aspx" in path_l or path_l.startswith("/aclick")):
                         return
-                raw_q = _q("q", "pq", "query")
-                if raw_q and not raw_q.startswith("http"):
-                    searched_query = raw_q
-                # Edge/Bing result click redirects
+
+                # Only log a search query from a real Bing SERP document navigation.
+                # Never take `pq` (previous query) — it repeats on every related/widget hit.
+                if (
+                    not is_msn
+                    and self._is_bing_committed_search_path(path_l)
+                    and self._is_committed_search_navigation(flow)
+                ):
+                    raw_q = _q("q", "query")  # do not use pq
+                    if raw_q and not raw_q.startswith("http") and not self._is_junk_search_query(raw_q):
+                        searched_query = raw_q
+
+                # Edge/Bing result click redirects (keep click rows; drop query noise)
                 if (
                     path_l.startswith("/ck/")
                     or "alink.aspx" in path_l
@@ -311,16 +411,16 @@ class BrowserAIInterceptor:
                             decoded = ""
                     if decoded.startswith("http"):
                         clicked_url = decoded
-                        # Prefer click row without duplicating the search q from referrer noise
-                        if path_l.startswith("/ck/") or "alink" in path_l:
-                            searched_query = searched_query if searched_query and len(searched_query) < 200 else ""
+                        # Click row only — never attach SERP/widget q= as a new "search"
+                        searched_query = ""
 
             elif engine == "DuckDuckGo":
                 if path_l.startswith("/ac/"):
                     return
-                raw_q = _q("q", "query")
-                if raw_q and not raw_q.startswith("http"):
-                    searched_query = raw_q
+                if self._is_committed_search_navigation(flow):
+                    raw_q = _q("q", "query")
+                    if raw_q and not raw_q.startswith("http") and not self._is_junk_search_query(raw_q):
+                        searched_query = raw_q
                 if path_l.startswith("/l/") or path_l.startswith("/y.js"):
                     uddg = _q("uddg", "u")
                     if uddg.startswith("http"):
@@ -328,9 +428,10 @@ class BrowserAIInterceptor:
                         searched_query = ""
 
             elif engine == "Brave Search":
-                raw_q = _q("q", "query")
-                if raw_q and not raw_q.startswith("http"):
-                    searched_query = raw_q
+                if self._is_committed_search_navigation(flow):
+                    raw_q = _q("q", "query")
+                    if raw_q and not raw_q.startswith("http") and not self._is_junk_search_query(raw_q):
+                        searched_query = raw_q
                 # Brave often links out directly; capture redirect helpers when present
                 target = _q("url", "u")
                 if target.startswith("http") and ("/redirect" in path_l or path_l.startswith("/out")):
@@ -338,9 +439,10 @@ class BrowserAIInterceptor:
                     searched_query = ""
 
             elif engine == "Yahoo":
-                raw_q = _q("p", "q", "query")
-                if raw_q and not raw_q.startswith("http"):
-                    searched_query = raw_q
+                if self._is_committed_search_navigation(flow):
+                    raw_q = _q("p", "q", "query")
+                    if raw_q and not raw_q.startswith("http") and not self._is_junk_search_query(raw_q):
+                        searched_query = raw_q
                 # Yahoo click redirects
                 if "/RU=" in (flow.request.url or "") or path_l.startswith("/click") or "rds.yahoo" in h_lower:
                     ru = ""
@@ -356,7 +458,7 @@ class BrowserAIInterceptor:
                         ru = _q("RU", "url")
                     if ru.startswith("http"):
                         clicked_url = ru
-                        searched_query = searched_query if searched_query else ""
+                        searched_query = ""
 
             searched_query = (searched_query or "").strip()
             clicked_url = (clicked_url or "").strip()
@@ -594,6 +696,11 @@ class BrowserAIInterceptor:
         except Exception:
             raw_text = ""
 
+        # Gemini history/settings batchexecute must pass through BEFORE prompt extract.
+        # Otherwise false extracts + block inject leave the sidebar spinning forever.
+        if "batchexecute" in (path or "").lower() and not is_batchexecute_chat_submit(path, raw_text):
+            return
+
         # Domain-add-only: extract user text first. Role labels never skip a real prompt/file.
         peek_prompt = extract_prompt_universal(
             raw_bytes, content_type, host=host, url=flow.request.url,
@@ -660,12 +767,14 @@ class BrowserAIInterceptor:
                 return
             if n_processed > 0:
                 # Caption already evaluated with all files — avoid duplicate predict row.
+                # Also skip filename-only peeks (ChatGPT parts[].name → "document.pdf").
                 if (
                     not caption_consumed
                     and has_prompt
                     and peek_prompt
                     and len((peek_prompt or "").strip()) <= 320
                     and not _looks_like_document_body_dump(peek_prompt)
+                    and not _looks_like_filename_only(peek_prompt)
                 ):
                     self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
                 return
@@ -686,10 +795,6 @@ class BrowserAIInterceptor:
                 peek_prompt = stable
 
             self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
-            return
-
-        # Gemini batchexecute noise — only skip when body is not a chat submit.
-        if "batchexecute" in (path or "").lower() and not is_batchexecute_chat_submit(path, raw_text):
             return
 
         if is_event_sync_noise_content(raw_text):
@@ -839,6 +944,10 @@ class BrowserAIInterceptor:
             return
 
         ws_path = flow.request.path or ""
+        # History/settings batchexecute over WS — pass through before extract/inject.
+        if "batchexecute" in ws_path.lower() and not is_batchexecute_chat_submit(ws_path, content):
+            return
+
         client_ip = get_client_ip(flow)
         ws_has_prompt = False
         ws_prompt = extract_prompt_universal(
@@ -957,8 +1066,6 @@ class BrowserAIInterceptor:
                     msg.text = new_content
             return
 
-        if "batchexecute" in ws_path.lower() and not is_batchexecute_chat_submit(ws_path, content):
-            return
         if is_event_sync_noise_content(content):
             return
         if not is_chat_path(ws_path, host, content):
