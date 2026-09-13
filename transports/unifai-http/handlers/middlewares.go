@@ -937,7 +937,8 @@ func validateSession(ctx *fasthttp.RequestCtx, store configstore.ConfigStore, to
 			(strings.HasPrefix(path, "/api/providers") && string(ctx.Method()) == "GET") ||
 			(strings.HasPrefix(path, "/api/governance/virtual-keys") && string(ctx.Method()) == "GET") ||
 			(strings.HasPrefix(path, "/api/governance/providers") && string(ctx.Method()) == "GET") ||
-			(strings.HasPrefix(path, "/api/models") && string(ctx.Method()) == "GET")
+			(strings.HasPrefix(path, "/api/models") && string(ctx.Method()) == "GET") ||
+			(path == "/api/rbac/me/permissions" && string(ctx.Method()) == "GET")
 		if !isAllowed {
 			return false
 		}

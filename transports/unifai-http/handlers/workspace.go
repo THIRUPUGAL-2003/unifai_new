@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -222,14 +223,21 @@ func pathID(ctx *fasthttp.RequestCtx, name string) string {
 	if value == nil {
 		return ""
 	}
+	var raw string
 	switch typed := value.(type) {
 	case string:
-		return typed
+		raw = typed
 	case []byte:
-		return string(typed)
+		raw = string(typed)
 	default:
-		return fmt.Sprint(typed)
+		raw = fmt.Sprint(typed)
 	}
+	// Routers may leave %20 (etc.) encoded; decode so names with spaces match DB rows
+	// (e.g. circuit-breaker policies "Batch lane breaker").
+	if decoded, err := url.PathUnescape(raw); err == nil {
+		return decoded
+	}
+	return raw
 }
 
 func pathUint(ctx *fasthttp.RequestCtx, name string) (uint, bool) {

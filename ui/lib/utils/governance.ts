@@ -26,8 +26,9 @@ export function parseResetPeriod(duration: string): string {
 
 import { formatCompactNumber } from "./numbers";
 
-export function formatCurrency(dollars: number) {
-	return `$${dollars.toFixed(2)}`;
+export function formatCurrency(dollars: number | null | undefined) {
+	const value = typeof dollars === "number" && Number.isFinite(dollars) ? dollars : 0;
+	return `$${value.toFixed(2)}`;
 }
 
 const shortDurationLabels: Record<string, string> = {

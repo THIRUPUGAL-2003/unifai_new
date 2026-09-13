@@ -350,6 +350,9 @@ func selectWeightedTarget(targets []configstoreTables.TableRoutingTarget) (confi
 // buildScopeChain builds the scope evaluation chain based on organizational hierarchy
 // Returns scope levels in precedence order (highest to lowest)
 // VirtualKey > Team > Customer > Global
+//
+// Prefer FK IDs (TeamID / CustomerID) when the nested Team/Customer relations are not
+// preloaded in memory — otherwise team/customer-scoped routing rules never enter the chain.
 func buildScopeChain(virtualKey *configstoreTables.TableVirtualKey) []ScopeLevel {
 	var chain []ScopeLevel
 
@@ -361,24 +364,36 @@ func buildScopeChain(virtualKey *configstoreTables.TableVirtualKey) []ScopeLevel
 		})
 
 		// Team level
-		if virtualKey.Team != nil {
+		teamID := ""
+		switch {
+		case virtualKey.Team != nil && virtualKey.Team.ID != "":
+			teamID = virtualKey.Team.ID
+		case virtualKey.TeamID != nil && *virtualKey.TeamID != "":
+			teamID = *virtualKey.TeamID
+		}
+		if teamID != "" {
 			chain = append(chain, ScopeLevel{
 				ScopeName: "team",
-				ScopeID:   virtualKey.Team.ID,
+				ScopeID:   teamID,
 			})
+		}
 
-			// Customer level (from Team)
-			if virtualKey.Team.Customer != nil {
-				chain = append(chain, ScopeLevel{
-					ScopeName: "customer",
-					ScopeID:   virtualKey.Team.Customer.ID,
-				})
-			}
-		} else if virtualKey.Customer != nil {
-			// Customer level (VK attached directly to customer, no Team)
+		// Customer level (VK→customer, or via team FK / nested relation)
+		customerID := ""
+		switch {
+		case virtualKey.Customer != nil && virtualKey.Customer.ID != "":
+			customerID = virtualKey.Customer.ID
+		case virtualKey.CustomerID != nil && *virtualKey.CustomerID != "":
+			customerID = *virtualKey.CustomerID
+		case virtualKey.Team != nil && virtualKey.Team.Customer != nil && virtualKey.Team.Customer.ID != "":
+			customerID = virtualKey.Team.Customer.ID
+		case virtualKey.Team != nil && virtualKey.Team.CustomerID != nil && *virtualKey.Team.CustomerID != "":
+			customerID = *virtualKey.Team.CustomerID
+		}
+		if customerID != "" {
 			chain = append(chain, ScopeLevel{
 				ScopeName: "customer",
-				ScopeID:   virtualKey.Customer.ID,
+				ScopeID:   customerID,
 			})
 		}
 	}

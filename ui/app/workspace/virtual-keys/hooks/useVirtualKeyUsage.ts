@@ -41,12 +41,12 @@ export function useVirtualKeyUsage(vk: VirtualKey | null | undefined): {
 	const isManagedByProfile = managingProfile !== undefined;
 
 	const displayBudgets: Budget[] | undefined = managingProfile
-		? (managingProfile.budgets ?? []).map((line) => ({
-				id: line.id,
-				max_limit: line.max_limit,
-				reset_duration: line.reset_duration,
-				current_usage: line.current_usage,
-				last_reset: line.last_reset,
+		? (managingProfile.budgets ?? []).map((line, idx) => ({
+				id: line.id || `ap-budget-${managingProfile.id}-${idx}`,
+				max_limit: line.max_limit ?? 0,
+				reset_duration: line.reset_duration ?? "",
+				current_usage: line.current_usage ?? 0,
+				last_reset: line.last_reset ?? "",
 			}))
 		: vk?.budgets;
 
