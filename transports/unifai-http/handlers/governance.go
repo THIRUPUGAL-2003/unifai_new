@@ -997,6 +997,7 @@ func (h *GovernanceHandler) RegisterRoutes(r *router.Router, middlewares ...sche
 	r.POST("/api/governance/teams/{team_id}/members", lib.ChainMiddlewares(h.addTeamMember, middlewares...))
 	r.DELETE("/api/governance/teams/{team_id}/members/{user_id}", lib.ChainMiddlewares(h.removeTeamMember, middlewares...))
 	r.GET("/api/governance/users/{user_id}/teams", lib.ChainMiddlewares(h.getUserTeams, middlewares...))
+	r.GET("/api/governance/users/{user_id}/virtual-keys", lib.ChainMiddlewares(h.getUserVirtualKeys, middlewares...))
 	// Legacy alias for migration-cli
 	r.POST("/api/teams/{id}/members", lib.ChainMiddlewares(h.addTeamMember, middlewares...))
 

@@ -5,11 +5,19 @@ export interface GetVirtualKeyUsersResponse {
 	users: User[];
 }
 
+export interface GetUserVirtualKeysResponse {
+	virtual_keys: Array<{ id: string; name: string; is_active?: boolean; created_at?: string }>;
+}
+
 export const virtualKeyUsersApi = baseApi.injectEndpoints({
 	endpoints: (builder) => ({
 		getVirtualKeyUsers: builder.query<GetVirtualKeyUsersResponse, string>({
 			query: (vkId) => ({ url: `/governance/virtual-keys/${vkId}/users` }),
 			providesTags: (_result, _error, vkId) => [{ type: "VirtualKeys", id: vkId }],
+		}),
+		getUserVirtualKeys: builder.query<GetUserVirtualKeysResponse, string>({
+			query: (userId) => ({ url: `/governance/users/${userId}/virtual-keys` }),
+			providesTags: (_result, _error, userId) => [{ type: "VirtualKeys", id: `user-${userId}` }],
 		}),
 		setVirtualKeyUser: builder.mutation<GetVirtualKeyUsersResponse, { vkId: string; user_id: string }>({
 			query: ({ vkId, user_id }) => ({
@@ -17,9 +25,28 @@ export const virtualKeyUsersApi = baseApi.injectEndpoints({
 				method: "PUT",
 				body: { user_id },
 			}),
-			invalidatesTags: (_result, _error, { vkId }) => [{ type: "VirtualKeys", id: vkId }],
+			invalidatesTags: (_result, _error, { vkId, user_id }) => [
+				{ type: "VirtualKeys", id: vkId },
+				{ type: "VirtualKeys", id: `user-${user_id}` },
+				{ type: "VirtualKeys", id: "LIST" },
+			],
+		}),
+		deleteVirtualKeyUser: builder.mutation<{ users: User[] }, string>({
+			query: (vkId) => ({
+				url: `/governance/virtual-keys/${vkId}/users`,
+				method: "DELETE",
+			}),
+			invalidatesTags: (_result, _error, vkId) => [
+				{ type: "VirtualKeys", id: vkId },
+				{ type: "VirtualKeys", id: "LIST" },
+			],
 		}),
 	}),
 });
 
-export const { useGetVirtualKeyUsersQuery, useSetVirtualKeyUserMutation } = virtualKeyUsersApi;
+export const {
+	useGetVirtualKeyUsersQuery,
+	useGetUserVirtualKeysQuery,
+	useSetVirtualKeyUserMutation,
+	useDeleteVirtualKeyUserMutation,
+} = virtualKeyUsersApi;

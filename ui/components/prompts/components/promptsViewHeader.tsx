@@ -6,8 +6,6 @@ import { Input } from "@/components/ui/input";
 import { SplitButton } from "@/components/ui/splitButton";
 import { Message, MessageRole } from "@/lib/message";
 import { getErrorMessage, useIsAuthEnabledQuery } from "@/lib/store";
-import { useGetModelsQuery } from "@/lib/store/apis/providersApi";
-import { ComboboxSelect } from "@/components/ui/combobox";
 import { useCreateSessionMutation, useGetSessionsQuery, useGetVersionsQuery, useRenameSessionMutation, useUpdateSessionMutation } from "@/lib/store/apis/promptsApi";
 import { ModelParams, PromptSession } from "@/lib/types/prompts";
 import { cn } from "@/lib/utils";
@@ -17,6 +15,7 @@ import { useCallback, useRef, useState, useMemo } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { toast } from "sonner";
 import { usePromptContext } from "../context";
+import { isPromptMemberRole } from "../utils/memberRole";
 
 export default function PromptsViewHeader() {
 	const {
@@ -27,9 +26,7 @@ export default function PromptsViewHeader() {
 		apiKeyId,
 		modelParams,
 		provider,
-		setProvider,
 		model,
-		setModel,
 		variables,
 		hasChanges,
 		hasVersionChanges,
@@ -39,44 +36,16 @@ export default function PromptsViewHeader() {
 	} = usePromptContext();
 
 	const { data: authStatus } = useIsAuthEnabledQuery();
-	const isUserRole = authStatus?.role === "user";
+	const isUserRole = isPromptMemberRole(authStatus?.role);
 
-	const { data: modelsData } = useGetModelsQuery({ limit: 1000, unfiltered: true });
-	const models = modelsData?.models ?? [];
-
-	const modelOptions = useMemo(() => {
-		const opts = [
-			{ label: "Auto (Adaptive)", value: "auto" }
-		];
-		models.forEach((m) => {
-			opts.push({
-				label: `${m.provider.toUpperCase()} - ${m.name}`,
-				value: `${m.provider}/${m.name}`
-			});
-		});
-		return opts;
-	}, [models]);
-
-	const selectedOptionValue = useMemo(() => {
-		if (!provider || !model) return "auto";
-		return `${provider}/${model}`;
-	}, [provider, model]);
-
-	const handleModelSelectChange = useCallback((val: string) => {
-		if (val === "auto") {
-			setProvider("");
-			setModel("");
-		} else {
-			const index = val.indexOf("/");
-			if (index !== -1) {
-				setProvider(val.substring(0, index));
-				setModel(val.substring(index + 1));
-			} else {
-				setProvider(val);
-				setModel("");
-			}
-		}
-	}, [setProvider, setModel]);
+	const committedLabel = useMemo(() => {
+		const version = selectedPrompt?.latest_version;
+		const p = version?.provider || provider;
+		const m = version?.model || model;
+		if (p && m) return `${String(p).toUpperCase()} — ${m}`;
+		if (m) return m;
+		return "No committed model";
+	}, [selectedPrompt?.latest_version, provider, model]);
 
 	const [sessionsOpen, setSessionsOpen] = useState(false);
 
@@ -239,15 +208,9 @@ export default function PromptsViewHeader() {
 					{!isUserRole && hasChanges && <span className="text-destructive ml-1">*</span>}
 				</h3>
 				{isUserRole ? (
-					<div className="w-64">
-						<ComboboxSelect
-							options={modelOptions}
-							value={selectedOptionValue}
-							onValueChange={(v) => v && handleModelSelectChange(v)}
-							placeholder="Select model"
-							hideClear
-						/>
-					</div>
+					<Badge variant="secondary" className="max-w-[280px] truncate font-normal" title={committedLabel}>
+						{committedLabel}
+					</Badge>
 				) : (
 					<>
 						{displayVersion && <Badge variant={"secondary"}>v{displayVersion.version_number}</Badge>}

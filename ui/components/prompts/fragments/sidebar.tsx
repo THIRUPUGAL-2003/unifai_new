@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePromptContext } from "../context";
+import { isPromptMemberRole } from "../utils/memberRole";
 
 /**
  * Renders the prompt-manager sidebar including search, folder hierarchy, root prompts, and drag-and-drop reorganization.
@@ -65,12 +66,10 @@ export function PromptSidebar() {
 		canUpdate,
 		canDelete,
 		selectedPrompt,
-		provider,
-		model,
 	} = usePromptContext();
 
 	const { data: authStatus } = useIsAuthEnabledQuery();
-	const isUserRole = authStatus?.role === "user";
+	const isUserRole = isPromptMemberRole(authStatus?.role);
 
 	const { data: sessionsData } = useGetSessionsQuery(selectedPrompt?.id ?? "", { skip: !selectedPrompt?.id });
 	const sessions = sessionsData?.sessions ?? [];
@@ -179,29 +178,57 @@ export function PromptSidebar() {
 	if (isUserRole) {
 		return (
 			<div className="flex h-full flex-col">
+				<div className="border-b p-3">
+					<span className="text-sm font-semibold">Your prompts</span>
+					<p className="text-muted-foreground mt-0.5 text-xs">Select a prompt assigned by your admin to start chatting.</p>
+				</div>
+				<ScrollArea className="max-h-[45%] shrink-0 overflow-y-auto border-b" viewportClassName="no-table">
+					<div className="flex flex-col gap-1 p-2 px-3">
+						{prompts.length === 0 ? (
+							<div className="text-muted-foreground py-6 text-center text-xs">
+								No prompts assigned. Ask your admin to allow prompt repositories on your user.
+							</div>
+						) : (
+							prompts.map((prompt) => (
+								<button
+									key={prompt.id}
+									type="button"
+									onClick={() => onSelectPrompt(prompt.id)}
+									data-testid={`user-prompt-${prompt.id}`}
+									className={cn(
+										"flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm transition-all hover:bg-accent",
+										selectedPromptId === prompt.id ? "bg-accent font-medium text-foreground" : "text-muted-foreground",
+									)}
+								>
+									<FileText className="size-4 shrink-0" />
+									<span className="truncate">{prompt.name}</span>
+								</button>
+							))
+						)}
+					</div>
+				</ScrollArea>
+
 				<div className="flex items-center justify-between border-b p-3">
-					<span className="font-semibold text-sm truncate">Chat History</span>
+					<span className="truncate text-sm font-semibold">Chat History</span>
 					<Button
 						variant="outline"
 						size="sm"
+						disabled={!selectedPrompt}
 						onClick={async () => {
 							if (!selectedPrompt) return;
 							try {
 								const latestVersion = selectedPrompt.latest_version;
-								const rawMessages = latestVersion?.messages ?? [];
-								const loaded = Message.fromLegacyAll(rawMessages.map((m) => m.message));
-								const systemMsg = loaded.find((m) => m.role === "system") || Message.system("");
-
-								const sessionData: any = {
-									model_params: { stream: true },
-									provider: provider,
-									model: model,
-								};
+								const sessionData: Record<string, unknown> = {};
 
 								if (latestVersion?.id) {
+									// Let the server copy provider/model/params/messages from the committed version.
 									sessionData.version_id = latestVersion.id;
 								} else {
+									const rawMessages = latestVersion?.messages ?? [];
+									const loaded = Message.fromLegacyAll(rawMessages.map((m) => m.message));
+									const systemMsg = loaded.find((m) => m.role === "system") || Message.system("");
 									sessionData.messages = Message.serializeAll([systemMsg]);
+									sessionData.model_params = { stream: true };
 								}
 
 								const result = await createSession({
@@ -222,21 +249,22 @@ export function PromptSidebar() {
 				</div>
 				<ScrollArea className="grow overflow-y-auto" viewportClassName="no-table viewport-table-height-full">
 					<div className="flex flex-col gap-1 p-2 px-3">
-						{sessions.length === 0 ? (
+						{!selectedPrompt ? (
+							<div className="text-muted-foreground py-8 text-center text-sm">Select a prompt above first</div>
+						) : sessions.length === 0 ? (
 							<div className="text-muted-foreground py-8 text-center text-sm">No chat history yet</div>
 						) : (
 							[...sessions].reverse().map((session) => (
 								<button
 									key={session.id}
+									type="button"
 									onClick={() => setUrlState({ sessionId: session.id, versionId: null })}
 									className={cn(
 										"flex w-full items-center justify-between rounded-md px-3 py-2 text-left text-sm transition-all hover:bg-accent",
-										selectedSessionId === session.id ? "bg-accent font-medium text-foreground" : "text-muted-foreground"
+										selectedSessionId === session.id ? "bg-accent font-medium text-foreground" : "text-muted-foreground",
 									)}
 								>
-									<span className="truncate max-w-[150px]">
-										{session.name || formatSessionDate(session.created_at)}
-									</span>
+									<span className="max-w-[150px] truncate">{session.name || formatSessionDate(session.created_at)}</span>
 								</button>
 							))
 						)}

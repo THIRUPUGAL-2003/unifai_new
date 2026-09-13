@@ -1,6 +1,7 @@
 import { Message, MessageType, SerializedMessage, extractVariablesFromMessages, mergeVariables } from "@/lib/message";
 import { useCallback, useEffect, useRef } from "react";
 import { usePromptContext } from "../../context";
+import { isPromptMemberRole } from "../../utils/memberRole";
 import { useIsAuthEnabledQuery } from "@/lib/store";
 import { SystemMessageView } from "./systemMessageView";
 import { UserMessageView } from "./userMessageView";
@@ -28,7 +29,7 @@ export function MessagesView() {
 	} = usePromptContext();
 
 	const { data: authStatus } = useIsAuthEnabledQuery();
-	const isUserRole = authStatus?.role === "user";
+	const isUserRole = isPromptMemberRole(authStatus?.role);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const prevLengthRef = useRef(messages.length);
 	const prevLastIdRef = useRef(messages[messages.length - 1]?.id);

@@ -140,3 +140,36 @@ func (h *GovernanceHandler) getUserTeams(ctx *fasthttp.RequestCtx) {
 	}
 	SendJSON(ctx, map[string]any{"teams": teams})
 }
+
+// getUserVirtualKeys handles GET /api/governance/users/{user_id}/virtual-keys
+func (h *GovernanceHandler) getUserVirtualKeys(ctx *fasthttp.RequestCtx) {
+	userID := pathID(ctx, "user_id")
+	if userID == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "invalid user id")
+		return
+	}
+	ws, ok := configstore.AsWorkspaceStore(h.configStore)
+	if !ok || ws == nil {
+		SendJSON(ctx, map[string]any{"virtual_keys": []any{}})
+		return
+	}
+	links, err := ws.ListVirtualKeysForUser(ctx, userID)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, "failed to list user virtual keys")
+		return
+	}
+	keys := make([]map[string]any, 0, len(links))
+	for _, link := range links {
+		vk, err := h.configStore.GetVirtualKey(ctx, link.VirtualKeyID)
+		if err != nil || vk == nil {
+			continue
+		}
+		keys = append(keys, map[string]any{
+			"id":         vk.ID,
+			"name":       vk.Name,
+			"is_active":  vk.IsActiveValue(),
+			"created_at": link.CreatedAt,
+		})
+	}
+	SendJSON(ctx, map[string]any{"virtual_keys": keys})
+}

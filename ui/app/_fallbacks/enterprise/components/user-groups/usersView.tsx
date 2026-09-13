@@ -24,9 +24,15 @@ import {
 	useGetUserTeamsQuery,
 	useAddTeamMemberMutation,
 	useRemoveTeamMemberMutation,
+	useGetVirtualKeysQuery,
 	type SessionUser,
 } from "@/lib/store";
 import { useAssignUserRoleMutation } from "@enterprise/lib/store/apis/rbacApi";
+import {
+	useDeleteVirtualKeyUserMutation,
+	useGetUserVirtualKeysQuery,
+	useSetVirtualKeyUserMutation,
+} from "@enterprise/lib/store/apis/virtualKeyUsersApi";
 
 function UserTeamCell({ userId }: { userId: string }) {
 	const { data } = useGetUserTeamsQuery(userId);
@@ -42,6 +48,8 @@ export default function UsersView() {
 	const { data: promptsData } = useGetPromptsQuery();
 	const { data: teamsData } = useGetTeamsQuery({ limit: 500, offset: 0 });
 	const teams = teamsData?.teams || [];
+	const { data: virtualKeysData } = useGetVirtualKeysQuery({ limit: 500, offset: 0 });
+	const virtualKeys = (virtualKeysData?.virtual_keys || []).filter((vk) => vk.is_active !== false);
 	const [createUser] = useCreateSessionUserMutation();
 	const [updateUser] = useUpdateSessionUserMutation();
 	const [deleteUser] = useDeleteSessionUserMutation();
@@ -50,6 +58,8 @@ export default function UsersView() {
 	const [rejectUser] = useRejectSessionUserMutation();
 	const [addTeamMember] = useAddTeamMemberMutation();
 	const [removeTeamMember] = useRemoveTeamMemberMutation();
+	const [setVirtualKeyUser] = useSetVirtualKeyUserMutation();
+	const [deleteVirtualKeyUser] = useDeleteVirtualKeyUserMutation();
 	const allPrompts = promptsData?.prompts || [];
 
 	// Dialog states
@@ -65,12 +75,17 @@ export default function UsersView() {
 	const [role, setRole] = useState("user");
 	const [teamId, setTeamId] = useState("");
 	const [initialTeamId, setInitialTeamId] = useState("");
+	const [virtualKeyId, setVirtualKeyId] = useState("");
+	const [initialVirtualKeyId, setInitialVirtualKeyId] = useState("");
 	const [budget, setBudget] = useState(0);
 	const [rateLimit, setRateLimit] = useState(0);
 	const [allowedPromptRepos, setAllowedPromptRepos] = useState("");
 	const [allowedSections, setAllowedSections] = useState<Set<WorkspaceSectionKey>>(new Set());
 
 	const { data: editUserTeams } = useGetUserTeamsQuery(selectedUser?.id || "", {
+		skip: !selectedUser?.id || !isEditOpen,
+	});
+	const { data: editUserVKs } = useGetUserVirtualKeysQuery(selectedUser?.id || "", {
 		skip: !selectedUser?.id || !isEditOpen,
 	});
 
@@ -80,6 +95,13 @@ export default function UsersView() {
 		setTeamId(current);
 		setInitialTeamId(current);
 	}, [isEditOpen, selectedUser?.id, editUserTeams]);
+
+	useEffect(() => {
+		if (!isEditOpen || !selectedUser?.id) return;
+		const current = editUserVKs?.virtual_keys?.[0]?.id || "";
+		setVirtualKeyId(current);
+		setInitialVirtualKeyId(current);
+	}, [isEditOpen, selectedUser?.id, editUserVKs]);
 
 	const toggleSection = (key: WorkspaceSectionKey, checked: boolean) => {
 		setAllowedSections((prev) => {
@@ -99,6 +121,15 @@ export default function UsersView() {
 		}
 		if (nextTeamId && nextTeamId !== prevTeamId) {
 			await addTeamMember({ teamId: nextTeamId, userId }).unwrap();
+		}
+	};
+
+	const syncUserVirtualKey = async (userId: string, nextVkId: string, prevVkId: string) => {
+		if (prevVkId && prevVkId !== nextVkId) {
+			await deleteVirtualKeyUser(prevVkId).unwrap();
+		}
+		if (nextVkId && nextVkId !== prevVkId) {
+			await setVirtualKeyUser({ vkId: nextVkId, user_id: userId }).unwrap();
 		}
 	};
 
@@ -124,6 +155,34 @@ export default function UsersView() {
 				</select>
 				{teams.length === 0 && (
 					<p className="text-muted-foreground text-xs">No teams yet — create teams under Governance → Teams first.</p>
+				)}
+			</div>
+		) : null;
+
+	const virtualKeyPicker =
+		role !== "admin" ? (
+			<div className="space-y-2">
+				<label className="text-muted-foreground text-sm font-medium">Virtual Key (required for Prompt Repository chat)</label>
+				<p className="text-muted-foreground text-xs">
+					Without a Virtual Key, this user can open prompts but cannot send messages.
+				</p>
+				<select
+					value={virtualKeyId || "__none__"}
+					onChange={(e) => setVirtualKeyId(e.target.value === "__none__" ? "" : e.target.value)}
+					className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
+					data-testid="user-virtual-key-select"
+				>
+					<option value="__none__">No Virtual Key</option>
+					{virtualKeys.map((vk) => (
+						<option key={vk.id} value={vk.id}>
+							{vk.name}
+						</option>
+					))}
+				</select>
+				{virtualKeys.length === 0 && (
+					<p className="text-muted-foreground text-xs">
+						No active Virtual Keys — create one under Governance → Virtual Keys first.
+					</p>
 				)}
 			</div>
 		) : null;
@@ -192,6 +251,26 @@ export default function UsersView() {
 			</div>
 		) : null;
 
+	const resolveAllowedPromptNames = (raw?: string) => {
+		const ids = (raw || "")
+			.split(",")
+			.map((id) => id.trim())
+			.filter(Boolean);
+		const names = ids
+			.map((id) => allPrompts.find((p) => p.id === id)?.name)
+			.filter((name): name is string => Boolean(name));
+		return names.length > 0 ? names.join(", ") : "None";
+	};
+
+	const sanitizeAllowedPromptRepos = (raw?: string) => {
+		const validIds = new Set(allPrompts.map((p) => p.id));
+		return (raw || "")
+			.split(",")
+			.map((id) => id.trim())
+			.filter((id) => id && validIds.has(id))
+			.join(",");
+	};
+
 	const userPayload = () => ({
 		username,
 		email: email.trim() || undefined,
@@ -199,7 +278,7 @@ export default function UsersView() {
 		role,
 		budget,
 		rate_limit: rateLimit,
-		allowed_prompt_repos: role !== "admin" ? allowedPromptRepos : "",
+		allowed_prompt_repos: role !== "admin" ? sanitizeAllowedPromptRepos(allowedPromptRepos) : "",
 		allowed_sections: role === "admin" ? allowedSectionsToString(allowedSections) : "",
 	});
 
@@ -244,6 +323,19 @@ export default function UsersView() {
 					resetForm();
 					return;
 				}
+				try {
+					await syncUserVirtualKey(created.id, virtualKeyId, "");
+				} catch (vkErr) {
+					toast.warning(
+						`User created, but Virtual Key assign failed: ${getErrorMessage(vkErr)}. Assign under Virtual Keys or edit user.`,
+					);
+					setIsCreateOpen(false);
+					resetForm();
+					return;
+				}
+				if (!virtualKeyId) {
+					toast.warning("User created without a Virtual Key — Prompt Repository chat will stay blocked until you assign one.");
+				}
 			}
 			if (created?.email_sent) {
 				toast.success("User created — welcome email sent (username + password)");
@@ -267,8 +359,12 @@ export default function UsersView() {
 			await assignUserRole({ id: selectedUser.id, role_name: role }).unwrap();
 			if (role !== "admin") {
 				await syncUserTeam(selectedUser.id, teamId, initialTeamId);
+				await syncUserVirtualKey(selectedUser.id, virtualKeyId, initialVirtualKeyId);
 			} else if (initialTeamId) {
 				await syncUserTeam(selectedUser.id, "", initialTeamId);
+			}
+			if (role === "admin" && initialVirtualKeyId) {
+				await syncUserVirtualKey(selectedUser.id, "", initialVirtualKeyId);
 			}
 			toast.success("User updated successfully");
 			setIsEditOpen(false);
@@ -337,6 +433,8 @@ export default function UsersView() {
 		setRole("user");
 		setTeamId("");
 		setInitialTeamId("");
+		setVirtualKeyId("");
+		setInitialVirtualKeyId("");
 		setBudget(0);
 		setRateLimit(0);
 		setAllowedPromptRepos("");
@@ -353,9 +451,11 @@ export default function UsersView() {
 		setRole(user.role === "admin" ? "admin" : "user");
 		setTeamId("");
 		setInitialTeamId("");
+		setVirtualKeyId("");
+		setInitialVirtualKeyId("");
 		setBudget(user.budget);
 		setRateLimit(user.rate_limit);
-		setAllowedPromptRepos(user.allowed_prompt_repos || "");
+		setAllowedPromptRepos(sanitizeAllowedPromptRepos(user.allowed_prompt_repos || ""));
 		setAllowedSections(user.role === "admin" ? adminSectionsFromStorage(user.allowed_sections) : new Set());
 		setIsEditOpen(true);
 	};
@@ -557,23 +657,8 @@ export default function UsersView() {
 														: "Unlimited"}
 												</TableCell>
 												<TableCell className="font-mono text-xs">{user.rate_limit > 0 ? `${user.rate_limit} RPM` : "Unlimited"}</TableCell>
-												<TableCell
-													className="max-w-[200px] truncate text-xs"
-													title={
-														user.allowed_prompt_repos
-															? user.allowed_prompt_repos
-																	.split(",")
-																	.map((id) => allPrompts.find((p) => p.id === id.trim())?.name || id)
-																	.join(", ")
-															: "None"
-													}
-												>
-													{user.allowed_prompt_repos
-														? user.allowed_prompt_repos
-																.split(",")
-																.map((id) => allPrompts.find((p) => p.id === id.trim())?.name || id)
-																.join(", ")
-														: "None"}
+												<TableCell className="max-w-[200px] truncate text-xs" title={resolveAllowedPromptNames(user.allowed_prompt_repos)}>
+													{resolveAllowedPromptNames(user.allowed_prompt_repos)}
 												</TableCell>
 												<TableCell className="text-muted-foreground text-xs">{new Date(user.created_at).toLocaleDateString()}</TableCell>
 												<TableCell className="text-right">
@@ -658,6 +743,7 @@ export default function UsersView() {
 									if (nextRole === "admin") {
 										setAllowedPromptRepos("");
 										setTeamId("");
+										setVirtualKeyId("");
 									} else {
 										setAllowedSections(new Set());
 									}
@@ -670,6 +756,7 @@ export default function UsersView() {
 							</select>
 						</div>
 						{teamPicker}
+						{virtualKeyPicker}
 						{workspaceAccessPicker}
 						{promptReposPicker}
 						<div className="grid grid-cols-2 gap-4">
@@ -766,6 +853,7 @@ export default function UsersView() {
 									if (nextRole === "admin") {
 										setAllowedPromptRepos("");
 										setTeamId("");
+										setVirtualKeyId("");
 									} else {
 										setAllowedSections(new Set());
 									}
@@ -778,6 +866,7 @@ export default function UsersView() {
 							</select>
 						</div>
 						{teamPicker}
+						{virtualKeyPicker}
 						{workspaceAccessPicker}
 						{promptReposPicker}
 						<div className="grid grid-cols-2 gap-4">

@@ -7,7 +7,7 @@ import {
 	type ToolCall,
 	type VariableMap,
 } from "@/lib/message";
-import { getErrorMessage, useIsAuthEnabledQuery } from "@/lib/store";
+import { getErrorMessage, useGetVirtualKeysQuery, useIsAuthEnabledQuery } from "@/lib/store";
 import { useGetCoreConfigQuery } from "@/lib/store/apis/configApi";
 import { v4 as uuidv4 } from "uuid";
 import {
@@ -21,7 +21,7 @@ import {
 	useCreateSessionMutation,
 	useUpdateSessionMutation,
 } from "@/lib/store/apis/promptsApi";
-import { useGetModelParametersQuery, useGetModelsQuery } from "@/lib/store/apis/providersApi";
+import { useGetModelParametersQuery } from "@/lib/store/apis/providersApi";
 import { useGetSkillQuery } from "@/lib/store/apis/skillsApi";
 import { Folder, ModelParams, Prompt, PromptSession, PromptVersion } from "@/lib/types/prompts";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
@@ -29,6 +29,7 @@ import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 import { executePrompt, executeToolCall, MCPAuthRequiredError } from "./utils/executor";
+import { isPromptMemberRole } from "./utils/memberRole";
 
 interface PromptContextValue {
 	// Data
@@ -150,10 +151,16 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 	const [updateSession] = useUpdateSessionMutation();
 
 	const { data: authStatus } = useIsAuthEnabledQuery();
-	const isUserRole = authStatus?.role === "user";
+	const isUserRole = isPromptMemberRole(authStatus?.role);
 
-	const { data: modelsData } = useGetModelsQuery({ limit: 1000, unfiltered: true });
-	const models = modelsData?.models ?? [];
+	// Members must run through an assigned Virtual Key (budget/team metering).
+	const { data: virtualKeysData } = useGetVirtualKeysQuery(undefined, { skip: !isUserRole });
+	const assignedMemberVkValue = useMemo(() => {
+		if (!isUserRole) return "";
+		const vks = virtualKeysData?.virtual_keys ?? [];
+		const first = vks.find((vk) => vk.is_active !== false && typeof vk.value === "string" && vk.value.startsWith("sk-uf-"));
+		return first?.value ?? "";
+	}, [isUserRole, virtualKeysData]);
 
 	// UI state — persisted in URL query params
 	const [{ promptId: selectedPromptId, sessionId: selectedSessionId, versionId: selectedVersionId }, setUrlState] = useQueryStates(
@@ -195,6 +202,13 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 	const loadedPlaygroundKeyRef = useRef<string>("");
 	const [variables, setVariables] = useState<VariableMap>({});
 	const [customHeaders, setCustomHeaders] = useState<Record<string, string>>({});
+
+	useEffect(() => {
+		if (!isUserRole || !assignedMemberVkValue) return;
+		if (apiKeyId === "__auto__" || !String(apiKeyId).startsWith("sk-uf-")) {
+			setApiKeyId(assignedMemberVkValue);
+		}
+	}, [isUserRole, assignedMemberVkValue, apiKeyId]);
 
 	const { data: skillData } = useGetSkillQuery(skillId, { skip: !skillId });
 	const skillSystemPrompt = skillData?.skill?.skill_md_body?.trim() || "";
@@ -564,9 +578,24 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 
 			let execProvider = provider;
 			let execModel = model;
-			if (isUserRole && (!execProvider || !execModel) && models.length > 0) {
-				execProvider = models[0].provider;
-				execModel = models[0].name;
+			let execApiKeyId = apiKeyId;
+			if (isUserRole) {
+				const committed = selectedPrompt?.latest_version;
+				if (committed?.provider) execProvider = committed.provider;
+				if (committed?.model) execModel = committed.model;
+				if (assignedMemberVkValue) execApiKeyId = assignedMemberVkValue;
+				if (!execProvider || !execModel) {
+					toast.error("This prompt has no committed model. Ask your admin to commit a provider/model on the prompt.");
+					setIsStreaming(false);
+					activeRunRef.current = null;
+					return;
+				}
+				if (!execApiKeyId || execApiKeyId === "__auto__") {
+					toast.error("No Virtual Key assigned. Ask your admin to assign a Virtual Key to your user.");
+					setIsStreaming(false);
+					activeRunRef.current = null;
+					return;
+				}
 			}
 
 			setIsStreaming(true);
@@ -577,7 +606,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 					provider: execProvider,
 					model: execModel,
 					modelParams,
-					apiKeyId,
+					apiKeyId: execApiKeyId,
 					variables,
 					customHeaders,
 					skillSystemPrompt,
@@ -647,8 +676,9 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			skillSystemPrompt,
 			skillId,
 			selectedPromptId,
+			selectedPrompt,
 			isUserRole,
-			models,
+			assignedMemberVkValue,
 			persistPlaygroundSession,
 		],
 	);
@@ -676,15 +706,24 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 			setMessages(newMessages);
 
 			// Execute with the updated messages
+			let execProvider = provider;
+			let execModel = model;
+			let execApiKeyId = apiKeyId;
+			if (isUserRole) {
+				const committed = selectedPrompt?.latest_version;
+				if (committed?.provider) execProvider = committed.provider;
+				if (committed?.model) execModel = committed.model;
+				if (assignedMemberVkValue) execApiKeyId = assignedMemberVkValue;
+			}
 			setIsStreaming(true);
 			await executePrompt(
 				newMessages,
 				undefined,
 				{
-					provider,
-					model,
+					provider: execProvider,
+					model: execModel,
 					modelParams,
-					apiKeyId,
+					apiKeyId: execApiKeyId,
 					variables,
 					customHeaders,
 					skillSystemPrompt,
@@ -737,7 +776,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 				abortController.signal,
 			);
 		},
-		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId, selectedPromptId, persistPlaygroundSession],
+		[messages, provider, model, modelParams, apiKeyId, variables, customHeaders, skillSystemPrompt, skillId, selectedPromptId, selectedPrompt, isUserRole, assignedMemberVkValue, persistPlaygroundSession],
 	);
 
 	const handleExecuteToolCall = useCallback(

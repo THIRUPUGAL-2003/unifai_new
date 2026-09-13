@@ -11,13 +11,14 @@ import { PromptSheets } from "./components/sheets";
 import { EmptyState, PromptsEmptyState } from "./components/emptyState";
 import PromptsViewHeader from "./components/promptsViewHeader";
 import { usePromptContext } from "./context";
+import { isPromptMemberRole } from "./utils/memberRole";
 
 export default function PromptsView() {
 	const { folders, prompts, foldersLoading, promptsLoading, foldersError, promptsError, isLoadingPlayground, selectedPromptId } =
 		usePromptContext();
 
 	const { data: authStatus } = useIsAuthEnabledQuery();
-	const isUserRole = authStatus?.role === "user";
+	const isUserRole = isPromptMemberRole(authStatus?.role);
 
 	if (foldersLoading || promptsLoading) {
 		return <FullPageLoader />;

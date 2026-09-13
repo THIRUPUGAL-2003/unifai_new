@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -840,6 +841,79 @@ func (m *AuthMiddleware) enrichInferenceFromDashboardSession(ctx *fasthttp.Reque
 	return ""
 }
 
+// enforceCommittedPromptModelForMember locks non-admin Prompt Repo chat to the
+// prompt's latest committed provider/model. Members cannot switch models via
+// a modified client — the request body model is rewritten when x-uf-prompt-id is set.
+func (m *AuthMiddleware) enforceCommittedPromptModelForMember(ctx *fasthttp.RequestCtx) string {
+	if m == nil || m.store == nil {
+		return ""
+	}
+	token := string(ctx.Request.Header.Cookie("token"))
+	if token == "" {
+		if existing, ok := ctx.UserValue(schemas.UnifAIContextKeySessionToken).(string); ok {
+			token = existing
+		}
+	}
+	if token == "" {
+		return ""
+	}
+	session, err := m.store.GetSession(context.Background(), token)
+	if err != nil || session == nil || session.ExpiresAt.Before(time.Now()) {
+		return ""
+	}
+	if isWorkspaceAdminRole(session.Role) {
+		return ""
+	}
+	promptID := strings.TrimSpace(string(ctx.Request.Header.Peek("x-uf-prompt-id")))
+	if promptID == "" {
+		return ""
+	}
+	prompt, err := m.store.GetPromptByID(context.Background(), promptID)
+	if err != nil || prompt == nil {
+		return "Prompt not found for this chat."
+	}
+	// Members may only run prompts in their allowlist.
+	dbUser, err := m.store.GetUserByUsername(context.Background(), session.Username)
+	if err != nil || dbUser == nil {
+		return "User account not found. Contact your admin."
+	}
+	if dbUser.AllowedPromptRepos == "" {
+		return "No Prompt Repositories assigned. Ask your admin to allow prompts for your user."
+	}
+	allowed := false
+	for _, id := range strings.Split(dbUser.AllowedPromptRepos, ",") {
+		if strings.TrimSpace(id) == promptID {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		return "You do not have access to this prompt."
+	}
+	version := prompt.LatestVersion
+	if version == nil || strings.TrimSpace(version.Provider) == "" || strings.TrimSpace(version.Model) == "" {
+		return "This prompt has no committed model. Ask your admin to commit a provider/model on the prompt."
+	}
+	expectedModel := strings.TrimSpace(version.Provider) + "/" + strings.TrimSpace(version.Model)
+
+	body := ctx.PostBody()
+	if len(body) == 0 {
+		return ""
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	payload["model"] = expectedModel
+	rewritten, err := json.Marshal(payload)
+	if err != nil {
+		return "Failed to lock prompt model."
+	}
+	ctx.Request.SetBody(rewritten)
+	ctx.Request.Header.SetContentLength(len(rewritten))
+	return ""
+}
+
 // validateSession checks if a session token is valid
 func validateSession(ctx *fasthttp.RequestCtx, store configstore.ConfigStore, token string) bool {
 	session, err := store.GetSession(context.Background(), token)
@@ -1006,6 +1080,10 @@ func (m *AuthMiddleware) InferenceMiddleware() schemas.UnifAIHTTPMiddleware {
 	return func(next fasthttp.RequestHandler) fasthttp.RequestHandler {
 		return func(ctx *fasthttp.RequestCtx) {
 			if errMsg := m.enrichInferenceFromDashboardSession(ctx); errMsg != "" {
+				SendError(ctx, fasthttp.StatusForbidden, errMsg)
+				return
+			}
+			if errMsg := m.enforceCommittedPromptModelForMember(ctx); errMsg != "" {
 				SendError(ctx, fasthttp.StatusForbidden, errMsg)
 				return
 			}
