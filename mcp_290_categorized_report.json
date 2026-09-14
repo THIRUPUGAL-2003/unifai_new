@@ -1,0 +1,2322 @@
+[
+  {
+    "name": "Apollo.io",
+    "category": "Productivity",
+    "url": "https://mcp.apollo.io/mcp",
+    "status": "Already Configured / Pending",
+    "action_required": "Open existing MCP Catalog entry",
+    "details": "An MCP client with this connection URL already exists as \"Apollo_io\""
+  },
+  {
+    "name": "Airwallex",
+    "category": "Productivity",
+    "url": "https://mcp-demo.airwallex.com/developer",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 400: {\"error\":\"invalid_request\",\"error_description\":\"Redirect URI"
+  },
+  {
+    "name": "Ahrefs",
+    "category": "Productivity",
+    "url": "https://api.ahrefs.com/mcp/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.ahrefs.com/web/oauth/authorize?client_id=0yw2OktnloGza%2BD"
+  },
+  {
+    "name": "Adobe Experience Manager",
+    "category": "Productivity",
+    "url": "https://mcp.adobeaemcloud.com/adobe/mcp/aem",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Autodesk Product Help",
+    "category": "Productivity",
+    "url": "https://developer.api.autodesk.com/knowledge/public/v1/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Adobe Journey Optimizer",
+    "category": "Productivity",
+    "url": "https://ajo-mcp.adobe.io/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Adobe Marketing Agent",
+    "category": "Productivity",
+    "url": "https://aep-ai-ama.adobe.io/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Asana",
+    "category": "Productivity",
+    "url": "https://mcp.asana.com/v2/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Aiera",
+    "category": "Productivity",
+    "url": "https://mcp-pub.aiera.com/",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "internal server error"
+  },
+  {
+    "name": "Airtable",
+    "category": "Productivity",
+    "url": "https://mcp.airtable.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://airtable.com/login?continue=%2Foauth2%2Fv1%2Fauthorize%3Fclien"
+  },
+  {
+    "name": "Adobe for creativity",
+    "category": "Productivity",
+    "url": "https://adobe-creativity.adobe.io/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "AdisInsight",
+    "category": "Productivity",
+    "url": "https://adisinsight-mcp.springer.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://adisinsight-mcp.springer.com/authorize?client_id=HHZMqRqViOpgm"
+  },
+  {
+    "name": "Aiwyn Tax",
+    "category": "Productivity",
+    "url": "https://mcp.columnapi.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "AllTrails",
+    "category": "Productivity",
+    "url": "https://www.alltrails.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Bigdata.com",
+    "category": "Productivity",
+    "url": "https://mcp.bigdata.com/",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Base44",
+    "category": "Productivity",
+    "url": "https://app.base44.com/mcp",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 400: {\"error\":\"invalid_request\",\"error_description\":\"Redirect URI"
+  },
+  {
+    "name": "BoardWise",
+    "category": "Productivity",
+    "url": "https://uakozrqrztgrgwoywxkx.supabase.co/functions/v1/mcp-server",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Attio",
+    "category": "Productivity",
+    "url": "https://mcp.attio.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.attio.com/auth/sign-in?origin=%2Foidc%2Fauthorize%3Fclient"
+  },
+  {
+    "name": "Atlassian",
+    "category": "Productivity",
+    "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 202 - Login page loaded: https://id.atlassian.com/login?continue=https%3A%2F%2Fauth.atlassian.c"
+  },
+  {
+    "name": "Audible",
+    "category": "Productivity",
+    "url": "https://mcp.audible.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Box",
+    "category": "Productivity",
+    "url": "https://mcp.box.com",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "AirOps",
+    "category": "Productivity",
+    "url": "https://app.airops.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.airops.com/users/sign_in"
+  },
+  {
+    "name": "AWS Marketplace",
+    "category": "Productivity",
+    "url": "https://marketplace-mcp.us-east-1.api.aws/",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Bitly",
+    "category": "Productivity",
+    "url": "https://api-ssl.bitly.com/v4/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue",
+    "details": "OAuth URL generated: https://bitly.com/oauth/authorize?client_id=448429c0b58a1f71"
+  },
+  {
+    "name": "Blackbaud",
+    "category": "Productivity",
+    "url": "https://mcp.sky.blackbaud.com/",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Blockscout",
+    "category": "Productivity",
+    "url": "https://mcp.blockscout.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Booking.com",
+    "category": "Productivity",
+    "url": "https://demandapi-mcp.booking.com/v1/mcp/8132308",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Canva",
+    "category": "Productivity",
+    "url": "https://mcp.canva.com/mcp",
+    "status": "Desktop-only DCR (Localhost only)",
+    "action_required": "Requires creating an OAuth App on provider console (Canva/Figma model)",
+    "details": "HTTP 400: Provider rejected cloud redirect URI (Invalid redirect URI.)"
+  },
+  {
+    "name": "Amplitude",
+    "category": "Productivity",
+    "url": "https://mcp.amplitude.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.amplitude.com/login?login_challenge=4_yom1Rv47hGjy9064gZBo"
+  },
+  {
+    "name": "Calendly",
+    "category": "Productivity",
+    "url": "https://mcp.calendly.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://calendly.com/app/login"
+  },
+  {
+    "name": "Cash App",
+    "category": "Productivity",
+    "url": "https://connect.squareup.com/v2/mcp/cash-app",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Clerk",
+    "category": "Productivity",
+    "url": "https://mcp.clerk.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Aurora",
+    "category": "Productivity",
+    "url": "https://mcp.ai.consilio.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.ai.consilio.com/Account/Login?ReturnUrl=%2Fconnect%2Fauth"
+  },
+  {
+    "name": "Clockwise",
+    "category": "Productivity",
+    "url": "https://mcp.getclockwise.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "BioRender",
+    "category": "Productivity",
+    "url": "https://mcp.services.biorender.com/mcp",
+    "status": "Desktop-only DCR (Localhost only)",
+    "action_required": "Requires creating an OAuth App on provider console (Canva/Figma model)",
+    "details": "HTTP 400: Provider rejected cloud redirect URI ({\"error\":\"invalid_request\",\"error_description\":\"re)"
+  },
+  {
+    "name": "Carta",
+    "category": "Productivity",
+    "url": "https://mcp.app.carta.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://login.app.carta.com/o/authorize/?response_type=code&client_id="
+  },
+  {
+    "name": "Clarity AI",
+    "category": "Productivity",
+    "url": "https://clarity-sfdr20-mcp.pro.clarity.ai/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Cloudflare",
+    "category": "Productivity",
+    "url": "https://mcp.cloudflare.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.cloudflare.com/authorize?client_id=GvZmUEju-DyRym_s&code_c"
+  },
+  {
+    "name": "Circleback",
+    "category": "Productivity",
+    "url": "https://app.circleback.ai/api/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://circleback.ai/login?callbackUrl=https%3A%2F%2Fcircleback.ai%2F"
+  },
+  {
+    "name": "CB Insights",
+    "category": "Productivity",
+    "url": "https://mcp.cbinsights.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.cbinsights.com/consent?txn_id=kNFZhkcD9MRbF53ZGeGNFnRILVuj"
+  },
+  {
+    "name": "Clay",
+    "category": "Productivity",
+    "url": "https://api.clay.com/v3/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.clay.com/oauth/authorize?client_id=cci_0tlc929SDuyaGjBCHjj"
+  },
+  {
+    "name": "CData Connect AI",
+    "category": "Productivity",
+    "url": "https://mcp.cloud.cdata.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://cloud-login.cdata.com/u/login/identifier?state=hKFo2SBCR21YVWM"
+  },
+  {
+    "name": "Benevity",
+    "category": "Productivity",
+    "url": "https://mcp.benevity.org/general/v1/nonprofit",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Codex Resets",
+    "category": "Productivity",
+    "url": "https://codex-resets.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Chronograph",
+    "category": "Productivity",
+    "url": "https://ai.chronograph.pe/mcp",
+    "status": "Desktop-only DCR (Localhost only)",
+    "action_required": "Requires creating an OAuth App on provider console (Canva/Figma model)",
+    "details": "HTTP 401: Provider rejected cloud redirect URI (Invalid redirect_uri.)"
+  },
+  {
+    "name": "ClickUp",
+    "category": "Productivity",
+    "url": "https://mcp.clickup.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.clickup.com/api?client_id=WPMTT9M4BKB7OAFHU7PTKN5X3JH4SMNU"
+  },
+  {
+    "name": "Brex",
+    "category": "Productivity",
+    "url": "https://api.brex.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://accounts-api.brex.com/oauth2/default/v1/authorize?client_id=br"
+  },
+  {
+    "name": "CoinDesk",
+    "category": "Productivity",
+    "url": "https://mcp.coindesk.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.coindesk.com/authorize?client_id=eyJpZCI6Ijc5ZTk4NDE4YzY3N"
+  },
+  {
+    "name": "Candid",
+    "category": "Productivity",
+    "url": "https://mcp.candid.org/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.candid.org/consent?txn_id=kTQqfxeJuovEzHET4XncVk6UpbRUfuCk"
+  },
+  {
+    "name": "Campfire",
+    "category": "Productivity",
+    "url": "https://api.meetcampfire.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.meetcampfire.com/v2/auth/mcp-login?state=Bg5768fjKvabf9jQD"
+  },
+  {
+    "name": "Cloudinary",
+    "category": "Productivity",
+    "url": "https://asset-management.mcp.cloudinary.com/sse",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://console.cloudinary.com/users/o/login?login_challenge=3KiA70s0g"
+  },
+  {
+    "name": "Contentsquare",
+    "category": "Productivity",
+    "url": "https://api.contentsquare.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.contentsquare.com/#/authorize?client_id=c1a3508b-72a7-44cb"
+  },
+  {
+    "name": "Coupler.io",
+    "category": "Productivity",
+    "url": "https://mcp.coupler.io/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Credit Karma",
+    "category": "Productivity",
+    "url": "https://mcp.creditkarma.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "B12",
+    "category": "Productivity",
+    "url": "https://b12.io/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "COROS",
+    "category": "Productivity",
+    "url": "https://mcp.coros.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://openus.coros.com/oauth2/authorize?client_id=68mnvu3ma928t8j5s0"
+  },
+  {
+    "name": "Common Room",
+    "category": "Productivity",
+    "url": "https://mcp.commonroom.io/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://login.commonroom.io/u/login/identifier?state=hKFo2SBWT20yOW5NY"
+  },
+  {
+    "name": "Clarify",
+    "category": "Productivity",
+    "url": "https://api.clarify.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth1.clarify.ai/?authorization_session_id=01M2F56RX9QQ57ME1MK"
+  },
+  {
+    "name": "Close",
+    "category": "Productivity",
+    "url": "https://mcp.close.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.close.com/login/?next=%2Foauth2%2Fauthorize%2F%3Fclient_id"
+  },
+  {
+    "name": "Cortellis Regulatory Intelligence",
+    "category": "Productivity",
+    "url": "https://api.clarivate.com/lifesciences/mcp-regulatory/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://api.clarivate.com/lifesciences/mcp-regulatory/consent?txn_id=Y"
+  },
+  {
+    "name": "DevRev",
+    "category": "Productivity",
+    "url": "https://api.devrev.ai/mcp/v1",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "D&B Risk Analytics",
+    "category": "Productivity",
+    "url": "https://agents.riskanalytics.dnb.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Consensus",
+    "category": "Productivity",
+    "url": "https://mcp.consensus.app/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://consensus.app/oauth/consent/?client_id=7c41b4dc-50b4-4da9-90f8"
+  },
+  {
+    "name": "DoorDash",
+    "category": "Productivity",
+    "url": "https://openapi.doordash.com/mcp/consumer",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Crypto.com",
+    "category": "Productivity",
+    "url": "https://mcp.crypto.com/market-data/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Context7",
+    "category": "Productivity",
+    "url": "https://mcp.context7.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://accounts.context7.com/sign-in?redirect_url=https%3A%2F%2Fconte"
+  },
+  {
+    "name": "Control Plane",
+    "category": "Productivity",
+    "url": "https://mcp.cpln.io/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.cpln.io/login?login_challenge=f8ZZsFVZlEiSIHp375LiNPgGQPn"
+  },
+  {
+    "name": "Conductor",
+    "category": "Productivity",
+    "url": "https://api.conductor.build/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.conductor.build/?client_id=client_01KQ37JZT3HJWK02NH89NQB"
+  },
+  {
+    "name": "DocuSeal",
+    "category": "Productivity",
+    "url": "https://docuseal.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Courtroom5",
+    "category": "Productivity",
+    "url": "https://mcp.courtroom5.com/v1",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Datasite",
+    "category": "Productivity",
+    "url": "https://mcp.global.datasite.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "internal server error"
+  },
+  {
+    "name": "Day AI",
+    "category": "Productivity",
+    "url": "https://day.ai/api/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://day.ai/integrations/authorize?client_id=a03b190c-5582-41bf-aa5"
+  },
+  {
+    "name": "Aura",
+    "category": "Productivity",
+    "url": "https://mcp.auraintelligence.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.getaura.ai/u/login?state=hKFo2SBIUXJBZ2JZdHBXVWVkU2FUZFlp"
+  },
+  {
+    "name": "Craft",
+    "category": "Productivity",
+    "url": "https://mcp.craft.do/my/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://docs.craft.do/authorize-external?token=FNTtxRtaHbo0W339L5GE2id"
+  },
+  {
+    "name": "Dice",
+    "category": "Productivity",
+    "url": "https://mcp.dice.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "CourtListener",
+    "category": "Productivity",
+    "url": "https://mcp.courtlistener.com/",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://www.courtlistener.com/sign-in/?next=/o/authorize/%3Fclient_id%"
+  },
+  {
+    "name": "Docusign",
+    "category": "Productivity",
+    "url": "https://mcp.docusign.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Digits",
+    "category": "Productivity",
+    "url": "https://api.digits.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://my.digits.com/oauth/authorize?client_id=dbc18d1b-195d-4d7a-85e"
+  },
+  {
+    "name": "Excalidraw",
+    "category": "Productivity",
+    "url": "https://excalidraw-mcp-app.vercel.app/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Daloopa",
+    "category": "Productivity",
+    "url": "https://mcp.daloopa.com/server/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.daloopa.com/authorize?client_id=kC6Rx-ZhAAyn2zrWZCHqog&cod"
+  },
+  {
+    "name": "Expedia",
+    "category": "Productivity",
+    "url": "https://www.expedia.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Dovetail",
+    "category": "Productivity",
+    "url": "https://dovetail.com/api/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Definely",
+    "category": "Productivity",
+    "url": "https://mcp.eu.definely.com/api/proxy/core-mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Crossbeam",
+    "category": "Productivity",
+    "url": "https://mcp.crossbeam.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.crossbeam.com/u/login?state=hKFo2SBzbjh6NHc2Q1Q3YmJrczFVX"
+  },
+  {
+    "name": "Figma",
+    "category": "Productivity",
+    "url": "https://mcp.figma.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Eraser",
+    "category": "Productivity",
+    "url": "https://app.eraser.io/api/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.eraser.io/oauth/consent?oauthRequestId=c6FEvKqCPUPSRWOzvN-"
+  },
+  {
+    "name": "FMP",
+    "category": "Productivity",
+    "url": "https://financialmodelingprep.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Everlaw",
+    "category": "Productivity",
+    "url": "https://api.everlaw.com/v1/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Fiscal.ai",
+    "category": "Productivity",
+    "url": "https://api.fiscal.ai/mcp/sse",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 429: <!DOCTYPE html><html lang=\"en\" data-astro-cid-4wdtffzm><head"
+  },
+  {
+    "name": "G2",
+    "category": "Productivity",
+    "url": "https://mcp.g2.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Descrybe Legal Engine",
+    "category": "Productivity",
+    "url": "https://mcp.descrybe.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://descrybe.com/connect/oauth/continue?tx=oauth_tx_a28adbb64f3041"
+  },
+  {
+    "name": "Exa",
+    "category": "Productivity",
+    "url": "https://mcp.exa.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.exa.ai/?callbackUrl=https%3A%2F%2Fauth.exa.ai%2Foauth%2Fa"
+  },
+  {
+    "name": "Google Cloud BigQuery",
+    "category": "Productivity",
+    "url": "https://bigquery.googleapis.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Fever Event Discovery",
+    "category": "Productivity",
+    "url": "https://data-search.apigw.feverup.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://data-search.apigw.feverup.com/consent?txn_id=XSa0QRRl2vdnU4g_j"
+  },
+  {
+    "name": "Function Health",
+    "category": "Productivity",
+    "url": "https://services.functionhealth.com/ai-chat/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "GitHub",
+    "category": "Productivity",
+    "url": "https://api.githubcopilot.com/mcp/",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Gamma",
+    "category": "Productivity",
+    "url": "https://mcp.gamma.app/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Fireflies",
+    "category": "Productivity",
+    "url": "https://api.fireflies.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://user-service-rest.fireflies.ai/auth/oidc/authorize?client_id=9"
+  },
+  {
+    "name": "Fathom",
+    "category": "Productivity",
+    "url": "https://api.fathom.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://fathom.video/users/sign_in"
+  },
+  {
+    "name": "GitLab",
+    "category": "Productivity",
+    "url": "https://gitlab.com/api/v4/mcp",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 403: <!DOCTYPE html><html lang=\"en-US\"><head><title>Just a moment"
+  },
+  {
+    "name": "Fellow.ai",
+    "category": "Productivity",
+    "url": "https://fellow.app/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://fellow.app/auth/login/?next=/mcp/authorize%3Fclient_id%3DIefcv"
+  },
+  {
+    "name": "GovTribe",
+    "category": "Productivity",
+    "url": "https://govtribe.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Granted",
+    "category": "Productivity",
+    "url": "https://grantedai.com/api/mcp/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Explorium",
+    "category": "Productivity",
+    "url": "https://mcp.explorium.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.explorium.ai/u/login/identifier?state=hKFo2SAtR01UYmx0NU9"
+  },
+  {
+    "name": "FactSet",
+    "category": "Productivity",
+    "url": "https://mcp.factset.com/content/v1",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 401: Authentication Failed"
+  },
+  {
+    "name": "Era Context",
+    "category": "Productivity",
+    "url": "https://mcp.alphavantage.co",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Enterpret",
+    "category": "Productivity",
+    "url": "https://wisdom-api.enterpret.com/server/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://dashboard.enterpret.com/oauth/wisdom-mcp/authorize?client_id=0"
+  },
+  {
+    "name": "Egnyte",
+    "category": "Productivity",
+    "url": "https://mcp-server.egnyte.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://domain-picker.egnyte.com/?redirectUrl=https%3A%2F%2Fmcp-oauth."
+  },
+  {
+    "name": "GoDaddy",
+    "category": "Productivity",
+    "url": "https://api.godaddy.com/v1/domains/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "GoCardless",
+    "category": "Productivity",
+    "url": "https://mcp.gocardless.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.gocardless.com/authorize?client_id=gzpblYFhNRO8DhSocaEoCP9"
+  },
+  {
+    "name": "Goodnotes",
+    "category": "Productivity",
+    "url": "https://claude-mcp-api.ml.goodnotes.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "GraphOS MCP Tools",
+    "category": "Productivity",
+    "url": "https://mcp.apollographql.com",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Harvey",
+    "category": "Productivity",
+    "url": "https://api.harvey.ai/hosted_mcp/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Intercom",
+    "category": "Productivity",
+    "url": "https://mcp.intercom.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Google Compute Engine",
+    "category": "Productivity",
+    "url": "https://compute.googleapis.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "HubSpot",
+    "category": "Productivity",
+    "url": "https://mcp.hubspot.com",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Guidepoint",
+    "category": "Productivity",
+    "url": "https://clapi.guidepoint.io/mcp-server/v1/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Gainsight (Staircase AI)",
+    "category": "Productivity",
+    "url": "https://mcp.staircase.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.staircase.ai/auth-mcp?txn_id=E78Ec9Aj_9fIoZ8BAQwx0eZ8PuZfz"
+  },
+  {
+    "name": "IFTTT",
+    "category": "Productivity",
+    "url": "https://ifttt.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Hugging Face",
+    "category": "Productivity",
+    "url": "https://huggingface.co/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://huggingface.co/login?next=https%3A%2F%2Fhuggingface.co%2Foauth"
+  },
+  {
+    "name": "Indeed",
+    "category": "Productivity",
+    "url": "https://mcp.indeed.com/claude/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Ironclad Contracts",
+    "category": "Productivity",
+    "url": "https://mcp.na1.ironcladapp.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "HealthEx",
+    "category": "Productivity",
+    "url": "https://api.healthex.io/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Grain",
+    "category": "Productivity",
+    "url": "https://api.grain.com/_/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://grain.com/login?action=web_login&redirect_to=%2F_%2Fpublic-api"
+  },
+  {
+    "name": "Instacart",
+    "category": "Productivity",
+    "url": "https://fig-mcp.instacart.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Klaviyo",
+    "category": "Productivity",
+    "url": "https://mcp.klaviyo.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.klaviyo.com/authorize?client_id=3EqkD0A_EYP8TJzb&code_chal"
+  },
+  {
+    "name": "Harmonic",
+    "category": "Productivity",
+    "url": "https://mcp.api.harmonic.ai",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://login.harmonic.ai/?authorization_session_id=01M2F57135JCPB8MYA"
+  },
+  {
+    "name": "Kiwi.com",
+    "category": "Productivity",
+    "url": "https://mcp.kiwi.com",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "LSEG",
+    "category": "Productivity",
+    "url": "https://api.analytics.lseg.com/lfa/mcp/server-cl",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "internal server error"
+  },
+  {
+    "name": "Kindora Funder Discovery",
+    "category": "Productivity",
+    "url": "https://kindora-mcp.azurewebsites.net/mcp/",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "ICE Data Services",
+    "category": "Productivity",
+    "url": "https://fids-mcp.ice.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Gusto",
+    "category": "Productivity",
+    "url": "https://mcp.api.gusto.com/anthropic",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://login.gusto.com/realms/zenpayroll/protocol/openid-connect/auth"
+  },
+  {
+    "name": "Krisp",
+    "category": "Productivity",
+    "url": "https://mcp.krisp.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.krisp.ai/oauth2/authorize?client_id=bb940fa7-ab65-4ccc-abb"
+  },
+  {
+    "name": "IBKR",
+    "category": "Productivity",
+    "url": "https://api.ibkr.com/v1/api/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://www.interactivebrokers.co.in/sso/Login?action=OAUTH2_AUTHORIZA"
+  },
+  {
+    "name": "LegalZoom",
+    "category": "Productivity",
+    "url": "https://www.legalzoom.com/mcp/claude/v1",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Jam",
+    "category": "Productivity",
+    "url": "https://mcp.jam.dev/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://jam.dev/oauth/authorize?client_id=6XEOiWFv88K3D76oVJzzYPdo1A1A"
+  },
+  {
+    "name": "Honeycomb",
+    "category": "Productivity",
+    "url": "https://mcp.honeycomb.io/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://ui.honeycomb.io/login"
+  },
+  {
+    "name": "Linear",
+    "category": "Productivity",
+    "url": "https://mcp.linear.app/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.linear.app/authorize?client_id=mfXM-gy9VBI8CfoD&code_chall"
+  },
+  {
+    "name": "Hex",
+    "category": "Productivity",
+    "url": "https://app.hex.tech/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.hex.tech/login?redirectTo=%2Fmcp%2Foauth%3Fexternal_auth_i"
+  },
+  {
+    "name": "IBISWorld",
+    "category": "Productivity",
+    "url": "https://mcp.ibisworld.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://services.ibisworld.com/auth/identity/login?signin=2a14148872cd"
+  },
+  {
+    "name": "Legal Data Hunter",
+    "category": "Productivity",
+    "url": "https://legaldatahunter.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://legaldatahunter.com/oauth/authorize?client_id=q6KUVivEhV8ePgOr"
+  },
+  {
+    "name": "Ketryx",
+    "category": "Productivity",
+    "url": "https://app.ketryx.com/api/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.ketryx.com/oauth/authorize?client_id=connected-app-live-2e"
+  },
+  {
+    "name": "Learning Commons Knowledge Graph",
+    "category": "Productivity",
+    "url": "https://kg.mcp.learningcommons.org/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Lorikeet",
+    "category": "Productivity",
+    "url": "https://api.lorikeetcx.ai/v1/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Jotform",
+    "category": "Productivity",
+    "url": "https://mcp.jotform.com/mcp-app",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://www.jotform.com/oa2/login?post_login_redirect=%2Foa2%2Fauthori"
+  },
+  {
+    "name": "Lawve AI",
+    "category": "Productivity",
+    "url": "https://mcp.lawve.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://lawve.ai/oauth/mcp/login?login_challenge=5qIph18nzHewVs2Ywd0FH"
+  },
+  {
+    "name": "LILT",
+    "category": "Productivity",
+    "url": "https://mcp.lilt.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://blissful-celebration-62.authkit.app/?authorization_session_id="
+  },
+  {
+    "name": "Lucid",
+    "category": "Productivity",
+    "url": "https://mcp.lucid.app/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.lucid.app/oauth/authorize?client_id=aJ6474eHcwLJgyzcyin-qN"
+  },
+  {
+    "name": "Local Falcon",
+    "category": "Productivity",
+    "url": "https://mcp.localfalcon.com",
+    "status": "Desktop-only DCR (Localhost only)",
+    "action_required": "Requires creating an OAuth App on provider console (Canva/Figma model)",
+    "details": "HTTP 400: Provider rejected cloud redirect URI ({\"error\":\"invalid_request\",\"error_description\":\"Th)"
+  },
+  {
+    "name": "MDN",
+    "category": "Productivity",
+    "url": "https://mcp.mdn.mozilla.net/",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "LunarCrush",
+    "category": "Productivity",
+    "url": "https://lunarcrush.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://lunarcrush.com/en/authorize?client_id=client_aa43fd8bc9f7433aa"
+  },
+  {
+    "name": "MailerLite",
+    "category": "Productivity",
+    "url": "https://mcp.mailerlite.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.mailerlite.com/authorize?client_id=vits225qyb8NjZEz&code_c"
+  },
+  {
+    "name": "Longbridge",
+    "category": "Productivity",
+    "url": "https://mcp.longbridge.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://open.longbridge.com/oauth2/authorize/confirm?client_id=26cae92"
+  },
+  {
+    "name": "Jentic",
+    "category": "Productivity",
+    "url": "https://api.jentic.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://jentic-main.auth.us-east-1.amazoncognito.com/login?client_id=i"
+  },
+  {
+    "name": "Make",
+    "category": "Productivity",
+    "url": "https://mcp.make.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://www.make.com/en/login"
+  },
+  {
+    "name": "MSCI",
+    "category": "Productivity",
+    "url": "https://mcp.msci.com/mcp/v1.0/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Lusha",
+    "category": "Productivity",
+    "url": "https://mcp.lusha.com/mcp/claude",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "MT Newswires",
+    "category": "Productivity",
+    "url": "https://mcp.mtnewswires.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Granola",
+    "category": "Productivity",
+    "url": "https://mcp.granola.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp-auth.granola.ai/?authorization_session_id=01M2F5758VVTNVFM"
+  },
+  {
+    "name": "Malwarebytes",
+    "category": "Productivity",
+    "url": "https://scamguard.malwarebytes.com/claude/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Mem",
+    "category": "Productivity",
+    "url": "https://mcp.mem.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mem.ai/oauth/consent?client_id=4c04d9bd-2c31-46b8-a54f-996c50c"
+  },
+  {
+    "name": "Miro",
+    "category": "Productivity",
+    "url": "https://mcp.miro.com/",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.miro.com/consent?txn_id=yWWP60yXT1k2x05Z5ytyiDnihjbvnmz93q"
+  },
+  {
+    "name": "Midpage Legal Research",
+    "category": "Productivity",
+    "url": "https://app.midpage.ai/mcp",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 429: <!DOCTYPE html><html lang=\"en\" data-astro-cid-4wdtffzm><head"
+  },
+  {
+    "name": "Mermaid Chart",
+    "category": "Productivity",
+    "url": "https://mcp.mermaid.ai/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Microsoft Learn",
+    "category": "Productivity",
+    "url": "https://learn.microsoft.com/api/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Lumin",
+    "category": "Productivity",
+    "url": "https://mcp.luminpdf.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://account.luminpdf.com/oauth2/sign-in?login_challenge=M5srsY4hec"
+  },
+  {
+    "name": "Moody's",
+    "category": "Productivity",
+    "url": "https://api.moodys.com/genai-ready-data/m1/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Magic Patterns",
+    "category": "Productivity",
+    "url": "https://mcp.magicpatterns.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://www.magicpatterns.com/login?external_auth_id=01M2F57745HAQX67A"
+  },
+  {
+    "name": "Monday",
+    "category": "Productivity",
+    "url": "https://mcp.monday.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.monday.com/users/sign_up_new?oauth_payload_token=eyJhbGci"
+  },
+  {
+    "name": "Mixpanel",
+    "category": "Productivity",
+    "url": "https://mcp.mixpanel.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mixpanel.com/login/?next=/oauth/authorize/%3Fclient_id%3Dzw32b"
+  },
+  {
+    "name": "MoSPI",
+    "category": "Productivity",
+    "url": "https://mcp.mospi.gov.in/",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Neon",
+    "category": "Productivity",
+    "url": "https://mcp.neon.tech/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.neon.tech/api/authorize?client_id=lKqvBFtL&code_challenge="
+  },
+  {
+    "name": "Medidata",
+    "category": "Productivity",
+    "url": "https://mcp.imedidata.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://login.imedidata.com/login?service=https%3A%2F%2Foauth.platform"
+  },
+  {
+    "name": "Metaview",
+    "category": "Productivity",
+    "url": "https://mcp.metaview.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://my.metaview.app/auth/connect?external_auth_id=01M2F5781P96QDSC"
+  },
+  {
+    "name": "MotherDuck",
+    "category": "Productivity",
+    "url": "https://api.motherduck.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.motherduck.com/u/login/identifier?state=hKFo2SB2a1Z6S2VqW"
+  },
+  {
+    "name": "Notion",
+    "category": "Productivity",
+    "url": "https://mcp.notion.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.notion.com/install-integration?response_type=code&client_i"
+  },
+  {
+    "name": "Navan",
+    "category": "Productivity",
+    "url": "https://mcp.navan.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://login.navan.com/u/login/identifier?state=hKFo2SBvZTVJSDVXdm5hT"
+  },
+  {
+    "name": "Mercury",
+    "category": "Productivity",
+    "url": "https://mcp.mercury.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.mercury.com/oauth2/login?login_challenge=MTmDK0Oxaq859DtRa"
+  },
+  {
+    "name": "Parallel Search",
+    "category": "Productivity",
+    "url": "https://search.parallel.ai/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "OpenRouter",
+    "category": "Productivity",
+    "url": "https://mcp.openrouter.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://openrouter.ai/sign-up?redirect_url=https%3A%2F%2Fopenrouter.ai"
+  },
+  {
+    "name": "Owkin",
+    "category": "Productivity",
+    "url": "https://mcp.k.owkin.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Netlify",
+    "category": "Productivity",
+    "url": "https://netlify-mcp.netlify.app/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "internal server error"
+  },
+  {
+    "name": "Monte Carlo",
+    "category": "Productivity",
+    "url": "https://integrations.getmontecarlo.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://getmontecarlo.com/oauth/complete/workos?external_auth_id=01M2F"
+  },
+  {
+    "name": "Morningstar",
+    "category": "Productivity",
+    "url": "https://mcp.morningstar.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://login-prod.morningstar.com/u/login/identifier?state=hKFo2SBiS1"
+  },
+  {
+    "name": "PitchBook",
+    "category": "Productivity",
+    "url": "https://premium.mcp.pitchbook.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Melon",
+    "category": "Productivity",
+    "url": "https://mcp.melon.com/mcp/",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Orion by Gravity",
+    "category": "Productivity",
+    "url": "https://g.runorion.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://g.runorion.com/mcp/authorize?client_id=mcp_MPV5VlD-uGoXgIK9UNS"
+  },
+  {
+    "name": "Omni Analytics",
+    "category": "Productivity",
+    "url": "https://callbacks.omniapp.co/callback/mcp",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 401: <!DOCTYPE html><html lang=\"en-US\"><head><meta content=\"text/"
+  },
+  {
+    "name": "Motion Creative Analytics",
+    "category": "Productivity",
+    "url": "https://projects.motionapp.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://projects.motionapp.com/login?response_type=code&redirect_uri=h"
+  },
+  {
+    "name": "PagerDuty",
+    "category": "Productivity",
+    "url": "https://mcp.pagerduty.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Pendo",
+    "category": "Productivity",
+    "url": "https://app.pendo.io/mcp/v0/shttp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.pendo.io/login?after=%2Foauth%2Fauthorize%3Fclient_id%3D40"
+  },
+  {
+    "name": "Open Targets",
+    "category": "Productivity",
+    "url": "https://mcp.platform.opentargets.org/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Otter.ai",
+    "category": "Productivity",
+    "url": "https://mcp.otter.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://otter.ai/oauth2/authorize?client_id=client_b86b8c4d70ee4d3fbd1"
+  },
+  {
+    "name": "Mailchimp",
+    "category": "Productivity",
+    "url": "https://ai-inc.mailchimp.com/claude/mcp/v2",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://login.mailchimp.com/oauth2/authorize?client_id=641591950612&en"
+  },
+  {
+    "name": "PayPal",
+    "category": "Productivity",
+    "url": "https://mcp.paypal.com/mcp",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 403: <html lang=\"en\"><head><script>!function(){var s=!1,g=functio"
+  },
+  {
+    "name": "Play Sheet Music",
+    "category": "Productivity",
+    "url": "https://example-server.modelcontextprotocol.io/sheet-music/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://example-server.modelcontextprotocol.io//authorize?client_id=ef"
+  },
+  {
+    "name": "Postman",
+    "category": "Productivity",
+    "url": "https://mcp.postman.com/minimal",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.postman.com/authorize?client_id=66dd3e5f-2606-4856-bfc2-46"
+  },
+  {
+    "name": "PlayMCP",
+    "category": "Productivity",
+    "url": "https://playmcp.kakao.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Quartr",
+    "category": "Productivity",
+    "url": "https://mcp.quartr.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "QuickBooks",
+    "category": "Productivity",
+    "url": "https://ai-inc.quickbooks.intuit.com/v1/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Plaid Developer Tools",
+    "category": "Productivity",
+    "url": "https://api.dashboard.plaid.com/mcp/sse",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://dashboard.plaid.com/oauth/authorize?client_id=dcr_f94d76a293df"
+  },
+  {
+    "name": "PostHog",
+    "category": "Productivity",
+    "url": "https://mcp.posthog.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://oauth.posthog.com/oauth/authorize/?client_id=HUxfTNLTeOn5JwJSr"
+  },
+  {
+    "name": "Quo",
+    "category": "Productivity",
+    "url": "https://mcp.quo.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.quo.com/authorize?client_id=ZNo2QefjMSLEFjRg&code_challeng"
+  },
+  {
+    "name": "Polar Analytics",
+    "category": "Productivity",
+    "url": "https://api.polaranalytics.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.polaranalytics.com/oauth/authorize/mcp?error=redirect_not_"
+  },
+  {
+    "name": "Process Street",
+    "category": "Productivity",
+    "url": "https://mcp.process.st",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Razorpay",
+    "category": "Productivity",
+    "url": "https://mcp.razorpay.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.razorpay.com/authorize?client_id=TbnSfEGtui317A&code_chall"
+  },
+  {
+    "name": "Outreach",
+    "category": "Productivity",
+    "url": "https://api.outreach.io/mcp/",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://accounts.outreach.io/users/sign_in"
+  },
+  {
+    "name": "Scholar Gateway",
+    "category": "Productivity",
+    "url": "https://connector.scholargateway.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://connector.scholargateway.ai/start?state=eyJyZXNwb25zZVR5cGUiOi"
+  },
+  {
+    "name": "Peec AI",
+    "category": "Productivity",
+    "url": "https://api.peec.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.peec.ai/mcp?client_id=7d0f7ff8-46b2-47cd-8c8f-ffd537bba4eb"
+  },
+  {
+    "name": "Ramp",
+    "category": "Productivity",
+    "url": "https://ramp-mcp-remote.ramp.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.ramp.com/v1/authorize?response_type=code&client_id=ramp_id"
+  },
+  {
+    "name": "Privacy.com",
+    "category": "Productivity",
+    "url": "https://mcp.privacy.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.privacy.com/oauth/authorize?client_id=a54db230-c3a5-447a-a"
+  },
+  {
+    "name": "PlanetScale",
+    "category": "Productivity",
+    "url": "https://mcp.pscale.dev/mcp/planetscale",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.planetscale.com/sign-in?return_to=%2Foauth%2Fauthorize%3F"
+  },
+  {
+    "name": "Ramp Data",
+    "category": "Productivity",
+    "url": "https://mcp.ramp.com/ramp-data/anthropic/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.ramp.com/v1/authorize?response_type=code&client_id=ramp_id"
+  },
+  {
+    "name": "Railway",
+    "category": "Productivity",
+    "url": "https://mcp.railway.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://railway.com/login?dest=https%3A%2F%2Fbackboard.railway.com%2Fo"
+  },
+  {
+    "name": "Resend",
+    "category": "Productivity",
+    "url": "https://mcp.resend.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://resend.com/login"
+  },
+  {
+    "name": "Slack",
+    "category": "Productivity",
+    "url": "https://mcp.slack.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Sentry",
+    "category": "Productivity",
+    "url": "https://mcp.sentry.dev/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.sentry.dev/oauth/authorize?client_id=pxtmmhrat7qjHJh1&code"
+  },
+  {
+    "name": "Semrush",
+    "category": "Productivity",
+    "url": "https://mcp.semrush.com/claude/v1/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Sanity",
+    "category": "Productivity",
+    "url": "https://mcp.sanity.io",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://www.sanity.io/login?origin=https%3A%2F%2Fapi.sanity.io%2Fv1%2F"
+  },
+  {
+    "name": "Pylon",
+    "category": "Productivity",
+    "url": "https://mcp.usepylon.com/",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.usepylon.com/signin?external_auth_id=01M2F57F2J5ZFZSK3V520"
+  },
+  {
+    "name": "Spotify",
+    "category": "Productivity",
+    "url": "https://mcp-gateway-external-pilot.spotify.net/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Shopify",
+    "category": "Productivity",
+    "url": "https://setup.shopify.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "StubHub",
+    "category": "Productivity",
+    "url": "https://open-ai-app.stubhub.net/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Scite",
+    "category": "Productivity",
+    "url": "https://api.scite.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://scite.ai/mcp/authorize?redirect=https%3A%2F%2Fapi.scite.ai%2Fm"
+  },
+  {
+    "name": "S&P Global",
+    "category": "Productivity",
+    "url": "https://kfinance.kensho.com/integrations/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://kensho.okta.com/oauth2/default/v1/authorize?response_type=code"
+  },
+  {
+    "name": "Similarweb",
+    "category": "Productivity",
+    "url": "https://mcp.similarweb.com",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Resy",
+    "category": "Productivity",
+    "url": "https://apigw.americanexpress.com/dining/v1/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "SignNow",
+    "category": "Productivity",
+    "url": "https://mcp-server.signnow.com/mcp",
+    "status": "Desktop-only DCR (Localhost only)",
+    "action_required": "Requires creating an OAuth App on provider console (Canva/Figma model)",
+    "details": "HTTP 400: Provider rejected cloud redirect URI ({\"error\":\"invalid_request\",\"error_description\":\"re)"
+  },
+  {
+    "name": "Readwise",
+    "category": "Productivity",
+    "url": "https://mcp2.readwise.io/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://readwise.io/accounts/login/?next=/o/authorize/%3Fclient_id%3Dn"
+  },
+  {
+    "name": "Supabase",
+    "category": "Productivity",
+    "url": "https://mcp.supabase.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://supabase.com/dashboard/authorize?auth_id=98d5e7a4-e1b8-4ff5-b8"
+  },
+  {
+    "name": "Mintlify",
+    "category": "Productivity",
+    "url": "https://mcp.mintlify.com",
+    "status": "Server Offline / Timeout",
+    "action_required": "Server currently unreachable from gateway",
+    "details": "The read operation timed out"
+  },
+  {
+    "name": "Splice",
+    "category": "Productivity",
+    "url": "https://mcp.splice.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.splice.com/u/login?state=hKFo2SAxb3pPSWlOdWJQN3ZVcFhsYk5R"
+  },
+  {
+    "name": "Send",
+    "category": "Productivity",
+    "url": "https://www.send.co/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://www.send.co/auth/login?response_type=code&client_id=iZzmSxGmam"
+  },
+  {
+    "name": "Solve Intelligence",
+    "category": "Productivity",
+    "url": "https://api.solveintelligence.com/mcp/",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "NetDocuments",
+    "category": "Productivity",
+    "url": "https://web-api.us.netdocuments.app/connect/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue",
+    "details": "OAuth URL generated: https://web-api.us.netdocuments.app/connect/oauth/authorize?"
+  },
+  {
+    "name": "Square",
+    "category": "Productivity",
+    "url": "https://cdn.prod.website-files.com/68a44d4040f98a4adf2207b6/690ac122efac2533660b7814_Square%20MCP.jpg",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Shapes",
+    "category": "Productivity",
+    "url": "https://mcp.shapes.co/",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.shapes.co/oauth/authorize?client_id=shapes-mcp&redirect_ur"
+  },
+  {
+    "name": "Rillet",
+    "category": "Productivity",
+    "url": "https://api.rillet.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.rillet.io/login?restore"
+  },
+  {
+    "name": "Strava",
+    "category": "Productivity",
+    "url": "https://mcp.strava.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Stytch",
+    "category": "Productivity",
+    "url": "https://mcp.stytch.dev/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://stytch.com/oauth/authorize?client_id=connected-app-live-d81e87"
+  },
+  {
+    "name": "Taskrabbit Booking Assistance",
+    "category": "Productivity",
+    "url": "https://mcp.taskrabbit.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Supermetrics",
+    "category": "Productivity",
+    "url": "https://mcp.supermetrics.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.supermetrics.com/lite/authorize/?response_type=code&clien"
+  },
+  {
+    "name": "Ticket Tailor",
+    "category": "Productivity",
+    "url": "https://mcp.tickettailor.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.tickettailor.ai/authorize?client_id=DoPtlRyFBNEwg8YO&code_"
+  },
+  {
+    "name": "Thumbtack",
+    "category": "Productivity",
+    "url": "https://mcp.thumbtack.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Tripadvisor",
+    "category": "Productivity",
+    "url": "https://production.ai-mcp-extensibility-prd.tamg.cloud/ogMvjY4De1G7CiHanMOAgddl/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Trellis",
+    "category": "Productivity",
+    "url": "https://mcp.trellis.law/anthropic",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "internal server error"
+  },
+  {
+    "name": "Third Bridge",
+    "category": "Productivity",
+    "url": "https://ai.thirdbridge.com/mcp/sse",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 403: <html>\n  <head>\n    <meta charset=\"utf-8\">\n    <link rel=\"st"
+  },
+  {
+    "name": "Stripe",
+    "category": "Productivity",
+    "url": "https://mcp.stripe.com",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://dashboard.stripe.com/login?redirect=https%3A%2F%2Faccess.strip"
+  },
+  {
+    "name": "Tango",
+    "category": "Productivity",
+    "url": "https://govcon.dev/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Synthesize Bio",
+    "category": "Productivity",
+    "url": "https://app.synthesize.bio/api/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.synthesize.bio/sign-in?redirect_url=%2Fapi%2Fmcp%2Foauth%2"
+  },
+  {
+    "name": "Superhuman Mail",
+    "category": "Productivity",
+    "url": "https://mcp.mail.superhuman.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mail.superhuman.com/~login?external_auth_id=01M2F57K9F584RS978"
+  },
+  {
+    "name": "Synapse.org",
+    "category": "Productivity",
+    "url": "https://mcp.synapse.org/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.synapse.org/consent?txn_id=7Pf2n_GITU2wSnbQ5ttj9m1RFNFAfu_"
+  },
+  {
+    "name": "Tavily",
+    "category": "Productivity",
+    "url": "https://mcp.tavily.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://auth.tavily.com/u/login/identifier?state=hKFo2SBnQ000VGNlb1M0a"
+  },
+  {
+    "name": "Sybill",
+    "category": "Productivity",
+    "url": "https://mcp.sybill.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.sybill.ai/consent?txn_id=PuA80rpjau3zMm80065pS2BDjnKewfBBb"
+  },
+  {
+    "name": "Uber",
+    "category": "Productivity",
+    "url": "https://mcp.uber.com/claude/rides-3p/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "SurveyMonkey",
+    "category": "Productivity",
+    "url": "https://mcp.surveymonkey.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Three.js 3D Viewer",
+    "category": "Productivity",
+    "url": "https://example-server.modelcontextprotocol.io/threejs/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://example-server.modelcontextprotocol.io//authorize?client_id=7e"
+  },
+  {
+    "name": "Tropic",
+    "category": "Productivity",
+    "url": "https://app.tropicapp.io/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Webflow",
+    "category": "Productivity",
+    "url": "https://mcp.webflow.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.webflow.com/oauth/authorize?client_id=vPmPuJSvINJUy6y5&cod"
+  },
+  {
+    "name": "Uber Eats",
+    "category": "Productivity",
+    "url": "https://mcp.ubereats.com/eats-claude/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Vercel",
+    "category": "Productivity",
+    "url": "https://mcp.vercel.com",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "TopCounsel by The L Suite",
+    "category": "Productivity",
+    "url": "https://api.techgc.co/api/mcp/topcounsel",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://braintrust.lsuite.co/auth/mcp-consent?client_id=lead_d6670e634"
+  },
+  {
+    "name": "Udemy Business",
+    "category": "Productivity",
+    "url": "https://api.udemy.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://www.udemy.com/organization-login/?login_challenge=sNTD9Owf9k3G"
+  },
+  {
+    "name": "Trimble SketchUp",
+    "category": "Productivity",
+    "url": "https://api.sketchup.com/mcp/v1/sketchup/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "Viator",
+    "category": "Productivity",
+    "url": "https://exp-app-mcp.prod.ep.viator.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Twilio",
+    "category": "Productivity",
+    "url": "https://mcp.twilio.com/docs",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Wix",
+    "category": "Productivity",
+    "url": "https://mcp.wix.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://users.wix.com/signin?postSignUp=https%3A%2F%2Fmcp.wix.com%2Fau"
+  },
+  {
+    "name": "TurboTax",
+    "category": "Productivity",
+    "url": "https://ai-inc.turbotax.intuit.com/358A1C1B-F73B-46A7-B130-4B14916E6843/v1/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "lastminute.com",
+    "category": "Productivity",
+    "url": "https://mcp.lastminute.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Unthread",
+    "category": "Productivity",
+    "url": "https://app.unthread.io/api/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.unthread.io/oauth/login?session=NF9QuLPam16aEoXhHMvLBEW9-U"
+  },
+  {
+    "name": "Zoom",
+    "category": "Productivity",
+    "url": "https://mcp.zoom.us/mcp/zoom/streamable",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "Xero",
+    "category": "Productivity",
+    "url": "https://mcp.xero.com/mcp",
+    "status": "Pre-Registered OAuth App Required",
+    "action_required": "Create OAuth App on Provider Console -> Paste Client ID & Secret",
+    "details": "Provider does not allow open Dynamic Registration (RFC 7591)"
+  },
+  {
+    "name": "tldraw",
+    "category": "Productivity",
+    "url": "https://tldraw-mcp-app.tldraw.workers.dev/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Zapier",
+    "category": "Productivity",
+    "url": "https://mcp.zapier.com/api/v1/connect",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.zapier.com/oauth/authorize?client_id=aO4zZvf1cCm7yCWWiwbQP"
+  },
+  {
+    "name": "Verisk Underwriting Intelligence",
+    "category": "Productivity",
+    "url": "https://gatewaymcp.verisk.com/underwriting/intelligencemcp/v1",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Verisk XactRestore",
+    "category": "Productivity",
+    "url": "https://xactrestore-xactremodelserver-usw2-prod.propsol.io/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Windsor.ai",
+    "category": "Productivity",
+    "url": "https://mcp.windsor.ai",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.windsor.ai/consent?txn_id=v2LLTNZzYv_g6auoISnEcba8UZNqZ0KC"
+  },
+  {
+    "name": "Todoist",
+    "category": "Productivity",
+    "url": "https://ai.todoist.net/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.todoist.com/auth/login?success_page=https%3A%2F%2Fapp.todo"
+  },
+  {
+    "name": "ZoomInfo",
+    "category": "Productivity",
+    "url": "https://mcp.zoominfo.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Failed to initiate OAuth flow: dynamic client registration f"
+  },
+  {
+    "name": "WordPress.com",
+    "category": "Productivity",
+    "url": "https://public-api.wordpress.com/wpcom/v2/mcp/v1",
+    "status": "Auto-OAuth with Authorization Notice",
+    "action_required": "Click Continue -> Authorize in provider account",
+    "details": "HTTP 403: <!DOCTYPE html><title>Checking your browser...</title><noscr"
+  },
+  {
+    "name": "ZipRecruiter",
+    "category": "Productivity",
+    "url": "https://api.ziprecruiter.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Guru",
+    "category": "Productivity",
+    "url": "https://mcp.api.getguru.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue",
+    "details": "OAuth URL generated: https://mcp.api.getguru.com/oauth/mcp/authorize?client_id=16"
+  },
+  {
+    "name": "pg-aiguide",
+    "category": "Productivity",
+    "url": "https://mcp.tigerdata.com/docs",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "incident.io",
+    "category": "Productivity",
+    "url": "https://mcp.incident.io/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://app.incident.io/~/plugin-authorize?client_id=01M2F57Q366P1Y393"
+  },
+  {
+    "name": "Wyndham Hotels and Resorts",
+    "category": "Productivity",
+    "url": "https://mcp.wyndhamhotels.com/claude/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  },
+  {
+    "name": "Workable",
+    "category": "Productivity",
+    "url": "https://mcp.workable.com/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://id.workable.com/oidc/i/-UmnicU9cCsZhEG-zvPrw"
+  },
+  {
+    "name": "Zocks",
+    "category": "Productivity",
+    "url": "https://mcp.zocks.io/v1/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://console.zocks.io/dashboard/oauth/authorize?response_type=code&"
+  },
+  {
+    "name": "Yardi Virtuoso",
+    "category": "Productivity",
+    "url": "https://mcp.virtuoso.ai/mcp",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://mcp.virtuoso.ai/oauth/select-subdomain?returnUrl=%2Foauth%2Fau"
+  },
+  {
+    "name": "iManage Work",
+    "category": "Productivity",
+    "url": "https://cloudimanage.com/mcp/work",
+    "status": "1-Click Auto OAuth (Ready)",
+    "action_required": "Leave Client ID Empty -> Click Continue -> Login Popup opens",
+    "details": "HTTP 200 - Login page loaded: https://cloudimanage.com/auth?auto_submit=false&remember_email=false"
+  },
+  {
+    "name": "Trivago",
+    "category": "Productivity",
+    "url": "https://mcp.trivago.com/mcp",
+    "status": "Headers / API Key Method Supported",
+    "action_required": "Switch Auth to 'Headers' -> Add Bearer Token or API Key",
+    "details": "Standard Bearer / API Token Server"
+  }
+]

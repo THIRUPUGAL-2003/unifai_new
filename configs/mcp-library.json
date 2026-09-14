@@ -23,15 +23,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.adobeaemcloud.com/adobe/mcp/aem",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "adobe",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/adobe-experience-manager",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/adobe.svg"
+      "icon_url": "/images/mcp-servers/adobe.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Adobe for creativity",
@@ -39,15 +42,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://adobe-creativity.adobe.io/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "adobe",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/adobe-creativity",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/adobe.svg"
+      "icon_url": "/images/mcp-servers/adobe.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Adobe Journey Optimizer",
@@ -55,15 +61,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://ajo-mcp.adobe.io/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "adobe",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/adobe-journey-optimizer",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/adobe.svg"
+      "icon_url": "/images/mcp-servers/adobe.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Adobe Marketing Agent",
@@ -71,15 +80,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://aep-ai-ama.adobe.io/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "adobe",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/adobe-marketing-agent",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/adobe.svg"
+      "icon_url": "/images/mcp-servers/adobe.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Ahrefs",
@@ -103,15 +115,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp-pub.aiera.com/",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "aiera",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/aiera",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp-pub.aiera.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp-pub.aiera.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "AirOps",
@@ -167,15 +182,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.columnapi.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "aiwyn",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/aiwyn-tax",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/aiwyn.svg"
+      "icon_url": "/images/mcp-servers/aiwyn.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "AllTrails",
@@ -183,15 +201,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://www.alltrails.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "alltrails",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/alltrails",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/alltrails.png"
+      "icon_url": "/images/mcp-servers/alltrails.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Amplitude",
@@ -279,15 +300,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.audible.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "audible",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/audible",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.audible.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.audible.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Aura",
@@ -343,15 +367,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://marketplace-mcp.us-east-1.api.aws/",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "aws",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/aws-marketplace",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/aws_light.svg"
+      "icon_url": "/images/mcp-servers/aws_light.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "B12",
@@ -359,15 +386,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://b12.io/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "b12",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/b12",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=b12.io&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=b12.io&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Base44",
@@ -391,15 +421,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.benevity.org/general/v1/nonprofit",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "benevity",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/benevity",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.benevity.org&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.benevity.org&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Bigdata.com",
@@ -455,15 +488,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.sky.blackbaud.com/",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "blackbaud",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/blackbaud",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.sky.blackbaud.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.sky.blackbaud.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Blockscout",
@@ -471,15 +507,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.blockscout.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "blockscout",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/blockscout",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.blockscout.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.blockscout.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "BoardWise",
@@ -487,15 +526,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://uakozrqrztgrgwoywxkx.supabase.co/functions/v1/mcp-server",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "boardwise",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/boardwise",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=uakozrqrztgrgwoywxkx.supabase.co&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=uakozrqrztgrgwoywxkx.supabase.co&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Booking.com",
@@ -503,15 +545,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://demandapi-mcp.booking.com/v1/mcp/8132308",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "booking",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/booking",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=demandapi-mcp.booking.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=demandapi-mcp.booking.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Box",
@@ -727,15 +772,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://clarity-sfdr20-mcp.pro.clarity.ai/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "clarity",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/clarity-ai",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=clarity-sfdr20-mcp.pro.clarity.ai&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=clarity-sfdr20-mcp.pro.clarity.ai&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Clay",
@@ -791,15 +839,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.getclockwise.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "clockwise",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/clockwise",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.getclockwise.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.getclockwise.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Close",
@@ -855,15 +906,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://codex-resets.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "codex",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/codex-resets",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=codex-resets.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=codex-resets.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "CoinDesk",
@@ -1015,15 +1069,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.coupler.io/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "coupler",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/coupler-io",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/coupler.png"
+      "icon_url": "/images/mcp-servers/coupler.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "CourtListener",
@@ -1047,15 +1104,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.courtroom5.com/v1",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "courtroom5",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/courtroom5",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.courtroom5.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.courtroom5.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Craft",
@@ -1079,15 +1139,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.creditkarma.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "credit",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/credit-karma",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.creditkarma.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.creditkarma.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Crossbeam",
@@ -1111,15 +1174,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.crypto.com/market-data/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "crypto",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/crypto-com",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/crypto.png"
+      "icon_url": "/images/mcp-servers/crypto.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "D&B Risk Analytics",
@@ -1159,15 +1225,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.global.datasite.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "datasite",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/datasite",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.global.datasite.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.global.datasite.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Day AI",
@@ -1191,15 +1260,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.eu.definely.com/api/proxy/core-mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "definely",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/definely",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.eu.definely.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.eu.definely.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Descrybe Legal Engine",
@@ -1223,15 +1295,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.devrev.ai/mcp/v1",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "devrev",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/devrev",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.devrev.ai&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.devrev.ai&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Dice",
@@ -1239,15 +1314,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.dice.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "dice",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/dice",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.dice.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.dice.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Digits",
@@ -1319,15 +1397,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://dovetail.com/api/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "dovetail",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/dovetail",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=dovetail.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=dovetail.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Egnyte",
@@ -1367,15 +1448,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.alphavantage.co",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "era",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/era-context",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/era.png"
+      "icon_url": "/images/mcp-servers/era.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Eraser",
@@ -1431,15 +1515,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://excalidraw-mcp-app.vercel.app/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "excalidraw",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/excalidraw-app-demo",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/excalidraw.png"
+      "icon_url": "/images/mcp-servers/excalidraw.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Expedia",
@@ -1447,15 +1534,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://www.expedia.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "expedia",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/expedia",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/expedia.png"
+      "icon_url": "/images/mcp-servers/expedia.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Explorium",
@@ -1543,15 +1633,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.figma.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "figma",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/figma",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/figma.svg"
+      "icon_url": "/images/mcp-servers/figma.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Fireflies",
@@ -1607,15 +1700,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://services.functionhealth.com/ai-chat/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "function",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/function-health",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=services.functionhealth.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=services.functionhealth.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "G2",
@@ -1655,15 +1751,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.gamma.app/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "gamma",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/gamma",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.gamma.app&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.gamma.app&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "GitHub",
@@ -1719,15 +1818,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.godaddy.com/v1/domains/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "godaddy",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/godaddy",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/godaddy.svg"
+      "icon_url": "/images/mcp-servers/godaddy.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Goodnotes",
@@ -1735,15 +1837,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://claude-mcp-api.ml.goodnotes.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "goodnotes",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/goodnotes",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=claude-mcp-api.ml.goodnotes.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=claude-mcp-api.ml.goodnotes.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Google Cloud BigQuery",
@@ -1783,15 +1888,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://govtribe.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "govtribe",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/govtribe",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=govtribe.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=govtribe.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Grain",
@@ -1831,15 +1939,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://grantedai.com/api/mcp/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "granted",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/granted",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/granted.png"
+      "icon_url": "/images/mcp-servers/granted.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "GraphOS MCP Tools",
@@ -1847,15 +1958,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.apollographql.com",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "graphos",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/graphos-tools",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.apollographql.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.apollographql.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Guidepoint",
@@ -1863,15 +1977,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://clapi.guidepoint.io/mcp-server/v1/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "guidepoint",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/guidepoint",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=clapi.guidepoint.io&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=clapi.guidepoint.io&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Guru",
@@ -1943,15 +2060,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.healthex.io/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "healthex",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/healthex",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.healthex.io&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.healthex.io&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Hex",
@@ -2035,7 +2155,7 @@
     },
     {
       "name": "IBKR",
-      "description": "Interactive Brokers (IBKR) is a global brokerage for stocks, options, futures, and multi-currency portfolios. Its hosted MCP server lets assistants analyze positions, balances, P&L, and risk, research investments, and draft trade instructions after you sign in with your IBKR account. Orders stay under your control — instructions never execute automatically.",
+      "description": "Interactive Brokers (IBKR) is a global brokerage for stocks, options, futures, and multi-currency portfolios. Its hosted MCP server lets assistants analyze positions, balances, P&L, and risk, research investments, and draft trade instructions after you sign in with your IBKR account. Orders stay under your control \u2014 instructions never execute automatically.",
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.ibkr.com/v1/api/mcp",
@@ -2055,15 +2175,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://fids-mcp.ice.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "ice",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/ice-data-services",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=fids-mcp.ice.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=fids-mcp.ice.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "IFTTT",
@@ -2071,15 +2194,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://ifttt.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "ifttt",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/ifttt",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=ifttt.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=ifttt.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "iManage Work",
@@ -2119,15 +2245,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.indeed.com/claude/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "indeed",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/indeed",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.indeed.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.indeed.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Instacart",
@@ -2151,15 +2280,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.intercom.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "intercom",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/intercom",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/intercom.png"
+      "icon_url": "/images/mcp-servers/intercom.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Ironclad Contracts",
@@ -2247,15 +2379,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://kindora-mcp.azurewebsites.net/mcp/",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "kindora",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/kindora-funder-discovery",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=kindora-mcp.azurewebsites.net&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=kindora-mcp.azurewebsites.net&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Kiwi.com",
@@ -2263,15 +2398,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.kiwi.com",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "kiwi",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/kiwi",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.kiwi.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.kiwi.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Klaviyo",
@@ -2311,15 +2449,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.lastminute.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "lastminute",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/lastminute",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lastminute.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lastminute.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Lawve AI",
@@ -2343,15 +2484,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://kg.mcp.learningcommons.org/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "learning",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/learning-commons-knowledge-graph",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=kg.mcp.learningcommons.org&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=kg.mcp.learningcommons.org&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Legal Data Hunter",
@@ -2375,15 +2519,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://www.legalzoom.com/mcp/claude/v1",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "legalzoom",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/legalzoom",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=www.legalzoom.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=www.legalzoom.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "LILT",
@@ -2455,15 +2602,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.lorikeetcx.ai/v1/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "lorikeet",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/lorikeet",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.lorikeetcx.ai&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.lorikeetcx.ai&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "LSEG",
@@ -2471,15 +2621,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.analytics.lseg.com/lfa/mcp/server-cl",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "lseg",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/lseg",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.analytics.lseg.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.analytics.lseg.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Lucid",
@@ -2535,15 +2688,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.lusha.com/mcp/claude",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "lusha",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/lusha",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lusha.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.lusha.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Magic Patterns",
@@ -2615,15 +2771,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://scamguard.malwarebytes.com/claude/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "malwarebytes",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/malwarebytes",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/malwarebytes.png"
+      "icon_url": "/images/mcp-servers/malwarebytes.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "MDN",
@@ -2631,15 +2790,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.mdn.mozilla.net/",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "mdn",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/mdn",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mdn.mozilla.net&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mdn.mozilla.net&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Medidata",
@@ -2663,15 +2825,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.melon.com/mcp/",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "melon",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/melon",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.melon.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.melon.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Mem",
@@ -2711,15 +2876,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.mermaid.ai/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "mermaid",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/mermaid-chart",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/mermaid-logo-light.svg"
+      "icon_url": "/images/mcp-servers/mermaid-logo-light.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Metaview",
@@ -2743,15 +2911,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://learn.microsoft.com/api/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "microsoft",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/microsoft-learn",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/microsoft.svg"
+      "icon_url": "/images/mcp-servers/microsoft.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Midpage Legal Research",
@@ -2855,15 +3026,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.moodys.com/genai-ready-data/m1/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "moodys",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/moodys",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.moodys.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.moodys.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Morningstar",
@@ -2887,15 +3061,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.mospi.gov.in/",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "mospi",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/mospi",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mospi.gov.in&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mospi.gov.in&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "MotherDuck",
@@ -2935,15 +3112,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.msci.com/mcp/v1.0/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "msci",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/msci",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.msci.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.msci.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "MT Newswires",
@@ -2951,15 +3131,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.mtnewswires.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "mt",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/mt-newswires",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mtnewswires.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.mtnewswires.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Navan",
@@ -3015,15 +3198,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://netlify-mcp.netlify.app/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "netlify",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/netlify",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/netlify.svg"
+      "icon_url": "/images/mcp-servers/netlify.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Notion",
@@ -3063,15 +3249,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.platform.opentargets.org/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "open",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/open-targets",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.platform.opentargets.org&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.platform.opentargets.org&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "OpenRouter",
@@ -3143,15 +3332,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.k.owkin.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "owkin",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/owkin",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.k.owkin.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.k.owkin.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "PagerDuty",
@@ -3175,15 +3367,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://search.parallel.ai/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "parallel",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/parallel",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/parallel.png"
+      "icon_url": "/images/mcp-servers/parallel.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "PayPal",
@@ -3239,15 +3434,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.tigerdata.com/docs",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "pg",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/pg-aiguide",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.tigerdata.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.tigerdata.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "PitchBook",
@@ -3255,15 +3453,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://premium.mcp.pitchbook.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "pitchbook",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/pitchbook",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=premium.mcp.pitchbook.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=premium.mcp.pitchbook.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Plaid Developer Tools",
@@ -3319,15 +3520,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://playmcp.kakao.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "playmcp",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/playmcp",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=playmcp.kakao.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=playmcp.kakao.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Polar Analytics",
@@ -3399,15 +3603,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.process.st",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "process",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/process-street",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.process.st&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.process.st&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Pylon",
@@ -3431,15 +3638,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.quartr.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "quartr",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/quartr",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/quartr.png"
+      "icon_url": "/images/mcp-servers/quartr.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "QuickBooks",
@@ -3447,15 +3657,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://ai-inc.quickbooks.intuit.com/v1/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "quickbooks",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/quickbooks",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=ai-inc.quickbooks.intuit.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai-inc.quickbooks.intuit.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Quo",
@@ -3575,15 +3788,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://apigw.americanexpress.com/dining/v1/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "resy",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/resy",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=apigw.americanexpress.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=apigw.americanexpress.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Rillet",
@@ -3671,15 +3887,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.semrush.com/claude/v1/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "semrush",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/semrush",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/semrush.png"
+      "icon_url": "/images/mcp-servers/semrush.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Send",
@@ -3767,15 +3986,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.similarweb.com",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "similarweb",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/similarweb",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/similarweb.png"
+      "icon_url": "/images/mcp-servers/similarweb.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Slack",
@@ -3799,15 +4021,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.solveintelligence.com/mcp/",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "solve",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/solve-intelligence",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.solveintelligence.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.solveintelligence.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Splice",
@@ -3847,15 +4072,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://cdn.prod.website-files.com/68a44d4040f98a4adf2207b6/690ac122efac2533660b7814_Square%20MCP.jpg",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "square",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/square",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/square.png"
+      "icon_url": "/images/mcp-servers/square.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Strava",
@@ -3863,15 +4091,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.strava.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "strava",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/strava",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.strava.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.strava.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Stripe",
@@ -3895,15 +4126,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://open-ai-app.stubhub.net/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "stubhub",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/stubhub",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=open-ai-app.stubhub.net&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=open-ai-app.stubhub.net&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Stytch",
@@ -3975,15 +4209,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.surveymonkey.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "surveymonkey",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/surveymonkey",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.surveymonkey.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.surveymonkey.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Sybill",
@@ -4039,15 +4276,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://govcon.dev/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "tango",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/tango-government-contracting",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=govcon.dev&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=govcon.dev&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Taskrabbit Booking Assistance",
@@ -4055,15 +4295,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.taskrabbit.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "taskrabbit",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/taskrabbit",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.taskrabbit.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.taskrabbit.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Tavily",
@@ -4147,19 +4390,22 @@
     },
     {
       "name": "tldraw",
-      "description": "tldraw is a collaborative whiteboard and canvas SDK. Its remote MCP server lets assistants draw and edit diagrams — flowcharts, architecture sketches, wireframes — on a live tldraw canvas while you work.",
+      "description": "tldraw is a collaborative whiteboard and canvas SDK. Its remote MCP server lets assistants draw and edit diagrams \u2014 flowcharts, architecture sketches, wireframes \u2014 on a live tldraw canvas while you work.",
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://tldraw-mcp-app.tldraw.workers.dev/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "tldraw",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/tldraw",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=tldraw-mcp-app.tldraw.workers.dev&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=tldraw-mcp-app.tldraw.workers.dev&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Todoist",
@@ -4199,15 +4445,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.trellis.law/anthropic",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "trellis",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/trellis",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.trellis.law&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.trellis.law&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Trimble SketchUp",
@@ -4215,15 +4464,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.sketchup.com/mcp/v1/sketchup/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "sketchup",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/sketchup",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.sketchup.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.sketchup.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Tripadvisor",
@@ -4231,15 +4483,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://production.ai-mcp-extensibility-prd.tamg.cloud/ogMvjY4De1G7CiHanMOAgddl/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "tripadvisor",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/tripadvisor",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=production.ai-mcp-extensibility-prd.tamg.cloud&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=production.ai-mcp-extensibility-prd.tamg.cloud&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Trivago",
@@ -4247,15 +4502,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.trivago.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "trivago",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/trivago",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.trivago.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.trivago.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Tropic",
@@ -4263,15 +4521,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://app.tropicapp.io/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "tropic",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/tropic",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/tropic.png"
+      "icon_url": "/images/mcp-servers/tropic.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "TurboTax",
@@ -4279,15 +4540,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://ai-inc.turbotax.intuit.com/358A1C1B-F73B-46A7-B130-4B14916E6843/v1/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "turbotax",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/turbotax",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=ai-inc.turbotax.intuit.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=ai-inc.turbotax.intuit.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Twilio",
@@ -4295,15 +4559,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.twilio.com/docs",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "twilio",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/twilio",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/twilio.svg"
+      "icon_url": "/images/mcp-servers/twilio.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Uber",
@@ -4375,15 +4642,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.vercel.com",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "vercel",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/vercel",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/vercel.svg"
+      "icon_url": "/images/mcp-servers/vercel.svg",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Verisk Underwriting Intelligence",
@@ -4391,15 +4661,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://gatewaymcp.verisk.com/underwriting/intelligencemcp/v1",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "verisk",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/verisk-underwriting-intelligence",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=gatewaymcp.verisk.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=gatewaymcp.verisk.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Verisk XactRestore",
@@ -4407,15 +4680,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://xactrestore-xactremodelserver-usw2-prod.propsol.io/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "verisk",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/verisk-xactrestore",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=xactrestore-xactremodelserver-usw2-prod.propsol.io&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=xactrestore-xactremodelserver-usw2-prod.propsol.io&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Viator",
@@ -4423,15 +4699,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://exp-app-mcp.prod.ep.viator.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "viator",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/viator",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=exp-app-mcp.prod.ep.viator.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=exp-app-mcp.prod.ep.viator.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Webflow",
@@ -4467,7 +4746,7 @@
     },
     {
       "name": "Wix",
-      "description": "Wix is a website platform spanning sites, ecommerce, bookings, and business management. Its remote MCP server lets assistants manage Wix sites and business data — from content updates to store operations — using the account's existing permissions.",
+      "description": "Wix is a website platform spanning sites, ecommerce, bookings, and business management. Its remote MCP server lets assistants manage Wix sites and business data \u2014 from content updates to store operations \u2014 using the account's existing permissions.",
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.wix.com/mcp",
@@ -4519,15 +4798,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.wyndhamhotels.com/claude/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "wyndham",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/wyndham-hotels",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.wyndhamhotels.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=mcp.wyndhamhotels.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Xero",
@@ -4563,7 +4845,7 @@
     },
     {
       "name": "Zapier",
-      "description": "Zapier is an automation platform connecting more than 8,000 apps. Its remote MCP server lets assistants search knowledge across connected tools and execute real-world actions — creating records, sending messages, running workflows — through one integration.",
+      "description": "Zapier is an automation platform connecting more than 8,000 apps. Its remote MCP server lets assistants search knowledge across connected tools and execute real-world actions \u2014 creating records, sending messages, running workflows \u2014 through one integration.",
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.zapier.com/api/v1/connect",
@@ -4583,15 +4865,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://api.ziprecruiter.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "ziprecruiter",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/ziprecruiter",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "https://www.google.com/s2/favicons?domain=api.ziprecruiter.com&sz=128"
+      "icon_url": "https://www.google.com/s2/favicons?domain=api.ziprecruiter.com&sz=128",
+      "required_header_keys": [
+        "Authorization"
+      ]
     },
     {
       "name": "Zocks",
@@ -4631,15 +4916,18 @@
       "category": "Productivity",
       "connection_type": "http",
       "connection_url": "https://mcp.zoominfo.com/mcp",
-      "auth_type": "oauth",
+      "auth_type": "headers",
       "publisher": "zoominfo",
       "docs_url": "https://mcpservers.org/remote-mcp-servers/zoominfo",
       "tags": [
         "official",
         "remote",
-        "oauth"
+        "headers"
       ],
-      "icon_url": "/images/mcp-servers/zoominfo.png"
+      "icon_url": "/images/mcp-servers/zoominfo.png",
+      "required_header_keys": [
+        "Authorization"
+      ]
     }
   ]
 }

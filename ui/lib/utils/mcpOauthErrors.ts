@@ -30,7 +30,13 @@ export function oauthLikelyNeedsPreRegisteredClient(connectionUrl?: string, serv
 		hay.includes("slack") ||
 		hay.includes("salesforce") ||
 		hay.includes("notion") ||
-		hay.includes("hubspot")
+		hay.includes("hubspot") ||
+		hay.includes("canva") ||
+		hay.includes("biorender") ||
+		hay.includes("chronograph") ||
+		hay.includes("localfalcon") ||
+		hay.includes("local falcon") ||
+		hay.includes("signnow")
 	);
 }
 
