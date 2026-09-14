@@ -43,6 +43,7 @@ import {
 	ArrowUpDown,
 	ChevronLeft,
 	ChevronRight,
+	Code2,
 	Copy,
 	Download,
 	Edit,
@@ -181,6 +182,7 @@ function VKActionsMenu({
 	const [isOpen, setIsOpen] = useState(false);
 	const { isManagedByProfile } = useVirtualKeyUsage(vk);
 	const [deleteOpen, setDeleteOpen] = useState(false);
+	const { copy: copyToClipboard } = useCopyToClipboard();
 
 	return (
 		<>
@@ -215,6 +217,21 @@ function VKActionsMenu({
 							<ScrollText className="h-4 w-4" />
 							View logs
 						</Link>
+					</DropdownMenuItem>
+					<DropdownMenuItem
+						className="cursor-pointer"
+						data-testid={`vk-copy-snippet-btn-${vk.name}`}
+						onSelect={(e) => {
+							e.preventDefault();
+							const origin = typeof window !== "undefined" && window.location.origin ? window.location.origin.replace(/\/+$/, "") : "https://unifaiv2.dev-yp.com";
+							const snippet = `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${origin}/v1",\n    api_key="${vk.value}"\n)\n\nresponse = client.chat.completions.create(\n    model="mistral/mistral-tiny",\n    messages=[{"role": "user", "content": "Hello UniFAI!"}]\n)\nprint(response.choices[0].message.content)`;
+							void copyToClipboard(snippet);
+							toast.success("Python integration snippet copied to clipboard");
+							setIsOpen(false);
+						}}
+					>
+						<Code2 className="h-4 w-4" />
+						Copy Python snippet
 					</DropdownMenuItem>
 					<DropdownMenuItem
 						variant="destructive"
@@ -889,9 +906,28 @@ export default function VirtualKeysTable({
 															size="sm"
 															onClick={() => copyToClipboard(vk.value)}
 															data-testid={`vk-copy-btn-${vk.name}`}
+															title="Copy key"
 														>
 															<Copy className="h-4 w-4" />
 														</Button>
+														<Tooltip>
+															<TooltipTrigger asChild>
+																<Button
+																	variant="ghost"
+																	size="sm"
+																	onClick={() => {
+																		const origin = typeof window !== "undefined" && window.location.origin ? window.location.origin.replace(/\/+$/, "") : "https://unifaiv2.dev-yp.com";
+																		const snippet = `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${origin}/v1",\n    api_key="${vk.value}"\n)\n\nresponse = client.chat.completions.create(\n    model="mistral/mistral-tiny",\n    messages=[{"role": "user", "content": "Hello UniFAI!"}]\n)\nprint(response.choices[0].message.content)`;
+																		void copyToClipboard(snippet);
+																		toast.success("Python integration snippet copied to clipboard");
+																	}}
+																	data-testid={`vk-code-btn-${vk.name}`}
+																>
+																	<Code2 className="h-4 w-4" />
+																</Button>
+															</TooltipTrigger>
+															<TooltipContent>Copy Python SDK snippet</TooltipContent>
+														</Tooltip>
 													</div>
 												</div>
 											</TableCell>

@@ -100,7 +100,7 @@ export default function GovernanceVirtualKeysPage() {
 		}
 	}, [vkError, teamsError, customersError]);
 
-	if (isLoading) {
+	if (isLoading && !virtualKeysData) {
 		return <FullPageLoader />;
 	}
 

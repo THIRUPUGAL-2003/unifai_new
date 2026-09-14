@@ -16,6 +16,7 @@ import ManagedVirtualKeyNotice from "@enterprise/components/access-profiles/mana
 import { formatDistanceToNow } from "date-fns";
 import { Users } from "lucide-react";
 import { useVirtualKeyUsage } from "../hooks/useVirtualKeyUsage";
+import VirtualKeyQuickstart from "./virtualKeyQuickstart";
 
 function usageBarClass(pct: number, exhausted: boolean) {
 	if (exhausted) return "[&>div]:bg-red-500/70";
@@ -186,6 +187,11 @@ export default function VirtualKeyDetailSheet({
 							)}
 						</div>
 					</div>
+
+					<DottedSeparator />
+
+					{/* Quick Integration Code Snippets */}
+					<VirtualKeyQuickstart virtualKey={virtualKey} />
 
 					<DottedSeparator />
 

@@ -63,7 +63,7 @@ function ProviderKeyActionsMenu({
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end">
-				{showRetryDiscover && hasUpdateAccess && onRetryDiscover ? (
+				{hasUpdateAccess && onRetryDiscover ? (
 					<DropdownMenuItem
 						onSelect={(e) => {
 							e.preventDefault();
@@ -72,7 +72,7 @@ function ProviderKeyActionsMenu({
 						}}
 					>
 						<RefreshCw className="mr-1 h-4 w-4" />
-						Retry discovery
+						Test key & discover models
 					</DropdownMenuItem>
 				) : null}
 				<DropdownMenuItem
@@ -356,12 +356,31 @@ export default function ModelProviderKeysTableView({ provider, className, header
 										</TableCell>
 										<TableCell className="text-right">
 											<div className="flex items-center justify-end space-x-2">
+												{hasUpdateProviderAccess ? (
+													<Tooltip>
+														<TooltipTrigger asChild>
+															<Button
+																variant="ghost"
+																size="icon"
+																className="h-8 w-8 text-muted-foreground hover:text-foreground"
+																onClick={(e) => {
+																	e.stopPropagation();
+																	handleRetryDiscover(key.id);
+																}}
+																disabled={isMutatingProviderKey}
+																aria-label="Test key and discover models"
+															>
+																<RefreshCw className="h-4 w-4" />
+															</Button>
+														</TooltipTrigger>
+														<TooltipContent>Test key & discover models</TooltipContent>
+													</Tooltip>
+												) : null}
 												{hasUpdateProviderAccess || hasDeleteProviderAccess ? (
 													<ProviderKeyActionsMenu
 														keyId={key.id}
 														hasUpdateAccess={hasUpdateProviderAccess}
 														hasDeleteAccess={hasDeleteProviderAccess}
-														showRetryDiscover={key.status === "list_models_failed"}
 														onEdit={(keyId) => setShowAddNewKeyDialog({ show: true, keyId })}
 														onDelete={(keyId) => setShowDeleteKeyDialog({ show: true, keyId })}
 														onRetryDiscover={handleRetryDiscover}

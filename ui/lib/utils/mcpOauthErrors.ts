@@ -4,12 +4,15 @@
  * surface next steps instead of raw Go / JSON toasts.
  */
 
-export function mcpOAuthRedirectUri(baseUrl: string): string {
+export function mcpOAuthRedirectUri(baseUrl?: string): string {
 	const base = (baseUrl || "").replace(/\/+$/, "");
-	if (!base || base.startsWith("<")) {
-		return "<YOUR_UNIFAI_URL>/api/oauth/callback";
+	if (base && !base.startsWith("<")) {
+		return `${base}/api/oauth/callback`;
 	}
-	return `${base}/api/oauth/callback`;
+	if (typeof window !== "undefined" && window.location.origin) {
+		return `${window.location.origin.replace(/\/+$/, "")}/api/oauth/callback`;
+	}
+	return "<YOUR_UNIFAI_URL>/api/oauth/callback";
 }
 
 /** Providers that commonly reject open Dynamic Client Registration for hosted UnifAI. */
@@ -36,7 +39,20 @@ export function oauthLikelyNeedsPreRegisteredClient(connectionUrl?: string, serv
 		hay.includes("chronograph") ||
 		hay.includes("localfalcon") ||
 		hay.includes("local falcon") ||
-		hay.includes("signnow")
+		hay.includes("signnow") ||
+		hay.includes("linear") ||
+		hay.includes("neon") ||
+		hay.includes("apollo") ||
+		hay.includes("airops") ||
+		hay.includes("miro") ||
+		hay.includes("figma") ||
+		hay.includes("gitlab") ||
+		hay.includes("jira") ||
+		hay.includes("confluence") ||
+		hay.includes("zendesk") ||
+		hay.includes("airtable") ||
+		hay.includes("sentry") ||
+		hay.includes("datadog")
 	);
 }
 

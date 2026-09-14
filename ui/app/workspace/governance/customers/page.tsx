@@ -84,7 +84,7 @@ export default function GovernanceCustomersPage() {
 		}
 	}, [vkError, teamsError, customersError]);
 
-	if (isLoading) {
+	if (isLoading && !customersData) {
 		return <FullPageLoader />;
 	}
 

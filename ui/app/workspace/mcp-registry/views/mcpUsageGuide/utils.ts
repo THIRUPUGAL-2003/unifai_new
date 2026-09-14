@@ -18,7 +18,8 @@ const DEFAULT_UNIFAI_PORT = "8081";
  *  3. A placeholder the user must replace by hand.
  */
 export function getExternalBaseUrl(clientConfig?: CoreConfig): string {
-	const configuredURL = clientConfig?.mcp_external_client_url?.value?.trim();
+	const raw = clientConfig?.mcp_external_client_url;
+	const configuredURL = (typeof raw === "string" ? raw : (raw as { value?: string } | undefined)?.value)?.trim();
 	if (configuredURL && /^https?:\/\//i.test(configuredURL)) {
 		return configuredURL.replace(/\/+$/, "");
 	}
