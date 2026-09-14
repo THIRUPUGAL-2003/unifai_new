@@ -106,8 +106,6 @@ import {
 	useDeleteBrowserAiTargetMutation,
 	useGetBrowserAiAgentsQuery,
 	useGetBrowserAiAgentSettingsQuery,
-	useGetBrowserAiFleetConfigQuery,
-	useSaveBrowserAiFleetConfigMutation,
 	useSaveBrowserAiUninstallKeyMutation,
 	useBulkDeleteBrowserAiAgentsMutation,
 	BrowserAILogEntry,
@@ -332,35 +330,7 @@ export default function BrowserAiPage() {
 	const clicksSearchCount = searchLogsData?.clicks_count || 0;
 
 	const { data: agentSettingsData, refetch: refetchAgentSettings } = useGetBrowserAiAgentSettingsQuery();
-	const { data: fleetConfigData, refetch: refetchFleetConfig } = useGetBrowserAiFleetConfigQuery();
 	const [saveUninstallKey, { isLoading: savingUninstallKey }] = useSaveBrowserAiUninstallKeyMutation();
-	const [saveFleetConfig, { isLoading: savingFleetConfig }] = useSaveBrowserAiFleetConfigMutation();
-	const [fleetDraft, setFleetDraft] = useState({
-		default_proxy_addr: "127.0.0.1:8085",
-		pac_advertise_addr: "127.0.0.1:8085",
-		pac_sync_seconds: 3,
-		agent_type_default: "endpoint",
-		listen_host_policy: "127.0.0.1",
-		server_mode_policy: "endpoint_default",
-		backend_url_hint: "",
-		notes: "",
-	});
-	const [fleetSaveError, setFleetSaveError] = useState("");
-	const [fleetSaveOk, setFleetSaveOk] = useState(false);
-	useEffect(() => {
-		const f = fleetConfigData?.fleet_config;
-		if (!f) return;
-		setFleetDraft({
-			default_proxy_addr: f.default_proxy_addr || "127.0.0.1:8085",
-			pac_advertise_addr: f.pac_advertise_addr || f.default_proxy_addr || "127.0.0.1:8085",
-			pac_sync_seconds: f.pac_sync_seconds || 3,
-			agent_type_default: f.agent_type_default || "endpoint",
-			listen_host_policy: f.listen_host_policy || "127.0.0.1",
-			server_mode_policy: f.server_mode_policy || "endpoint_default",
-			backend_url_hint: f.backend_url_hint || "",
-			notes: f.notes || "",
-		});
-	}, [fleetConfigData]);
 
 	const controls: BrowserControlSettings = controlsData?.controls || {
 		id: "browser-controls-default",
@@ -2036,90 +2006,125 @@ export default function BrowserAiPage() {
 								<div className="space-y-1">
 									<div className="flex flex-wrap items-center gap-2">
 										<CardTitle className="text-lg">File upload policy</CardTitle>
-										<Badge
-											variant="outline"
-											className={
-												controls.enabled
-													? "border-emerald-700/70 bg-emerald-950/40 text-emerald-400"
-													: "border-border text-muted-foreground"
-											}
-										>
-											{controls.enabled ? "Active" : "Paused"}
-										</Badge>
+										{controls.enabled && controls.block_upload ? (
+											<Badge
+												variant="outline"
+												className="border-rose-700/70 bg-rose-950/40 text-rose-400"
+											>
+												Block all uploads
+											</Badge>
+										) : controls.enabled && !controls.block_upload ? (
+											<Badge
+												variant="outline"
+												className="border-emerald-700/70 bg-emerald-950/40 text-emerald-400"
+											>
+												Rules-based DLP
+											</Badge>
+										) : (
+											<Badge variant="outline" className="border-border text-muted-foreground">
+												Paused
+											</Badge>
+										)}
 									</div>
 									<CardDescription>
-										Control uploads on monitored AI sites. Each Guard Rule below has its own Active/Disabled toggle — off skips that pattern in prompts and inside uploaded files (PDF/text).
+										Choose how file attachments are controlled on monitored AI sites. Select whether to block all files or enforce rules-based DLP inspection.
 									</CardDescription>
 								</div>
 							</div>
 						</CardHeader>
 						<CardContent className="pt-0">
 							<div className="overflow-hidden rounded-lg border border-border divide-y divide-border">
-								{/* Master */}
-								<div className="flex items-center justify-between gap-4 bg-background/50 px-4 py-3.5">
-									<div className="min-w-0 flex items-start gap-3">
-										<div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-border bg-card">
-											<SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
-										</div>
-										<div className="min-w-0">
-											<p className="text-sm font-medium">Upload controls</p>
-											<p className="text-xs text-muted-foreground mt-0.5">
-												Turn off to pause all upload enforcement on employee browsers.
-											</p>
-										</div>
-									</div>
-									<Switch
-										checked={!!controls.enabled}
-										onCheckedChange={(val) => patchControl({ enabled: val })}
-										aria-label="Enable upload controls"
-									/>
-								</div>
-
-								{/* Block every file */}
+								{/* Option 1: Block all uploads */}
 								<div
-									className={`flex items-center justify-between gap-4 px-4 py-3.5 transition-opacity ${
-										controls.enabled ? "bg-card" : "bg-muted/20 opacity-60"
+									className={`flex items-center justify-between gap-4 px-4 py-3.5 transition-colors ${
+										controls.enabled && controls.block_upload ? "bg-rose-950/20" : "bg-card"
 									}`}
 								>
 									<div className="min-w-0 flex items-start gap-3">
 										<div
 											className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
 												controls.enabled && controls.block_upload
-													? "border-rose-800/50 bg-rose-950/30"
-													: "border-border bg-background"
+													? "border-rose-800/60 bg-rose-950/50 text-rose-400"
+													: "border-border bg-background text-muted-foreground"
 											}`}
 										>
-											<Upload
-												className={`h-4 w-4 ${
-													controls.enabled && controls.block_upload ? "text-rose-400" : "text-muted-foreground"
-												}`}
-											/>
+											<Upload className="h-4 w-4" />
 										</div>
-										<div className="min-w-0 space-y-1.5">
+										<div className="min-w-0 space-y-1">
 											<div className="flex flex-wrap items-center gap-2">
-												<p className="text-sm font-medium">Block all uploads</p>
+												<p className="text-sm font-semibold">Block all uploads</p>
 												{controls.enabled && controls.block_upload ? (
-													<Badge className="bg-rose-950/70 text-rose-300 border-rose-800/60 text-[10px] px-1.5 py-0">
-														Blocking
+													<Badge className="bg-rose-950/80 text-rose-300 border-rose-800/70 text-[10px] px-2 py-0.5">
+														Active: All files blocked
 													</Badge>
 												) : (
-													<Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
-														Allow clean files
+													<Badge variant="outline" className="text-[10px] px-2 py-0.5 text-muted-foreground">
+														Disabled
 													</Badge>
 												)}
 											</div>
 											<p className="text-xs text-muted-foreground leading-relaxed">
-												{controls.block_upload
-													? "Every file/attachment to AI chats is blocked."
-													: "Clean files are allowed. Files that match Guard Rules inside PDF/text are still blocked."}
+												Every file or attachment uploaded to AI chats is completely blocked, regardless of file content.
 											</p>
 										</div>
 									</div>
 									<Switch
-										checked={!!controls.block_upload}
-										disabled={!controls.enabled}
-										onCheckedChange={(val) => patchControl({ block_upload: val })}
+										checked={!!(controls.enabled && controls.block_upload)}
+										onCheckedChange={(val) => {
+											if (val) {
+												patchControl({ enabled: true, block_upload: true });
+											} else {
+												patchControl({ enabled: false, block_upload: false });
+											}
+										}}
 										aria-label="Block all uploads"
+									/>
+								</div>
+
+								{/* Option 2: Rules-based upload block */}
+								<div
+									className={`flex items-center justify-between gap-4 px-4 py-3.5 transition-colors ${
+										controls.enabled && !controls.block_upload ? "bg-emerald-950/20" : "bg-card"
+									}`}
+								>
+									<div className="min-w-0 flex items-start gap-3">
+										<div
+											className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md border ${
+												controls.enabled && !controls.block_upload
+													? "border-emerald-800/60 bg-emerald-950/50 text-emerald-400"
+													: "border-border bg-background text-muted-foreground"
+											}`}
+										>
+											<ShieldCheck className="h-4 w-4" />
+										</div>
+										<div className="min-w-0 space-y-1">
+											<div className="flex flex-wrap items-center gap-2">
+												<p className="text-sm font-semibold">Rules-based upload block</p>
+												{controls.enabled && !controls.block_upload ? (
+													<Badge className="bg-emerald-950/80 text-emerald-300 border-emerald-800/70 text-[10px] px-2 py-0.5">
+														Active: Guard Rules DLP
+													</Badge>
+												) : (
+													<Badge variant="outline" className="text-[10px] px-2 py-0.5 text-muted-foreground">
+														Disabled
+													</Badge>
+												)}
+											</div>
+											<p className="text-xs text-muted-foreground leading-relaxed">
+												Allow clean files. Inspect uploaded files (PDF, Word, Excel, text, OCR) against active Guard Rules and block or redact only policy violations.
+											</p>
+										</div>
+									</div>
+									<Switch
+										checked={!!(controls.enabled && !controls.block_upload)}
+										onCheckedChange={(val) => {
+											if (val) {
+												patchControl({ enabled: true, block_upload: false });
+											} else {
+												patchControl({ enabled: false, block_upload: false });
+											}
+										}}
+										aria-label="Rules-based upload block"
 									/>
 								</div>
 
@@ -3269,84 +3274,6 @@ export default function BrowserAiPage() {
 
 				{/* TAB 5: GUARD AGENTS */}
 				<TabsContent value="agents" className="space-y-6">
-					<Card className="bg-card border-border">
-						<CardHeader>
-							<CardTitle className="text-lg">Fleet defaults (Postgres)</CardTitle>
-							<CardDescription>
-								Stored in the same company DB. Laptop and network Guard pull these on heartbeat — one dashboard, shared defaults.
-							</CardDescription>
-						</CardHeader>
-						<CardContent className="grid gap-3 sm:grid-cols-2">
-							<div className="space-y-1">
-								<label className="text-xs text-muted-foreground">Default proxy addr</label>
-								<Input
-									value={fleetDraft.default_proxy_addr}
-									onChange={(e) => setFleetDraft((d) => ({ ...d, default_proxy_addr: e.target.value }))}
-								/>
-							</div>
-							<div className="space-y-1">
-								<label className="text-xs text-muted-foreground">PAC advertise addr</label>
-								<Input
-									value={fleetDraft.pac_advertise_addr}
-									onChange={(e) => setFleetDraft((d) => ({ ...d, pac_advertise_addr: e.target.value }))}
-								/>
-							</div>
-							<div className="space-y-1">
-								<label className="text-xs text-muted-foreground">PAC sync seconds</label>
-								<Input
-									type="number"
-									value={fleetDraft.pac_sync_seconds}
-									onChange={(e) =>
-										setFleetDraft((d) => ({ ...d, pac_sync_seconds: Number(e.target.value) || 3 }))
-									}
-								/>
-							</div>
-							<div className="space-y-1">
-								<label className="text-xs text-muted-foreground">Default agent type</label>
-								<Select
-									value={fleetDraft.agent_type_default}
-									onValueChange={(v) => setFleetDraft((d) => ({ ...d, agent_type_default: v }))}
-								>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value="endpoint">endpoint (laptop)</SelectItem>
-										<SelectItem value="network">network (server)</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
-							<div className="space-y-1 sm:col-span-2">
-								<label className="text-xs text-muted-foreground">Notes</label>
-								<Input
-									value={fleetDraft.notes}
-									onChange={(e) => setFleetDraft((d) => ({ ...d, notes: e.target.value }))}
-									placeholder="Optional IT notes"
-								/>
-							</div>
-							<div className="sm:col-span-2 flex flex-col gap-2 sm:flex-row sm:items-center">
-								<Button
-									disabled={savingFleetConfig}
-									onClick={async () => {
-										setFleetSaveError("");
-										setFleetSaveOk(false);
-										try {
-											await saveFleetConfig(fleetDraft).unwrap();
-											setFleetSaveOk(true);
-											refetchFleetConfig();
-										} catch (err) {
-											setFleetSaveError(err instanceof Error ? err.message : "Failed to save fleet config");
-										}
-									}}
-								>
-									{savingFleetConfig ? "Saving…" : "Save fleet defaults"}
-								</Button>
-								{fleetSaveOk ? <p className="text-xs text-emerald-500">Saved to Postgres.</p> : null}
-								{fleetSaveError ? <p className="text-xs text-destructive">{fleetSaveError}</p> : null}
-							</div>
-						</CardContent>
-					</Card>
-
 					<div className="flex flex-col sm:flex-row gap-3">
 						<div className="relative flex-1 max-w-md">
 							<Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
