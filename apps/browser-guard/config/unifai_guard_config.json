@@ -1,10 +1,10 @@
 {
-  "backend_url": "",
+  "backend_url": "https://unifaiv2.dev-yp.com",
   "proxy_addr": "127.0.0.1:8085",
   "pac_sync_seconds": 3,
   "server_mode": false,
   "agent_type": "endpoint",
   "listen_host": "127.0.0.1",
   "pac_advertise_addr": "",
-  "_comment": "Source template \u2014 run sync_config_from_env.py before packaging (fills from .env)"
+  "_comment": "Generated from .env \u2014 run sync_config_from_env.py after changing SERVER_DOMAIN"
 }

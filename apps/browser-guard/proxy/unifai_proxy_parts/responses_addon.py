@@ -377,7 +377,6 @@ class BrowserAIInterceptor:
                         "/msnicons",
                     )
                 ) or path_l in ("/th", "/homepage", "/hp"):
-                ):
                     if not (path_l.startswith("/ck/") or "alink.aspx" in path_l or path_l.startswith("/aclick")):
                         return
 

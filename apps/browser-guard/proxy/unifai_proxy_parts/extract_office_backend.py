@@ -1004,8 +1004,12 @@ def extract_batchexecute_prompt(content: str) -> str:
         # Hex hashes with letters — not digit-only user input
         if " " not in s and re.fullmatch(r"[0-9a-fA-F]{10,64}", s) and re.search(r"[a-fA-F]", s):
             return False
-        # Reject tokens starting with c_, r_, v_, rc_, f_, z_, or bare _session ids
-        if s.startswith(("c_", "r_", "v_", "rc_", "f_", "z_", "req0_", "_")):
+        # Reject tokens starting with c_, r_, v_, rc_, f_, z_, A0vx, %., or bare _session ids
+        if s.startswith(("c_", "r_", "v_", "rc_", "f_", "z_", "req0_", "_", "A0vx", "%.")):
+            return False
+        if re.search(r":[0-9]{10,16}$", s) and len(s) >= 20:
+            return False
+        if "[null,[[" in s:
             return False
         low = s.lower()
         if any(bad in low for bad in (

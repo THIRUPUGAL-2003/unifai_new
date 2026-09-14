@@ -45,22 +45,16 @@ def main() -> int:
 		"pac_advertise_addr": "",
 		"_comment": "Generated from .env — run sync_config_from_env.py after changing SERVER_DOMAIN",
 	}
-	template = dict(cfg)
-	template["backend_url"] = ""
-	template["_comment"] = "Source template — run sync_config_from_env.py before packaging (fills from .env)"
-
-	(GUARD / "config" / "unifai_guard_config.json").write_text(json.dumps(template, indent=2) + "\n", encoding="utf-8")
-	print(f"Wrote template apps/browser-guard/config/unifai_guard_config.json (backend_url empty)")
-
 	raw = json.dumps(cfg, indent=2) + "\n"
 	targets = [
+		GUARD / "config" / "unifai_guard_config.json",
 		GUARD / "release" / "unifai_guard_config.json",
 		GUARD / "installer" / "staging" / "unifai_guard_config.json",
 	]
 	for t in targets:
 		t.parent.mkdir(parents=True, exist_ok=True)
 		t.write_text(raw, encoding="utf-8")
-		print(f"Wrote {t.relative_to(ROOT)}")
+		print(f"Wrote {t.name}")
 
 	# Employee README: keep installer templates generic; fill staging/release only.
 	placeholder_line = "Company server: (set SERVER_DOMAIN in .env — run sync_config_from_env.py)\n"

@@ -1118,9 +1118,9 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
 def is_batchexecute_chat_submit(path: str, body: str = "") -> bool:
     """True only for the HTTP call that carries the user's typed Gemini prompt.
 
-    StreamGenerate / GenerateContent / BardFrontendService / BardChatUi batchexecute.
-    Plain telemetry / history batchexecute without a chat RPC is rejected — injecting
-    a fake wrb.fr into those calls leaves the Gemini sidebar spinning forever.
+    StreamGenerate / GenerateContent / BardFrontendService / chat batchexecute.
+    Plain telemetry / history / session batchexecute without a chat RPC is rejected — injecting
+    a fake wrb.fr into those calls leaves the Gemini sidebar spinning forever or breaks session init.
     """
     path_l = (path or "").lower()
     compact = path_l.replace("_", "")
@@ -1128,10 +1128,8 @@ def is_batchexecute_chat_submit(path: str, body: str = "") -> bool:
         return True
     if "bardfrontendservice" in path_l:
         return True
-    # clients6.google.com /_/BardChatUi/data/batchexecute (RPC ids rotate often)
-    if "bardchatu" in compact or "bardchatui" in path_l:
-        if "batchexecute" in path_l or "streamgenerate" in compact:
-            return True
+    # For batchexecute: only return True if body carries chat submit RPCs or StreamGenerate.
+    # Never return True blindly for BardChatUi/data/batchexecute, as background settings/tokens share that path.
     if "batchexecute" in path_l and body:
         if any(rpc in body for rpc in GEMINI_CHAT_RPCS) or "StreamGenerate" in body:
             return True
@@ -1146,6 +1144,9 @@ def _is_google_wire_blob(text: str) -> bool:
         return False
     if t.startswith('[[["') or t.startswith("[[[") or t.startswith("[[null,") or "f.req=" in t:
         return True
+    # Batchexecute envelope or protobuf fragments like "%.@[null,[[45700889..." or "%.w [[null..."
+    if t.startswith("%.") or re.match(r"^%[.\w@\s]+\[", t) or "[null,[[" in t:
+        return True
     if any(rpc in t for rpc in ("xyhAld", "umJEY", "k06x8e", "wrb.fr", "batchexecute", "ESY5D", "VxUbXb", "aPya6c", "GmailHttp")):
         return True
     if t.startswith("gAAAA") or '"p":"gAAAA' in t:
@@ -1153,10 +1154,15 @@ def _is_google_wire_blob(text: str) -> bool:
     # CAMShQ8... / CAES... protobuf-ish conversation blobs
     if re.match(r"^CA[A-Z][A-Za-z0-9_-]{10,}", t):
         return True
+    # Google session / turn tokens with timestamp suffix (e.g. A0vx8iI815...G0e10zcp62aMYe68M:1789321107232)
+    if re.search(r":[0-9]{10,16}$", t) and len(t) >= 20:
+        return True
+    if t.startswith("A0vx") or re.match(r"^A0vx[A-Za-z0-9_-]+", t):
+        return True
     if " " in t or "\n" in t:
         return False
     # Opaque tokens with punctuation (session ids), not Hello123 / passwords
-    if re.search(r"[)(\]\[{}|;]", t) and len(t) >= 8:
+    if re.search(r"[)(\]\[{}|;:]", t) and len(t) >= 8:
         return True
     # Long mixed-case alnum session ids only (keep short typed tokens like Hello123)
     if len(t) >= 16 and re.fullmatch(r"[A-Za-z0-9_-]+", t):
