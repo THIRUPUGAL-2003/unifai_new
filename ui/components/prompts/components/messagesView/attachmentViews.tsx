@@ -138,6 +138,26 @@ export function AttachmentDisplay({
 					);
 				}
 
+				if (att.type === "text") {
+					return (
+						<div
+							key={i}
+							className="group/att bg-muted/30 text-muted-foreground relative flex max-w-full items-center gap-2 rounded-sm border px-3 py-1.5 text-sm"
+						>
+							<FileIcon className="size-3 shrink-0" />
+							<span className="min-w-0 truncate">{getAttachmentDisplayName(att)}</span>
+							{editable && onRemoveAttachment && (
+								<button
+									onClick={() => onRemoveAttachment(i)}
+									className="bg-background/80 text-muted-foreground hover:bg-card hover:text-destructive absolute -top-1.5 -right-1.5 rounded-full border p-0.5 opacity-0 transition-opacity group-hover/att:opacity-100"
+								>
+									<XIcon className="size-3" />
+								</button>
+							)}
+						</div>
+					);
+				}
+
 				return null;
 			})}
 		</div>

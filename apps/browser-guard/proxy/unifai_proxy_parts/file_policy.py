@@ -403,6 +403,14 @@ def enforce_file_send_policy(
             if is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
                 continue
             print(f"[UnifAI Proxy] FILE SEND BLOCKED | {client_ip} → {host} | {row['file_label']} | multi={n_files}")
+            row_text = (row.get("scanned") or "").strip()
+            row_imgs = row.get("upload_images") or []
+            row_scan_guard = dict(scan_guard)
+            if row.get("local_hit"):
+                row_scan_guard["scan_rule_triggered"] = row.get("local_name") or rule_name
+                row_scan_guard["scan_guard_action"] = "Blocked"
+            elif not block_all and n_files > 1:
+                row_scan_guard["batch_blocked_reason"] = rule_name
             ok = post_upload_intercept(
                 platform=platform,
                 prompt=prompt_log,
@@ -415,9 +423,9 @@ def enforce_file_send_policy(
                 blocked_reason=blocked_reason,
                 raw_bytes=row["cached_bytes"],
                 content_type=row["cached_ct"],
-                extracted_text=combined_text or row["scanned"],
-                upload_images=all_images if idx == 0 else row["upload_images"],
-                scan_guard=scan_guard,
+                extracted_text=row_text or (caption if idx == 0 else ""),
+                upload_images=row_imgs,
+                scan_guard=row_scan_guard,
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
@@ -433,6 +441,12 @@ def enforce_file_send_policy(
             if is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
                 continue
             print(f"[UnifAI Proxy] FILE SEND REDACTED | {client_ip} → {host} | {row['file_label']} | multi={n_files}")
+            row_text = (row.get("scanned") or "").strip()
+            row_imgs = row.get("upload_images") or []
+            row_scan_guard = dict(scan_guard)
+            if row.get("local_hit"):
+                row_scan_guard["scan_rule_triggered"] = row.get("local_name") or rule_name
+                row_scan_guard["scan_guard_action"] = "Redacted"
             ok = post_upload_intercept(
                 platform=platform,
                 prompt=prompt_log,
@@ -444,9 +458,9 @@ def enforce_file_send_policy(
                 is_blocked=False,
                 raw_bytes=row["cached_bytes"],
                 content_type=row["cached_ct"],
-                extracted_text=combined_text or row["scanned"],
-                upload_images=all_images if idx == 0 else row["upload_images"],
-                scan_guard=scan_guard,
+                extracted_text=row_text or (caption if idx == 0 else ""),
+                upload_images=row_imgs,
+                scan_guard=row_scan_guard,
             )
             if ok:
                 mark_duplicate_event(domain, dedupe_key)
@@ -463,6 +477,9 @@ def enforce_file_send_policy(
         if is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
             continue
         print(f"[UnifAI Proxy] FILE SEND ALLOWED | {client_ip} → {host} | {prompt_log}")
+        row_text = (row.get("scanned") or "").strip()
+        row_imgs = row.get("upload_images") or []
+        row_scan_guard = dict(scan_guard)
         ok = post_upload_intercept(
             platform=platform,
             prompt=prompt_log,
@@ -474,9 +491,9 @@ def enforce_file_send_policy(
             is_blocked=False,
             raw_bytes=row["cached_bytes"],
             content_type=row["cached_ct"],
-            extracted_text=combined_text or row["scanned"],
-            upload_images=all_images if idx == 0 else row["upload_images"],
-            scan_guard=scan_guard,
+            extracted_text=row_text or (caption if idx == 0 else ""),
+            upload_images=row_imgs,
+            scan_guard=row_scan_guard,
         )
         if ok:
             mark_duplicate_event(domain, dedupe_key)
