@@ -3,6 +3,9 @@ services:
   # Both report to the same Browser AI dashboard (Prompt Logs + Agents + shared rules).
   # Secrets and environment-specific hosts MUST come from .env — no hardcoded fallbacks.
   zen_gauss_v1:
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile.local
     image: unifai-local:latest
     container_name: zen_gauss_v1
     env_file:
