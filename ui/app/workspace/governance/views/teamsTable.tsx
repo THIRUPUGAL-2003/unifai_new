@@ -209,7 +209,7 @@ export default function TeamsTable({
 	const hasActiveFilters = debouncedSearch;
 
 	// True empty state: no teams at all (not just filtered to zero)
-	if (totalCount === 0 && !hasActiveFilters && !isLoading) {
+	if (totalCount === 0 && !hasActiveFilters) {
 		return (
 			<>
 				<TooltipProvider>

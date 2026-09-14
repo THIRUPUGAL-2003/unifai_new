@@ -188,7 +188,7 @@ export default function CustomersTable({
 	const hasActiveFilters = debouncedSearch;
 
 	// True empty state: no customers at all (not just filtered to zero)
-	if (totalCount === 0 && !hasActiveFilters && !isFetching) {
+	if (totalCount === 0 && !hasActiveFilters) {
 		return (
 			<>
 				<TooltipProvider>

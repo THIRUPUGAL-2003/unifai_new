@@ -594,7 +594,7 @@ export default function VirtualKeysTable({
 	};
 
 	// True empty state: no VKs at all (not just filtered to zero)
-	if (totalCount === 0 && !hasActiveFilters && !isFetching) {
+	if (totalCount === 0 && !hasActiveFilters) {
 		return (
 			<>
 				{showVirtualKeySheet && (
