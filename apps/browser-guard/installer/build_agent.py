@@ -56,7 +56,7 @@ def build_macos() -> Path:
     release_app = RELEASE / "UnifAI_Guard.app"
     if release_app.exists():
         shutil.rmtree(release_app)
-    shutil.copytree(app, release_app)
+    shutil.copytree(app, release_app, symlinks=True)
     return release_app
 
 

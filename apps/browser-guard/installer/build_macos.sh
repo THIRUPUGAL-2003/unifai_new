@@ -141,26 +141,40 @@ if [[ ! -d "$APP_REL" ]]; then
   echo "ERROR: $APP_REL missing after build"
   exit 1
 fi
+if [[ -f "$APP_REL/Contents/MacOS/UnifAI_Guard" ]]; then
+  chmod +x "$APP_REL/Contents/MacOS/UnifAI_Guard"
+fi
 
 echo ""
-echo "2) Stage macOS employee package"
+echo "2) Sync config from .env / existing config"
+"$PYTHON" scripts/sync_config_from_env.py || true
+
+echo ""
+echo "3) Stage macOS employee package"
 STAGE="installer/staging-mac"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 cp -R "$APP_REL" "$STAGE/UnifAI_Guard.app"
 cp config/unifai_guard_config.json "$STAGE/unifai_guard_config.json"
-cp installer/EMPLOYEE_README_MAC.txt "$STAGE/EMPLOYEE_README_MAC.txt"
+if [[ -f release/EMPLOYEE_README_MAC.txt ]]; then
+  cp release/EMPLOYEE_README_MAC.txt "$STAGE/EMPLOYEE_README_MAC.txt"
+else
+  cp installer/EMPLOYEE_README_MAC.txt "$STAGE/EMPLOYEE_README_MAC.txt"
+fi
 cp release/INSTALL_MACOS.txt "$STAGE/INSTALL_MACOS.txt"
 cp release/UNINSTALL_MACOS.txt "$STAGE/UNINSTALL_MACOS.txt"
 cp installer/Install_UnifAI_Guard.command "$STAGE/Install_UnifAI_Guard.command"
 cp installer/Uninstall_UnifAI_Guard.command "$STAGE/Uninstall_UnifAI_Guard.command"
 chmod +x "$STAGE/Install_UnifAI_Guard.command" "$STAGE/Uninstall_UnifAI_Guard.command"
+if [[ -f "$STAGE/UnifAI_Guard.app/Contents/MacOS/UnifAI_Guard" ]]; then
+  chmod +x "$STAGE/UnifAI_Guard.app/Contents/MacOS/UnifAI_Guard"
+fi
 
 mkdir -p "$STAGE/UnifAI_Guard.app/Contents/Resources"
 cp config/unifai_guard_config.json "$STAGE/UnifAI_Guard.app/Contents/Resources/unifai_guard_config.json"
 
 echo ""
-echo "3) ZIP for Download Setup package"
+echo "4) ZIP for Download Setup package"
 mkdir -p release
 ZIP_OUT="$ROOT/release/UnifAI_Guard_macOS.zip"
 rm -f "$ZIP_OUT"
@@ -181,7 +195,6 @@ rm -f release/MAC_ZIP_STALE.txt
 
 cp -f installer/Install_UnifAI_Guard.command release/Install_UnifAI_Guard.command
 cp -f installer/Uninstall_UnifAI_Guard.command release/Uninstall_UnifAI_Guard.command
-cp -f installer/EMPLOYEE_README_MAC.txt release/EMPLOYEE_README_MAC.txt
 chmod +x release/Install_UnifAI_Guard.command release/Uninstall_UnifAI_Guard.command
 
 echo ""

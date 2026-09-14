@@ -32,7 +32,16 @@ def main() -> int:
 	env = load_env(ROOT / ".env")
 	backend = (env.get("UNIFAI_BACKEND_URL") or env.get("SERVER_DOMAIN") or "").rstrip("/")
 	if not backend:
-		print("ERROR: set SERVER_DOMAIN or UNIFAI_BACKEND_URL in .env", file=sys.stderr)
+		import os
+		backend = (os.environ.get("UNIFAI_BACKEND_URL") or os.environ.get("SERVER_DOMAIN") or "").rstrip("/")
+	if not backend and (GUARD / "config" / "unifai_guard_config.json").is_file():
+		try:
+			existing_cfg = json.loads((GUARD / "config" / "unifai_guard_config.json").read_text(encoding="utf-8"))
+			backend = (existing_cfg.get("backend_url") or "").rstrip("/")
+		except Exception:
+			pass
+	if not backend:
+		print("ERROR: set SERVER_DOMAIN or UNIFAI_BACKEND_URL in .env or environment", file=sys.stderr)
 		return 1
 
 	cfg = {
@@ -50,6 +59,7 @@ def main() -> int:
 		GUARD / "config" / "unifai_guard_config.json",
 		GUARD / "release" / "unifai_guard_config.json",
 		GUARD / "installer" / "staging" / "unifai_guard_config.json",
+		GUARD / "installer" / "staging-mac" / "unifai_guard_config.json",
 	]
 	for t in targets:
 		t.parent.mkdir(parents=True, exist_ok=True)
@@ -78,7 +88,7 @@ def main() -> int:
 			src.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
 
 		filled = f"Company server: {backend}\n(If IT gave you a different backend URL, use the config in this ZIP.)\n"
-		for base in (GUARD / "release", GUARD / "installer" / "staging"):
+		for base in (GUARD / "release", GUARD / "installer" / "staging", GUARD / "installer" / "staging-mac"):
 			p = base / name
 			if not p.is_file() and src.is_file():
 				# seed from installer template then replace
