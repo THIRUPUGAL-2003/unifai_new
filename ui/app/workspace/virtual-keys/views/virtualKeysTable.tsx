@@ -223,7 +223,7 @@ function VKActionsMenu({
 						data-testid={`vk-copy-snippet-btn-${vk.name}`}
 						onSelect={(e) => {
 							e.preventDefault();
-							const origin = typeof window !== "undefined" && window.location.origin ? window.location.origin.replace(/\/+$/, "") : "https://unifaiv2.dev-yp.com";
+							const origin = typeof window !== "undefined" && window.location.origin ? window.location.origin.replace(/\/+$/, "") : "<YOUR_UNIFAI_URL>";
 							const snippet = `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${origin}/v1",\n    api_key="${vk.value}"\n)\n\nresponse = client.chat.completions.create(\n    model="mistral/mistral-tiny",\n    messages=[{"role": "user", "content": "Hello UniFAI!"}]\n)\nprint(response.choices[0].message.content)`;
 							void copyToClipboard(snippet);
 							toast.success("Python integration snippet copied to clipboard");
@@ -916,7 +916,7 @@ export default function VirtualKeysTable({
 																	variant="ghost"
 																	size="sm"
 																	onClick={() => {
-																		const origin = typeof window !== "undefined" && window.location.origin ? window.location.origin.replace(/\/+$/, "") : "https://unifaiv2.dev-yp.com";
+																		const origin = typeof window !== "undefined" && window.location.origin ? window.location.origin.replace(/\/+$/, "") : "<YOUR_UNIFAI_URL>";
 																		const snippet = `from openai import OpenAI\n\nclient = OpenAI(\n    base_url="${origin}/v1",\n    api_key="${vk.value}"\n)\n\nresponse = client.chat.completions.create(\n    model="mistral/mistral-tiny",\n    messages=[{"role": "user", "content": "Hello UniFAI!"}]\n)\nprint(response.choices[0].message.content)`;
 																		void copyToClipboard(snippet);
 																		toast.success("Python integration snippet copied to clipboard");

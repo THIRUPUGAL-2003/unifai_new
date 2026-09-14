@@ -1040,7 +1040,11 @@ def _file_policy_applies_on_send(
     Not ChatGPT-only: known platform shapes OR attachment markers OR pending upload
     cache for this Target Website family.
     """
-    if _is_typing_or_draft_path(path, raw_text or ""):
+    path_l = (path or "").lower().split("?", 1)[0]
+    if _is_typing_or_draft_path(path_l, raw_text or ""):
+        return False
+    # Pure file-upload URLs must NEVER trigger file policy on send — they are uploads, not Sends!
+    if _path_looks_like_upload(path_l):
         return False
 
     body = raw_text or ""

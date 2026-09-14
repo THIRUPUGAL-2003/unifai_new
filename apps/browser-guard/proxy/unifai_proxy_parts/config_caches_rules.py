@@ -202,6 +202,10 @@ CHAT_PATH_MARKERS = [
     "/inference", "/predict", "/respond", "/reply",
     "/generate_reply", "/generate-reply", "/chat/completions",
     "/v1/responses", "/responses", "/conversation/generate",
+    # Grok / xAI / GraphQL / Modern AI chat endpoints
+    "/app-chat", "/rest/app-chat", "/graphql", "/i/api/graphql",
+    "/api/grok", "/grok/", "/v1/chat/completions", "/v2/chat/completions",
+    "/api/generate", "/api/v1/generate", "/generate_content", "/run_model",
     # Gemini generate APIs (StreamGenerate is the real chat submit).
     # Do NOT list /batchexecute here — history/settings RPCs share that path and
     # must go through is_batchexecute_chat_submit() only.
@@ -1044,12 +1048,14 @@ def _is_messages_conversation_path(path: str) -> bool:
     p = (path or "").lower().split("?", 1)[0]
     if "prepare" in p or "autocomplet" in p or "implicit" in p:
         return False
+    if any(m in p for m in _GENERIC_UPLOAD_PATH_MARKERS) or "/files" in p or "/upload" in p or "/attachments" in p:
+        return False
     return (
         "/conversation" in p
         or "/messages" in p
         or "/chat/completions" in p
-        or "/backend-api/" in p
-        or "/backend-anon/" in p
+        or "/backend-api/conversation" in p
+        or "/backend-anon/conversation" in p
     )
 
 
@@ -1104,11 +1110,15 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
     if _path_has_chat_marker(p):
         return True
 
-    # Custom / unknown AI site: structured user send payload only — not every POST.
-    if body.strip() and body.lstrip().startswith("{"):
+    # Custom / unknown AI site: structured user send payload only (dict or list) — not every POST.
+    if body.strip() and body.lstrip().startswith(("{", "[")):
         try:
             data = json.loads(body)
-            if _body_has_user_send_payload(data):
+            if isinstance(data, dict) and _body_has_user_send_payload(data):
+                return True
+            if isinstance(data, list) and any(
+                isinstance(item, dict) and _body_has_user_send_payload(item) for item in data
+            ):
                 return True
         except Exception:
             pass

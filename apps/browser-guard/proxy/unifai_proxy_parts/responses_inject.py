@@ -163,11 +163,39 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
         .replace("\n", "\\n")
     )
 
+    # Mirror request origin dynamically for valid CORS (Origin: * + Credentials: true causes browser CORS failure / 'Internet Error')
+    req_origin = flow.request.headers.get("Origin", "") or f"https://{flow.request.pretty_host}"
+    req_headers = flow.request.headers.get("Access-Control-Request-Headers", "*")
     common_headers = {
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": req_origin,
         "Access-Control-Allow-Credentials": "true",
+        "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+        "Access-Control-Allow-Headers": req_headers,
         "Cache-Control": "no-cache",
+        "Vary": "Origin",
     }
+
+    # Dedicated upload-endpoint response: return proper JSON error so SPA shows block message instead of network error
+    path_l = (path or "").lower().split("?", 1)[0]
+    if _path_looks_like_upload(path_l) or any(x in path_l for x in ("/files", "/upload", "/attachments")):
+        upload_err_obj = {
+            "error": {
+                "message": msg,
+                "type": "unifai_guard_blocked",
+                "code": "upload_blocked",
+                "rule": rule_triggered,
+            },
+            "detail": msg,
+            "message": msg,
+            "status": "blocked",
+            "blocked": True,
+        }
+        flow.response = http.Response.make(
+            400,
+            json.dumps(upload_err_obj, ensure_ascii=False).encode("utf-8"),
+            {**common_headers, "Content-Type": "application/json; charset=utf-8"},
+        )
+        return
 
     raw_body = (flow.request.content or b"").decode("utf-8", errors="ignore")
 

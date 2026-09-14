@@ -709,55 +709,35 @@ class BrowserAIInterceptor:
         )
         attachment_send = _send_carries_attachment(raw_text)
 
+        path_lower = (path or "").lower().split("?", 1)[0]
+        is_upload_endpoint = _path_looks_like_upload(path_lower)
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
-        if is_upload:
+        if is_upload or is_upload_endpoint:
             fname = extract_filename_from_upload(flow, raw_text)
-            confident = is_confident_file_upload(
-                fname=fname,
-                content_type=content_type,
+            # If Block Upload control is actively enabled by admin:
+            if controls_active("block_upload"):
+                warn = (get_control_settings().get("upload_warning") or "").strip() or "File uploads are blocked by admin policy."
+                make_blocked_response(flow, "Block Upload", host, reply_text=warn)
+                return
+
+            file_ids = _extract_file_ids_from_chat(raw_text)
+            cache_upload_file(
+                domain,
+                file_name=fname or "attachment",
                 raw_bytes=raw_bytes,
-                raw_text=raw_text,
-                upload_reason=upload_reason or "",
-                host=host,
-                path=path,
+                content_type=content_type,
+                upload_reason=upload_reason or "upload_endpoint",
+                file_id=file_ids[0] if file_ids else "",
             )
-            # Upload pick: cache bytes — pure picks wait for Send; combined file+prompt
-            # on the same request must fall through so extract + Guard Rules still run.
-            if confident:
-                file_ids = _extract_file_ids_from_chat(raw_text)
-                cache_upload_file(
-                    domain,
-                    file_name=fname or "attachment",
-                    raw_bytes=raw_bytes,
-                    content_type=content_type,
-                    upload_reason=upload_reason or "",
-                    file_id=file_ids[0] if file_ids else "",
-                )
-                print(
-                    f"[UnifAI Proxy] FILE CACHED (await Send — no log yet) | {domain} | "
-                    f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
-                )
-                combined_send = bool(
-                    has_prompt
-                    or attachment_send
-                    or _is_confident_chat_send(path, raw_text, raw_bytes)
-                    or _send_carries_attachment(raw_text)
-                )
-                if not combined_send:
-                    return
-                print(
-                    f"[UnifAI Proxy] Upload also looks like chat Send — continue extract/rules | {domain}"
-                )
-            # Weak upload signal: do NOT abort — fall through so typed prompt / file Send
-            # on the same request still reaches Prompt Logs + Guard Rules.
-            else:
-                print(
-                    f"[UnifAI Proxy] Ignoring weak upload signal (continue evaluate) | {host} | "
-                    f"reason={upload_reason!r} name={fname!r} bytes={len(raw_bytes)}"
-                )
+            print(
+                f"[UnifAI Proxy] FILE CACHED (await Send — zero predict on upload) | {domain} | "
+                f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
+            )
+            # Pure file upload: stop right here. Never predict or evaluate before the user clicks Send!
+            return
 
         # ── File Send: scan cached bytes; then still apply caption Guard Rules ──
-        # Any admin Target Website — attachment markers OR pending upload cache.
+        # Any admin Target Website — attachment markers OR pending upload cache on confirmed chat submit.
         if _file_policy_applies_on_send(path, raw_text, raw_bytes, domain=domain, host=host):
             blocked, n_processed, caption_consumed = self._file_send_maybe_block(
                 flow, domain, platform, client_ip, raw_text, content_type, path,
@@ -783,29 +763,20 @@ class BrowserAIInterceptor:
                 "falling through to prompt evaluate (upload may have used another host)"
             )
 
-        # ── Domain-add-only intercept: extracted user text → predict ──
-        # Only finished chat Sends (and short captions after file scan). Never every site request.
-        if has_prompt:
-            # Active typing / keystroke drafts (e.g. Grok, Copilot): wait for composer to settle so "h" then "hi" becomes full prompt
-            if len(peek_prompt.strip()) <= 15 or is_composer_typing_draft(domain, peek_prompt):
-                stable = wait_if_composer_unstable(domain, peek_prompt)
-                if stable is None:
-                    return
-                peek_prompt = stable
-
-            self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
-            return
-
         if is_event_sync_noise_content(raw_text):
             return
 
         # Only inspect real chat/prompt endpoints — ignore challenges & analytics
         if not is_chat_path(path, host, raw_text):
-            return
+            # Universal fallback: if universal extractor already found a confirmed user prompt
+            # on an admin target domain, do NOT drop it simply because the path wasn't in a list
+            if not (has_prompt and peek_prompt and len(peek_prompt.strip()) >= 1 and not is_noise(path, raw_text)):
+                return
 
         if not _is_confident_chat_send(path, raw_text, raw_bytes) and not attachment_send:
-            # Telemetry / background RPCs on chat-ish paths — no predict
-            return
+            # Universal fallback: if confirmed user prompt exists, treat as valid send
+            if not (has_prompt and peek_prompt and len(peek_prompt.strip()) >= 1):
+                return
 
         messages_parts_shaped = _looks_like_messages_parts_body(raw_text, raw_bytes)
         if not messages_parts_shaped:

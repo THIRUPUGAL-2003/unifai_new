@@ -425,6 +425,24 @@ def _body_has_user_send_payload(data) -> bool:
         return False
     if str(data.get("command") or "").lower() in ("ping", "pong", "metrics"):
         return False
+
+    # GraphQL stringified or dictionary variables (Grok, Poe, custom AI GraphQL APIs)
+    variables = data.get("variables")
+    if isinstance(variables, str) and variables.strip().startswith("{"):
+        try:
+            variables = json.loads(variables)
+        except Exception:
+            pass
+    if isinstance(variables, dict):
+        if _body_has_user_send_payload(variables):
+            return True
+
+    # Nested operation objects common in modern AIs
+    for nest_key in ("request", "input", "payload", "body", "args", "data", "params"):
+        sub = data.get(nest_key)
+        if isinstance(sub, dict) and _body_has_user_send_payload(sub):
+            return True
+
     msgs = data.get("messages")
     if isinstance(msgs, list):
         for msg in reversed(msgs):
@@ -504,9 +522,11 @@ def _is_confident_chat_send(path: str, raw_text: str, raw_bytes: bytes = b"") ->
     Covers known products AND future admin-added AIs that POST JSON with a
     clear user message / parts[] payload (no product hostname hardcoding).
     """
+    path_l = (path or "").lower().split("?", 1)[0]
+    if _path_looks_like_upload(path_l):
+        return False
     if _is_clear_chat_submit(path, "", raw_text, raw_bytes):
         return True
-    path_l = (path or "").lower()
     body = raw_text or ""
     if _looks_like_messages_parts_body(body, raw_bytes) and (
         _is_messages_conversation_path(path_l) or _path_has_chat_marker(path_l)
@@ -904,7 +924,9 @@ def _path_looks_like_upload(path: str) -> bool:
     p = (path or "").lower().split("?", 1)[0]
     if not p:
         return False
-    return any(m in p for m in _GENERIC_UPLOAD_PATH_MARKERS)
+    if any(m in p for m in _GENERIC_UPLOAD_PATH_MARKERS):
+        return True
+    return any(x in p for x in ("/files", "/upload", "/attachments", "/media/upload", "/convert_document"))
 
 
 def is_unsubmitted_chat_body(path: str, body: str) -> bool:
@@ -1309,7 +1331,17 @@ def _deep_extract_from_json(data, depth: int = 0, max_depth: int = 10) -> str | 
         for key in _UNIVERSAL_PROMPT_KEYS:
             val = data.get(key)
             if isinstance(val, (str, int, float)):
-                sval = str(val)
+                sval = str(val).strip()
+                # If the string value is itself serialized JSON (e.g. GraphQL variables JSON string), unpack it!
+                if sval.startswith(("{", "[")):
+                    try:
+                        unpacked = json.loads(sval)
+                        if isinstance(unpacked, (dict, list)):
+                            got = _deep_extract_from_json(unpacked, depth + 1, max_depth)
+                            if got:
+                                return got
+                    except Exception:
+                        pass
                 # For direct known-key hits: only reject true protocol wire blobs,
                 # NOT language-based filters. Any user text in a named prompt field
                 # must be accepted regardless of length or language.
@@ -1475,8 +1507,13 @@ def _extract_from_graphql(data) -> str | None:
     if not isinstance(data, dict):
         return None
     try:
-        # Check variables dict against all known prompt keys
+        # Check variables dict against all known prompt keys (handles serialized JSON strings too)
         variables = data.get("variables") or data.get("input") or {}
+        if isinstance(variables, str) and variables.strip().startswith("{"):
+            try:
+                variables = json.loads(variables)
+            except Exception:
+                pass
         if isinstance(variables, dict):
             best = None
             best_len = 0

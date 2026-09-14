@@ -31,7 +31,7 @@ export default function VirtualKeyQuickstart({ virtualKey }: VirtualKeyQuickstar
 		if (typeof window !== "undefined" && window.location.origin) {
 			return `${window.location.origin.replace(/\/+$/, "")}/v1`;
 		}
-		return "https://unifaiv2.dev-yp.com/v1";
+		return "<YOUR_UNIFAI_URL>/v1";
 	}, []);
 
 	const keySecret = virtualKey.value || "sk-uf-your-virtual-key";

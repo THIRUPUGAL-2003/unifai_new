@@ -96,8 +96,8 @@ app = BUNDLE(
     info_plist={
         "CFBundleDisplayName": "UnifAI Guard",
         "CFBundleName": "UnifAI Guard",
-        "CFBundleShortVersionString": "1.6.25",
-        "CFBundleVersion": "1.6.25",
+        "CFBundleShortVersionString": "1.1",
+        "CFBundleVersion": "1.1",
         "LSBackgroundOnly": False,
         "NSHighResolutionCapable": True,
     },
