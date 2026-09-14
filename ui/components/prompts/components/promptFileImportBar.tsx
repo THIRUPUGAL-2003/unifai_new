@@ -104,16 +104,30 @@ export function PromptFileImportBar({ disabled, onAttachmentsAdded, className = 
 			return;
 		}
 
+		let stream: MediaStream;
 		try {
-			const stream = await navigator.mediaDevices.getUserMedia({
-				audio: {
-					echoCancellation: true,
-					noiseSuppression: true,
-					autoGainControl: true,
-				},
-			});
+			try {
+				stream = await navigator.mediaDevices.getUserMedia({
+					audio: {
+						echoCancellation: true,
+						noiseSuppression: true,
+						autoGainControl: true,
+					},
+				});
+			} catch (constraintErr) {
+				// If advanced audio constraints failed (common with Conexant / Realtek laptop drivers), fallback to basic audio: true
+				console.warn("Advanced audio constraints rejected by driver, falling back to basic audio: true", constraintErr);
+				stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+			}
 			mediaStreamRef.current = stream;
-			const recorder = new MediaRecorder(stream, { mimeType });
+
+			let recorder: MediaRecorder;
+			try {
+				recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+			} catch (recErr) {
+				console.warn("MediaRecorder with specified mimeType failed, falling back to browser default:", recErr);
+				recorder = new MediaRecorder(stream);
+			}
 			audioChunksRef.current = [];
 
 			recorder.ondataavailable = (event) => {

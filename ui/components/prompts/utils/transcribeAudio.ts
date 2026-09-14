@@ -2,9 +2,12 @@
 
 const DEFAULT_TRANSCRIPTION_MODELS = [
 	"openai/whisper-1",
+	"whisper-1",
+	"groq/whisper-large-v3",
+	"groq/distil-whisper-large-v3-en",
+	"whisper-large-v3",
 	"openai/gpt-4o-mini-transcribe",
 	"openai/gpt-4o-transcribe",
-	"whisper-1",
 ];
 
 function buildAuthHeaders(apiKeyId?: string): Record<string, string> {
