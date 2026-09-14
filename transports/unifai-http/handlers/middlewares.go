@@ -39,7 +39,7 @@ func SecurityHeadersMiddleware() schemas.UnifAIHTTPMiddleware {
 			ctx.Response.Header.Set("X-Content-Type-Options", "nosniff")
 			ctx.Response.Header.Set("Referrer-Policy", "strict-origin-when-cross-origin")
 			ctx.Response.Header.Set("Content-Security-Policy", "frame-ancestors 'none'")
-			ctx.Response.Header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
+			ctx.Response.Header.Set("Permissions-Policy", "camera=(), microphone=(self), geolocation=()")
 			// Only set HSTS when serving over HTTPS (detected via reverse proxy header or direct TLS)
 			if string(ctx.Request.Header.Peek("X-Forwarded-Proto")) == "https" || ctx.IsTLS() {
 				ctx.Response.Header.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
