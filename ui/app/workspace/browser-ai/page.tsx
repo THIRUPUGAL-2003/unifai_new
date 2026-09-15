@@ -1851,14 +1851,14 @@ export default function BrowserAiPage() {
 								<Table className="w-full min-w-[980px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[160px]">Timestamp &amp; Agent</TableHead>
+											<TableHead className="w-[110px]">Time</TableHead>
+											<TableHead className="w-[140px]">Agent</TableHead>
 											<TableHead className="w-[130px]">Search Engine</TableHead>
-											<TableHead className="w-[100px]">Browser</TableHead>
-											<TableHead className="w-[160px]">Privacy Mode</TableHead>
+											<TableHead className="w-[90px]">Browser</TableHead>
+											<TableHead className="w-[150px]">Privacy Mode</TableHead>
 											<TableHead className="w-[auto]">Search Query / Prompt</TableHead>
-											<TableHead className="w-[220px]">Clicked Result Link</TableHead>
-											<TableHead className="w-[150px]">Threat Risk</TableHead>
-											<TableHead className="w-[80px] text-right">Inspect</TableHead>
+											<TableHead className="w-[200px]">Clicked Result Link</TableHead>
+											<TableHead className="w-[140px]">Threat Risk</TableHead>
 										</TableRow>
 									</TableHeader>
 									<TableBody>
@@ -1878,12 +1878,19 @@ export default function BrowserAiPage() {
 											searchLogs.map((log) => {
 												const e = log.engine.toLowerCase();
 												return (
-													<TableRow key={log.id} className="border-border hover:bg-muted/30">
+													<TableRow
+														key={log.id}
+														className="border-border hover:bg-muted/30 cursor-pointer"
+														onClick={() => setSelectedSearchLog(log)}
+													>
+														<TableCell className="font-mono text-xs whitespace-nowrap">
+															{new Date(log.timestamp).toLocaleTimeString()}
+														</TableCell>
 														<TableCell className="font-mono text-xs">
-															<div>{new Date(log.timestamp).toLocaleTimeString()}</div>
-															<div className="text-[10px] text-muted-foreground">
-																{log.agent_hostname || log.client_ip || "Endpoint"}
-															</div>
+															<span className="font-medium text-foreground">{log.agent_hostname || "—"}</span>
+															{log.client_ip && log.client_ip !== log.agent_hostname && (
+																<div className="text-[10px] text-muted-foreground">{log.client_ip}</div>
+															)}
 														</TableCell>
 														<TableCell>
 															{e.includes("google") ? (
@@ -1948,6 +1955,7 @@ export default function BrowserAiPage() {
 																	rel="noopener noreferrer"
 																	className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 hover:underline max-w-[200px] truncate"
 																	title={log.clicked_url}
+																	onClick={(e) => e.stopPropagation()}
 																>
 																	<ExternalLink className="h-3 w-3 shrink-0" />
 																	<span className="truncate">{log.clicked_title || log.clicked_url}</span>
@@ -1977,16 +1985,6 @@ export default function BrowserAiPage() {
 																)}
 																<div className="text-[10px] text-muted-foreground">{log.risk_category || "General"}</div>
 															</div>
-														</TableCell>
-														<TableCell className="text-right">
-															<Button
-																variant="ghost"
-																size="sm"
-																onClick={() => setSelectedSearchLog(log)}
-																className="h-7 text-xs hover:bg-accent"
-															>
-																Inspect
-															</Button>
 														</TableCell>
 													</TableRow>
 												);
