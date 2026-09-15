@@ -196,25 +196,8 @@ export default function GuardrailsConfigurationView() {
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-2xl font-bold tracking-tight">Guardrails Rules</h1>
-					<p className="text-muted-foreground mt-1">
-						Rules run on the <strong>LLM gateway</strong> (chat/completions via UnifAI) — not Browser AI desktop Guard, and not
-						virtual-key scoped. CEL matches model/prompt → linked Providers (regex) block input and/or output.
-					</p>
-					<p className="text-muted-foreground mt-2 text-xs">
-						Flow: add a{" "}
-						<a href="/workspace/guardrails/providers" className="text-primary underline underline-offset-2">
-							Provider
-						</a>{" "}
-						→ create a Rule that selects it → optionally scope to{" "}
-						<a href="/workspace/prompt-repo" className="text-primary underline underline-offset-2">
-							Prompt Repository
-						</a>{" "}
-						IDs. Use the per-rule On switch or Enable all below.
-					</p>
-					<p className="text-muted-foreground mt-1 text-xs">
-						Scans chat text (including multimodal text blocks). Input rules work with streaming. Output rules run on
-						non-stream responses and on the final streamed chunk. Not Browser AI Guard / MCP-only traffic. Use Custom CEL
-						with <code>request.model</code> to limit models.
+					<p className="text-muted-foreground mt-1 text-sm">
+						Configure CEL-based rules to scan and enforce input and output guardrails on LLM traffic.
 					</p>
 				</div>
 				<div className="flex items-center gap-4">

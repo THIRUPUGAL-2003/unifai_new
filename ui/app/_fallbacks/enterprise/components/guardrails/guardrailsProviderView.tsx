@@ -150,12 +150,12 @@ export default function GuardrailsProviderView() {
 			<div className="flex items-center justify-between">
 				<div>
 					<h1 className="text-2xl font-bold tracking-tight">Guardrail Providers</h1>
-					<p className="text-muted-foreground mt-1">
-						Regex scanners used by Rules. Create a provider here, then attach it under{" "}
+					<p className="text-muted-foreground mt-1 text-sm">
+						Create regex scanner providers and attach them under{" "}
 						<a href="/workspace/guardrails/configuration" className="text-primary underline underline-offset-2">
 							Rules
 						</a>
-						. Runs on UnifAI LLM gateway traffic — separate from Browser AI desktop Guard.
+						.
 					</p>
 				</div>
 				<Button onClick={openCreateProvider} data-testid="guardrails-create-provider-button">
