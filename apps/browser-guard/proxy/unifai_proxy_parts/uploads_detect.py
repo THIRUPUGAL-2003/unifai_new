@@ -112,7 +112,7 @@ def _default_name_from_bytes(raw: bytes, content_type: str = "", idx: int = 0) -
         "pdf": f"document{suffix}.pdf",
         "zip": f"archive{suffix}.zip",
         "image": f"image{suffix}.png",
-        "audio": f"audio{suffix}.bin",
+        "audio": f"voice-note{suffix}.wav" if (raw and raw[:4] == b"RIFF") else f"voice-note{suffix}.m4a",
         "video": f"video{suffix}.bin",
         "docx": f"document{suffix}.docx",
         "xlsx": f"spreadsheet{suffix}.xlsx",
@@ -1244,7 +1244,10 @@ def _scan_upload_for_rules(
             and domain
             and (eval_blob or upload_images)
             and (has_ai_bot_rules() or has_regex)
+            and not (rule_hit and rule_action == "BLOCK")
         )
+        if rule_hit and rule_action == "BLOCK":
+            scan_evaluated = True
         if run_backend:
             try:
                 allowed, rt, action, _, _, eval_err = send_to_backend(

@@ -75,6 +75,7 @@ export function logAttachmentLabel(log: BrowserAILogEntry): string {
 		if (label && !/^attachment(-\d+)?$/i.test(label)) return label;
 	}
 	if (name && !/^attachment(-\d+)?$/i.test(name) && name.toLowerCase() !== "document.pdf") return name;
+	if (full.startsWith("[VOICE UPLOAD]")) return "Voice Note";
 	if (name) return name;
 	return "attachment";
 }
