@@ -27,7 +27,7 @@ import {
 	useGetVirtualKeysQuery,
 	type SessionUser,
 } from "@/lib/store";
-import { useAssignUserRoleMutation } from "@enterprise/lib/store/apis/rbacApi";
+import { useAssignUserRoleMutation, useGetRolesQuery } from "@enterprise/lib/store/apis/rbacApi";
 import {
 	useDeleteVirtualKeyUserMutation,
 	useGetUserVirtualKeysQuery,
@@ -50,6 +50,12 @@ export default function UsersView() {
 	const teams = teamsData?.teams || [];
 	const { data: virtualKeysData } = useGetVirtualKeysQuery({ limit: 500, offset: 0 });
 	const virtualKeys = (virtualKeysData?.virtual_keys || []).filter((vk) => vk.is_active !== false);
+	const { data: rolesData } = useGetRolesQuery();
+	const roleOptions = (rolesData?.roles || []).slice().sort((a, b) => {
+		const rank = (name: string) => (name === "admin" ? 0 : name === "user" ? 1 : 2);
+		const diff = rank(a.name) - rank(b.name);
+		return diff !== 0 ? diff : a.name.localeCompare(b.name);
+	});
 	const [createUser] = useCreateSessionUserMutation();
 	const [updateUser] = useUpdateSessionUserMutation();
 	const [deleteUser] = useDeleteSessionUserMutation();
@@ -453,8 +459,8 @@ export default function UsersView() {
 		setUsername(user.username);
 		setEmail(user.email || "");
 		setPassword("");
-		// Role is only Admin | User. Anything else (old custom names) maps to User.
-		setRole(user.role === "admin" ? "admin" : "user");
+		const nextRole = (user.role || "user").trim() || "user";
+		setRole(nextRole);
 		setTeamId("");
 		setInitialTeamId("");
 		setVirtualKeyId("");
@@ -462,8 +468,15 @@ export default function UsersView() {
 		setBudget(user.budget);
 		setRateLimit(user.rate_limit);
 		setAllowedPromptRepos(sanitizeAllowedPromptRepos(user.allowed_prompt_repos || ""));
-		setAllowedSections(user.role === "admin" ? adminSectionsFromStorage(user.allowed_sections) : new Set());
+		setAllowedSections(nextRole === "admin" ? adminSectionsFromStorage(user.allowed_sections) : new Set());
 		setIsEditOpen(true);
+	};
+
+	const roleLabel = (roleName: string) => {
+		const normalized = (roleName || "user").trim();
+		if (normalized === "admin") return "Admin";
+		if (normalized === "user") return "User";
+		return normalized;
 	};
 
 	const openDeleteModal = (user: SessionUser) => {
@@ -642,7 +655,7 @@ export default function UsersView() {
 														}`}
 													>
 														<Shield className="h-3 w-3" />
-														{user.role === "admin" ? "Admin" : "User"}
+														{roleLabel(user.role)}
 													</span>
 												</TableCell>
 												<TableCell>
@@ -748,7 +761,12 @@ export default function UsersView() {
 						</div>
 						<div className="space-y-2">
 							<label className="text-muted-foreground text-sm font-medium">Role</label>
-							<p className="text-muted-foreground text-xs">Permission only — Admin or User. Not a team name.</p>
+							<p className="text-muted-foreground text-xs">
+								Permission role from Roles &amp; Permissions. Team membership is chosen separately below.{" "}
+								<a href="/workspace/governance/rbac" className="text-teal-400 underline-offset-2 hover:underline">
+									Manage roles
+								</a>
+							</p>
 							<select
 								value={role}
 								onChange={(e) => {
@@ -765,8 +783,22 @@ export default function UsersView() {
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
 								data-testid="user-role-select-create"
 							>
-								<option value="user">User (Prompt Repository only)</option>
-								<option value="admin">Admin (workspace access)</option>
+								{roleOptions.length === 0 ? (
+									<>
+										<option value="user">User (Prompt Repository only)</option>
+										<option value="admin">Admin (workspace access)</option>
+									</>
+								) : (
+									roleOptions.map((r) => (
+										<option key={r.id} value={r.name}>
+											{r.name === "admin"
+												? "Admin (workspace access)"
+												: r.name === "user"
+													? "User (Prompt Repository only)"
+													: `${r.name}${r.description ? ` — ${r.description}` : ""}`}
+										</option>
+									))
+								)}
 							</select>
 						</div>
 						{teamPicker}
@@ -858,7 +890,12 @@ export default function UsersView() {
 						</div>
 						<div className="space-y-2">
 							<label className="text-muted-foreground text-sm font-medium">Role</label>
-							<p className="text-muted-foreground text-xs">Permission only — Admin or User. Not a team name.</p>
+							<p className="text-muted-foreground text-xs">
+								Permission role from Roles &amp; Permissions. Team membership is chosen separately below.{" "}
+								<a href="/workspace/governance/rbac" className="text-teal-400 underline-offset-2 hover:underline">
+									Manage roles
+								</a>
+							</p>
 							<select
 								value={role}
 								onChange={(e) => {
@@ -875,8 +912,25 @@ export default function UsersView() {
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
 								data-testid="user-role-select-edit"
 							>
-								<option value="user">User (Prompt Repository only)</option>
-								<option value="admin">Admin (workspace access)</option>
+								{!roleOptions.some((r) => r.name === role) && role ? (
+									<option value={role}>{roleLabel(role)} (current)</option>
+								) : null}
+								{roleOptions.length === 0 ? (
+									<>
+										<option value="user">User (Prompt Repository only)</option>
+										<option value="admin">Admin (workspace access)</option>
+									</>
+								) : (
+									roleOptions.map((r) => (
+										<option key={r.id} value={r.name}>
+											{r.name === "admin"
+												? "Admin (workspace access)"
+												: r.name === "user"
+													? "User (Prompt Repository only)"
+													: `${r.name}${r.description ? ` — ${r.description}` : ""}`}
+										</option>
+									))
+								)}
 							</select>
 						</div>
 						{teamPicker}

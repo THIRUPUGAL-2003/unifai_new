@@ -42,7 +42,7 @@ export default function RBACView() {
 	const create = async () => {
 		try {
 			await createRole({ name, description, dac }).unwrap();
-			toast.success("Role created");
+			toast.success("Role created — assign it on Users → Add/Edit User");
 			setOpen(false);
 			setName("");
 			setDescription("");
@@ -53,6 +53,9 @@ export default function RBACView() {
 
 	const savePerms = async () => {
 		if (!selected) return;
+		if (selectedPerms.length === 0 && !Boolean(selected.is_system_role || selected.name === "admin")) {
+			toast.warning("No permissions selected — this role will deny all non-admin actions until you grant some.");
+		}
 		try {
 			await updatePerms({ id: selected.id, permission_ids: selectedPerms }).unwrap();
 			toast.success("Permissions updated");
@@ -90,11 +93,22 @@ export default function RBACView() {
 						<Shield className="h-5 w-5" />
 						RBAC
 					</h1>
-					<Button size="sm" onClick={() => setOpen(true)}>
-						<Plus className="h-4 w-4" />
-						Role
-					</Button>
+					<div className="flex items-center gap-2">
+						<a
+							href="/workspace/governance/users"
+							className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+						>
+							Assign on Users
+						</a>
+						<Button size="sm" onClick={() => setOpen(true)}>
+							<Plus className="h-4 w-4" />
+							Role
+						</Button>
+					</div>
 				</div>
+				<p className="text-muted-foreground text-xs">
+					Create roles here, set permissions, then assign the role when creating or editing a user.
+				</p>
 				<Table>
 					<TableHeader>
 						<TableRow>

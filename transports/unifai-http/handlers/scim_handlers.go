@@ -6,9 +6,37 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/unifai/unifai/framework/configstore"
 	"github.com/unifai/unifai/framework/configstore/tables"
 	"github.com/valyala/fasthttp"
 )
+
+func (h *WorkspaceHandler) scimDefaultRole(ctx *fasthttp.RequestCtx) string {
+	store := h.workspace
+	if store == nil && h.store != nil && h.store.ConfigStore != nil {
+		store, _ = configstore.AsWorkspaceStore(h.store.ConfigStore)
+	}
+	if store == nil {
+		return ""
+	}
+	row, err := store.GetWorkspaceSetting(ctx, configstore.WorkspaceSettingSCIM)
+	if err != nil || row == nil || strings.TrimSpace(row.Data) == "" {
+		return ""
+	}
+	var cfg scimConfigPayload
+	if err := json.Unmarshal([]byte(row.Data), &cfg); err != nil || cfg.Config == nil {
+		return ""
+	}
+	for _, key := range []string{"defaultRole", "default_role"} {
+		if raw, ok := cfg.Config[key]; ok {
+			switch v := raw.(type) {
+			case string:
+				return strings.TrimSpace(v)
+			}
+		}
+	}
+	return ""
+}
 
 func (h *WorkspaceHandler) scimServiceProviderConfig(ctx *fasthttp.RequestCtx) {
 	SendJSON(ctx, map[string]any{
@@ -151,6 +179,8 @@ func (h *WorkspaceHandler) scimCreateUser(ctx *fasthttp.RequestCtx) {
 	role := "user"
 	if len(body.Roles) > 0 && body.Roles[0].Value != "" {
 		role = body.Roles[0].Value
+	} else if def := h.scimDefaultRole(ctx); def != "" {
+		role = def
 	}
 	user := &tables.TableUser{
 		ID:       uuid.NewString(),

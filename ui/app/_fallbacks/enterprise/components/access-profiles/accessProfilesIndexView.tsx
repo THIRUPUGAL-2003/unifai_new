@@ -383,7 +383,10 @@ export default function AccessProfilesIndexView() {
 			) : profiles.length === 0 ? (
 				<div className="rounded-xl border border-dashed p-10 text-center">
 					<p className="font-medium">No access profiles</p>
-					<p className="text-muted-foreground mt-1 text-sm">Create a template and select virtual keys to apply it.</p>
+					<p className="text-muted-foreground mt-1 text-sm">
+						Create a template, pick virtual keys, then activate — those keys inherit providers, budgets, and MCP from the profile.
+						Assign a key to a user under Users so the profile takes effect for that member.
+					</p>
 				</div>
 			) : (
 				<TableView

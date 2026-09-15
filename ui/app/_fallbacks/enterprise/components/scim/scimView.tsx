@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { getErrorMessage } from "@/lib/store";
+import { useGetRolesQuery } from "@enterprise/lib/store/apis/rbacApi";
 import { useGetSCIMConfigQuery, useUpdateSCIMConfigMutation } from "@enterprise/lib/store/apis/scimApi";
 import { SCIMConfig } from "@enterprise/lib/types/workspace";
 import { Save, UserRoundCog, Copy } from "lucide-react";
@@ -14,9 +15,11 @@ import { getExampleBaseUrl } from "@/lib/utils/port";
 
 export default function SCIMView() {
 	const { data, isLoading: loading } = useGetSCIMConfigQuery();
+	const { data: rolesData } = useGetRolesQuery();
 	const [updateConfig, { isLoading: saving }] = useUpdateSCIMConfigMutation();
 	const [config, setConfig] = useState<SCIMConfig>({ enabled: false, provider: "okta", config: {} });
 	const { copy: copyToClipboard } = useCopyToClipboard();
+	const roleNames = useMemo(() => (rolesData?.roles || []).map((r) => r.name), [rolesData]);
 	const scimBase = useMemo(() => {
 		const origin = getExampleBaseUrl() || (typeof window !== "undefined" ? window.location.origin : "");
 		return origin ? `${origin}/scim/v2` : "/scim/v2";
@@ -51,7 +54,13 @@ export default function SCIMView() {
 					<UserRoundCog className="h-6 w-6" />
 					SCIM / User Provisioning
 				</h1>
-				<p className="text-muted-foreground mt-1 text-sm">Connect Okta, Entra, or Keycloak and map claims into UnifAI roles and teams.</p>
+				<p className="text-muted-foreground mt-1 text-sm">
+					Connect Okta, Entra, or Keycloak so IdP users appear in{" "}
+					<a href="/workspace/governance/users" className="text-teal-400 underline-offset-2 hover:underline">
+						Users
+					</a>
+					. Set a default role below (or send SCIM <code className="text-xs">roles[0].value</code>).
+				</p>
 			</div>
 
 			<Card>
@@ -117,6 +126,33 @@ export default function SCIMView() {
 							<Field label="Realm" value={config.config.realm || ""} onChange={(value) => setField("realm", value)} />
 						</>
 					)}
+					<div className="space-y-1">
+						<Label>Default role for provisioned users</Label>
+						<p className="text-muted-foreground text-xs">
+							Used when the IdP does not send a SCIM role. Create custom roles under Roles &amp; Permissions first.
+						</p>
+						<select
+							value={config.config.defaultRole || "user"}
+							onChange={(e) => setField("defaultRole", e.target.value)}
+							className="border-input bg-background h-9 w-full rounded-md border px-3 text-sm"
+							data-testid="scim-default-role"
+						>
+							{(roleNames.includes(config.config.defaultRole || "user")
+								? roleNames
+								: [...roleNames, config.config.defaultRole || "user"].filter(Boolean)
+							).map((name) => (
+								<option key={name} value={name}>
+									{name}
+								</option>
+							))}
+							{roleNames.length === 0 ? (
+								<>
+									<option value="user">user</option>
+									<option value="admin">admin</option>
+								</>
+							) : null}
+						</select>
+					</div>
 					<div className="space-y-1">
 						<Label>SCIM bearer token (for IdP → UnifAI)</Label>
 						<Input
