@@ -166,9 +166,20 @@ export default function LoginView() {
 							<p className="text-[11px] tracking-[0.16em] text-[#7d8896] uppercase">{COMPANY_NAME}</p>
 						</div>
 					</div>
-					<div className="hidden items-center gap-2 rounded-full border border-[#1f2833] bg-[#12141c]/70 px-3 py-1.5 text-xs text-[#8b949e] sm:flex">
-						<span className="h-1.5 w-1.5 rounded-full bg-[#45f3ff] shadow-[0_0_8px_#45f3ff]" />
-						Live policy sync
+					<div className="flex items-center gap-3">
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={() => window.location.assign("/signup")}
+							className="h-8 border-[#45f3ff]/40 bg-[#45f3ff]/10 px-3.5 text-xs font-semibold text-[#45f3ff] hover:bg-[#45f3ff]/20 hover:border-[#45f3ff] cursor-pointer"
+						>
+							Sign Up
+						</Button>
+						<div className="hidden items-center gap-2 rounded-full border border-[#1f2833] bg-[#12141c]/70 px-3 py-1.5 text-xs text-[#8b949e] sm:flex">
+							<span className="h-1.5 w-1.5 rounded-full bg-[#45f3ff] shadow-[0_0_8px_#45f3ff]" />
+							Live policy sync
+						</div>
 					</div>
 				</header>
 
@@ -556,31 +567,44 @@ export default function LoginView() {
 													: "Update password"}
 								</Button>
 
-								<div className="pt-1 text-xs text-[#8b949e]">
+								{mode === "login" && (
+									<Button
+										type="button"
+										variant="outline"
+										onClick={() => window.location.assign("/signup")}
+										className="mt-2.5 h-11 w-full border-white/15 bg-white/[0.04] text-sm font-semibold text-white hover:bg-[#45f3ff]/10 hover:border-[#45f3ff]/60 hover:text-[#45f3ff] cursor-pointer transition-all"
+									>
+										Sign Up
+									</Button>
+								)}
+
+								<div className="pt-2 text-xs text-[#8b949e]">
 									{mode === "login" ? (
-										<div className="flex items-center justify-between">
-											<button
-												type="button"
-												className="text-[#45f3ff] underline-offset-2 hover:underline cursor-pointer"
-												onClick={() => {
-													setMode("forgot");
-													setErrorMessage("");
-													setInfoMessage("");
-												}}
-											>
-												Forgot password?
-											</button>
-											<button
-												type="button"
-												className="text-[#45f3ff] underline-offset-2 hover:underline cursor-pointer"
-												onClick={() => {
-													setMode("forgot_username");
-													setErrorMessage("");
-													setInfoMessage("");
-												}}
-											>
-												Forgot username?
-											</button>
+										<div className="space-y-3">
+											<div className="flex items-center justify-between">
+												<button
+													type="button"
+													className="text-[#45f3ff] underline-offset-2 hover:underline cursor-pointer"
+													onClick={() => {
+														setMode("forgot");
+														setErrorMessage("");
+														setInfoMessage("");
+													}}
+												>
+													Forgot password?
+												</button>
+												<button
+													type="button"
+													className="text-[#45f3ff] underline-offset-2 hover:underline cursor-pointer"
+													onClick={() => {
+														setMode("forgot_username");
+														setErrorMessage("");
+														setInfoMessage("");
+													}}
+												>
+													Forgot username?
+												</button>
+											</div>
 										</div>
 									) : (
 										<div className="text-center">
