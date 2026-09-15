@@ -83,6 +83,7 @@ type WorkspaceStore interface {
 	ListVirtualKeyUsers(ctx context.Context, virtualKeyID string) ([]tables.TableVirtualKeyUser, error)
 	SetVirtualKeyUser(ctx context.Context, virtualKeyID, userID string) error
 	DeleteVirtualKeyUser(ctx context.Context, virtualKeyID string) error
+	RemoveVirtualKeyUser(ctx context.Context, virtualKeyID, userID string) error
 	ListVirtualKeysForUser(ctx context.Context, userID string) ([]tables.TableVirtualKeyUser, error)
 
 	ListTeamMembers(ctx context.Context, teamID string) ([]tables.TableTeamMember, error)
@@ -332,7 +333,13 @@ func (s *RDBConfigStore) ensureVirtualKeyUsersTable(ctx context.Context) {
 	db := s.DB().WithContext(ctx)
 	if !db.Migrator().HasTable(&tables.TableVirtualKeyUser{}) {
 		_ = db.AutoMigrate(&tables.TableVirtualKeyUser{})
+		return
 	}
+	// Drop old unique index on virtual_key_id alone if it exists so multiple users can share the same virtual key.
+	_ = db.Migrator().DropIndex(&tables.TableVirtualKeyUser{}, "virtual_key_id")
+	_ = db.Migrator().DropIndex(&tables.TableVirtualKeyUser{}, "idx_governance_virtual_key_users_virtual_key_id")
+	_ = db.Migrator().DropIndex(&tables.TableVirtualKeyUser{}, "uix_governance_virtual_key_users_virtual_key_id")
+	_ = db.AutoMigrate(&tables.TableVirtualKeyUser{})
 }
 
 func (s *RDBConfigStore) ListVirtualKeyUsers(ctx context.Context, virtualKeyID string) ([]tables.TableVirtualKeyUser, error) {
@@ -352,10 +359,13 @@ func (s *RDBConfigStore) ListVirtualKeysForUser(ctx context.Context, userID stri
 func (s *RDBConfigStore) SetVirtualKeyUser(ctx context.Context, virtualKeyID, userID string) error {
 	s.ensureVirtualKeyUsersTable(ctx)
 	now := time.Now().UTC()
+	// Each user can have one assigned virtual key from user management.
+	// Clean up any other virtual key previously assigned to this user, WITHOUT affecting other users.
+	_ = s.DB().WithContext(ctx).Where("user_id = ? AND virtual_key_id != ?", userID, virtualKeyID).Delete(&tables.TableVirtualKeyUser{}).Error
+
 	var existing tables.TableVirtualKeyUser
-	err := s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).First(&existing).Error
+	err := s.DB().WithContext(ctx).Where("virtual_key_id = ? AND user_id = ?", virtualKeyID, userID).First(&existing).Error
 	if err == nil {
-		existing.UserID = userID
 		existing.UpdatedAt = now
 		return s.DB().WithContext(ctx).Save(&existing).Error
 	}
@@ -370,6 +380,11 @@ func (s *RDBConfigStore) SetVirtualKeyUser(ctx context.Context, virtualKeyID, us
 func (s *RDBConfigStore) DeleteVirtualKeyUser(ctx context.Context, virtualKeyID string) error {
 	s.ensureVirtualKeyUsersTable(ctx)
 	return s.DB().WithContext(ctx).Where("virtual_key_id = ?", virtualKeyID).Delete(&tables.TableVirtualKeyUser{}).Error
+}
+
+func (s *RDBConfigStore) RemoveVirtualKeyUser(ctx context.Context, virtualKeyID, userID string) error {
+	s.ensureVirtualKeyUsersTable(ctx)
+	return s.DB().WithContext(ctx).Where("virtual_key_id = ? AND user_id = ?", virtualKeyID, userID).Delete(&tables.TableVirtualKeyUser{}).Error
 }
 
 func (s *RDBConfigStore) ensureTeamMembersTable(ctx context.Context) error {

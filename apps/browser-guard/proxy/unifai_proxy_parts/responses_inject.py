@@ -270,29 +270,23 @@ def make_blocked_response(flow: http.HTTPFlow, rule_triggered: str, host: str, r
 
     # ── Claude / Anthropic chat APIs (path/body shape) ──
     if _is_anthropic_messages_api_shape(path, raw_body):
-        if "/v1/messages" in path:
-            anthropic_sse = (
-                'event: message_start\n'
-                'data: {"type":"message_start","message":{"id":"msg_unifai_block","type":"message",'
-                '"role":"assistant","content":[],"model":"unifai-guard","stop_reason":null}}\n\n'
-                'event: content_block_start\n'
-                'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n'
-                'event: content_block_delta\n'
-                f'data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{msg_json}}}}}\n\n'
-                'event: content_block_stop\n'
-                'data: {"type":"content_block_stop","index":0}\n\n'
-                'event: message_delta\n'
-                'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}\n\n'
-                'event: message_stop\n'
-                'data: {"type":"message_stop"}\n\n'
-            )
-        else:
-            anthropic_sse = (
-                "event: completion\n"
-                f"data: {json.dumps({'completion': msg, 'stop_reason': None, 'model': 'unifai-guard', 'stop': None, 'log_id': 'unifai_block'})}\n\n"
-                "event: completion\n"
-                f"data: {json.dumps({'completion': '', 'stop_reason': 'stop_sequence', 'model': 'unifai-guard', 'stop': '', 'log_id': 'unifai_block'})}\n\n"
-            )
+        anthropic_sse = (
+            'event: message_start\n'
+            'data: {"type":"message_start","message":{"id":"msg_unifai_block","type":"message",'
+            '"role":"assistant","content":[],"model":"unifai-guard","stop_reason":null}}\n\n'
+            'event: content_block_start\n'
+            'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n'
+            'event: content_block_delta\n'
+            f'data: {{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":{msg_json}}}}}\n\n'
+            'event: content_block_stop\n'
+            'data: {"type":"content_block_stop","index":0}\n\n'
+            'event: message_delta\n'
+            'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}\n\n'
+            'event: message_stop\n'
+            'data: {"type":"message_stop"}\n\n'
+            'event: completion\n'
+            f'data: {json.dumps({"completion": msg, "stop_reason": "stop_sequence", "model": "unifai-guard"})}\n\n'
+        )
         flow.response = http.Response.make(
             200,
             anthropic_sse.encode("utf-8"),

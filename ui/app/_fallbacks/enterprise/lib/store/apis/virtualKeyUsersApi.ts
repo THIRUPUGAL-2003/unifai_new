@@ -31,15 +31,29 @@ export const virtualKeyUsersApi = baseApi.injectEndpoints({
 				{ type: "VirtualKeys", id: "LIST" },
 			],
 		}),
-		deleteVirtualKeyUser: builder.mutation<{ users: User[] }, string>({
-			query: (vkId) => ({
-				url: `/governance/virtual-keys/${vkId}/users`,
-				method: "DELETE",
-			}),
-			invalidatesTags: (_result, _error, vkId) => [
-				{ type: "VirtualKeys", id: vkId },
-				{ type: "VirtualKeys", id: "LIST" },
-			],
+		deleteVirtualKeyUser: builder.mutation<{ users: User[] }, { vkId: string; user_id?: string } | string>({
+			query: (arg) => {
+				const vkId = typeof arg === "string" ? arg : arg.vkId;
+				const userId = typeof arg === "string" ? undefined : arg.user_id;
+				return {
+					url: `/governance/virtual-keys/${vkId}/users`,
+					method: "DELETE",
+					params: userId ? { user_id: userId } : undefined,
+					body: userId ? { user_id: userId } : undefined,
+				};
+			},
+			invalidatesTags: (_result, _error, arg) => {
+				const vkId = typeof arg === "string" ? arg : arg.vkId;
+				const userId = typeof arg === "string" ? undefined : arg.user_id;
+				const tags: Array<{ type: "VirtualKeys"; id: string }> = [
+					{ type: "VirtualKeys", id: vkId },
+					{ type: "VirtualKeys", id: "LIST" },
+				];
+				if (userId) {
+					tags.push({ type: "VirtualKeys", id: `user-${userId}` });
+				}
+				return tags;
+			},
 		}),
 	}),
 });

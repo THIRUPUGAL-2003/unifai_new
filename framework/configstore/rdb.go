@@ -2727,6 +2727,8 @@ func (s *RDBConfigStore) DeleteUser(ctx context.Context, id string, tx ...*gorm.
 	} else {
 		txDB = s.DB()
 	}
+	_ = txDB.WithContext(ctx).Delete(&tables.TableVirtualKeyUser{}, "user_id = ?", id).Error
+	_ = txDB.WithContext(ctx).Delete(&tables.TableTeamMember{}, "user_id = ?", id).Error
 	return txDB.WithContext(ctx).Delete(&tables.TableUser{}, "id = ?", id).Error
 }
 

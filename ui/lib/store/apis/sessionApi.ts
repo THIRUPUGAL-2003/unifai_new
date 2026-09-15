@@ -55,9 +55,25 @@ export const sessionApi = baseApi.injectEndpoints({
 			}),
 		}),
 
-		resetPassword: builder.mutation<{ message: string }, { username: string; otp: string; new_password: string }>({
+		verifyOTP: builder.mutation<{ valid: boolean; message: string }, { username?: string; email?: string; otp: string }>({
+			query: (body) => ({
+				url: "/session/verify-otp",
+				method: "POST",
+				body,
+			}),
+		}),
+
+		resetPassword: builder.mutation<{ message: string }, { username?: string; email?: string; otp: string; new_password: string }>({
 			query: (body) => ({
 				url: "/session/reset-password",
+				method: "POST",
+				body,
+			}),
+		}),
+
+		forgotUsername: builder.mutation<{ message: string }, { email: string }>({
+			query: (body) => ({
+				url: "/session/forgot-username",
 				method: "POST",
 				body,
 			}),
@@ -97,5 +113,12 @@ export const sessionApi = baseApi.injectEndpoints({
 	}),
 });
 
-export const { useIsAuthEnabledQuery, useLoginMutation, useLogoutMutation, useForgotPasswordMutation, useResetPasswordMutation } =
-	sessionApi;
+export const {
+	useIsAuthEnabledQuery,
+	useLoginMutation,
+	useLogoutMutation,
+	useForgotPasswordMutation,
+	useVerifyOTPMutation,
+	useResetPasswordMutation,
+	useForgotUsernameMutation,
+} = sessionApi;

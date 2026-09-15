@@ -164,7 +164,7 @@ console.log(response.choices[0].message.content);`
 	const companyFullName = COMPANY_NAME;
 
 	return (
-		<div className="bg-[#090a0f] text-[#cbd5e1] min-h-screen font-sans selection:bg-sky-500/20 selection:text-white antialiased">
+		<div className="bg-[#090a0f] text-[#cbd5e1] min-h-screen font-sans selection:bg-sky-500/20 selection:text-white antialiased overflow-x-hidden no-scrollbar">
 			{/* Subtle Ambient Glow */}
 			<div className="fixed inset-0 pointer-events-none overflow-hidden z-0">
 				<div className="absolute -top-[30%] left-1/2 -translate-x-1/2 w-[1100px] h-[600px] bg-gradient-to-b from-sky-500/[0.07] via-indigo-500/[0.04] to-transparent rounded-full blur-[140px]" />

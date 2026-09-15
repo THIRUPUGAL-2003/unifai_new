@@ -94,6 +94,16 @@ def detect_mac_and_transport() -> tuple[str, str]:
             )
             import re
 
+            lines = (completed.stdout or "").splitlines()
+            current_iface = ""
+            for line in lines:
+                if line and not line[0].isspace():
+                    current_iface = line.split(":", 1)[0].strip()
+                m = re.search(r"ether\s+([0-9a-f:]{17})", line, re.I)
+                if m:
+                    mac = m.group(1).upper().replace(":", "-")
+                    return mac, current_iface
+
             for m in re.finditer(r"ether\s+([0-9a-f:]{17})", completed.stdout or "", re.I):
                 return m.group(1).upper().replace(":", "-"), ""
         except Exception:

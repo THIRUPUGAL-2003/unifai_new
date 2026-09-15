@@ -381,7 +381,11 @@ export default function ModelLimitsTable({
 										<TableRow
 											key={config.id}
 											data-testid={`model-limit-row-${toTestIdPart(config.model_name)}-${toTestIdPart(config.provider || "all")}`}
-											className={cn("group transition-colors", isExhausted && "bg-red-500/5 hover:bg-red-500/10")}
+											className={cn(
+												"group cursor-pointer hover:bg-muted/50 transition-colors",
+												isExhausted && "bg-red-500/5 hover:bg-red-500/10",
+											)}
+											onClick={() => handleEditModelLimit(config)}
 										>
 											<TableCell className="max-w-[280px] py-4">
 												<div className="flex flex-col gap-2">
@@ -408,7 +412,7 @@ export default function ModelLimitsTable({
 											<TableCell>
 												<Badge variant="secondary">{getScopeLabel(config.scope ?? "global")}</Badge>
 											</TableCell>
-											<TableCell>
+											<TableCell onClick={(e) => e.stopPropagation()}>
 												{config.scope !== "global" && config.scope_id && config.scope_name ? (
 													<TooltipProvider>
 														<Tooltip>

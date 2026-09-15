@@ -73,7 +73,9 @@ func (h *SessionHandler) RegisterRoutes(r *router.Router, middlewares ...schemas
 	r.POST("/api/session/ws-ticket", lib.ChainMiddlewares(h.issueWSTicket, middlewares...))
 	r.POST("/api/session/register", lib.ChainMiddlewares(h.register, middlewares...))
 	r.POST("/api/session/forgot-password", lib.ChainMiddlewares(h.forgotPassword, middlewares...))
+	r.POST("/api/session/verify-otp", lib.ChainMiddlewares(h.verifyOTP, middlewares...))
 	r.POST("/api/session/reset-password", lib.ChainMiddlewares(h.resetPassword, middlewares...))
+	r.POST("/api/session/forgot-username", lib.ChainMiddlewares(h.forgotUsername, middlewares...))
 	r.GET("/api/session/users", lib.ChainMiddlewares(h.getUsers, middlewares...))
 	r.POST("/api/session/users", lib.ChainMiddlewares(h.createUser, middlewares...))
 	r.PUT("/api/session/users/{id}", lib.ChainMiddlewares(h.updateUser, middlewares...))
@@ -785,6 +787,111 @@ func (h *SessionHandler) forgotPassword(ctx *fasthttp.RequestCtx) {
 	SendJSON(ctx, generic)
 }
 
+// verifyOTP handles POST /api/session/verify-otp - Verify reset OTP before setting a new password.
+func (h *SessionHandler) verifyOTP(ctx *fasthttp.RequestCtx) {
+	if h.configStore == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store not available")
+		return
+	}
+	var payload struct {
+		Username string `json:"username"`
+		Email    string `json:"email"`
+		OTP      string `json:"otp"`
+	}
+	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	payload.Username = strings.TrimSpace(payload.Username)
+	payload.Email = strings.TrimSpace(payload.Email)
+	payload.OTP = strings.TrimSpace(payload.OTP)
+	if (payload.Username == "" && payload.Email == "") || payload.OTP == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "Email and OTP are required")
+		return
+	}
+
+	var user *tables.TableUser
+	if payload.Email != "" {
+		if u, err := h.configStore.GetUserByEmail(ctx, payload.Email); err == nil {
+			user = u
+		}
+	}
+	if user == nil && payload.Username != "" {
+		if u, err := h.configStore.GetUserByUsername(ctx, payload.Username); err == nil {
+			user = u
+		}
+		if user == nil {
+			if u, err := h.configStore.GetUserByEmail(ctx, payload.Username); err == nil {
+				user = u
+			}
+		}
+	}
+	if user == nil || !user.IsApproved() {
+		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid or expired OTP")
+		return
+	}
+
+	otpRow, err := h.configStore.GetLatestPasswordResetOTP(ctx, user.Username)
+	if err != nil || otpRow == nil {
+		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid or expired OTP")
+		return
+	}
+	if time.Now().After(otpRow.ExpiresAt) {
+		SendError(ctx, fasthttp.StatusUnauthorized, "OTP has expired. Please request a new one.")
+		return
+	}
+	ok, err := encrypt.CompareHash(otpRow.OTPHash, payload.OTP)
+	if err != nil || !ok {
+		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid OTP code")
+		return
+	}
+
+	SendJSON(ctx, map[string]any{
+		"valid":   true,
+		"message": "OTP verified successfully",
+	})
+}
+
+// forgotUsername handles POST /api/session/forgot-username - Send username to user's email.
+func (h *SessionHandler) forgotUsername(ctx *fasthttp.RequestCtx) {
+	if h.configStore == nil {
+		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store not available")
+		return
+	}
+	var payload struct {
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	payload.Email = strings.TrimSpace(strings.ToLower(payload.Email))
+	if payload.Email == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "Email is required")
+		return
+	}
+
+	generic := map[string]any{"message": "If an account matches, your username was sent to your email."}
+
+	user, err := h.configStore.GetUserByEmail(ctx, payload.Email)
+	if err != nil || user == nil || !user.IsApproved() || strings.TrimSpace(user.Email) == "" {
+		SendJSON(ctx, generic)
+		return
+	}
+
+	body := fmt.Sprintf(
+		"Hello,\n\nYour UnifAI username associated with this email address is: %s\n\nIf you did not request this, please ignore this email.\n",
+		user.Username,
+	)
+	if err := sendAuthEmail(h.configStore, ctx, user.Email, "Your UnifAI Username", body); err != nil {
+		logger.Warn("forgot username email failed for email=%s: %v", user.Email, err)
+		SendError(ctx, fasthttp.StatusBadRequest, "Could not send email. Ask an admin to configure SMTP in Settings → Security.")
+		return
+	}
+
+	SendJSON(ctx, generic)
+}
+
 // resetPassword verifies OTP and sets a new password.
 func (h *SessionHandler) resetPassword(ctx *fasthttp.RequestCtx) {
 	if h.configStore == nil {
@@ -793,6 +900,7 @@ func (h *SessionHandler) resetPassword(ctx *fasthttp.RequestCtx) {
 	}
 	var payload struct {
 		Username    string `json:"username"`
+		Email       string `json:"email"`
 		OTP         string `json:"otp"`
 		NewPassword string `json:"new_password"`
 	}
@@ -801,9 +909,10 @@ func (h *SessionHandler) resetPassword(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	payload.Username = strings.TrimSpace(payload.Username)
+	payload.Email = strings.TrimSpace(payload.Email)
 	payload.OTP = strings.TrimSpace(payload.OTP)
-	if payload.Username == "" || payload.OTP == "" || payload.NewPassword == "" {
-		SendError(ctx, fasthttp.StatusBadRequest, "Username, OTP, and new password are required")
+	if (payload.Username == "" && payload.Email == "") || payload.OTP == "" || payload.NewPassword == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "Email, OTP, and new password are required")
 		return
 	}
 	if failures := getPasswordPolicyFailures(payload.NewPassword); len(failures) > 0 {
@@ -811,9 +920,24 @@ func (h *SessionHandler) resetPassword(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	user, err := h.configStore.GetUserByUsername(ctx, payload.Username)
-	if err != nil || user == nil || !user.IsApproved() {
-		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid OTP or username")
+	var user *tables.TableUser
+	if payload.Email != "" {
+		if u, err := h.configStore.GetUserByEmail(ctx, payload.Email); err == nil {
+			user = u
+		}
+	}
+	if user == nil && payload.Username != "" {
+		if u, err := h.configStore.GetUserByUsername(ctx, payload.Username); err == nil {
+			user = u
+		}
+		if user == nil {
+			if u, err := h.configStore.GetUserByEmail(ctx, payload.Username); err == nil {
+				user = u
+			}
+		}
+	}
+	if user == nil || !user.IsApproved() {
+		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid OTP or account")
 		return
 	}
 	sameAsCurrent, cmpErr := encrypt.CompareHash(user.Password, payload.NewPassword)

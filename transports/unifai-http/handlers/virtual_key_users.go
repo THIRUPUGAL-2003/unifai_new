@@ -60,9 +60,17 @@ func (h *GovernanceHandler) setVirtualKeyUser(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	if body.UserID == "" || body.UserID == "__unassigned__" {
-		if err := ws.DeleteVirtualKeyUser(ctx, vkID); err != nil {
-			SendError(ctx, fasthttp.StatusInternalServerError, "failed to unassign user from virtual key: "+err.Error())
-			return
+		targetUserID := string(ctx.QueryArgs().Peek("user_id"))
+		if targetUserID != "" {
+			if err := ws.RemoveVirtualKeyUser(ctx, vkID, targetUserID); err != nil {
+				SendError(ctx, fasthttp.StatusInternalServerError, "failed to unassign user from virtual key: "+err.Error())
+				return
+			}
+		} else {
+			if err := ws.DeleteVirtualKeyUser(ctx, vkID); err != nil {
+				SendError(ctx, fasthttp.StatusInternalServerError, "failed to unassign user from virtual key: "+err.Error())
+				return
+			}
 		}
 		SendJSON(ctx, map[string]any{"users": []any{}})
 		return
@@ -89,9 +97,24 @@ func (h *GovernanceHandler) deleteVirtualKeyUser(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusServiceUnavailable, "workspace store is not available")
 		return
 	}
-	if err := ws.DeleteVirtualKeyUser(ctx, vkID); err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "failed to unassign user from virtual key: "+err.Error())
-		return
+	targetUserID := string(ctx.QueryArgs().Peek("user_id"))
+	if targetUserID == "" {
+		var body struct {
+			UserID string `json:"user_id"`
+		}
+		_ = json.Unmarshal(ctx.PostBody(), &body)
+		targetUserID = body.UserID
 	}
-	SendJSON(ctx, map[string]any{"users": []any{}})
+	if targetUserID != "" {
+		if err := ws.RemoveVirtualKeyUser(ctx, vkID, targetUserID); err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "failed to unassign user from virtual key: "+err.Error())
+			return
+		}
+	} else {
+		if err := ws.DeleteVirtualKeyUser(ctx, vkID); err != nil {
+			SendError(ctx, fasthttp.StatusInternalServerError, "failed to unassign user from virtual key: "+err.Error())
+			return
+		}
+	}
+	h.getVirtualKeyUsers(ctx)
 }

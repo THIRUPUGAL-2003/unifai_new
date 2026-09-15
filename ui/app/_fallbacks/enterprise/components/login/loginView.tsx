@@ -2,26 +2,85 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { COMPANY_LOGO, COMPANY_NAME } from "@/lib/constants/config";
-import { getErrorMessage, useForgotPasswordMutation, useLoginMutation, useResetPasswordMutation } from "@/lib/store/apis";
+import {
+	getErrorMessage,
+	useForgotPasswordMutation,
+	useForgotUsernameMutation,
+	useLoginMutation,
+	useResetPasswordMutation,
+	useVerifyOTPMutation,
+} from "@/lib/store/apis";
 import { resolvePostLoginPath } from "@/lib/utils/workspaceAccess";
-import { Activity, Eye, EyeOff, Globe, Lock, Shield, ShieldAlert, Upload } from "lucide-react";
-import { useState } from "react";
+import { Activity, Check, CheckCircle2, Eye, EyeOff, Globe, Lock, Shield, ShieldAlert, Upload } from "lucide-react";
+import { useEffect, useState } from "react";
 
-type AuthMode = "login" | "forgot" | "reset";
+type AuthMode = "login" | "forgot" | "reset" | "forgot_username";
 
 export default function LoginView() {
 	const [mode, setMode] = useState<AuthMode>("login");
 	const [username, setUsername] = useState("");
+	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
 	const [otp, setOtp] = useState("");
+	const [isOtpVerified, setIsOtpVerified] = useState(false);
 	const [newPassword, setNewPassword] = useState("");
+	const [confirmPassword, setConfirmPassword] = useState("");
 	const [showPassword, setShowPassword] = useState(false);
+	const [showNewPassword, setShowNewPassword] = useState(false);
+	const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+	const [resendCooldown, setResendCooldown] = useState(0);
 	const [errorMessage, setErrorMessage] = useState("");
 	const [infoMessage, setInfoMessage] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
+
 	const [login, { isLoading: isLoggingIn }] = useLoginMutation();
 	const [forgotPassword, { isLoading: isSendingOtp }] = useForgotPasswordMutation();
+	const [verifyOtp, { isLoading: isVerifyingOtp }] = useVerifyOTPMutation();
 	const [resetPassword, { isLoading: isResetting }] = useResetPasswordMutation();
+	const [forgotUsername, { isLoading: isRetrievingUsername }] = useForgotUsernameMutation();
+
+	useEffect(() => {
+		if (resendCooldown <= 0) return;
+		const timer = setInterval(() => setResendCooldown((c) => c - 1), 1000);
+		return () => clearInterval(timer);
+	}, [resendCooldown]);
+
+	const has8Chars = newPassword.length >= 8;
+	const hasUpper = /[A-Z]/.test(newPassword);
+	const hasSpecial = /[^A-Za-z0-9]/.test(newPassword);
+	const passwordsMatch = newPassword.length > 0 && newPassword === confirmPassword;
+
+	const handleResendOtp = async () => {
+		if (!email.trim()) {
+			setErrorMessage("Please enter your email address first");
+			return;
+		}
+		setErrorMessage("");
+		try {
+			const result = await forgotPassword({ email: email.trim() }).unwrap();
+			setInfoMessage(result.message || "A fresh verification code was sent to your email.");
+			setResendCooldown(30);
+		} catch (error) {
+			setErrorMessage(getErrorMessage(error));
+		}
+	};
+
+	const handleVerifyOtp = async () => {
+		const cleanOtp = otp.trim();
+		if (cleanOtp.length < 6) {
+			setErrorMessage("Please enter the 6-digit OTP code");
+			return;
+		}
+		setErrorMessage("");
+		try {
+			await verifyOtp({ email: email.trim(), otp: cleanOtp }).unwrap();
+			setIsOtpVerified(true);
+			setInfoMessage("OTP verified successfully! Please enter your new password below.");
+		} catch (error) {
+			setIsOtpVerified(false);
+			setErrorMessage(getErrorMessage(error));
+		}
+	};
 
 	const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
 		setIsLoading(true);
@@ -38,17 +97,48 @@ export default function LoginView() {
 				return;
 			}
 			if (mode === "forgot") {
-				const result = await forgotPassword({ username }).unwrap();
+				if (!email.trim()) {
+					setErrorMessage("Email address is required");
+					return;
+				}
+				const result = await forgotPassword({ email: email.trim() }).unwrap();
 				setInfoMessage(result.message || "If an account matches, a one-time code was sent by email");
 				setMode("reset");
+				setIsOtpVerified(false);
+				setOtp("");
+				setResendCooldown(30);
 				return;
 			}
-			const result = await resetPassword({ username, otp, new_password: newPassword }).unwrap();
+			if (mode === "forgot_username") {
+				if (!email.trim()) {
+					setErrorMessage("Email address is required");
+					return;
+				}
+				const result = await forgotUsername({ email: email.trim() }).unwrap();
+				setInfoMessage(result.message || "If an account matches, your username was sent to your email.");
+				return;
+			}
+			// Reset password mode
+			if (!isOtpVerified) {
+				setErrorMessage("Please click 'Verify OTP' to verify your code before setting password");
+				return;
+			}
+			if (newPassword !== confirmPassword) {
+				setErrorMessage("Passwords do not match");
+				return;
+			}
+			if (!has8Chars || !hasUpper || !hasSpecial) {
+				setErrorMessage("Password must be at least 8 characters with at least one uppercase letter and one symbol");
+				return;
+			}
+			const result = await resetPassword({ email: email.trim(), otp: otp.trim(), new_password: newPassword }).unwrap();
 			setInfoMessage(result.message || "Password updated. Sign in with your new password.");
 			setMode("login");
 			setPassword("");
 			setOtp("");
+			setIsOtpVerified(false);
 			setNewPassword("");
+			setConfirmPassword("");
 		} catch (error) {
 			setErrorMessage(getErrorMessage(error));
 		} finally {
@@ -178,14 +268,22 @@ export default function LoginView() {
 						<div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#10131c]/80 p-8 shadow-[0_30px_80px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
 							<div className="mb-6 space-y-2">
 								<h2 className="text-3xl font-bold text-white">
-									{mode === "login" ? "Sign In" : mode === "forgot" ? "Forgot password" : "Reset password"}
+									{mode === "login"
+										? "Sign In"
+										: mode === "forgot"
+											? "Forgot password"
+											: mode === "forgot_username"
+												? "Forgot username"
+												: "Reset password"}
 								</h2>
 								<p className="text-sm leading-6 text-[#8b949e]">
 									{mode === "login"
 										? "Access the Guard control plane for your organization."
 										: mode === "forgot"
-											? "Enter your username. We will email a one-time code if SMTP is configured."
-											: "Enter the OTP from email and choose a new password."}
+											? "Enter your registered email ID. We will email you a one-time verification code."
+											: mode === "forgot_username"
+												? "Enter your registered email ID and we will send your username to your inbox."
+												: "Enter the OTP from your email, verify it, and choose a new password."}
 								</p>
 							</div>
 
@@ -202,88 +300,244 @@ export default function LoginView() {
 							)}
 
 							<form onSubmit={handleSubmit} className="space-y-4">
-								<div className="space-y-2">
-									<Label htmlFor="username" className="text-xs font-semibold tracking-wider text-white uppercase">
-										Username
-									</Label>
-									<Input
-										id="username"
-										type="text"
-										placeholder="Enter your username"
-										value={username}
-										onChange={(e) => setUsername(e.target.value)}
-										required
-										className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 text-sm text-white focus:border-[#45f3ff]"
-										autoComplete="username"
-									/>
-								</div>
-
+								{/* Login Mode Fields */}
 								{mode === "login" && (
-									<div className="space-y-2">
-										<Label htmlFor="password" className="text-xs font-semibold tracking-wider text-white uppercase">
-											Password
-										</Label>
-										<div className="relative">
+									<>
+										<div className="space-y-2">
+											<Label htmlFor="username" className="text-xs font-semibold tracking-wider text-white uppercase">
+												Username
+											</Label>
 											<Input
-												id="password"
-												type={showPassword ? "text" : "password"}
-												placeholder="Enter your password"
-												value={password}
-												onChange={(e) => setPassword(e.target.value)}
+												id="username"
+												type="text"
+												placeholder="Enter your username"
+												value={username}
+												onChange={(e) => setUsername(e.target.value)}
 												required
-												className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 pr-10 text-sm text-white focus:border-[#45f3ff]"
-												autoComplete="current-password"
+												className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 text-sm text-white focus:border-[#45f3ff]"
+												autoComplete="username"
 											/>
-											<button
-												type="button"
-												onClick={() => setShowPassword(!showPassword)}
-												className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500 hover:text-white"
-											>
-												{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-											</button>
 										</div>
+										<div className="space-y-2">
+											<Label htmlFor="password" className="text-xs font-semibold tracking-wider text-white uppercase">
+												Password
+											</Label>
+											<div className="relative">
+												<Input
+													id="password"
+													type={showPassword ? "text" : "password"}
+													placeholder="Enter your password"
+													value={password}
+													onChange={(e) => setPassword(e.target.value)}
+													required
+													className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 pr-10 text-sm text-white focus:border-[#45f3ff]"
+													autoComplete="current-password"
+												/>
+												<button
+													type="button"
+													onClick={() => setShowPassword(!showPassword)}
+													className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500 hover:text-white"
+												>
+													{showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+												</button>
+											</div>
+										</div>
+									</>
+								)}
+
+								{/* Forgot Password Mode */}
+								{mode === "forgot" && (
+									<div className="space-y-2">
+										<Label htmlFor="email" className="text-xs font-semibold tracking-wider text-white uppercase">
+											Email ID
+										</Label>
+										<Input
+											id="email"
+											type="email"
+											placeholder="name@company.com"
+											value={email}
+											onChange={(e) => setEmail(e.target.value)}
+											required
+											className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 text-sm text-white focus:border-[#45f3ff]"
+											autoComplete="email"
+										/>
 									</div>
 								)}
 
+								{/* Forgot Username Mode */}
+								{mode === "forgot_username" && (
+									<div className="space-y-2">
+										<Label htmlFor="forgot-user-email" className="text-xs font-semibold tracking-wider text-white uppercase">
+											Email ID
+										</Label>
+										<Input
+											id="forgot-user-email"
+											type="email"
+											placeholder="name@company.com"
+											value={email}
+											onChange={(e) => setEmail(e.target.value)}
+											required
+											className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 text-sm text-white focus:border-[#45f3ff]"
+											autoComplete="email"
+										/>
+									</div>
+								)}
+
+								{/* Reset Password Mode */}
 								{mode === "reset" && (
 									<>
-										<div className="space-y-2">
-											<Label htmlFor="otp" className="text-xs font-semibold tracking-wider text-white uppercase">
-												OTP code
+										<div className="space-y-1.5">
+											<Label className="text-xs font-semibold tracking-wider text-white uppercase">
+												Email ID
 											</Label>
-											<Input
-												id="otp"
-												type="text"
-												inputMode="numeric"
-												placeholder="6-digit code"
-												value={otp}
-												onChange={(e) => setOtp(e.target.value)}
-												required
-												className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 text-sm text-white focus:border-[#45f3ff]"
-											/>
+											<div className="flex items-center justify-between rounded-lg border border-[#1f2833]/80 bg-[#07080c]/60 px-3 py-2 text-sm text-slate-300">
+												<span className="truncate">{email || "No email specified"}</span>
+												<button
+													type="button"
+													onClick={() => {
+														setMode("forgot");
+														setErrorMessage("");
+														setInfoMessage("");
+													}}
+													className="text-xs font-medium text-[#45f3ff] hover:underline"
+												>
+													Change
+												</button>
+											</div>
 										</div>
+
+										<div className="space-y-2">
+											<div className="flex items-center justify-between">
+												<Label htmlFor="otp" className="text-xs font-semibold tracking-wider text-white uppercase">
+													OTP Code
+												</Label>
+												{isOtpVerified ? (
+													<span className="flex items-center gap-1 text-xs font-semibold text-emerald-400">
+														<CheckCircle2 className="h-3.5 w-3.5" /> Verified
+													</span>
+												) : (
+													<button
+														type="button"
+														disabled={isSendingOtp || resendCooldown > 0}
+														onClick={handleResendOtp}
+														className="text-xs font-medium text-[#45f3ff] hover:underline disabled:opacity-50 disabled:cursor-not-allowed"
+													>
+														{resendCooldown > 0 ? `Resend in ${resendCooldown}s` : isSendingOtp ? "Sending..." : "Resend OTP"}
+													</button>
+												)}
+											</div>
+											<div className="flex gap-2">
+												<Input
+													id="otp"
+													type="text"
+													inputMode="numeric"
+													maxLength={6}
+													placeholder="6-digit code"
+													value={otp}
+													onChange={(e) => {
+														setOtp(e.target.value.replace(/\D/g, ""));
+														if (isOtpVerified) setIsOtpVerified(false);
+													}}
+													disabled={isOtpVerified}
+													required
+													className="h-11 flex-1 border-[#1f2833]/80 bg-[#07080c]/80 text-sm font-mono tracking-widest text-white focus:border-[#45f3ff] disabled:opacity-85 disabled:border-emerald-500/50"
+												/>
+												{!isOtpVerified && (
+													<Button
+														type="button"
+														onClick={handleVerifyOtp}
+														disabled={otp.trim().length < 6 || isVerifyingOtp}
+														className="h-11 px-4 bg-[#45f3ff]/20 text-[#45f3ff] border border-[#45f3ff]/40 hover:bg-[#45f3ff]/30 font-semibold cursor-pointer"
+													>
+														{isVerifyingOtp ? "Verifying..." : "Verify OTP"}
+													</Button>
+												)}
+											</div>
+										</div>
+
 										<div className="space-y-2">
 											<Label htmlFor="new-password" className="text-xs font-semibold tracking-wider text-white uppercase">
 												New password
 											</Label>
-											<Input
-												id="new-password"
-												type="password"
-												placeholder="New password"
-												value={newPassword}
-												onChange={(e) => setNewPassword(e.target.value)}
-												required
-												className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 text-sm text-white focus:border-[#45f3ff]"
-												autoComplete="new-password"
-											/>
+											<div className="relative">
+												<Input
+													id="new-password"
+													type={showNewPassword ? "text" : "password"}
+													placeholder="New password"
+													value={newPassword}
+													onChange={(e) => setNewPassword(e.target.value)}
+													disabled={!isOtpVerified}
+													required
+													className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 pr-10 text-sm text-white focus:border-[#45f3ff] disabled:opacity-50"
+													autoComplete="new-password"
+												/>
+												<button
+													type="button"
+													onClick={() => setShowNewPassword(!showNewPassword)}
+													className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500 hover:text-white"
+												>
+													{showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+												</button>
+											</div>
+										</div>
+
+										<div className="space-y-2">
+											<Label htmlFor="confirm-password" className="text-xs font-semibold tracking-wider text-white uppercase">
+												Confirm password
+											</Label>
+											<div className="relative">
+												<Input
+													id="confirm-password"
+													type={showConfirmPassword ? "text" : "password"}
+													placeholder="Re-enter new password"
+													value={confirmPassword}
+													onChange={(e) => setConfirmPassword(e.target.value)}
+													disabled={!isOtpVerified}
+													required
+													className="h-11 border-[#1f2833]/80 bg-[#07080c]/80 pr-10 text-sm text-white focus:border-[#45f3ff] disabled:opacity-50"
+													autoComplete="new-password"
+												/>
+												<button
+													type="button"
+													onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+													className="absolute top-1/2 right-3 -translate-y-1/2 text-gray-500 hover:text-white"
+												>
+													{showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+												</button>
+											</div>
+										</div>
+
+										{/* Password requirements checklist */}
+										<div className="rounded-lg border border-white/5 bg-white/[0.02] p-3 text-xs space-y-1.5">
+											<p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Password requirements:</p>
+											<div className="grid grid-cols-2 gap-2 text-[11px]">
+												<span className={has8Chars ? "text-emerald-400 font-medium flex items-center gap-1" : "text-slate-500 flex items-center gap-1"}>
+													<Check className="h-3 w-3" /> 8+ characters
+												</span>
+												<span className={hasUpper ? "text-emerald-400 font-medium flex items-center gap-1" : "text-slate-500 flex items-center gap-1"}>
+													<Check className="h-3 w-3" /> 1+ capital letter
+												</span>
+												<span className={hasSpecial ? "text-emerald-400 font-medium flex items-center gap-1" : "text-slate-500 flex items-center gap-1"}>
+													<Check className="h-3 w-3" /> 1+ symbol (!@#...)
+												</span>
+												<span className={passwordsMatch ? "text-emerald-400 font-medium flex items-center gap-1" : "text-slate-500 flex items-center gap-1"}>
+													<Check className="h-3 w-3" /> Passwords match
+												</span>
+											</div>
 										</div>
 									</>
 								)}
 
 								<Button
 									type="submit"
-									className="mt-2 h-11 w-full bg-[#45f3ff] font-bold text-[#0b0c10] shadow-[0_0_24px_rgba(69,243,255,0.28)] hover:bg-[#45f3ff]/90"
-									disabled={isLoading || isLoggingIn || isSendingOtp || isResetting}
+									className="mt-2 h-11 w-full bg-[#45f3ff] font-bold text-[#0b0c10] shadow-[0_0_24px_rgba(69,243,255,0.28)] hover:bg-[#45f3ff]/90 disabled:opacity-40 cursor-pointer"
+									disabled={
+										isLoading ||
+										isLoggingIn ||
+										isSendingOtp ||
+										isRetrievingUsername ||
+										(mode === "reset" && (!isOtpVerified || !has8Chars || !hasUpper || !hasSpecial || !passwordsMatch || isResetting))
+									}
 								>
 									{mode === "login"
 										? isLoading || isLoggingIn
@@ -291,38 +545,57 @@ export default function LoginView() {
 											: "Sign In"
 										: mode === "forgot"
 											? isSendingOtp
-												? "Sending..."
+												? "Sending OTP..."
 												: "Send OTP"
-											: isResetting
-												? "Updating..."
-												: "Update password"}
+											: mode === "forgot_username"
+												? isRetrievingUsername
+													? "Sending username..."
+													: "Retrieve username"
+												: isResetting
+													? "Updating password..."
+													: "Update password"}
 								</Button>
 
-								<div className="pt-1 text-center text-xs text-[#8b949e]">
+								<div className="pt-1 text-xs text-[#8b949e]">
 									{mode === "login" ? (
-										<button
-											type="button"
-											className="text-[#45f3ff] underline-offset-2 hover:underline"
-											onClick={() => {
-												setMode("forgot");
-												setErrorMessage("");
-												setInfoMessage("");
-											}}
-										>
-											Forgot password?
-										</button>
+										<div className="flex items-center justify-between">
+											<button
+												type="button"
+												className="text-[#45f3ff] underline-offset-2 hover:underline cursor-pointer"
+												onClick={() => {
+													setMode("forgot");
+													setErrorMessage("");
+													setInfoMessage("");
+												}}
+											>
+												Forgot password?
+											</button>
+											<button
+												type="button"
+												className="text-[#45f3ff] underline-offset-2 hover:underline cursor-pointer"
+												onClick={() => {
+													setMode("forgot_username");
+													setErrorMessage("");
+													setInfoMessage("");
+												}}
+											>
+												Forgot username?
+											</button>
+										</div>
 									) : (
-										<button
-											type="button"
-											className="text-[#45f3ff] underline-offset-2 hover:underline"
-											onClick={() => {
-												setMode("login");
-												setErrorMessage("");
-												setInfoMessage("");
-											}}
-										>
-											Back to sign in
-										</button>
+										<div className="text-center">
+											<button
+												type="button"
+												className="text-[#45f3ff] underline-offset-2 hover:underline cursor-pointer"
+												onClick={() => {
+													setMode("login");
+													setErrorMessage("");
+													setInfoMessage("");
+												}}
+											>
+												Back to sign in
+											</button>
+										</div>
 									)}
 								</div>
 							</form>

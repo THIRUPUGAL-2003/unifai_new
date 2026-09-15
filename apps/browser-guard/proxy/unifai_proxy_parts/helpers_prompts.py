@@ -265,6 +265,8 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
     if _is_internal_wire_text(t):
         return False
+    if "what would you like to do with this file?" in t.lower():
+        return False
     if t.startswith("gAAAA") or '"p":"gAAAA' in t:
         return False
     if t.startswith("[FILE UPLOAD") or t.startswith("[FILE DOWNLOAD") or t.startswith("[FILE CONTENT") or t.startswith("[SITE BLOCKED"):

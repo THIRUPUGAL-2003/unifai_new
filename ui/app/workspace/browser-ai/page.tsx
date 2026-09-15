@@ -1113,8 +1113,10 @@ export default function BrowserAiPage() {
 	};
 
 	const nicGuidOnly = (raw?: string) => {
-		const m = (raw || "").match(/\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}/);
-		return m ? m[0].toUpperCase() : "";
+		if (!raw) return "";
+		const m = raw.match(/\{[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\}/);
+		if (m) return m[0].toUpperCase();
+		return raw.trim();
 	};
 
 	const filteredRules = rules.filter(
@@ -3379,7 +3381,7 @@ export default function BrowserAiPage() {
 							</div>
 						</CardHeader>
 						<CardContent className="p-0">
-							<Table className="table-fixed min-w-[1100px]">
+							<Table className="table-fixed min-w-[1400px]">
 								<TableHeader>
 									<TableRow className="hover:bg-transparent border-border">
 										<TableHead className="w-[44px]">
@@ -3390,16 +3392,16 @@ export default function BrowserAiPage() {
 												disabled={agents.length === 0}
 											/>
 										</TableHead>
-										<TableHead className="w-[160px]">Host</TableHead>
-										<TableHead className="w-[100px]">Source</TableHead>
-										<TableHead className="w-[100px]">User</TableHead>
-										<TableHead className="w-[120px]">IP</TableHead>
-										<TableHead className="w-[140px]">Physical address (MAC)</TableHead>
-										<TableHead className="w-[140px]">Transport name</TableHead>
-										<TableHead className="w-[80px]">Version</TableHead>
+										<TableHead className="w-[180px]">Host</TableHead>
+										<TableHead className="w-[90px]">Source</TableHead>
+										<TableHead className="w-[110px]">User</TableHead>
+										<TableHead className="w-[130px]">IP</TableHead>
+										<TableHead className="w-[200px] pr-4">Physical address (MAC)</TableHead>
+										<TableHead className="w-[220px] px-4">Transport name</TableHead>
+										<TableHead className="w-[90px]">Version</TableHead>
 										<TableHead className="w-[120px]">Status</TableHead>
-										<TableHead className="w-[150px]">Last seen</TableHead>
-										<TableHead className="w-[150px]">Installed</TableHead>
+										<TableHead className="w-[160px]">Last seen</TableHead>
+										<TableHead className="w-[160px]">Installed</TableHead>
 									</TableRow>
 								</TableHeader>
 								<TableBody>
@@ -3425,10 +3427,10 @@ export default function BrowserAiPage() {
 											</TableCell>
 											<TableCell className="text-sm truncate">{agent.username || "—"}</TableCell>
 											<TableCell className="text-xs font-mono truncate">{agent.ip_address || "—"}</TableCell>
-											<TableCell className="text-xs font-mono truncate" data-testid="guard-agent-mac-cell" title={agent.mac_address || ""}>
+											<TableCell className="text-xs font-mono truncate pr-4" data-testid="guard-agent-mac-cell" title={agent.mac_address || ""}>
 												{agent.mac_address || "—"}
 											</TableCell>
-											<TableCell className="text-[11px] font-mono text-muted-foreground truncate" data-testid="guard-agent-transport-cell" title={nicGuidOnly(agent.transport_name) || ""}>
+											<TableCell className="text-[11px] font-mono text-muted-foreground truncate px-4" data-testid="guard-agent-transport-cell" title={nicGuidOnly(agent.transport_name) || ""}>
 												{nicGuidOnly(agent.transport_name) || "—"}
 											</TableCell>
 											<TableCell className="text-xs truncate font-medium">{agent.agent_version || "—"}</TableCell>
@@ -3443,7 +3445,7 @@ export default function BrowserAiPage() {
 									))}
 									{agents.length === 0 && (
 										<TableRow>
-											<TableCell colSpan={10} className="text-center py-10 text-muted-foreground text-sm">
+											<TableCell colSpan={11} className="text-center py-10 text-muted-foreground text-sm">
 												No Guard agents yet. Install UnifAI_Guard_Setup.exe (Windows) or UnifAI_Guard_macOS.zip (Mac) on laptops and/or run the network proxy (docker compose unifai_broswer_proxy or Guard with server_mode). Same dashboard for both.
 											</TableCell>
 										</TableRow>

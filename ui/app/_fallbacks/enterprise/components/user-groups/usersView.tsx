@@ -72,6 +72,7 @@ export default function UsersView() {
 	const [username, setUsername] = useState("");
 	const [email, setEmail] = useState("");
 	const [password, setPassword] = useState("");
+	const [confirmPassword, setConfirmPassword] = useState("");
 	const [role, setRole] = useState("user");
 	const [teamId, setTeamId] = useState("");
 	const [initialTeamId, setInitialTeamId] = useState("");
@@ -126,7 +127,7 @@ export default function UsersView() {
 
 	const syncUserVirtualKey = async (userId: string, nextVkId: string, prevVkId: string) => {
 		if (prevVkId && prevVkId !== nextVkId) {
-			await deleteVirtualKeyUser(prevVkId).unwrap();
+			await deleteVirtualKeyUser({ vkId: prevVkId, user_id: userId }).unwrap();
 		}
 		if (nextVkId && nextVkId !== prevVkId) {
 			await setVirtualKeyUser({ vkId: nextVkId, user_id: userId }).unwrap();
@@ -288,6 +289,10 @@ export default function UsersView() {
 			toast.error("Username and password are required");
 			return;
 		}
+		if (password !== confirmPassword) {
+			toast.error("Passwords do not match");
+			return;
+		}
 		if (!email.trim()) {
 			toast.error("Email is required so welcome mail / password-reset OTP can work");
 			return;
@@ -430,6 +435,7 @@ export default function UsersView() {
 		setUsername("");
 		setEmail("");
 		setPassword("");
+		setConfirmPassword("");
 		setRole("user");
 		setTeamId("");
 		setInitialTeamId("");
@@ -482,9 +488,6 @@ export default function UsersView() {
 						<Users className="h-6 w-6 text-teal-400" />
 						User Governance
 					</h1>
-					<p className="text-muted-foreground mt-1 text-sm">
-						Manage users, roles (Admin/User), team assignment, budgets, and prompt access.
-					</p>
 				</div>
 				<Button
 					onClick={() => {
@@ -728,7 +731,18 @@ export default function UsersView() {
 								required
 								value={password}
 								onChange={(e) => setPassword(e.target.value)}
-								placeholder="••••••••"
+								placeholder="Min 8 chars, 1 uppercase, 1 symbol"
+								className="bg-muted/20 border-border/50 focus:border-teal-500/50"
+							/>
+						</div>
+						<div className="space-y-2">
+							<label className="text-muted-foreground text-sm font-medium">Confirm Password</label>
+							<Input
+								type="password"
+								required
+								value={confirmPassword}
+								onChange={(e) => setConfirmPassword(e.target.value)}
+								placeholder="Re-enter password"
 								className="bg-muted/20 border-border/50 focus:border-teal-500/50"
 							/>
 						</div>

@@ -116,6 +116,8 @@ function VKAssignedToCell({ vk }: { vk: VirtualKey }) {
 		label = `Team: ${vk.team.name}`;
 	} else if (vk.customer) {
 		label = `Customer: ${vk.customer.name}`;
+	} else if (assignedUsers.length > 1) {
+		label = `Users (${assignedUsers.length}): ${assignedUsers.map((u) => u.name || u.email).join(", ")}`;
 	} else if (assignedUser) {
 		label = `User: ${assignedUser.name || assignedUser.email}`;
 	}

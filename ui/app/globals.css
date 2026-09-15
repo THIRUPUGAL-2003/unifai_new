@@ -269,8 +269,24 @@
 	display: none; /* Chrome, Safari */
 }
 
+html {
+	color-scheme: dark;
+	scrollbar-width: none; /* Firefox */
+	-ms-overflow-style: none; /* IE and Edge */
+}
+
+html::-webkit-scrollbar {
+	display: none; /* Chrome, Safari */
+}
+
 body {
 	overscroll-behavior: none;
+	scrollbar-width: none; /* Firefox */
+	-ms-overflow-style: none; /* IE and Edge */
+}
+
+body::-webkit-scrollbar {
+	display: none; /* Chrome, Safari */
 }
 
 .query-builder-wrapper {
