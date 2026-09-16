@@ -488,8 +488,8 @@ export default function ModelLimitsTable({
 																	</TooltipTrigger>
 																	<TooltipContent>
 																		<p className="font-medium">
-																			{config.rate_limit.token_current_usage.toLocaleString()} /{" "}
-																			{config.rate_limit.token_max_limit.toLocaleString()} tokens
+																			{(config.rate_limit.token_current_usage ?? 0).toLocaleString()} /{" "}
+																			{(config.rate_limit.token_max_limit ?? 0).toLocaleString()} tokens
 																		</p>
 																		<p className="text-primary-foreground/80 text-xs">
 																			Resets {formatResetDuration(config.rate_limit.token_reset_duration || "1h")}
@@ -524,8 +524,8 @@ export default function ModelLimitsTable({
 																	</TooltipTrigger>
 																	<TooltipContent>
 																		<p className="font-medium">
-																			{config.rate_limit.request_current_usage.toLocaleString()} /{" "}
-																			{config.rate_limit.request_max_limit.toLocaleString()} requests
+																			{(config.rate_limit.request_current_usage ?? 0).toLocaleString()} /{" "}
+																			{(config.rate_limit.request_max_limit ?? 0).toLocaleString()} requests
 																		</p>
 																		<p className="text-primary-foreground/80 text-xs">
 																			Resets {formatResetDuration(config.rate_limit.request_reset_duration || "1h")}

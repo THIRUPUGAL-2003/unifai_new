@@ -495,7 +495,7 @@ export default function ModelLimitSheet({ modelConfig, onSave, onCancel }: Model
 												<div key={b.id} className="space-y-1">
 													<p className="text-muted-foreground text-xs">Budget ({b.reset_duration})</p>
 													<p className="text-sm font-medium">
-														${b.current_usage.toFixed(2)} / ${b.max_limit.toFixed(2)}
+														${(b.current_usage ?? 0).toFixed(2)} / ${(b.max_limit ?? 0).toFixed(2)}
 													</p>
 												</div>
 											))}
@@ -503,8 +503,8 @@ export default function ModelLimitSheet({ modelConfig, onSave, onCancel }: Model
 												<div className="space-y-1">
 													<p className="text-muted-foreground text-xs">Tokens</p>
 													<p className="text-sm font-medium">
-														{modelConfig.rate_limit.token_current_usage.toLocaleString()} /{" "}
-														{modelConfig.rate_limit.token_max_limit.toLocaleString()}
+														{(modelConfig.rate_limit.token_current_usage ?? 0).toLocaleString()} /{" "}
+														{(modelConfig.rate_limit.token_max_limit ?? 0).toLocaleString()}
 													</p>
 												</div>
 											)}
@@ -512,8 +512,8 @@ export default function ModelLimitSheet({ modelConfig, onSave, onCancel }: Model
 												<div className="space-y-1">
 													<p className="text-muted-foreground text-xs">Requests</p>
 													<p className="text-sm font-medium">
-														{modelConfig.rate_limit.request_current_usage.toLocaleString()} /{" "}
-														{modelConfig.rate_limit.request_max_limit.toLocaleString()}
+														{(modelConfig.rate_limit.request_current_usage ?? 0).toLocaleString()} /{" "}
+														{(modelConfig.rate_limit.request_max_limit ?? 0).toLocaleString()}
 													</p>
 												</div>
 											)}

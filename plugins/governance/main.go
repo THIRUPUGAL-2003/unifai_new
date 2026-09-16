@@ -1264,6 +1264,7 @@ func (p *GovernancePlugin) PreRequestHook(ctx *schemas.UnifAIContext, req *schem
 
 	virtualKeyValue := unifai.GetStringFromContext(ctx, schemas.UnifAIContextKeyVirtualKey)
 	hasRoutingRules := p.store.HasRoutingRules(ctx)
+	p.syncCircuitBreakerPoliciesFromStore()
 	hasCircuitPolicies := circuitBreakerPoliciesActive()
 	if virtualKeyValue == "" && !hasRoutingRules && !hasCircuitPolicies {
 		return nil

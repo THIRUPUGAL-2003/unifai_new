@@ -277,25 +277,25 @@ export default function TeamsTable({
 
 										// Budget calculations — any of the team's budgets exhausted
 										const teamBudgets = team.budgets ?? [];
-										const isBudgetExhausted = teamBudgets.some((b) => b.max_limit > 0 && b.current_usage >= b.max_limit);
+										const isBudgetExhausted = teamBudgets.some((b) => b.max_limit > 0 && (b.current_usage ?? 0) >= b.max_limit);
 
 										// Rate limit calculations
 										const isTokenLimitExhausted =
 											team.rate_limit?.token_max_limit &&
 											team.rate_limit.token_max_limit > 0 &&
-											team.rate_limit.token_current_usage >= team.rate_limit.token_max_limit;
+											(team.rate_limit.token_current_usage ?? 0) >= team.rate_limit.token_max_limit;
 										const isRequestLimitExhausted =
 											team.rate_limit?.request_max_limit &&
 											team.rate_limit.request_max_limit > 0 &&
-											team.rate_limit.request_current_usage >= team.rate_limit.request_max_limit;
+											(team.rate_limit.request_current_usage ?? 0) >= team.rate_limit.request_max_limit;
 										const isRateLimitExhausted = isTokenLimitExhausted || isRequestLimitExhausted;
 										const tokenPercentage =
 											team.rate_limit?.token_max_limit && team.rate_limit.token_max_limit > 0
-												? Math.min((team.rate_limit.token_current_usage / team.rate_limit.token_max_limit) * 100, 100)
+												? Math.min(((team.rate_limit.token_current_usage ?? 0) / team.rate_limit.token_max_limit) * 100, 100)
 												: 0;
 										const requestPercentage =
 											team.rate_limit?.request_max_limit && team.rate_limit.request_max_limit > 0
-												? Math.min((team.rate_limit.request_current_usage / team.rate_limit.request_max_limit) * 100, 100)
+												? Math.min(((team.rate_limit.request_current_usage ?? 0) / team.rate_limit.request_max_limit) * 100, 100)
 												: 0;
 
 										const isExhausted = isBudgetExhausted || isRateLimitExhausted;
@@ -325,8 +325,9 @@ export default function TeamsTable({
 													{teamBudgets.length > 0 ? (
 														<div className="space-y-2.5">
 															{teamBudgets.map((b) => {
-																const budgetPercentage = b.max_limit > 0 ? Math.min((b.current_usage / b.max_limit) * 100, 100) : 0;
-																const isExhausted = b.max_limit > 0 && b.current_usage >= b.max_limit;
+																const usage = b.current_usage ?? 0;
+																const budgetPercentage = b.max_limit > 0 ? Math.min((usage / b.max_limit) * 100, 100) : 0;
+																const isExhausted = b.max_limit > 0 && usage >= b.max_limit;
 																return (
 																	<Tooltip key={b.id}>
 																		<TooltipTrigger asChild>
@@ -390,8 +391,8 @@ export default function TeamsTable({
 																	</TooltipTrigger>
 																	<TooltipContent>
 																		<p className="font-medium">
-																			{team.rate_limit.token_current_usage.toLocaleString()} /{" "}
-																			{team.rate_limit.token_max_limit.toLocaleString()} tokens
+																			{(team.rate_limit.token_current_usage ?? 0).toLocaleString()} /{" "}
+																			{(team.rate_limit.token_max_limit ?? 0).toLocaleString()} tokens
 																		</p>
 																		<p className="text-primary-foreground/80 text-xs">
 																			Resets {formatResetDuration(team.rate_limit.token_reset_duration || "1h")}
@@ -424,8 +425,8 @@ export default function TeamsTable({
 																	</TooltipTrigger>
 																	<TooltipContent>
 																		<p className="font-medium">
-																			{team.rate_limit.request_current_usage.toLocaleString()} /{" "}
-																			{team.rate_limit.request_max_limit.toLocaleString()} requests
+																			{(team.rate_limit.request_current_usage ?? 0).toLocaleString()} /{" "}
+																			{(team.rate_limit.request_max_limit ?? 0).toLocaleString()} requests
 																		</p>
 																		<p className="text-primary-foreground/80 text-xs">
 																			Resets {formatResetDuration(team.rate_limit.request_reset_duration || "1h")}

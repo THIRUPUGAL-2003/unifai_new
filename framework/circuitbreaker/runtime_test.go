@@ -54,19 +54,30 @@ func TestEvaluateTripOnHeader(t *testing.T) {
 	}
 }
 
-func TestEvaluateTripDoesNotMatchFallback(t *testing.T) {
+func TestEvaluateTripMistralHeaderAlias(t *testing.T) {
 	r := &Runtime{}
 	r.LoadPolicies([]configstoreTables.TableCircuitBreakerPolicy{{
-		Name: "p1", Enabled: true,
-		PrimaryProvider: "openai", PrimaryModel: "gpt-4o",
-		FallbackProvider: "anthropic", FallbackModel: "claude-3-5-sonnet",
+		Name: "mistral-cb", Enabled: true,
+		PrimaryProvider: "mistral", PrimaryModel: "codestral-2508",
+		FallbackProvider: "openrouter", FallbackModel: "openai/gpt-4o-mini",
+		DefaultCooldown: "30s",
 		ParsedCondition: map[string]any{
 			"operator": "OR",
-			"signals": []map[string]any{{"header_name": "x-degraded", "source": "response_header"}},
+			// Policy uses OpenAI-style name; provider returns Mistral/Kong minute header.
+			"signals": []map[string]any{{
+				"header_name":  "x-ratelimit-remaining-requests",
+				"header_value": "0",
+				"source":       "response_header",
+			}},
 		},
 	}})
-	_, tripped := r.EvaluateTrip(schemas.ModelProvider("anthropic"), "claude-3-5-sonnet", map[string]string{"x-degraded": "1"})
-	if tripped {
-		t.Fatal("fallback endpoint should not trip primary policy")
+
+	name, tripped := r.EvaluateTrip(
+		schemas.ModelProvider("mistral"),
+		"codestral-2508",
+		map[string]string{"X-Ratelimit-Remaining-Req-Minute": "0"},
+	)
+	if !tripped || name != "mistral-cb" {
+		t.Fatalf("expected alias trip, got tripped=%v name=%q", tripped, name)
 	}
 }

@@ -245,7 +245,7 @@ export function GovernanceFormFragment({ provider }: GovernanceFormFragmentProps
 									<div key={b.id} className="space-y-1">
 										<p className="text-muted-foreground text-xs">Budget ({b.reset_duration})</p>
 										<p className="text-sm font-medium">
-											${b.current_usage.toFixed(2)} / ${b.max_limit.toFixed(2)}
+											${(b.current_usage ?? 0).toFixed(2)} / ${(b.max_limit ?? 0).toFixed(2)}
 										</p>
 									</div>
 								))}
@@ -253,8 +253,8 @@ export function GovernanceFormFragment({ provider }: GovernanceFormFragmentProps
 									<div className="space-y-1">
 										<p className="text-muted-foreground text-xs">Token Usage</p>
 										<p className="text-sm font-medium">
-											{providerGovernance.rate_limit.token_current_usage.toLocaleString()} /{" "}
-											{providerGovernance.rate_limit.token_max_limit.toLocaleString()}
+											{(providerGovernance.rate_limit.token_current_usage ?? 0).toLocaleString()} /{" "}
+											{(providerGovernance.rate_limit.token_max_limit ?? 0).toLocaleString()}
 										</p>
 									</div>
 								)}
@@ -262,8 +262,8 @@ export function GovernanceFormFragment({ provider }: GovernanceFormFragmentProps
 									<div className="space-y-1">
 										<p className="text-muted-foreground text-xs">Request Usage</p>
 										<p className="text-sm font-medium">
-											{providerGovernance.rate_limit.request_current_usage.toLocaleString()} /{" "}
-											{providerGovernance.rate_limit.request_max_limit.toLocaleString()}
+											{(providerGovernance.rate_limit.request_current_usage ?? 0).toLocaleString()} /{" "}
+											{(providerGovernance.rate_limit.request_max_limit ?? 0).toLocaleString()}
 										</p>
 									</div>
 								)}

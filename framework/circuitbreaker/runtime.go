@@ -267,7 +267,36 @@ func normalizeHeaders(headers map[string]string) map[string]string {
 	for k, v := range headers {
 		out[strings.ToLower(strings.TrimSpace(k))] = v
 	}
+	// Providers (esp. Mistral via Kong) use *-req-minute / *-tokens-minute names while
+	// the UI/docs default to OpenAI-style *-requests / *-tokens. Mirror aliases so a
+	// policy written for one naming scheme still trips on the other.
+	aliasPairs := [][2]string{
+		{"x-ratelimit-remaining-requests", "x-ratelimit-remaining-req-minute"},
+		{"x-ratelimit-remaining-tokens", "x-ratelimit-remaining-tokens-minute"},
+		{"x-ratelimit-limit-requests", "x-ratelimit-limit-req-minute"},
+		{"x-ratelimit-limit-tokens", "x-ratelimit-limit-tokens-minute"},
+	}
+	for _, pair := range aliasPairs {
+		a, b := pair[0], pair[1]
+		if _, ok := out[a]; !ok {
+			if v, ok := out[b]; ok {
+				out[a] = v
+			}
+		}
+		if _, ok := out[b]; !ok {
+			if v, ok := out[a]; ok {
+				out[b] = v
+			}
+		}
+	}
 	return out
+}
+
+func headerValue(headers map[string]string, name string) (string, bool) {
+	if val, ok := headers[name]; ok {
+		return val, true
+	}
+	return "", false
 }
 
 func signalsMatch(cond Condition, headers map[string]string) bool {
@@ -283,7 +312,7 @@ func signalsMatch(cond Condition, headers map[string]string) bool {
 		if name == "" {
 			return false
 		}
-		val, ok := headers[name]
+		val, ok := headerValue(headers, name)
 		if !ok {
 			return false
 		}

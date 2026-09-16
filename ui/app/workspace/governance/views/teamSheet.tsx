@@ -558,18 +558,18 @@ export default function TeamSheet({ team, customers, onSave, onCancel }: TeamShe
 											<p className="text-muted-foreground text-xs">Tokens</p>
 											<div className="flex items-center gap-2">
 												<span className="font-mono text-sm">
-													{team.rate_limit.token_current_usage.toLocaleString()} / {team.rate_limit.token_max_limit.toLocaleString()}
+													{(team.rate_limit.token_current_usage ?? 0).toLocaleString()} / {(team.rate_limit.token_max_limit ?? 0).toLocaleString()}
 												</span>
 												<Badge
 													variant={
-														team.rate_limit.token_max_limit > 0 && team.rate_limit.token_current_usage >= team.rate_limit.token_max_limit
+														team.rate_limit.token_max_limit > 0 && (team.rate_limit.token_current_usage ?? 0) >= team.rate_limit.token_max_limit
 															? "destructive"
 															: "default"
 													}
 													className="text-xs"
 												>
 													{team.rate_limit.token_max_limit > 0
-														? Math.round((team.rate_limit.token_current_usage / team.rate_limit.token_max_limit) * 100)
+														? Math.round(((team.rate_limit.token_current_usage ?? 0) / team.rate_limit.token_max_limit) * 100)
 														: 0}
 													%
 												</Badge>
@@ -584,19 +584,19 @@ export default function TeamSheet({ team, customers, onSave, onCancel }: TeamShe
 											<p className="text-muted-foreground text-xs">Requests</p>
 											<div className="flex items-center gap-2">
 												<span className="font-mono text-sm">
-													{team.rate_limit.request_current_usage.toLocaleString()} / {team.rate_limit.request_max_limit.toLocaleString()}
+													{(team.rate_limit.request_current_usage ?? 0).toLocaleString()} / {(team.rate_limit.request_max_limit ?? 0).toLocaleString()}
 												</span>
 												<Badge
 													variant={
 														team.rate_limit.request_max_limit > 0 &&
-														team.rate_limit.request_current_usage >= team.rate_limit.request_max_limit
+														(team.rate_limit.request_current_usage ?? 0) >= team.rate_limit.request_max_limit
 															? "destructive"
 															: "default"
 													}
 													className="text-xs"
 												>
 													{team.rate_limit.request_max_limit > 0
-														? Math.round((team.rate_limit.request_current_usage / team.rate_limit.request_max_limit) * 100)
+														? Math.round(((team.rate_limit.request_current_usage ?? 0) / team.rate_limit.request_max_limit) * 100)
 														: 0}
 													%
 												</Badge>

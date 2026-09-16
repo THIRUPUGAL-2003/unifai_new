@@ -3,7 +3,7 @@ export interface AccessProfileBudgetLine {
 	scope: string;
 	max_limit: number;
 	reset_duration: string;
-	current_usage: number;
+	current_usage?: number;
 	last_reset: string;
 	alert_thresholds?: number[];
 }

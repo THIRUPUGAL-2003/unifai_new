@@ -1,9 +1,14 @@
 package governance
 
 import (
+	"context"
+	"sync"
+	"time"
+
 	unifai "github.com/unifai/unifai/core"
 	"github.com/unifai/unifai/core/schemas"
 	"github.com/unifai/unifai/framework/circuitbreaker"
+	"github.com/unifai/unifai/framework/configstore"
 )
 
 type circuitBreakerCtxKey string
@@ -13,7 +18,39 @@ const (
 	circuitBreakerPrimaryModelKey    circuitBreakerCtxKey = "governance-circuit-breaker-primary-model"
 )
 
+var (
+	cbPolicySyncMu   sync.Mutex
+	cbPolicySyncedAt time.Time
+)
+
+// syncCircuitBreakerPoliciesFromStore refreshes in-memory CB policies from the
+// config store. Needed when CRUD landed on another process/replica, or when
+// this process started before policies existed. Throttled to avoid a DB read
+// on every request.
+func (p *GovernancePlugin) syncCircuitBreakerPoliciesFromStore() {
+	if p == nil || p.configStore == nil {
+		return
+	}
+	ws, ok := configstore.AsWorkspaceStore(p.configStore)
+	if !ok || ws == nil {
+		return
+	}
+	cbPolicySyncMu.Lock()
+	defer cbPolicySyncMu.Unlock()
+	// Always refresh when empty; otherwise at most every 5s.
+	if circuitbreaker.Default.HasPolicies() && time.Since(cbPolicySyncedAt) < 5*time.Second {
+		return
+	}
+	rows, err := ws.ListCircuitBreakerPolicies(context.Background())
+	if err != nil {
+		return
+	}
+	circuitbreaker.Default.LoadPolicies(rows)
+	cbPolicySyncedAt = time.Now()
+}
+
 func (p *GovernancePlugin) applyCircuitBreakerFailover(ctx *schemas.UnifAIContext, req *schemas.UnifAIRequest) bool {
+	p.syncCircuitBreakerPoliciesFromStore()
 	provider, model, _ := req.GetRequestFields()
 	if model == "" {
 		return false
@@ -40,7 +77,12 @@ func (p *GovernancePlugin) evaluateCircuitBreakerTrip(ctx *schemas.UnifAIContext
 	if !unifai.IsFinalChunk(ctx) {
 		return
 	}
-	_, provider, model, _ := unifai.GetResponseFields(result, err)
+	p.syncCircuitBreakerPoliciesFromStore()
+	_, provider, originalModel, resolvedModel := unifai.GetResponseFields(result, err)
+	model := originalModel
+	if model == "" {
+		model = resolvedModel
+	}
 	if model == "" {
 		return
 	}

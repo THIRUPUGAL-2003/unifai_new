@@ -38,6 +38,8 @@ const emptyPolicy = (): CircuitBreakerPolicy => ({
 const COMMON_CIRCUIT_BREAKER_HEADERS: ComboboxSelectOption[] = [
 	{ label: "x-ratelimit-remaining-requests (Remaining Calls)", value: "x-ratelimit-remaining-requests" },
 	{ label: "x-ratelimit-remaining-tokens (Remaining Tokens)", value: "x-ratelimit-remaining-tokens" },
+	{ label: "x-ratelimit-remaining-req-minute (Mistral / Kong RPM)", value: "x-ratelimit-remaining-req-minute" },
+	{ label: "x-ratelimit-remaining-tokens-minute (Mistral / Kong TPM)", value: "x-ratelimit-remaining-tokens-minute" },
 	{ label: "retry-after (HTTP 429 Backoff)", value: "retry-after" },
 	{ label: "x-ratelimit-limit-requests (RPM Limit)", value: "x-ratelimit-limit-requests" },
 	{ label: "x-ratelimit-limit-tokens (TPM Limit)", value: "x-ratelimit-limit-tokens" },
