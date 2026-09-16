@@ -428,6 +428,8 @@ def _body_has_user_send_payload(data) -> bool:
     """
     if not isinstance(data, dict):
         return False
+    if "_dd" in data or "format_version" in data:
+        return False
     event = str(data.get("event") or data.get("type") or "").lower()
     if event in ("ping", "pong", "typing", "presence", "heartbeat", "metrics", "internal"):
         return False
