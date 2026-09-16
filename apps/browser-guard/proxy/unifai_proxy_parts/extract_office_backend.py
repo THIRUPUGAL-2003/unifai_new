@@ -437,10 +437,26 @@ def _extract_plain_text_bytes(data: bytes) -> str:
 
 def _classify_upload_kind(data: bytes, content_type: str = "", file_name: str = "") -> str:
     """Classify upload bytes so we use one extractor per file type (not all at once)."""
-    if not data:
-        return "unknown"
     ct = (content_type or "").lower()
     fn = (file_name or "").lower()
+    if not data:
+        if "pdf" in ct or fn.endswith(".pdf"):
+            return "pdf"
+        if "image/" in ct or any(fn.endswith(ext) for ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")):
+            return "image"
+        if "audio/" in ct or any(fn.endswith(ext) for ext in (".wav", ".mp3", ".m4a", ".ogg", ".webm", ".flac", ".aac")):
+            return "audio"
+        if "video/" in ct or any(fn.endswith(ext) for ext in (".mp4", ".mov", ".avi", ".mkv", ".webm")):
+            return "video"
+        if "word" in ct or fn.endswith((".docx", ".doc")):
+            return "docx"
+        if "excel" in ct or "spreadsheet" in ct or fn.endswith((".xlsx", ".xls", ".csv")):
+            return "xlsx"
+        if "presentation" in ct or "powerpoint" in ct or fn.endswith((".pptx", ".ppt")):
+            return "pptx"
+        if any(fn.endswith(ext) for ext in (".txt", ".json", ".xml", ".yaml", ".md", ".log")):
+            return "plain"
+        return "unknown"
 
     if "pdf" in ct or fn.endswith(".pdf") or data[:5] == b"%PDF-" or b"%PDF-" in data[:4096]:
         return "pdf"

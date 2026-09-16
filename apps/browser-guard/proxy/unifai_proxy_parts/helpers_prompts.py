@@ -257,7 +257,13 @@ def looks_like_user_prompt(text: str) -> bool:
         return False
     if _is_google_wire_blob(t):
         return False
-    if t.startswith('[[["') or t.startswith("[[[") or t.startswith("[[null,") or "f.req=" in t:
+    if (
+        t.startswith(("[null,", '[[["', "[[[", "[[null,", '["[["', '["[', '["contrib', '["/contrib'))
+        or "f.req=" in t
+        or "/contrib service" in t
+        or (t.startswith('{"type":"action"') and "_dd" in t)
+        or (t.startswith("{") and '"_dd":' in t)
+    ):
         return False
     if any(rpc in t for rpc in ("xyhAld", "umJEY", "k06x8e", "wrb.fr", "batchexecute", "GmailHttp")):
         return False
@@ -763,6 +769,11 @@ def is_noise(path: str, content: str = "") -> bool:
         return True
 
     if content:
+        # Datadog RUM actions / telemetry (Claude / web monitoring)
+        if '"_dd":' in content or ('"format_version":' in content and '"action"' in content):
+            return True
+        if content.strip().startswith(('{"type":"action"', '{"type": "action"')) and "_dd" in content:
+            return True
         if content.startswith('{"counters":') or content.startswith('{"view":') or content.startswith('{"events":'):
             return True
         if '{"prepare_token":' in content or '"prepare_token"' in content:
@@ -1433,8 +1444,16 @@ def _extract_from_urlencoded(text: str) -> str | None:
                             best_len = len(got)
         if best:
             return best
-        # Fallback: any long-enough value that looks like user text
-        for vals in qs.values():
+        # Handle f.req separately — never treat raw batchexecute envelope as user text!
+        if "f.req" in qs:
+            for v in qs["f.req"]:
+                batchexecute_prompt = extract_batchexecute_prompt("f.req=" + v)
+                if batchexecute_prompt and looks_like_user_prompt(batchexecute_prompt) and not _is_opaque_wire_blob(batchexecute_prompt):
+                    return _clean_prompt_text(batchexecute_prompt)
+        # Fallback: any long-enough value that looks like user text (skip f.req and wire tokens)
+        for k, vals in qs.items():
+            if k in ("f.req", "req0___data__", "___data__", "soc-app", "soc-platform", "at", "f.sid"):
+                continue
             for v in vals:
                 got = _clean_prompt_text(v)
                 if got and len(got) >= 3 and looks_like_user_prompt(got) and not _is_opaque_wire_blob(got):

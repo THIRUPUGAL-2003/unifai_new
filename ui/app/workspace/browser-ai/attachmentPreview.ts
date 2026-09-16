@@ -45,6 +45,9 @@ export function isReadableExtractedText(text: string): boolean {
 	if (/[^\w\s.,!?;:'"()\-–—/\\[\]{}%$&+=<>@#^*|`~]{10,}/.test(t)) return false;
 
 	if (t.length > 40 && spaces < 2 && letters > 30) return false;
+	if (t.startsWith("[null,") || t.startsWith("f.req=") || t.startsWith("[[[") || t.includes("/contrib service")) {
+		return false;
+	}
 
 	return true;
 }

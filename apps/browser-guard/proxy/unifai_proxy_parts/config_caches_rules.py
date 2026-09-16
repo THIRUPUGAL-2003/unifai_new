@@ -175,6 +175,8 @@ IGNORE_PATH_PATTERNS = [
     # Cloudflare / bot challenges / fingerprint noise (NOT user prompts)
     "/cdn-cgi/", "/challenge-platform/", "/jsd/oneshot",
     "/api/v1/fm", "/cfm/", "/cf-challenge",
+    # Datadog RUM / Telemetry endpoints
+    "/rum", "/v2/rum", "/api/v2/rum", "/browser-intake", "/telemetry/datadog",
     # Perplexity / Claude noise endpoints
     "/search/v2/navigate", "/rest/rate_limits", "/api/event",
     "/api/telemetry", "/api/analytics", "/api/stats",
@@ -1152,7 +1154,15 @@ def _is_google_wire_blob(text: str) -> bool:
     t = (text or "").strip()
     if not t:
         return False
-    if t.startswith('[[["') or t.startswith("[[[") or t.startswith("[[null,") or "f.req=" in t:
+    if (
+        t.startswith(("[null,", '[[["', "[[[", "[[null,", '["[["', '["[', '["contrib', '["/contrib'))
+        or "f.req=" in t
+        or "/contrib service" in t
+        or "/contrib service/ttl id" in t
+        or "[null,[[" in t
+        or t.startswith('[null,"[[[')
+        or t.startswith("[null,'[[[")
+    ):
         return True
     # Batchexecute envelope or protobuf fragments like "%.@[null,[[45700889..." or "%.w [[null..."
     if t.startswith("%.") or re.match(r"^%[.\w@\s]+\[", t) or "[null,[[" in t:
@@ -1232,6 +1242,8 @@ def _is_clear_protocol_junk(text: str) -> bool:
     t = (text or "").strip()
     if not t:
         return True
+    if _is_google_wire_blob(t) or _is_opaque_wire_blob(t):
+        return True
     # ChatGPT/settings control crumbs mis-extracted as prompts on page open
     if " " not in t and "\n" not in t and t.lower() in _CONTROL_PLANE_PROMPT_TOKENS:
         return True
@@ -1260,12 +1272,18 @@ def _is_clear_protocol_junk(text: str) -> bool:
 def _is_opaque_wire_blob(text: str) -> bool:
     """Encoded wire/session tokens (Copilot/Bing base64url, Gemini blobs) — not typed chat."""
     t = (text or "").strip()
+    if not t:
+        return True
+    if _is_google_wire_blob(t):
+        return True
+    if (t.startswith('{"type":"action"') or t.startswith('{"type": "action"')) and ("_dd" in t or "format_version" in t):
+        return True
+    if t.startswith("{") and '"_dd":' in t:
+        return True
     if t.startswith(("{", "[")):
         return False
     if _is_typed_numeric_prompt(t) or _is_digit_heavy_user_text(t):
         return False
-    if _is_google_wire_blob(text):
-        return True
     if not t or len(t) < 8:
         return False
     # Single-token opaque blobs (no whitespace)

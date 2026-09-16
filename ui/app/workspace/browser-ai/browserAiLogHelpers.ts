@@ -71,12 +71,27 @@ export function logAttachmentLabel(log: BrowserAILogEntry): string {
 	// [FILE UPLOAD] resumes.zip [3 files: a.pdf, b.docx] (1/2) | caption — Allowed
 	const m = full.match(/^\[(?:FILE|VOICE) UPLOAD\]\s+(.+?)(?:\s+[—–-]\s+|\s+--\s+|$)/i);
 	if (m?.[1]) {
-		const label = m[1].replace(/\s+\(\d+\/\d+\)\s*$/, "").trim();
-		if (label && !/^attachment(-\d+)?$/i.test(label)) return label;
+		let rawPart = m[1].trim();
+		// Strip off leaked caption or wire garbage after pipe
+		if (rawPart.includes(" | ")) {
+			rawPart = rawPart.split(" | ")[0].trim();
+		}
+		// Match multi-file count indicator if present, e.g. (1/2) or (2/2)
+		const mCount = rawPart.match(/\s+(\(\d+\/\d+\))$/);
+		const counter = mCount ? ` ${mCount[1]}` : "";
+		const baseLabel = rawPart.replace(/\s+\(\d+\/\d+\)\s*$/, "").trim();
+		if (baseLabel && !/^attachment(-\d+)?$/i.test(baseLabel) && !baseLabel.startsWith("[null,")) {
+			return `${baseLabel}${counter}`;
+		}
+		if (/^attachment(-\d+)?$/i.test(baseLabel) && counter) {
+			return `attachment${counter}`;
+		}
 	}
-	if (name && !/^attachment(-\d+)?$/i.test(name) && name.toLowerCase() !== "document.pdf") return name;
+	if (name && !/^attachment(-\d+)?$/i.test(name) && name.toLowerCase() !== "document.pdf" && !name.startsWith("[null,")) {
+		return name;
+	}
 	if (full.startsWith("[VOICE UPLOAD]")) return "Voice Note";
-	if (name) return name;
+	if (name && !name.startsWith("[null,")) return name;
 	return "attachment";
 }
 

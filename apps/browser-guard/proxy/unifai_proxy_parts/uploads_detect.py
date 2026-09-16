@@ -100,14 +100,14 @@ def _filename_from_multipart_or_headers(raw: bytes = b"", headers=None, raw_text
     return ""
 
 
-def _default_name_from_bytes(raw: bytes, content_type: str = "", idx: int = 0) -> str:
+def _default_name_from_bytes(raw: bytes, content_type: str = "", idx: int = 0, total_count: int = 1) -> str:
     """Fallback label when the product wire omits the real filename."""
     kind = ""
     try:
         kind = _classify_upload_kind(raw or b"", content_type, "")
     except Exception:
         kind = ""
-    suffix = f"-{idx + 1}" if idx > 0 else ""
+    suffix = f"-{idx + 1}" if (idx > 0 or total_count > 1) else ""
     return {
         "pdf": f"document{suffix}.pdf",
         "zip": f"archive{suffix}.zip",

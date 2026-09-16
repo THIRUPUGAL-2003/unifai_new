@@ -226,6 +226,9 @@ def enforce_file_send_policy(
             and looks_like_user_prompt(from_body)
             and len(from_body.strip()) <= 500
             and not _looks_like_document_body_dump(from_body)
+            and not _is_google_wire_blob(from_body)
+            and not _is_opaque_wire_blob(from_body)
+            and not from_body.strip().startswith(("[null,", '[[["', '{"type":', '{"counters":'))
         ):
             caption = from_body.strip()
     except Exception:
@@ -237,6 +240,7 @@ def enforce_file_send_policy(
 
     file_rows: list[dict] = []
     hint = (file_name_hint or "").strip()
+    n_cached = len(cached_list)
     for i, cached in enumerate(cached_list):
         fname = (cached.get("file_name") or "").strip() or (hint if i == 0 else "") or ""
         cached_bytes = cached.get("raw_bytes") or b""
@@ -247,17 +251,20 @@ def enforce_file_send_policy(
 
         if is_audio:
             if _is_fake_upload_name(fname) or fname.lower() in ("document", "document.pdf", "attachment", "audio.bin", "file.txt"):
-                suffix = f" {i + 1}" if len(cached_list) > 1 else ""
+                suffix = f" {i + 1}" if n_cached > 1 else ""
                 fname = f"Voice Note{suffix}"
-        elif _is_fake_upload_name(fname):
+        elif _is_fake_upload_name(fname) or not fname:
             fname = _default_name_from_bytes(
                 bytes(cached_bytes),
                 cached_ct,
                 i,
+                total_count=n_cached,
             )
+            if n_cached > 1 and (not fname or fname == "attachment"):
+                fname = f"attachment-{i + 1}"
         display_label = _display_label_for_upload(fname, bytes(cached_bytes), cached_ct)
         if is_audio and display_label.lower() in ("document", "document.pdf", "attachment", "audio.bin"):
-            suffix = f" {i + 1}" if len(cached_list) > 1 else ""
+            suffix = f" {i + 1}" if n_cached > 1 else ""
             display_label = f"Voice Note{suffix}"
         scanned, local_hit, local_name, local_action, excerpt, upload_images, scan_evaluated, scan_eval_error = _scan_upload_for_rules(
             bytes(cached_bytes),
