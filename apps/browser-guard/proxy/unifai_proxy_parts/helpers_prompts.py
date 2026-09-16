@@ -705,7 +705,7 @@ def _should_intercept_extracted_prompt(
 
     if confident:
         # Exact user Send — do not drop number/symbol/short text via wire heuristics.
-        if _is_clear_protocol_junk(text):
+        if _is_clear_protocol_junk(text) or _is_google_wire_blob(text) or _is_opaque_wire_blob(text):
             return False
         # ChatGPT attach JSON often exposes "document.pdf" as content — that is the
         # filename, not a typed prompt. File row is logged via post_upload_intercept.
