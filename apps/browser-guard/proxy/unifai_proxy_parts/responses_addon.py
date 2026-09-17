@@ -771,42 +771,8 @@ class BrowserAIInterceptor:
                 f"[UnifAI Proxy] FILE CACHED (await Send — zero predict on upload) | {domain} | "
                 f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
             )
-            # Any monitored AI (Claude/Gemini/Perplexity/DeepSeek/…): analyze-on-attach.
-            # Always run file policy against what we just cached so Prompt Log + rules
-            # fire even when filename is a placeholder and caption is empty.
-            payload_now, ctype_now, name_now = extract_upload_file_payload(
-                raw_bytes, content_type, fname or ""
-            )
-            real_bytes = payload_now if payload_now else (
-                raw_bytes if raw_bytes.lstrip()[:1] not in (b"{", b"[") and len(raw_bytes) >= 64 else b""
-            )
-            # Voice / small audio clips still count.
-            if not real_bytes and (
-                (content_type or "").lower().startswith("audio/")
-                or _looks_like_audio(raw_bytes, content_type, fname or "")
-            ):
-                real_bytes = raw_bytes if len(raw_bytes) >= 32 else b""
-            if real_bytes and len(real_bytes) >= 32:
-                use_name = (name_now or fname or "").strip() or "attachment"
-                if _is_fake_upload_name(use_name) or "." not in use_name:
-                    sniffed = _sniff_upload_content_type(real_bytes, use_name, content_type or ctype_now or "")
-                    use_name = _default_name_from_bytes(real_bytes, sniffed, 0) or "document.bin"
-                # Strong markers so has_attach + name-key bind cannot miss.
-                synth = (
-                    f'{{"file_name":"{use_name}","filename":"{use_name}",'
-                    f'"files":[{{"file_name":"{use_name}"}}],'
-                    f'"attachments":[{{"file_name":"{use_name}"}}]}}'
-                )
-                if file_ids:
-                    synth = synth[:-1] + f',"file_uuid":"{file_ids[0]}","file_id":"{file_ids[0]}"}}'
-                blocked_u, n_u, _cap_u = self._file_send_maybe_block(
-                    flow, domain, platform, client_ip, synth, content_type or ctype_now or "", path,
-                )
-                if blocked_u:
-                    return
-                if n_u > 0:
-                    return
-            # Metadata-only handshake — wait for later chat Send / sticky cache bind.
+            # Upload/attach = cache only. Type detect → extract → Guard Rules →
+            # Block/Allow/Warn runs on chat Send (any Target Website).
             return
 
         # ── File Send: scan cached bytes; then still apply caption Guard Rules ──

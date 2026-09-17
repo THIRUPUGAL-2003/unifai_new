@@ -735,11 +735,18 @@ def cache_upload_file(
         return
     if len(stored) > 20 * 1024 * 1024:
         stored = stored[: 20 * 1024 * 1024]
+    final_ct = ctype or content_type or "application/octet-stream"
+    final_name = (name or file_name or "").strip() or "attachment"
+    # Prefer sniffed real name so Send-time bind works when UI used "attachment".
+    if _is_fake_upload_name(final_name) or "." not in final_name:
+        sniffed = _sniff_upload_content_type(stored, final_name, final_ct)
+        final_ct = sniffed or final_ct
+        final_name = _default_name_from_bytes(stored, final_ct, 0) or final_name
     entry = {
         "ts": time.time(),
         "domain": domain,
-        "file_name": name or file_name or "attachment",
-        "content_type": ctype or content_type or "application/octet-stream",
+        "file_name": final_name,
+        "content_type": final_ct,
         "raw_bytes": stored,
         "upload_reason": upload_reason or "",
         "rule_hit": bool(rule_hit),
@@ -1227,8 +1234,25 @@ def _file_policy_applies_on_send(
             return True
         # Short typed follow-ups after attach (e.g. "hi") on monitored chat hosts.
         if body.strip() and len(body) < 200_000 and not is_noise(path, body):
-            if is_chat_path(path, host, body) or _path_has_chat_marker(path) or _is_anthropic_messages_api_shape(path, body):
+            if (
+                is_chat_path(path, host, body)
+                or _path_has_chat_marker(path)
+                or _is_anthropic_messages_api_shape(path, body)
+                or _is_confident_chat_send(path, raw_text, raw_bytes)
+            ):
                 return True
+        # Any confirmed user prompt on this Target Website after a recent upload.
+        try:
+            peek = extract_prompt_universal(
+                (raw_text or "").encode("utf-8", errors="ignore") if isinstance(raw_text, str) else (raw_bytes or b""),
+                "",
+                host or "",
+                "",
+            )
+            if peek and looks_like_user_prompt(peek) and not is_noise(path, body):
+                return True
+        except Exception:
+            pass
     return False
 
 
