@@ -654,17 +654,17 @@ export default function AppSidebar() {
 				hasAccess: true,
 				subItems: [
 					{
-						title: "Model Catalog",
-						url: "/workspace/model-catalog",
-						icon: LayoutGrid,
-						description: "Providers, usage overview, and model attributes",
-						hasAccess: hasModelProvidersAccess,
-					},
-					{
 						title: "Model Providers",
 						url: "/workspace/providers",
 						icon: Boxes,
 						description: "Configure models",
+						hasAccess: hasModelProvidersAccess,
+					},
+					{
+						title: "Model Catalog",
+						url: "/workspace/model-catalog",
+						icon: LayoutGrid,
+						description: "Providers, usage overview, and model attributes",
 						hasAccess: hasModelProvidersAccess,
 					},
 					{
@@ -675,17 +675,17 @@ export default function AppSidebar() {
 						hasAccess: hasGovernanceLegacyAccess,
 					},
 					{
-						title: "Routing Rules",
-						url: "/workspace/routing-rules",
-						icon: Network,
-						description: "CEL rules for provider/model selection",
-						hasAccess: hasRoutingRulesAccess,
-					},
-					{
 						title: "Complexity Router",
 						url: "/workspace/complexity-router",
 						icon: GitCompareArrows,
 						description: "Sets complexity_tier for Routing Rules",
+						hasAccess: hasRoutingRulesAccess,
+					},
+					{
+						title: "Routing Rules",
+						url: "/workspace/routing-rules",
+						icon: Network,
+						description: "CEL rules for provider/model selection",
 						hasAccess: hasRoutingRulesAccess,
 					},
 					{
