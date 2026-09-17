@@ -8,7 +8,25 @@ _FAKE_UPLOAD_NAMES = frozenset({
     "file", "file.txt", "upload", "untitled", "document", "document.txt",
     "image", "image.png", "audio", "video", "media", "unknown", "null", "undefined",
     "document.pdf", "archive.zip", "attachment-1", "attachment-2", "attachment-3",
+    "spreadsheet.xlsx", "presentation.pptx", "document.docx", "file.txt",
 })
+
+# Names invented by _default_name_from_bytes / sniff — ChatGPT+Gemini often cache
+# caption/extra blobs under these and they show up as fake "document-2.pdf" rows.
+_GENERATED_UPLOAD_NAME_RE = re.compile(
+    r"^(?:"
+    r"attachment(-\d+)?"
+    r"|document(-\d+)?\.(pdf|docx|doc|txt)"
+    r"|spreadsheet(-\d+)?\.(xlsx|xls|xlsm)"
+    r"|presentation(-\d+)?\.(pptx|ppt)"
+    r"|archive(-\d+)?\.zip"
+    r"|image(-\d+)?\.(png|jpe?g|gif|webp|bmp)"
+    r"|voice-note(-\d+)?\.(wav|m4a|mp3|ogg|webm)"
+    r"|video(-\d+)?\.(bin|mp4|webm)"
+    r"|file(-\d+)?\.txt"
+    r")$",
+    re.I,
+)
 
 _UPLOAD_NAME_EXTS = (
     ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".xlsm", ".pptx", ".ppt",
@@ -27,9 +45,15 @@ def _is_fake_upload_name(name: str) -> bool:
     n = (name or "").strip().lower()
     if not n or n in _FAKE_UPLOAD_NAMES:
         return True
-    if re.fullmatch(r"attachment(-\d+)?", n):
+    if _GENERATED_UPLOAD_NAME_RE.fullmatch(n):
         return True
     return False
+
+
+def _is_real_user_upload_name(name: str) -> bool:
+    """True when filename looks like a user-picked name (not Guard/site placeholder)."""
+    n = (name or "").strip()
+    return bool(n) and not _is_fake_upload_name(n)
 
 
 def _sanitize_upload_filename(name: str) -> str:
@@ -236,46 +260,106 @@ def extract_file_id_name_map(raw_text: str) -> dict[str, str]:
     return out
 
 
+def _trim_phantom_upload_caches(
+    cached_list: list[dict],
+    raw_text: str = "",
+    caption: str = "",
+) -> list[dict]:
+    """Drop ChatGPT/Gemini caption phantoms (extra document-N / attachment rows).
+
+    When the user types a caption with multi-file Send, those sites often leave an
+    extra cached blob with only a generated name. Keep real-named files first;
+    fall back to Send body filename count; never invent a second document row.
+    """
+    if not cached_list or len(cached_list) <= 1:
+        return cached_list
+
+    send_names = [
+        n for n in extract_all_attachment_filenames_from_send(raw_text or "")
+        if _is_real_user_upload_name(n)
+    ]
+    realish = [e for e in cached_list if _is_real_user_upload_name((e.get("file_name") or "").strip())]
+    fakeish = [e for e in cached_list if not _is_real_user_upload_name((e.get("file_name") or "").strip())]
+
+    if send_names:
+        target = len(send_names)
+        if len(realish) >= target:
+            return realish[:target]
+        if realish:
+            need = max(target - len(realish), 0)
+            return realish + fakeish[:need]
+        return cached_list[:target]
+
+    # No Send filenames — but we already have ≥1 real name: drop leftover placeholders
+    # (classic Gemini/ChatGPT "attachment" + "document-2.pdf" pair with caption text).
+    if realish and fakeish:
+        return realish
+
+    # All placeholders + typed caption: keep distinct byte payloads only (drop dupes /
+    # tiny caption wrappers). Prefer larger blobs — real docs beat empty shells.
+    if (caption or "").strip() and fakeish and len(cached_list) > 1:
+        by_hash: dict[str, dict] = {}
+        for e in cached_list:
+            raw = e.get("raw_bytes") or b""
+            if not isinstance(raw, (bytes, bytearray)):
+                raw = b""
+            key = f"{len(raw)}|{hash(bytes(raw[:4096]) if raw else b'')}"
+            prev = by_hash.get(key)
+            if prev is None or len(raw) >= len(prev.get("raw_bytes") or b""):
+                by_hash[key] = e
+        uniq = list(by_hash.values())
+        if len(uniq) < len(cached_list):
+            cached_list = uniq
+        # Drop tiny shells (<2KB) when a larger sibling exists — caption wrappers.
+        large = [
+            e for e in cached_list
+            if len(e.get("raw_bytes") or b"") >= 2048
+        ]
+        if large and len(large) < len(cached_list):
+            return large
+    return cached_list
+
+
 def _bind_real_filenames_to_cached_uploads(cached_list: list[dict], raw_text: str) -> list[dict]:
     """Attach real names from the Send body onto cached uploads (ChatGPT often omits name at upload)."""
     if not cached_list:
         return cached_list
     id_map = extract_file_id_name_map(raw_text or "")
-    send_names = extract_all_attachment_filenames_from_send(raw_text or "")
+    send_names = [
+        n for n in extract_all_attachment_filenames_from_send(raw_text or "")
+        if _is_real_user_upload_name(n)
+    ]
     used_names: set[str] = set()
 
     for entry in cached_list:
         cur = (entry.get("file_name") or "").strip()
         fid = (entry.get("file_id") or "").strip()
-        if fid and fid in id_map:
+        if fid and fid in id_map and _is_real_user_upload_name(id_map[fid]):
             entry["file_name"] = id_map[fid]
             used_names.add(id_map[fid].lower())
             continue
-        if fid.startswith("file-") and fid[5:] in id_map:
+        if fid.startswith("file-") and fid[5:] in id_map and _is_real_user_upload_name(id_map[fid[5:]]):
             entry["file_name"] = id_map[fid[5:]]
             used_names.add(id_map[fid[5:]].lower())
             continue
-        if not _is_fake_upload_name(cur) and cur.lower() != "document.pdf":
+        if _is_real_user_upload_name(cur):
             used_names.add(cur.lower())
 
     unused = [n for n in send_names if n.lower() not in used_names]
     ui = 0
     for i, entry in enumerate(cached_list):
         cur = (entry.get("file_name") or "").strip()
-        if not _is_fake_upload_name(cur) and cur.lower() != "document.pdf":
+        if _is_real_user_upload_name(cur):
             continue
         if ui < len(unused):
             entry["file_name"] = unused[ui]
             used_names.add(unused[ui].lower())
             ui += 1
             continue
-        raw = entry.get("raw_bytes") or b""
-        if isinstance(raw, (bytes, bytearray)) and raw:
-            entry["file_name"] = _default_name_from_bytes(
-                bytes(raw), entry.get("content_type") or "", i,
-            )
-        elif _is_fake_upload_name(cur):
-            entry["file_name"] = f"attachment-{i + 1}"
+        # Leave placeholders as-is (still fake). Display naming happens later —
+        # promoting to document-2.pdf here made phantoms look like real files.
+        if _is_fake_upload_name(cur) or not cur:
+            entry["file_name"] = cur or f"attachment-{i + 1}"
     return cached_list
 
 

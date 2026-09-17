@@ -228,6 +228,12 @@ CHAT_PATH_MARKERS = [
     "/chat_conversations", "/completion_messages",
     "/rest/chat", "/api/conversation", "/api/completions",
     "/api/v1/chat/completions", "/ask/stream", "/search/sse",
+    # DeepSeek web + API (chat.deepseek.com)
+    "/api/v0/chat/completion", "/api/v0/chat/completions",
+    "/chat/completion", "/powerchat", "/create_chat_completion",
+    # Microsoft Copilot / Bing Chat / Edge Copilot extras
+    "/edgesvc/chat", "/chat/reload", "/chathub/chat",
+    "/sydney/chat", "/fetchresponse", "/chat/stream",
 ]
 
 GEMINI_CHAT_RPCS = {"hR32Ce", "vyAQhe", "wXbdQc", "BardFrontendService", "StreamGenerate"}

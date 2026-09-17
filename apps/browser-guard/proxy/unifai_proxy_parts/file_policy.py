@@ -245,15 +245,6 @@ def enforce_file_send_policy(
     cached_list = deduped[:_UPLOAD_FILE_QUEUE_MAX]
     # Prefer real filenames from Send body; drop placeholder-only extras when a real name exists.
     cached_list = _bind_real_filenames_to_cached_uploads(cached_list, raw_text or "")
-    # If Send lists N real filenames but we have N+1 caches with fakes, keep real-named first.
-    send_names = extract_all_attachment_filenames_from_send(raw_text or "")
-    if send_names and len(cached_list) > len(send_names):
-        realish = [
-            e for e in cached_list
-            if not _is_fake_upload_name((e.get("file_name") or "").strip())
-        ]
-        if len(realish) >= len(send_names):
-            cached_list = realish[: max(len(send_names), 1)]
 
     caption = ""
     try:
@@ -265,6 +256,14 @@ def enforce_file_send_policy(
         )
     except Exception:
         caption = ""
+
+    # Any Target Website (ChatGPT/Gemini/Claude/new domain): drop caption phantoms
+    # like document-2.pdf / attachment extras; keep real names + caption text.
+    cached_list = _trim_phantom_upload_caches(
+        cached_list,
+        raw_text or "",
+        caption or "",
+    )
 
     get_control_settings()
     block_all = controls_active("block_upload")
