@@ -40,6 +40,14 @@ def enforce_file_send_policy(
         cached_list = take_all_cached_uploads_for_send(domain, raw_text, allow_latest=True)
     if not cached_list and has_attach and is_chat_path(path or "", host, raw_text or ""):
         cached_list = take_recent_confident_caches_for_send(domain)
+    # Claude/Gemini/Perplexity/DeepSeek: attach-time cache exists but Send omits file ids /
+    # uses placeholder names — still bind recent uploads so predict + rules run.
+    if not cached_list and domain and _domain_has_pending_upload_cache(domain):
+        cached_list = take_all_cached_uploads_for_send(domain, raw_text or "", allow_latest=True)
+        if not cached_list:
+            cached_list = take_recent_confident_caches_for_send(domain)
+        if cached_list:
+            has_attach = True
 
     if not has_attach and not cached_list:
         return False, "", "", 0, False

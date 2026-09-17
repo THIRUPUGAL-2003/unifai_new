@@ -734,15 +734,19 @@ class BrowserAIInterceptor:
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
         # Monitored domain: catch real file bodies even when URL path is unfamiliar
         # (Claude/Gemini/custom AIs often use opaque /api/.../uuid upload URLs).
-        if not is_upload and not is_upload_endpoint and len(raw_bytes) >= 256:
+        if not is_upload and not is_upload_endpoint and len(raw_bytes) >= 64:
             low_head = raw_bytes[: min(len(raw_bytes), 24 * 1024)].lower()
+            ct_l = (content_type or "").lower()
             if (
                 b"filename=" in low_head
                 or b"filename*=" in low_head
                 or raw_bytes[:5] == b"%PDF-"
-                or (raw_bytes[:2] == b"PK" and len(raw_bytes) >= 1024)
+                or (raw_bytes[:2] == b"PK" and len(raw_bytes) >= 512)
                 or _looks_like_audio(raw_bytes, content_type, "")
                 or _looks_like_image(raw_bytes, content_type, "")
+                or ct_l.startswith(("audio/", "image/", "video/"))
+                or "officedocument" in ct_l
+                or "msword" in ct_l
             ):
                 is_upload = True
                 upload_reason = "binary/multipart body on monitored domain"
@@ -767,25 +771,42 @@ class BrowserAIInterceptor:
                 f"[UnifAI Proxy] FILE CACHED (await Send — zero predict on upload) | {domain} | "
                 f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
             )
-            # Claude/Gemini often analyze on attach (no separate caption Send).
-            # If we already have real file bytes, run file policy immediately so
-            # Prompt Log + Guard Rules are not silent until a later typed Send.
-            payload_now, _, name_now = extract_upload_file_payload(raw_bytes, content_type, fname or "")
-            real_bytes = payload_now if payload_now else (
-                raw_bytes if raw_bytes.lstrip()[:1] not in (b"{", b"[") and len(raw_bytes) >= 256 else b""
+            # Any monitored AI (Claude/Gemini/Perplexity/DeepSeek/…): analyze-on-attach.
+            # Always run file policy against what we just cached so Prompt Log + rules
+            # fire even when filename is a placeholder and caption is empty.
+            payload_now, ctype_now, name_now = extract_upload_file_payload(
+                raw_bytes, content_type, fname or ""
             )
-            if real_bytes and len(real_bytes) >= 256:
-                synth = raw_text or ""
-                if fname and fname.lower() not in synth.lower():
-                    synth = (synth + f'\n{{"file_name":"{fname}"}}').strip()
+            real_bytes = payload_now if payload_now else (
+                raw_bytes if raw_bytes.lstrip()[:1] not in (b"{", b"[") and len(raw_bytes) >= 64 else b""
+            )
+            # Voice / small audio clips still count.
+            if not real_bytes and (
+                (content_type or "").lower().startswith("audio/")
+                or _looks_like_audio(raw_bytes, content_type, fname or "")
+            ):
+                real_bytes = raw_bytes if len(raw_bytes) >= 32 else b""
+            if real_bytes and len(real_bytes) >= 32:
+                use_name = (name_now or fname or "").strip() or "attachment"
+                if _is_fake_upload_name(use_name) or "." not in use_name:
+                    sniffed = _sniff_upload_content_type(real_bytes, use_name, content_type or ctype_now or "")
+                    use_name = _default_name_from_bytes(real_bytes, sniffed, 0) or "document.bin"
+                # Strong markers so has_attach + name-key bind cannot miss.
+                synth = (
+                    f'{{"file_name":"{use_name}","filename":"{use_name}",'
+                    f'"files":[{{"file_name":"{use_name}"}}],'
+                    f'"attachments":[{{"file_name":"{use_name}"}}]}}'
+                )
+                if file_ids:
+                    synth = synth[:-1] + f',"file_uuid":"{file_ids[0]}","file_id":"{file_ids[0]}"}}'
                 blocked_u, n_u, _cap_u = self._file_send_maybe_block(
-                    flow, domain, platform, client_ip, synth, content_type, path,
+                    flow, domain, platform, client_ip, synth, content_type or ctype_now or "", path,
                 )
                 if blocked_u:
                     return
                 if n_u > 0:
                     return
-            # Pure metadata handshake / tiny JSON — wait for later chat Send.
+            # Metadata-only handshake — wait for later chat Send / sticky cache bind.
             return
 
         # ── File Send: scan cached bytes; then still apply caption Guard Rules ──

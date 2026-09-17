@@ -893,12 +893,19 @@ def chat_carries_attachment(raw_text: str) -> bool:
         ):
             return True
 
+    # DeepSeek / Perplexity / generic file lists with uuid or url (non-empty)
+    if re.search(r'"(?:file_uuid|fileUuid|file_id|fileId)"\s*:\s*"(?!null)[^"]{4,}"', low):
+        return True
+    if re.search(r'"files"\s*:\s*\[[\s\S]{0,4000}?"(?:url|uri|path|name)"\s*:\s*"(?!null)[^"]+"', low):
+        return True
+
     # Voice / audio attachment markers
     if any(
         x in low
         for x in (
             '"input_audio"', "audio_url", '"voice_mode"',
             "audio/webm", "audio/wav", "audio/mpeg", "audio/mp4",
+            '"voice"', "speech_to_text", "dictation",
         )
     ):
         return True

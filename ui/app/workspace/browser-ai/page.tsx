@@ -1337,23 +1337,23 @@ export default function BrowserAiPage() {
 					<TabsTrigger value="overview" className="gap-2">
 						<Activity className="h-4 w-4" /> Overview
 					</TabsTrigger>
+					<TabsTrigger value="targets" className="gap-2">
+						<Globe className="h-4 w-4" /> Target Websites ({targets.length})
+					</TabsTrigger>
+					<TabsTrigger value="rules" className="gap-2">
+						<Shield className="h-4 w-4" /> Guard Rules ({rules.length})
+					</TabsTrigger>
 					<TabsTrigger value="logs" className="gap-2">
 						<FileText className="h-4 w-4" /> Prompt Logs ({totalLogs})
 					</TabsTrigger>
 					<TabsTrigger value="search-logs" className="gap-2 text-emerald-400 data-[state=active]:text-emerald-400">
 						<Search className="h-4 w-4" /> Search Logs ({totalSearchLogs})
 					</TabsTrigger>
-					<TabsTrigger value="rules" className="gap-2">
-						<Shield className="h-4 w-4" /> Guard Rules ({rules.length})
-					</TabsTrigger>
-					<TabsTrigger value="targets" className="gap-2">
-						<Globe className="h-4 w-4" /> Target Websites ({targets.length})
+					<TabsTrigger value="setup" className="gap-2">
+						<Terminal className="h-4 w-4" /> Setup
 					</TabsTrigger>
 					<TabsTrigger value="agents" className="gap-2">
 						<Radio className="h-4 w-4" /> Guard Agents ({totalAgents})
-					</TabsTrigger>
-					<TabsTrigger value="setup" className="gap-2">
-						<Terminal className="h-4 w-4" /> Setup
 					</TabsTrigger>
 				</TabsList>
 
