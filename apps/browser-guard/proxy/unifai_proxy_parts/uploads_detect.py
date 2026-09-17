@@ -332,6 +332,17 @@ def is_confident_file_upload(
             return True
         if len(data) >= 2048:
             return True
+        # JSON file/voice wrappers on monitored upload paths (Claude/Gemini/DeepSeek/…).
+        if data.lstrip()[:1] in (b"{", b"["):
+            j_bytes, _, _ = _extract_bytes_from_json_upload(data, name)
+            if j_bytes and len(j_bytes) >= 32:
+                return True
+
+    # Any host: JSON body that already carries extractable file/voice bytes.
+    if data.lstrip()[:1] in (b"{", b"[") and len(data) >= 120:
+        j_bytes, _, _ = _extract_bytes_from_json_upload(data, name)
+        if j_bytes and len(j_bytes) >= 32:
+            return True
 
     # WhatsApp / web.whatsapp sends lots of media-sync binary — never treat as AI file
     # unless path clearly looks like a user media upload AND we have a real name/magic.
@@ -472,6 +483,66 @@ def _sniff_upload_content_type(data: bytes, file_name: str = "", hint: str = "")
     }.get(ext, "application/octet-stream")
 
 
+def _extract_bytes_from_json_upload(raw: bytes, file_name: str = "") -> tuple[bytes | None, str, str]:
+    """Pull real file/voice bytes from JSON wrappers (Claude/Gemini/DeepSeek/etc).
+
+    ChatGPT often sends multipart/octet-stream; other AIs wrap base64 in JSON.
+    Tiny metadata handshakes (file_id only, no payload) return (None, "", name).
+    """
+    if not raw:
+        return None, "", file_name or "attachment"
+    stripped = raw.lstrip()
+    if stripped[:1] not in (b"{", b"[") or raw[:2] == b"PK":
+        return None, "", file_name or "attachment"
+    if len(raw) < 120:
+        return None, "", file_name or "attachment"
+
+    try:
+        text = raw.decode("utf-8", errors="ignore")
+    except Exception:
+        return None, "", file_name or "attachment"
+
+    name = _sanitize_upload_filename(file_name) or (file_name or "").strip() or "attachment"
+    for m in re.finditer(
+        r'"(?:file_name|fileName|filename|name|title|original_name|originalName)"\s*:\s*"([^"]{1,240})"',
+        text,
+        re.I,
+    ):
+        got = _sanitize_upload_filename(m.group(1))
+        if got and not _is_fake_upload_name(got):
+            name = got
+            break
+
+    inlines = extract_all_inline_attachment_bytes(text)
+    if inlines:
+        data, mime, inline_name = inlines[0]
+        if data and len(data) >= 32:
+            out_name = name
+            if _is_fake_upload_name(out_name) and inline_name and not _is_fake_upload_name(inline_name):
+                out_name = inline_name
+            ctype = mime or _sniff_upload_content_type(data, out_name)
+            return data, ctype, out_name or "attachment"
+
+    m_data_url = re.search(
+        r'data:([a-zA-Z0-9.+/-]+);base64,([A-Za-z0-9+/=\s]{80,})',
+        text,
+        re.I,
+    )
+    if m_data_url:
+        import base64
+        mime = (m_data_url.group(1) or "").strip()
+        blob = (m_data_url.group(2) or "").replace("\n", "").replace("\r", "").replace(" ", "")
+        try:
+            data = base64.b64decode(blob, validate=False)
+        except Exception:
+            data = b""
+        if len(data) >= 32:
+            ctype = mime or _sniff_upload_content_type(data, name)
+            return data, ctype, name or "attachment"
+
+    return None, "", name
+
+
 def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: str = "") -> tuple[bytes | None, str, str]:
     """Best-effort file bytes from upload body. Returns (bytes, content_type, name)."""
     if not raw:
@@ -493,9 +564,13 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
                 name = f"{name}.pdf"
         return pdf, "application/pdf", name
 
-    # ChatGPT conversation / files-API JSON is not the uploaded document.
+    # Claude/Gemini/DeepSeek/etc often wrap file bytes as base64 JSON (not ChatGPT multipart).
+    # Extract real payload when present; only skip tiny metadata handshakes.
     stripped = raw.lstrip()
     if stripped[:1] in (b"{", b"[") and raw[:2] != b"PK":
+        j_bytes, j_ct, j_name = _extract_bytes_from_json_upload(raw, name)
+        if j_bytes:
+            return j_bytes, j_ct or content_type or "application/octet-stream", j_name or name
         return None, "", name
 
     # Multipart: extract part after filename=
@@ -646,10 +721,15 @@ def cache_upload_file(
     """Remember file at upload-time; enforcement/log waits for chat Send."""
     payload, ctype, name = extract_upload_file_payload(raw_bytes or b"", content_type, file_name)
     # Keep original body when payload extract fails — needed for View/Download after Block Upload.
-    # Do not cache ChatGPT JSON handshakes as if they were the PDF.
+    # Skip tiny JSON metadata handshakes (file_id create) that are not the document.
+    # Claude/Gemini/etc base64 JSON is extracted above and cached as real bytes.
     fallback = raw_bytes or b""
     if not payload and fallback.lstrip()[:1] in (b"{", b"["):
-        return
+        j_bytes, j_ct, j_name = _extract_bytes_from_json_upload(fallback, file_name)
+        if j_bytes:
+            payload, ctype, name = j_bytes, j_ct or content_type, j_name or name
+        else:
+            return
     stored = payload if payload else fallback
     if not stored:
         return
@@ -730,6 +810,10 @@ def chat_carries_attachment(raw_text: str) -> bool:
     if not raw_text:
         return False
     low = raw_text.lower()
+
+    # WebRTC Realtime SDP handshakes (ChatGPT / LiveKit audio negotiations) are NOT attachments
+    if 'name="sdp"' in low or "webrtc-datachannel" in low or "\nv=0\r\n" in low or "/realtime" in low:
+        return False
 
     # Empty arrays / nulls are not attachments
     if re.search(r'"attachments"\s*:\s*\[\s*\]', low):
@@ -1000,7 +1084,8 @@ def _resolve_upload_bind_domain(flow: http.HTTPFlow, upload_host: str) -> str:
     """Map a file-CDN / non-chat host upload to an admin Target Website.
 
     No product hostname hardcoding — uses Referer/Origin (chat page) or parent
-    Target Website that covers this host as a subdomain.
+    Target Website that covers this host as a subdomain. Falls back to sticky
+    last-monitored domain for this client (CDN uploads often omit Referer).
     """
     # Prefer the page the employee is chatting on.
     for hdr in ("Referer", "Origin", "referer", "origin"):
@@ -1009,11 +1094,19 @@ def _resolve_upload_bind_domain(flow: http.HTTPFlow, upload_host: str) -> str:
             continue
         ok, domain, _plat = detect_target(ref_host)
         if ok and domain:
+            try:
+                remember_client_target_domain(get_client_ip(flow), domain)
+            except Exception:
+                pass
             return domain
 
     # Upload host itself might be a monitored target or child of one.
     ok, domain, _plat = detect_target(upload_host)
     if ok and domain:
+        try:
+            remember_client_target_domain(get_client_ip(flow), domain)
+        except Exception:
+            pass
         return domain
 
     # Child of a monitored parent (admin added parent only).
@@ -1024,7 +1117,52 @@ def _resolve_upload_bind_domain(flow: http.HTTPFlow, upload_host: str) -> str:
         if h == d or h.endswith("." + d):
             if len(d) > len(best):
                 best = d
-    return best
+    if best:
+        try:
+            remember_client_target_domain(get_client_ip(flow), best)
+        except Exception:
+            pass
+        return best
+
+    # Sticky: last admin Target Website this client used (any added domain).
+    try:
+        sticky = lookup_client_target_domain(get_client_ip(flow))
+        if sticky:
+            return sticky
+    except Exception:
+        pass
+    return ""
+
+
+def remember_client_target_domain(client_ip: str, domain: str) -> None:
+    """Remember which Target Website this client is actively using (for CDN bind)."""
+    ip = (client_ip or "").strip()
+    d = _normalize_domain(domain or "")
+    if not ip or not d or ip in ("-", "unknown", "127.0.0.1", "::1"):
+        return
+    with _CLIENT_TARGET_STICKY_LOCK:
+        _CLIENT_TARGET_STICKY[ip] = (d, time.time())
+        if len(_CLIENT_TARGET_STICKY) > 2000:
+            now = time.time()
+            dead = [k for k, (_dd, ts) in _CLIENT_TARGET_STICKY.items() if now - ts > _CLIENT_TARGET_STICKY_TTL]
+            for k in dead:
+                _CLIENT_TARGET_STICKY.pop(k, None)
+
+
+def lookup_client_target_domain(client_ip: str) -> str:
+    """Return sticky Target Website for this client, or ''."""
+    ip = (client_ip or "").strip()
+    if not ip:
+        return ""
+    with _CLIENT_TARGET_STICKY_LOCK:
+        item = _CLIENT_TARGET_STICKY.get(ip)
+        if not item:
+            return ""
+        domain, ts = item
+        if time.time() - float(ts) > _CLIENT_TARGET_STICKY_TTL:
+            _CLIENT_TARGET_STICKY.pop(ip, None)
+            return ""
+        return domain or ""
 
 
 def _file_policy_applies_on_send(
@@ -1041,6 +1179,8 @@ def _file_policy_applies_on_send(
     cache for this Target Website family.
     """
     path_l = (path or "").lower().split("?", 1)[0]
+    if "/realtime" in path_l:
+        return False
     if _is_typing_or_draft_path(path_l, raw_text or ""):
         return False
     # Pure file-upload URLs must NEVER trigger file policy on send — they are uploads, not Sends!
@@ -1071,13 +1211,17 @@ def _file_policy_applies_on_send(
         return True
 
     # Pending upload cache: bind on finished Send even when the wire omits file ids
-    # (common on some Target Websites). Do NOT run on every text Send with an empty cache.
+    # (common on Claude/Gemini/Perplexity — attach then type short text).
     if domain and _domain_has_pending_upload_cache(domain):
         if chatish:
             return True
         stripped = body.lstrip()
         if stripped[:1] in ("{", "[") and not is_noise(path, body):
             return True
+        # Short typed follow-ups after attach (e.g. "hi") on monitored chat hosts.
+        if body.strip() and len(body) < 200_000 and not is_noise(path, body):
+            if is_chat_path(path, host, body) or _path_has_chat_marker(path) or _is_anthropic_messages_api_shape(path, body):
+                return True
     return False
 
 

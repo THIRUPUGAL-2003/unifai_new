@@ -555,7 +555,8 @@ class BrowserAIInterceptor:
             is_upload_n, upload_reason_n = detect_file_upload(flow, raw_text_n)
             if is_upload_n:
                 fname_n = extract_filename_from_upload(flow, raw_text_n)
-                if is_confident_file_upload(
+                bind = _resolve_upload_bind_domain(flow, host)
+                confident_n = is_confident_file_upload(
                     fname=fname_n,
                     content_type=content_type_n,
                     raw_bytes=raw_bytes_n,
@@ -563,22 +564,28 @@ class BrowserAIInterceptor:
                     upload_reason=upload_reason_n or "",
                     host=host,
                     path=path_n,
-                ):
-                    bind = _resolve_upload_bind_domain(flow, host)
-                    if bind:
-                        file_ids = _extract_file_ids_from_chat(raw_text_n)
-                        cache_upload_file(
-                            bind,
-                            file_name=fname_n or "attachment",
-                            raw_bytes=raw_bytes_n,
-                            content_type=content_type_n,
-                            upload_reason=upload_reason_n or "",
-                            file_id=file_ids[0] if file_ids else "",
-                        )
-                        print(
-                            f"[UnifAI Proxy] FILE CACHED via noise CDN bind | upload_host={host} → "
-                            f"target={bind} | {fname_n or 'attachment'} | {len(raw_bytes_n)} bytes"
-                        )
+                )
+                payload_ok_n = False
+                if not confident_n and bind and len(raw_bytes_n) >= 64:
+                    p_n, _, _ = extract_upload_file_payload(raw_bytes_n, content_type_n, fname_n or "")
+                    if p_n and len(p_n) >= 32:
+                        payload_ok_n = True
+                    elif raw_bytes_n.lstrip()[:1] not in (b"{", b"[") and len(raw_bytes_n) >= 256:
+                        payload_ok_n = True
+                if bind and (confident_n or payload_ok_n):
+                    file_ids = _extract_file_ids_from_chat(raw_text_n)
+                    cache_upload_file(
+                        bind,
+                        file_name=fname_n or "attachment",
+                        raw_bytes=raw_bytes_n,
+                        content_type=content_type_n,
+                        upload_reason=upload_reason_n or "",
+                        file_id=file_ids[0] if file_ids else "",
+                    )
+                    print(
+                        f"[UnifAI Proxy] FILE CACHED via noise CDN bind | upload_host={host} → "
+                        f"target={bind} | {fname_n or 'attachment'} | {len(raw_bytes_n)} bytes"
+                    )
             return
 
         if is_noise_host(host):
@@ -627,6 +634,10 @@ class BrowserAIInterceptor:
         # Admin Target Websites on those hosts (clients6.google.com, notebooklm.google.com,
         # aistudio.google.com, bing Copilot, …) must still cache uploads + run Guard Rules.
 
+        if is_target and domain:
+            # Sticky bind for later CDN uploads that omit Referer (any admin-added domain).
+            remember_client_target_domain(client_ip, domain)
+
         if not is_target:
             # File CDNs are often NOT the chat Target Website. Bind via Referer/Origin
             # to the admin-added domain so extract→rules still run on Send (any AI site).
@@ -640,7 +651,8 @@ class BrowserAIInterceptor:
                 is_upload_nt, upload_reason_nt = detect_file_upload(flow, raw_text_nt)
                 if is_upload_nt:
                     fname_nt = extract_filename_from_upload(flow, raw_text_nt)
-                    if is_confident_file_upload(
+                    bind = _resolve_upload_bind_domain(flow, host)
+                    confident_nt = is_confident_file_upload(
                         fname=fname_nt,
                         content_type=content_type_nt,
                         raw_bytes=raw_bytes_nt,
@@ -648,22 +660,30 @@ class BrowserAIInterceptor:
                         upload_reason=upload_reason_nt or "",
                         host=host,
                         path=path,
-                    ):
-                        bind = _resolve_upload_bind_domain(flow, host)
-                        if bind:
-                            file_ids = _extract_file_ids_from_chat(raw_text_nt)
-                            cache_upload_file(
-                                bind,
-                                file_name=fname_nt or "attachment",
-                                raw_bytes=raw_bytes_nt,
-                                content_type=content_type_nt,
-                                upload_reason=upload_reason_nt or "",
-                                file_id=file_ids[0] if file_ids else "",
-                            )
-                            print(
-                                f"[UnifAI Proxy] FILE CACHED via Referer bind | upload_host={host} → "
-                                f"target={bind} | {fname_nt or 'attachment'} | {len(raw_bytes_nt)} bytes"
-                            )
+                    )
+                    payload_ok_nt = False
+                    if not confident_nt and bind and len(raw_bytes_nt) >= 64:
+                        p_nt, _, _ = extract_upload_file_payload(
+                            raw_bytes_nt, content_type_nt, fname_nt or ""
+                        )
+                        if p_nt and len(p_nt) >= 32:
+                            payload_ok_nt = True
+                        elif raw_bytes_nt.lstrip()[:1] not in (b"{", b"[") and len(raw_bytes_nt) >= 256:
+                            payload_ok_nt = True
+                    if bind and (confident_nt or payload_ok_nt):
+                        file_ids = _extract_file_ids_from_chat(raw_text_nt)
+                        cache_upload_file(
+                            bind,
+                            file_name=fname_nt or "attachment",
+                            raw_bytes=raw_bytes_nt,
+                            content_type=content_type_nt,
+                            upload_reason=upload_reason_nt or "",
+                            file_id=file_ids[0] if file_ids else "",
+                        )
+                        print(
+                            f"[UnifAI Proxy] FILE CACHED via Referer bind | upload_host={host} → "
+                            f"target={bind} | {fname_nt or 'attachment'} | {len(raw_bytes_nt)} bytes"
+                        )
             return
 
         # Keep control settings warm
@@ -712,6 +732,20 @@ class BrowserAIInterceptor:
         path_lower = (path or "").lower().split("?", 1)[0]
         is_upload_endpoint = _path_looks_like_upload(path_lower)
         is_upload, upload_reason = detect_file_upload(flow, raw_text)
+        # Monitored domain: catch real file bodies even when URL path is unfamiliar
+        # (Claude/Gemini/custom AIs often use opaque /api/.../uuid upload URLs).
+        if not is_upload and not is_upload_endpoint and len(raw_bytes) >= 256:
+            low_head = raw_bytes[: min(len(raw_bytes), 24 * 1024)].lower()
+            if (
+                b"filename=" in low_head
+                or b"filename*=" in low_head
+                or raw_bytes[:5] == b"%PDF-"
+                or (raw_bytes[:2] == b"PK" and len(raw_bytes) >= 1024)
+                or _looks_like_audio(raw_bytes, content_type, "")
+                or _looks_like_image(raw_bytes, content_type, "")
+            ):
+                is_upload = True
+                upload_reason = "binary/multipart body on monitored domain"
         if is_upload or is_upload_endpoint:
             fname = extract_filename_from_upload(flow, raw_text)
             # If Block Upload control is actively enabled by admin:
@@ -733,7 +767,25 @@ class BrowserAIInterceptor:
                 f"[UnifAI Proxy] FILE CACHED (await Send — zero predict on upload) | {domain} | "
                 f"{fname or 'attachment'} | {len(raw_bytes)} bytes"
             )
-            # Pure file upload: stop right here. Never predict or evaluate before the user clicks Send!
+            # Claude/Gemini often analyze on attach (no separate caption Send).
+            # If we already have real file bytes, run file policy immediately so
+            # Prompt Log + Guard Rules are not silent until a later typed Send.
+            payload_now, _, name_now = extract_upload_file_payload(raw_bytes, content_type, fname or "")
+            real_bytes = payload_now if payload_now else (
+                raw_bytes if raw_bytes.lstrip()[:1] not in (b"{", b"[") and len(raw_bytes) >= 256 else b""
+            )
+            if real_bytes and len(real_bytes) >= 256:
+                synth = raw_text or ""
+                if fname and fname.lower() not in synth.lower():
+                    synth = (synth + f'\n{{"file_name":"{fname}"}}').strip()
+                blocked_u, n_u, _cap_u = self._file_send_maybe_block(
+                    flow, domain, platform, client_ip, synth, content_type, path,
+                )
+                if blocked_u:
+                    return
+                if n_u > 0:
+                    return
+            # Pure metadata handshake / tiny JSON — wait for later chat Send.
             return
 
         # ── File Send: scan cached bytes; then still apply caption Guard Rules ──

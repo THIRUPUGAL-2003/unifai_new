@@ -915,8 +915,12 @@ def detect_messages_parts_file_upload(
     if (method or "").upper() not in ("POST", "PUT", "PATCH"):
         return False, ""
     path_l = (path or "").lower().split("?", 1)[0]
+    if "/realtime" in path_l:
+        return False, ""
     ct = (content_type or "").lower()
     data = raw or b""
+    if b"webrtc-datachannel" in data or b'name="sdp"' in data:
+        return False, ""
 
     if any(x in path_l for x in _GENERIC_UPLOAD_PATH_MARKERS):
         if body_len >= 8:
@@ -1819,6 +1823,10 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
     path_only = path.split("?", 1)[0]
     raw = raw_content or ""
 
+    # WebRTC Realtime Voice SDP handshakes (ChatGPT / LiveKit) are network transport, NOT user file uploads
+    if "/realtime" in path_only or "webrtc-datachannel" in raw.lower() or 'name="sdp"' in raw.lower() or "\nv=0\r\n" in raw:
+        return False, ""
+
     # ChatGPT / OpenAI CDN — catch before chat-path exclusions swallow file POSTs
     messages_parts_up, messages_parts_reason = detect_messages_parts_file_upload(host, path, method, content_type, body_len, flow.request.content or b"")
     if messages_parts_up:
@@ -1886,10 +1894,14 @@ def detect_file_upload(flow: http.HTTPFlow, raw_content: str) -> tuple[bool, str
                 return True, f"File Upload Endpoint ({path_only[:80]})"
         if not is_json_body and body_len >= 1024:
             return True, f"File Upload Endpoint ({path_only[:80]})"
-        if is_json_body and body_len >= 80_000:
-            # Huge JSON sometimes wraps base64 file — rare
-            if any(k in raw for k in ('"bytes"', '"data":', "base64", '"fileData"', '"inline_data"')):
-                return True, f"File Upload Endpoint large JSON ({path_only[:80]})"
+        _json_file_keys = (
+            '"file_name"', '"fileName"', '"filename"', '"mime_type"', '"mimeType"',
+            '"bytes"', '"fileData"', '"file_data"', '"inline_data"', '"inlineData"',
+            '"media_type"', '"mediaType"', "base64", '"content":', '"data":',
+            '"source"', '"document"', '"attachment"',
+        )
+        if is_json_body and body_len >= 512 and any(k in raw for k in _json_file_keys):
+            return True, f"File Upload Endpoint JSON ({path_only[:80]})"
         if is_json_body and body_len >= 80 and any(
             k in raw for k in ('"file_name"', '"fileName"', '"filename"', '"mime_type"', '"mimeType"', '"bytes"')
         ):

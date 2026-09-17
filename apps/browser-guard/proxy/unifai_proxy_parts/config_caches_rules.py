@@ -130,12 +130,21 @@ UPLOAD_ENDPOINTS = [
     "/upload/", "/media/upload", "/resumable", "/filepush", "/pushfile",
     "/convert_document", "/upload_document", "/api/attachments",
     "/rest/uploads", "/file/upload",
+    # Claude / Anthropic / Gemini / DeepSeek / Perplexity / Copilot / generic AIs
+    "/api/files", "/api/file", "/api/v1/files", "/v1/file",
+    "/document", "/documents", "/doc/upload", "/media/files",
+    "/asset", "/assets", "/blob", "/blobs", "/content/upload",
+    "/storage/upload", "/s3/upload", "/presigned", "/multipart",
+    "/voice", "/audio/upload", "/speech", "/transcribe",
 ]
 
 _GENERIC_UPLOAD_PATH_MARKERS = (
     "/upload", "/uploads", "/files", "/file/", "/attachment", "/attachments",
     "/media/upload", "/convert_document", "/filepush",
     "/process_upload", "/file-upload", "/fileupload", "/resumable",
+    "/api/files", "/api/file", "/document", "/documents",
+    "/asset", "/assets", "/blob", "/blobs", "/presigned",
+    "/voice", "/audio/upload", "/speech", "/transcribe",
 )
 
 # Binary / document content-types used for local file attachments
@@ -175,6 +184,8 @@ IGNORE_PATH_PATTERNS = [
     # Cloudflare / bot challenges / fingerprint noise (NOT user prompts)
     "/cdn-cgi/", "/challenge-platform/", "/jsd/oneshot",
     "/api/v1/fm", "/cfm/", "/cf-challenge",
+    # ChatGPT Realtime WebRTC voice handshake (SDP negotiation, NOT user attachments)
+    "/realtime/", "/realtime",
     # Datadog RUM / Telemetry endpoints
     "/rum", "/v2/rum", "/api/v2/rum", "/browser-intake", "/telemetry/datadog",
     # Perplexity / Claude noise endpoints
@@ -213,6 +224,10 @@ CHAT_PATH_MARKERS = [
     # must go through is_batchexecute_chat_submit() only.
     "/streamgenerate", "/streamgeneratecontent", "/generatecontent", "/_$stream",
     "bardfrontendservice", "/bardchatui", "/_/bard",
+    # Claude / Anthropic / DeepSeek / Perplexity / custom Target Websites
+    "/chat_conversations", "/completion_messages",
+    "/rest/chat", "/api/conversation", "/api/completions",
+    "/api/v1/chat/completions", "/ask/stream", "/search/sse",
 ]
 
 GEMINI_CHAT_RPCS = {"hR32Ce", "vyAQhe", "wXbdQc", "BardFrontendService", "StreamGenerate"}
@@ -330,6 +345,11 @@ _UPLOAD_FILE_QUEUE_MAX = 32  # any count of files on one Send (images/docs/zips)
 # Prevents typed prompts from becoming "[FILE UPLOAD] attachment" after an old pick.
 _UPLOAD_LATEST_MATCH_TTL = 10 * 60  # align with temp file View TTL / upload cache (was 5m)
 _MULTI_FILE_VISION_MAX = 12  # images sent together to Guard Bot on one Send
+
+# Sticky map: client IP → last admin Target Website (CDN uploads often omit Referer).
+_CLIENT_TARGET_STICKY: dict[str, tuple[str, float]] = {}
+_CLIENT_TARGET_STICKY_LOCK = threading.Lock()
+_CLIENT_TARGET_STICKY_TTL = 10 * 60
 
 
 def _fetch_json(url: str, timeout: float | None = None) -> dict | None:

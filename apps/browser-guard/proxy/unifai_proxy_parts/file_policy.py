@@ -199,7 +199,30 @@ def enforce_file_send_policy(
                 mark_duplicate_event(domain, dedupe_key)
             return False, "", "", 1, cap_done
 
-        return False, "", "", 0, False
+        # Cache miss + real attachment markers, but no caption/transcript text
+        # (Claude/Gemini often attach-then-auto-read with empty user text).
+        # Still log the file so Prompt Logs + rules are not silent.
+        dedupe_key = f"upload-send-allow-nocache-empty|{hint}"
+        if not is_duplicate_event(domain, dedupe_key, ttl=BLOCK_DEDUPE_TTL, mark=False):
+            print(f"[UnifAI Proxy] FILE/VOICE SEND (cache miss, no caption) | {hint} | {client_ip} → {host}")
+            ok = post_upload_intercept(
+                platform=platform,
+                prompt=f"{tag} {hint} — Allowed",
+                client_ip=client_ip,
+                domain=domain,
+                url=url,
+                method=method,
+                file_name=hint,
+                scan_guard={
+                    "cache_miss": True,
+                    "scan_guard_decided": True,
+                    "scan_guard_action": "Allowed",
+                    "empty_caption": True,
+                },
+            )
+            if ok:
+                mark_duplicate_event(domain, dedupe_key)
+        return False, "", "", 1, False
 
     # Dedup by cache_uid ONLY — many ChatGPT/Claude images share name "attachment".
     deduped: list[dict] = []
