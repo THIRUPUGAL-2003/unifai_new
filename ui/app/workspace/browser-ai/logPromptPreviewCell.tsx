@@ -8,7 +8,7 @@ export function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
 	if (isFileUploadLog(log)) {
 		const label = logAttachmentLabel(log);
 		const caption = logUserCaption(log);
-		const title = caption ? `${label} | ${caption}` : label;
+		const title = caption ? `${label} -- ${caption}` : label;
 		return (
 			<div className="flex min-w-0 items-center gap-1.5" title={title}>
 				<Paperclip className="h-3.5 w-3.5 shrink-0 text-sky-400" />
@@ -16,7 +16,7 @@ export function LogPromptPreviewCell({ log }: { log: BrowserAILogEntry }) {
 					{caption ? (
 						<>
 							{label}
-							<span className="text-muted-foreground"> · </span>
+							<span className="text-muted-foreground"> -- </span>
 							<span className="text-foreground/90">{oneLinePreview(caption)}</span>
 						</>
 					) : (

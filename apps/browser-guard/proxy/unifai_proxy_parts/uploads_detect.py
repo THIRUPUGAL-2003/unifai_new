@@ -260,6 +260,35 @@ def extract_file_id_name_map(raw_text: str) -> dict[str, str]:
     return out
 
 
+def _upload_content_fingerprint(entry: dict) -> str:
+    """Stable-ish fingerprint so the same PDF cached as real name + document.pdf merges."""
+    raw = entry.get("raw_bytes") or b""
+    if not isinstance(raw, (bytes, bytearray)):
+        raw = b""
+    raw = bytes(raw)
+    if not raw:
+        return f"empty|{id(entry)}"
+    head = raw[:8192]
+    tail = raw[-2048:] if len(raw) > 8192 else b""
+    return f"{len(raw)}|{hash(head)}|{hash(tail)}"
+
+
+def _prefer_named_upload(a: dict, b: dict) -> dict:
+    """Keep the entry with the more user-real filename."""
+    an = (a.get("file_name") or "").strip()
+    bn = (b.get("file_name") or "").strip()
+    a_real = _is_real_user_upload_name(an)
+    b_real = _is_real_user_upload_name(bn)
+    if a_real and not b_real:
+        return a
+    if b_real and not a_real:
+        return b
+    # Same class — prefer longer / more specific name
+    if len(an) >= len(bn):
+        return a
+    return b
+
+
 def _trim_phantom_upload_caches(
     cached_list: list[dict],
     raw_text: str = "",
@@ -273,6 +302,17 @@ def _trim_phantom_upload_caches(
     """
     if not cached_list or len(cached_list) <= 1:
         return cached_list
+
+    # Same bytes under IOB DOC.pdf + document.pdf → keep the real name only.
+    by_fp: dict[str, dict] = {}
+    for e in cached_list:
+        fp = _upload_content_fingerprint(e)
+        prev = by_fp.get(fp)
+        by_fp[fp] = e if prev is None else _prefer_named_upload(prev, e)
+    if len(by_fp) < len(cached_list):
+        cached_list = list(by_fp.values())
+        if len(cached_list) <= 1:
+            return cached_list
 
     send_names = [
         n for n in extract_all_attachment_filenames_from_send(raw_text or "")

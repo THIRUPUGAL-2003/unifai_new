@@ -307,6 +307,12 @@ def enforce_file_send_policy(
             "cached": cached,
         })
 
+    # Never log document.pdf / attachment phantoms alongside a real user filename.
+    real_prep = [p for p in prepared if _is_real_user_upload_name(p.get("store_name") or p.get("file_label") or "")]
+    if real_prep and len(real_prep) < len(prepared):
+        prepared = real_prep
+        n_cached = len(prepared)
+
     def _scan_one(prep: dict) -> dict:
         scanned, local_hit, local_name, local_action, excerpt, upload_images, scan_evaluated, scan_eval_error = _scan_upload_for_rules(
             prep["cached_bytes"],
@@ -478,6 +484,7 @@ def enforce_file_send_policy(
         redact_notice = _redact_notice_for_rule(redact_rule)
 
     n_files = len(file_rows)
+    # Prompt Logs format: realname.pdf | typed caption  (UI shows name · text)
     caption_bit = f" | {caption}" if caption else ""
 
     for idx, row in enumerate(file_rows):
@@ -663,6 +670,47 @@ def _extract_file_send_user_caption(
             _accept(json.loads(f'"{m.group(1)}"'))
         except Exception:
             _accept(m.group(1))
+    # ChatGPT reverse order: "parts":["hello"],"content_type":"text"
+    for m in re.finditer(
+        r'"parts"\s*:\s*\[\s*"((?:[^"\\]|\\.)*)"\s*\]\s*,\s*"content_type"\s*:\s*"text"',
+        body,
+    ):
+        try:
+            _accept(json.loads(f'"{m.group(1)}"'))
+        except Exception:
+            _accept(m.group(1))
+    # ChatGPT multimodal_text: parts may mix file objects + a trailing string caption
+    for m in re.finditer(
+        r'"content_type"\s*:\s*"multimodal_text"\s*,\s*"parts"\s*:\s*\[([\s\S]{0,80000}?)\]',
+        body,
+        re.I,
+    ):
+        block = m.group(1) or ""
+        for sm in re.finditer(r'"((?:[^"\\]|\\.){1,2000})"', block):
+            try:
+                t = json.loads(f'"{sm.group(1)}"')
+            except Exception:
+                t = sm.group(1).replace("\\n", "\n").replace('\\"', '"')
+            t = (t or "").strip()
+            # Skip file ids / pointers / mime junk
+            if not t or t.startswith(("file-", "sediment://", "file-service://", "http")):
+                continue
+            if "." in t and len(t) < 180 and re.search(r"\.[A-Za-z0-9]{2,5}$", t):
+                continue  # filename-looking token
+            if looks_like_user_prompt(t):
+                _accept(t)
+    # Loose ChatGPT author:user parts string after a file part
+    for m in re.finditer(
+        r'"author"\s*:\s*\{\s*"role"\s*:\s*"user"[\s\S]{0,4000}?"parts"\s*:\s*\[[\s\S]{0,20000}?"((?:[^"\\]|\\.){1,2000})"',
+        body,
+        re.I,
+    ):
+        try:
+            t = json.loads(f'"{m.group(1)}"')
+        except Exception:
+            t = m.group(1)
+        if looks_like_user_prompt(t or ""):
+            _accept(t or "")
 
     if not candidates:
         return ""
