@@ -456,6 +456,20 @@ def _classify_upload_kind(data: bytes, content_type: str = "", file_name: str = 
             return "pptx"
         if any(fn.endswith(ext) for ext in (".txt", ".json", ".xml", ".yaml", ".md", ".log")):
             return "plain"
+        # Source / config text — treat as plain so rules scan without OCR/PDF chain (fast).
+        if any(
+            fn.endswith(ext)
+            for ext in (
+                ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".rb", ".php",
+                ".c", ".cc", ".cpp", ".h", ".hpp", ".cs", ".swift", ".kt", ".kts", ".scala",
+                ".sql", ".sh", ".bash", ".zsh", ".ps1", ".bat", ".cmd",
+                ".html", ".htm", ".css", ".scss", ".less",
+                ".vue", ".svelte", ".dart", ".lua", ".r", ".m", ".mm",
+                ".toml", ".ini", ".cfg", ".conf", ".env", ".properties",
+                ".yml", ".csv", ".tsv", ".ipynb", ".tex", ".rst",
+            )
+        ):
+            return "plain"
         return "unknown"
 
     if "pdf" in ct or fn.endswith(".pdf") or data[:5] == b"%PDF-" or b"%PDF-" in data[:4096]:
@@ -483,6 +497,16 @@ def _classify_upload_kind(data: bytes, content_type: str = "", file_name: str = 
     if fn.endswith((".txt", ".csv", ".json", ".md", ".log", ".xml", ".yaml", ".yml", ".ini", ".cfg")) or any(
         x in ct for x in ("text/", "csv", "json", "xml", "yaml")
     ):
+        return "plain"
+    if any(
+        fn.endswith(ext)
+        for ext in (
+            ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".rb", ".php",
+            ".c", ".cc", ".cpp", ".h", ".hpp", ".cs", ".swift", ".kt", ".sql", ".sh",
+            ".css", ".scss", ".vue", ".svelte", ".dart", ".lua", ".toml", ".env",
+            ".ipynb", ".ps1", ".bat",
+        )
+    ) or "javascript" in ct or "typescript" in ct or "x-python" in ct or "x-sh" in ct:
         return "plain"
     if data[:2] == b"PK" or b"PK\x03\x04" in data[:8192]:
         # Unknown OOXML / ODF zip — sniff inner layout

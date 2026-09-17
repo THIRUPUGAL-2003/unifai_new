@@ -114,6 +114,10 @@ export interface BrowserControlSettings {
 	enabled: boolean;
 	block_upload: boolean;
 	upload_warning?: string;
+	/** When true, search logs older than retention are purged automatically. */
+	search_log_auto_delete?: boolean;
+	/** Retention window: 1d | 7d | 30d */
+	search_log_retention?: "1d" | "7d" | "30d" | string;
 	updated_at?: string;
 }
 
@@ -178,10 +182,14 @@ export const browserAiApi = baseApi.injectEndpoints({
 			providesTags: ["BrowserAiSearchLogs" as any],
 		}),
 
-		clearBrowserAiSearchLogs: builder.mutation<void, void>({
-			query: () => ({
+		clearBrowserAiSearchLogs: builder.mutation<
+			{ status?: string; message?: string } | void,
+			{ period?: "1d" | "7d" | "30d" | "all"; date?: string } | void
+		>({
+			query: (params) => ({
 				url: "/browser-ai/search-logs",
 				method: "DELETE",
+				params: params || {},
 			}),
 			invalidatesTags: ["BrowserAiSearchLogs" as any],
 		}),

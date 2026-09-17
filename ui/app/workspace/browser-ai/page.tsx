@@ -35,6 +35,7 @@ import {
 	Paperclip,
 	Loader2,
 	Compass,
+	ChevronDown,
 } from "lucide-react";
 import { getProviderLabel } from "@/lib/constants/logs";
 import { useGetProvidersQuery } from "@/lib/store/apis/providersApi";
@@ -59,6 +60,13 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
+} from "@/components/ui/dropdownMenu";
 import { Textarea } from "@/components/ui/textarea";
 import { normalizeTargetDomain, groupTargetsByParent, relatedHostsForDomain, relatedHostOptions, HOST_ROLE_OPTIONS, hostRoleLabel, type HostRole } from "./relatedHosts";
 import { buildAttachmentPreview, type AttachmentPreviewKind, type AttachmentSheetPreview } from "./attachmentPreview";
@@ -322,6 +330,13 @@ export default function BrowserAiPage() {
 	);
 
 	const [clearSearchLogs, { isLoading: isClearingSearchLogs }] = useClearBrowserAiSearchLogsMutation();
+	const [searchDeleteDayOpen, setSearchDeleteDayOpen] = useState(false);
+	const [searchDeleteDay, setSearchDeleteDay] = useState(() => new Date().toISOString().slice(0, 10));
+	const [searchDeleteConfirm, setSearchDeleteConfirm] = useState<null | { label: string; args: { period?: "1d" | "7d" | "30d" | "all"; date?: string } }>(null);
+
+	const runClearSearchLogs = async (args: { period?: "1d" | "7d" | "30d" | "all"; date?: string }, label: string) => {
+		setSearchDeleteConfirm({ label, args });
+	};
 
 	const searchLogs = searchLogsData?.logs || [];
 	const totalSearchLogs = searchLogsData?.total || 0;
@@ -337,6 +352,8 @@ export default function BrowserAiPage() {
 		enabled: true,
 		block_upload: false,
 		upload_warning: "",
+		search_log_auto_delete: false,
+		search_log_retention: "7d",
 	};
 	const [uploadWarningDraft, setUploadWarningDraft] = useState("");
 	const [uploadWarningEditing, setUploadWarningEditing] = useState(false);
@@ -1313,6 +1330,98 @@ export default function BrowserAiPage() {
 						/>
 					) : null}
 
+					<div className="flex items-center gap-2 bg-card border border-border px-2.5 py-1 rounded-md">
+						<Switch
+							checked={!!controls.search_log_auto_delete}
+							onCheckedChange={(on) => {
+								void patchControl({
+									search_log_auto_delete: on,
+									search_log_retention: (controls.search_log_retention as "1d" | "7d" | "30d") || "7d",
+								});
+								if (on) {
+									void refetchSearchLogs();
+								}
+							}}
+							id="search-log-auto-delete"
+						/>
+						<Label htmlFor="search-log-auto-delete" className="cursor-pointer font-medium text-xs whitespace-nowrap">
+							Auto-delete
+						</Label>
+						{controls.search_log_auto_delete ? (
+							<Select
+								value={
+									controls.search_log_retention === "1d" ||
+									controls.search_log_retention === "7d" ||
+									controls.search_log_retention === "30d"
+										? controls.search_log_retention
+										: "7d"
+								}
+								onValueChange={(v) => {
+									void patchControl({
+										search_log_auto_delete: true,
+										search_log_retention: v as "1d" | "7d" | "30d",
+									});
+									void refetchSearchLogs();
+								}}
+							>
+								<SelectTrigger className="h-7 w-[7.5rem] text-xs border-border bg-background">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="1d">1 day</SelectItem>
+									<SelectItem value="7d">7 days</SelectItem>
+									<SelectItem value="30d">30 days</SelectItem>
+								</SelectContent>
+							</Select>
+						) : null}
+					</div>
+
+					<DropdownMenu>
+						<DropdownMenuTrigger asChild>
+							<Button
+								variant="outline"
+								size="sm"
+								disabled={isClearingSearchLogs}
+								className="h-8 text-xs gap-1.5 text-destructive hover:bg-destructive/10 border-destructive/30"
+							>
+								{isClearingSearchLogs ? (
+									<Loader2 className="h-3.5 w-3.5 animate-spin" />
+								) : (
+									<Trash2 className="h-3.5 w-3.5" />
+								)}
+								Delete Search Logs
+								<ChevronDown className="h-3.5 w-3.5 opacity-70" />
+							</Button>
+						</DropdownMenuTrigger>
+						<DropdownMenuContent align="end" className="min-w-[11rem]">
+							<DropdownMenuItem
+								onClick={() => runClearSearchLogs({ period: "1d" }, "last 1 day")}
+							>
+								Last 1 day
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={() => runClearSearchLogs({ period: "7d" }, "last 7 days")}
+							>
+								Last 7 days (weekly)
+							</DropdownMenuItem>
+							<DropdownMenuItem
+								onClick={() => runClearSearchLogs({ period: "30d" }, "last 30 days")}
+							>
+								Last 30 days (monthly)
+							</DropdownMenuItem>
+							<DropdownMenuItem onClick={() => setSearchDeleteDayOpen(true)}>
+								Pick a day…
+							</DropdownMenuItem>
+							<DropdownMenuSeparator />
+							<DropdownMenuItem
+								className="text-destructive focus:text-destructive"
+								onClick={() => runClearSearchLogs({ period: "all" }, "all search logs")}
+							>
+								Clear all
+							</DropdownMenuItem>
+						</DropdownMenuContent>
+					</DropdownMenu>
+
 					<Button
 						variant="outline"
 						size="sm"
@@ -1778,18 +1887,6 @@ export default function BrowserAiPage() {
 									<CardDescription>
 										Real-time search queries and clicked links from any Guard browser (Chrome, Edge, Firefox, Brave, Opera, Safari) — Google, Bing/MSN, DuckDuckGo, Yahoo — including Incognito/InPrivate. Saved to Postgres.
 									</CardDescription>
-								</div>
-								<div className="flex items-center gap-2">
-									<Button
-										variant="outline"
-										size="sm"
-										onClick={() => clearSearchLogs()}
-										disabled={isClearingSearchLogs || totalSearchLogs === 0}
-										className="text-destructive hover:bg-destructive/10 border-destructive/30 text-xs"
-									>
-										<Trash2 className="h-3.5 w-3.5 mr-1" />
-										Clear Search Logs
-									</Button>
 								</div>
 							</div>
 
@@ -4366,6 +4463,80 @@ export default function BrowserAiPage() {
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
+
+			{/* Delete Search Logs — pick a calendar day */}
+			<Dialog open={searchDeleteDayOpen} onOpenChange={setSearchDeleteDayOpen}>
+				<DialogContent className="max-w-sm bg-card border-border">
+					<DialogHeader>
+						<DialogTitle className="text-base">Delete search logs by day</DialogTitle>
+						<DialogDescription>
+							Choose a date. All Search Logs from that day will be removed.
+						</DialogDescription>
+					</DialogHeader>
+					<div className="space-y-2 py-2">
+						<Label htmlFor="search-delete-day" className="text-xs">
+							Date
+						</Label>
+						<Input
+							id="search-delete-day"
+							type="date"
+							value={searchDeleteDay}
+							onChange={(e) => setSearchDeleteDay(e.target.value)}
+							className="bg-background border-border text-sm"
+						/>
+					</div>
+					<DialogFooter className="gap-2">
+						<Button variant="outline" size="sm" onClick={() => setSearchDeleteDayOpen(false)}>
+							Cancel
+						</Button>
+						<Button
+							variant="destructive"
+							size="sm"
+							disabled={!searchDeleteDay || isClearingSearchLogs}
+							onClick={() => {
+								setSearchDeleteDayOpen(false);
+								runClearSearchLogs({ date: searchDeleteDay }, `day ${searchDeleteDay}`);
+							}}
+						>
+							Delete this day
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			{/* Confirm Search Logs delete */}
+			<AlertDialog
+				open={searchDeleteConfirm !== null}
+				onOpenChange={(open) => {
+					if (!open) setSearchDeleteConfirm(null);
+				}}
+			>
+				<AlertDialogContent className="bg-card border-border">
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete search logs?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This will permanently delete {searchDeleteConfirm?.label || "selected"} from Search Logs. This cannot be undone.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+							disabled={isClearingSearchLogs}
+							onClick={async () => {
+								if (!searchDeleteConfirm) return;
+								try {
+									await clearSearchLogs(searchDeleteConfirm.args).unwrap();
+								} finally {
+									setSearchDeleteConfirm(null);
+								}
+							}}
+						>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

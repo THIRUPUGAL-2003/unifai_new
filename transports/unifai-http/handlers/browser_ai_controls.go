@@ -27,5 +27,10 @@ func (h *BrowserAIHandler) updateControls(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
 	}
+	if ctrl != nil && ctrl.SearchLogAutoDelete {
+		if cutoff := h.manager.ApplySearchLogAutoDelete(ctx); cutoff != nil {
+			purgeInMemorySearchLogsBefore(*cutoff)
+		}
+	}
 	SendJSON(ctx, map[string]any{"status": "success", "controls": ctrl})
 }

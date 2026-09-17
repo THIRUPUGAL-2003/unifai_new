@@ -24,8 +24,9 @@ def enforce_file_send_policy(
           REDACT       → log Redacted, allow Send (+ chat notice when possible)
           no match     → Allowed
 
-    Multi-file + caption: ALL files (any count) + typed text are evaluated together
-    once, then each file is logged with the shared verdict.
+    Multi-file + caption: EACH file is extracted + rule-checked separately; typed
+    chat text is rule-checked separately. Any file BLOCK or caption BLOCK → block Send.
+    Each file is logged as (i/n) with the caption attached when present.
 
     Returns (should_block, block_message, redact_notice, files_processed, caption_consumed).
     """
@@ -255,7 +256,7 @@ def enforce_file_send_policy(
         if (
             from_body
             and looks_like_user_prompt(from_body)
-            and len(from_body.strip()) <= 500
+            and len(from_body.strip()) <= 50_000
             and not _looks_like_document_body_dump(from_body)
             and not _is_google_wire_blob(from_body)
             and not _is_opaque_wire_blob(from_body)

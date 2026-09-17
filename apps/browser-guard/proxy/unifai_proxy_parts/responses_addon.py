@@ -784,13 +784,12 @@ class BrowserAIInterceptor:
             if blocked:
                 return
             if n_processed > 0:
-                # Caption already evaluated with all files — avoid duplicate predict row.
-                # Also skip filename-only peeks (ChatGPT parts[].name → "document.pdf").
+                # Caption already evaluated with files — avoid duplicate predict row.
+                # If caption was skipped (edge extract miss), still rule-check typed text.
                 if (
                     not caption_consumed
                     and has_prompt
                     and peek_prompt
-                    and len((peek_prompt or "").strip()) <= 320
                     and not _looks_like_document_body_dump(peek_prompt)
                     and not _looks_like_filename_only(peek_prompt)
                 ):
@@ -1111,12 +1110,18 @@ class BrowserAIInterceptor:
                 return
             if n_processed > 0 and caption_consumed:
                 return
-            # Cache miss: fall through to prompt evaluate. Cache hit without caption: allow below.
+            # Cache miss OR files without caption: fall through so typed text still gets rules.
 
         # Copilot/Edge image or file frames must not fall through as garbled text prompts.
         if (
             (event_send_carries_binary_attach(content) or chat_carries_attachment(content) or messages_parts_carries_file(content))
-            and not (ws_has_prompt and ws_prompt and len((ws_prompt or "").strip()) <= 320)
+            and not (
+                ws_has_prompt
+                and ws_prompt
+                and looks_like_user_prompt(ws_prompt)
+                and not _looks_like_document_body_dump(ws_prompt)
+                and not _looks_like_filename_only(ws_prompt)
+            )
         ):
             return
 

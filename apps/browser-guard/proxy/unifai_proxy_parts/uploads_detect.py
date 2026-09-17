@@ -17,7 +17,9 @@ _UPLOAD_NAME_EXTS = (
     ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff",
     ".zip", ".tar", ".gz", ".7z", ".rar",
     ".wav", ".mp3", ".m4a", ".webm", ".ogg", ".flac", ".aac", ".opus", ".wma",
-    ".py", ".js", ".ts", ".java", ".go",
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".rb", ".php",
+    ".c", ".cpp", ".h", ".cs", ".swift", ".kt", ".sql", ".sh", ".ps1",
+    ".css", ".scss", ".vue", ".dart", ".lua", ".toml", ".env", ".ipynb",
 )
 
 

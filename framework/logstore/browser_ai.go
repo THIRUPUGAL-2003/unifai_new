@@ -317,7 +317,11 @@ type BrowserControlSettings struct {
 	Enabled       bool      `json:"enabled"`                         // master switch for upload control
 	BlockUpload   bool      `json:"block_upload"`                    // block file uploads to AI sites
 	UploadWarning string    `gorm:"type:text" json:"upload_warning"` // shown when this upload policy blocks; empty = no message
-	UpdatedAt     time.Time `json:"updated_at"`
+	// Search log retention: when SearchLogAutoDelete is true, logs older than
+	// SearchLogRetention (1d|7d|30d) are purged automatically.
+	SearchLogAutoDelete bool   `json:"search_log_auto_delete"`
+	SearchLogRetention  string `json:"search_log_retention"` // "1d" | "7d" | "30d"
+	UpdatedAt           time.Time `json:"updated_at"`
 }
 
 type BrowserTargetWebsite struct {
@@ -634,12 +638,59 @@ func (m *BrowserAIManager) GetSearchLogs(ctx context.Context, engine, browser, i
 }
 
 func (m *BrowserAIManager) ClearSearchLogs(ctx context.Context) error {
+	return m.ClearSearchLogsInRange(ctx, nil, nil)
+}
+
+// ClearSearchLogsInRange deletes search logs. If both since and until are nil, clears all.
+// Otherwise deletes rows where timestamp >= since (if set) AND timestamp < until (if set).
+func (m *BrowserAIManager) ClearSearchLogsInRange(ctx context.Context, since, until *time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.db == nil {
 		return nil
 	}
-	return m.db.WithContext(ctx).Exec("DELETE FROM browser_ai_search_logs").Error
+	q := m.db.WithContext(ctx)
+	if since == nil && until == nil {
+		return q.Exec("DELETE FROM browser_ai_search_logs").Error
+	}
+	db := q.Model(&BrowserAISearchLog{})
+	if since != nil {
+		db = db.Where("timestamp >= ?", *since)
+	}
+	if until != nil {
+		db = db.Where("timestamp < ?", *until)
+	}
+	return db.Delete(&BrowserAISearchLog{}).Error
+}
+
+// ApplySearchLogAutoDelete purges search logs older than the configured retention
+// when search_log_auto_delete is enabled. Returns the cutoff used, or nil if disabled.
+func (m *BrowserAIManager) ApplySearchLogAutoDelete(ctx context.Context) *time.Time {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.db == nil {
+		return nil
+	}
+	var ctrl BrowserControlSettings
+	if err := m.db.WithContext(ctx).Where("id = ?", BrowserControlSettingsID).First(&ctrl).Error; err != nil {
+		return nil
+	}
+	if !ctrl.SearchLogAutoDelete {
+		return nil
+	}
+	retention := strings.ToLower(strings.TrimSpace(ctrl.SearchLogRetention))
+	var age time.Duration
+	switch retention {
+	case "1d":
+		age = 24 * time.Hour
+	case "30d":
+		age = 30 * 24 * time.Hour
+	default: // "7d" and unknown
+		age = 7 * 24 * time.Hour
+	}
+	cutoff := time.Now().Add(-age)
+	_ = m.db.WithContext(ctx).Where("timestamp < ?", cutoff).Delete(&BrowserAISearchLog{}).Error
+	return &cutoff
 }
 
 func (m *BrowserAIManager) GetRules(ctx context.Context) ([]BrowserGuardRule, error) {
@@ -797,9 +848,11 @@ func (m *BrowserAIManager) UpdateControls(ctx context.Context, updates map[strin
 	}
 
 	allowed := map[string]bool{
-		"enabled":        true,
-		"block_upload":   true,
-		"upload_warning": true,
+		"enabled":                 true,
+		"block_upload":            true,
+		"upload_warning":          true,
+		"search_log_auto_delete":  true,
+		"search_log_retention":    true,
 	}
 	filtered := map[string]any{}
 	for k, v := range updates {
@@ -809,6 +862,18 @@ func (m *BrowserAIManager) UpdateControls(ctx context.Context, updates map[strin
 		if k == "upload_warning" {
 			if s, ok := v.(string); ok {
 				filtered[k] = strings.TrimSpace(s)
+				continue
+			}
+		}
+		if k == "search_log_retention" {
+			if s, ok := v.(string); ok {
+				s = strings.ToLower(strings.TrimSpace(s))
+				switch s {
+				case "1d", "7d", "30d":
+					filtered[k] = s
+				default:
+					filtered[k] = "7d"
+				}
 				continue
 			}
 		}

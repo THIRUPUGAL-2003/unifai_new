@@ -39,6 +39,25 @@ var (
 	searchLogsList []BrowserAISearchLogEntry
 )
 
+func purgeInMemorySearchLogsBefore(cutoff time.Time) {
+	searchLogsMu.Lock()
+	defer searchLogsMu.Unlock()
+	kept := searchLogsList[:0]
+	for _, e := range searchLogsList {
+		ts := e.Timestamp
+		if ts.IsZero() {
+			if parsed, err := time.Parse(time.RFC3339, e.CreatedAt); err == nil {
+				ts = parsed
+			}
+		}
+		if ts.Before(cutoff) {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	searchLogsList = kept
+}
+
 // computeSearchRisk assigns threat scores and category based on query / clicked URL keywords.
 func computeSearchRisk(text string) (int, string, string) {
 	q := strings.ToLower(strings.TrimSpace(text))
@@ -138,6 +157,13 @@ func (h *BrowserAIHandler) getSearchLogs(ctx *fasthttp.RequestCtx) {
 	}
 	if offset < 0 {
 		offset = 0
+	}
+
+	// Auto-purge old search logs when admin enabled retention.
+	if h.manager != nil {
+		if cutoff := h.manager.ApplySearchLogAutoDelete(ctx); cutoff != nil {
+			purgeInMemorySearchLogsBefore(*cutoff)
+		}
 	}
 
 	// 1. Try PostgreSQL database first
@@ -254,6 +280,12 @@ func (h *BrowserAIHandler) recordSearchLog(ctx *fasthttp.RequestCtx) {
 	}
 	body.CreatedAt = body.Timestamp.Format(time.RFC3339)
 
+	if h.manager != nil {
+		if cutoff := h.manager.ApplySearchLogAutoDelete(ctx); cutoff != nil {
+			purgeInMemorySearchLogsBefore(*cutoff)
+		}
+	}
+
 	if body.Engine == "" {
 		body.Engine = "Google"
 	}
@@ -297,19 +329,88 @@ func (h *BrowserAIHandler) recordSearchLog(ctx *fasthttp.RequestCtx) {
 }
 
 // deleteSearchLogs clears search logs in PostgreSQL and in-memory buffer.
+// Query params (optional):
+//   period=1d|7d|30d|all  — delete logs from the last N period (or all)
+//   date=YYYY-MM-DD       — delete logs for that calendar day (local server day)
+// With no params, clears all (legacy).
 func (h *BrowserAIHandler) deleteSearchLogs(ctx *fasthttp.RequestCtx) {
 	h.ensureDB(ctx)
 
+	period := strings.ToLower(strings.TrimSpace(string(ctx.QueryArgs().Peek("period"))))
+	dateStr := strings.TrimSpace(string(ctx.QueryArgs().Peek("date")))
+
+	var since, until *time.Time
+	now := time.Now()
+
+	switch {
+	case dateStr != "":
+		day, err := time.ParseInLocation("2006-01-02", dateStr, now.Location())
+		if err != nil {
+			SendError(ctx, fasthttp.StatusBadRequest, "Invalid date (use YYYY-MM-DD)")
+			return
+		}
+		start := day
+		end := day.Add(24 * time.Hour)
+		since, until = &start, &end
+	case period == "1d" || period == "day":
+		start := now.Add(-24 * time.Hour)
+		since, until = &start, &now
+	case period == "7d" || period == "week" || period == "weekly":
+		start := now.Add(-7 * 24 * time.Hour)
+		since, until = &start, &now
+	case period == "30d" || period == "month" || period == "monthly":
+		start := now.Add(-30 * 24 * time.Hour)
+		since, until = &start, &now
+	case period == "" || period == "all":
+		since, until = nil, nil
+	default:
+		SendError(ctx, fasthttp.StatusBadRequest, "Invalid period (use 1d, 7d, 30d, or all)")
+		return
+	}
+
 	if h.manager != nil && h.manager.GetDB() != nil {
-		_ = h.manager.ClearSearchLogs(ctx)
+		_ = h.manager.ClearSearchLogsInRange(ctx, since, until)
 	}
 
 	searchLogsMu.Lock()
-	searchLogsList = []BrowserAISearchLogEntry{}
+	if since == nil && until == nil {
+		searchLogsList = []BrowserAISearchLogEntry{}
+	} else {
+		kept := searchLogsList[:0]
+		for _, e := range searchLogsList {
+			ts := e.Timestamp
+			if ts.IsZero() {
+				if parsed, err := time.Parse(time.RFC3339, e.CreatedAt); err == nil {
+					ts = parsed
+				}
+			}
+			if since != nil && ts.Before(*since) {
+				kept = append(kept, e)
+				continue
+			}
+			if until != nil && !ts.Before(*until) {
+				kept = append(kept, e)
+				continue
+			}
+			// in range → drop
+		}
+		searchLogsList = kept
+	}
 	searchLogsMu.Unlock()
+
+	msg := "Search logs cleared"
+	if dateStr != "" {
+		msg = "Search logs deleted for " + dateStr
+	} else if period == "1d" || period == "day" {
+		msg = "Search logs deleted for the last 1 day"
+	} else if period == "7d" || period == "week" || period == "weekly" {
+		msg = "Search logs deleted for the last 7 days"
+	} else if period == "30d" || period == "month" || period == "monthly" {
+		msg = "Search logs deleted for the last 30 days"
+	}
 
 	SendJSON(ctx, map[string]any{
 		"status":  "success",
-		"message": "Search logs cleared",
+		"message": msg,
 	})
 }
