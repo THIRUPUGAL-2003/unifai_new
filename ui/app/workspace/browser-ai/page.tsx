@@ -83,6 +83,7 @@ import {
 	isFileUploadLog,
 	logHasStoredAttachment,
 	logAttachmentLabel,
+	logUserCaption,
 	securityVerdictFromLog,
 } from "./browserAiLogHelpers";
 import {
@@ -1218,31 +1219,70 @@ export default function BrowserAiPage() {
 				})),
 			};
 		}
-		// overview + logs
+		if (activeTab === "search-logs") {
+			return {
+				filename: "browser-ai-search-logs",
+				title: "Browser AI — Search Logs",
+				subtitle: `${searchLogs.length} of ${totalSearchLogs} shown`,
+				columns: [
+					{ key: "timestamp", header: "Time" },
+					{ key: "laptop_name", header: "Laptop Name" },
+					{ key: "engine", header: "Search Engine" },
+					{ key: "browser", header: "Browser" },
+					{ key: "privacy", header: "Privacy Mode" },
+					{ key: "query", header: "Search Query / Prompt" },
+					{ key: "clicked", header: "Clicked Result Link" },
+					{ key: "threat", header: "Threat Risk" },
+				],
+				rows: searchLogs.map((log) => ({
+					timestamp: log.timestamp ? new Date(log.timestamp).toLocaleString() : "",
+					laptop_name: log.agent_hostname || "",
+					engine: log.engine || "",
+					browser: log.browser || "",
+					privacy: log.is_incognito ? "Incognito / InPrivate" : "Normal",
+					query: log.query || "",
+					clicked: log.clicked_url || "",
+					threat: [
+						log.predictive_risk || "",
+						log.risk_score != null ? `(${log.risk_score}%)` : "",
+						log.risk_category || "",
+					]
+						.filter(Boolean)
+						.join(" "),
+				})),
+			};
+		}
+		// overview + logs — same columns as Prompt Logs table
 		const logPage = Math.floor(pageOffset / pageLimit) + 1;
+		const promptPreviewForExport = (log: (typeof logs)[number]) => {
+			if (isFileUploadLog(log)) {
+				const label = logAttachmentLabel(log);
+				const caption = logUserCaption(log);
+				return caption ? `${label} · ${caption}` : label;
+			}
+			return (log.user_prompt_preview || log.user_prompt_full || "").slice(0, 500);
+		};
 		return {
 			filename: "browser-ai-prompt-logs",
 			title: "Browser AI — Prompt Logs",
 			subtitle: `Page ${logPage} · ${logs.length} of ${totalLogs} shown`,
 			columns: [
 				{ key: "timestamp", header: "Timestamp" },
+				{ key: "laptop_name", header: "Laptop Name" },
 				{ key: "platform", header: "Platform" },
-				{ key: "prompt", header: "Prompt" },
-				{ key: "action", header: "Action" },
-				{ key: "rule", header: "Rule" },
-				{ key: "risk", header: "Risk" },
+				{ key: "prompt", header: "User Prompt" },
 				{ key: "tokens", header: "Est. Tokens" },
-				{ key: "attachment", header: "Attachment" },
+				{ key: "action", header: "Action" },
+				{ key: "details", header: "Details" },
 			],
 			rows: logs.map((log) => ({
 				timestamp: log.timestamp ? new Date(log.timestamp).toLocaleString() : "",
+				laptop_name: log.agent_hostname || log.agent_id || "",
 				platform: log.platform || "",
-				prompt: (log.user_prompt_full || log.user_prompt_preview || "").slice(0, 500),
-				action: log.action || "",
-				rule: log.rule_triggered || "",
-				risk: log.predictive_risk || log.risk_score || "",
+				prompt: promptPreviewForExport(log),
 				tokens: log.est_tokens ?? "",
-				attachment: log.attachment_name || "",
+				action: log.action || "",
+				details: logHasStoredAttachment(log) ? "View file" : "Prompt details",
 			})),
 		};
 	};
@@ -1538,9 +1578,9 @@ export default function BrowserAiPage() {
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
 											<TableHead className="w-[150px]">Timestamp</TableHead>
+											<TableHead className="w-[110px]">Laptop Name</TableHead>
 											<TableHead className="w-[100px]">Platform</TableHead>
-											<TableHead className="w-[110px]">Guard</TableHead>
-											<TableHead className="w-[auto]">User Prompt Preview</TableHead>
+											<TableHead className="w-[auto]">User Prompt</TableHead>
 											<TableHead className="w-[80px] text-right">Est. Tokens</TableHead>
 											<TableHead className="w-[120px]">Action</TableHead>
 											<TableHead className="w-[64px] text-right">Details</TableHead>
@@ -1559,12 +1599,12 @@ export default function BrowserAiPage() {
 													</div>
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
-													<div className="min-w-0 truncate">{getPlatformBadge(log.platform)}</div>
-												</TableCell>
-												<TableCell className="max-w-0 py-0">
 													<div className="truncate text-xs text-muted-foreground" title={log.agent_hostname || log.agent_id || ""}>
 														{log.agent_hostname || log.agent_id || "—"}
 													</div>
+												</TableCell>
+												<TableCell className="max-w-0 py-0">
+													<div className="min-w-0 truncate">{getPlatformBadge(log.platform)}</div>
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
 													<LogPromptPreviewCell log={log} />
@@ -1697,9 +1737,9 @@ export default function BrowserAiPage() {
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
 											<TableHead className="w-[150px]">Timestamp</TableHead>
+											<TableHead className="w-[110px]">Laptop Name</TableHead>
 											<TableHead className="w-[100px]">Platform</TableHead>
-											<TableHead className="w-[110px]">Guard</TableHead>
-											<TableHead className="w-[auto]">User Prompt Preview</TableHead>
+											<TableHead className="w-[auto]">User Prompt</TableHead>
 											<TableHead className="w-[80px] text-right">Est. Tokens</TableHead>
 											<TableHead className="w-[120px]">Action</TableHead>
 											<TableHead className="w-[64px] text-right">Details</TableHead>
@@ -1718,12 +1758,12 @@ export default function BrowserAiPage() {
 													</div>
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
-													<div className="min-w-0 truncate">{getPlatformBadge(log.platform)}</div>
-												</TableCell>
-												<TableCell className="max-w-0 py-0">
 													<div className="truncate text-xs text-muted-foreground" title={log.agent_hostname || log.agent_id || ""}>
 														{log.agent_hostname || log.agent_id || "—"}
 													</div>
+												</TableCell>
+												<TableCell className="max-w-0 py-0">
+													<div className="min-w-0 truncate">{getPlatformBadge(log.platform)}</div>
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
 													<LogPromptPreviewCell log={log} />
@@ -1953,7 +1993,7 @@ export default function BrowserAiPage() {
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
 											<TableHead className="w-[110px]">Time</TableHead>
-											<TableHead className="w-[140px]">Agent</TableHead>
+											<TableHead className="w-[140px]">Laptop Name</TableHead>
 											<TableHead className="w-[130px]">Search Engine</TableHead>
 											<TableHead className="w-[90px]">Browser</TableHead>
 											<TableHead className="w-[150px]">Privacy Mode</TableHead>
@@ -4452,7 +4492,7 @@ export default function BrowserAiPage() {
 									<div><span className="text-foreground font-semibold">Engine:</span> {selectedSearchLog.engine}</div>
 									<div><span className="text-foreground font-semibold">Browser:</span> {selectedSearchLog.browser}</div>
 									<div><span className="text-foreground font-semibold">Client IP:</span> {selectedSearchLog.client_ip}</div>
-									<div><span className="text-foreground font-semibold">Device:</span> {selectedSearchLog.agent_hostname || "Local Endpoint"}</div>
+									<div><span className="text-foreground font-semibold">Laptop Name:</span> {selectedSearchLog.agent_hostname || "Local Endpoint"}</div>
 									<div className="col-span-2 break-all"><span className="text-foreground font-semibold">Host:</span> {selectedSearchLog.host}</div>
 									<div className="col-span-2"><span className="text-foreground font-semibold">Timestamp:</span> {new Date(selectedSearchLog.timestamp).toLocaleString()}</div>
 								</div>
