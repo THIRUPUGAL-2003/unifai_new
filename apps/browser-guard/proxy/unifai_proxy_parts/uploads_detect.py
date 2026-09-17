@@ -1425,6 +1425,9 @@ def _scan_upload_for_rules(
         )
         if rule_hit and rule_action == "BLOCK":
             scan_evaluated = True
+        elif eval_blob and has_regex and not run_backend:
+            # Regex-only rules already applied locally — treat as evaluated (no HTTP round-trip).
+            scan_evaluated = True
         if run_backend:
             try:
                 allowed, rt, action, _, _, eval_err = send_to_backend(

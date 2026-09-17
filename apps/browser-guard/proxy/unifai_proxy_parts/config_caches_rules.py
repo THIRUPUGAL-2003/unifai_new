@@ -296,13 +296,13 @@ BLOCK_DEDUPE_TTL = 30
 # Same rule for ALL admin Target Websites — not per-domain hardcode.
 # Keep holds SHORT — long sleeps on the mitm request thread caused intermittent
 # misses across every Target domain (browser abort / race / supersede).
-COMPOSER_DRAFT_TTL = 0.35
+COMPOSER_DRAFT_TTL = 0.22
 COMPOSER_DRAFT_MAX_GROW = 8
-COMPOSER_STABILITY_HOLD = 0.28
-COMPOSER_STABILITY_HOLD_SHORT = 0.40  # len <= 12
-COMPOSER_STABILITY_HOLD_TINY = 0.45   # len <= 3
+COMPOSER_STABILITY_HOLD = 0.12
+COMPOSER_STABILITY_HOLD_SHORT = 0.18  # len <= 12
+COMPOSER_STABILITY_HOLD_TINY = 0.22   # len <= 3
 COMPOSER_HOLD_MAX_LEN = 120
-COMPOSER_PREFIX_WINDOW = 1.2
+COMPOSER_PREFIX_WINDOW = 0.7
 
 # ─────────────────────────────────────────────
 # In-memory Caches

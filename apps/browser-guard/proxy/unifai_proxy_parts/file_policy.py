@@ -243,26 +243,26 @@ def enforce_file_send_policy(
         seen_uids.add(uid)
         deduped.append(entry)
     cached_list = deduped[:_UPLOAD_FILE_QUEUE_MAX]
+    # Prefer real filenames from Send body; drop placeholder-only extras when a real name exists.
     cached_list = _bind_real_filenames_to_cached_uploads(cached_list, raw_text or "")
+    # If Send lists N real filenames but we have N+1 caches with fakes, keep real-named first.
+    send_names = extract_all_attachment_filenames_from_send(raw_text or "")
+    if send_names and len(cached_list) > len(send_names):
+        realish = [
+            e for e in cached_list
+            if not _is_fake_upload_name((e.get("file_name") or "").strip())
+        ]
+        if len(realish) >= len(send_names):
+            cached_list = realish[: max(len(send_names), 1)]
 
     caption = ""
     try:
-        from_body = extract_prompt_universal(
-            (raw_text or "").encode("utf-8", errors="ignore"),
+        caption = _extract_file_send_user_caption(
+            raw_text or "",
             content_type or "",
             host,
             url,
         )
-        if (
-            from_body
-            and looks_like_user_prompt(from_body)
-            and len(from_body.strip()) <= 50_000
-            and not _looks_like_document_body_dump(from_body)
-            and not _is_google_wire_blob(from_body)
-            and not _is_opaque_wire_blob(from_body)
-            and not from_body.strip().startswith(("[null,", '[[["', '{"type":', '{"counters":'))
-        ):
-            caption = from_body.strip()
     except Exception:
         caption = ""
 
@@ -270,7 +270,8 @@ def enforce_file_send_policy(
     block_all = controls_active("block_upload")
     base_upload_msg = (get_control_settings().get("upload_warning") or "").strip() or "Upload block"
 
-    file_rows: list[dict] = []
+    # Prepare rows first (names/labels), then extract+local-regex in parallel for speed.
+    prepared: list[dict] = []
     hint = (file_name_hint or "").strip()
     n_cached = len(cached_list)
     for i, cached in enumerate(cached_list):
@@ -298,25 +299,36 @@ def enforce_file_send_policy(
         if is_audio and display_label.lower() in ("document", "document.pdf", "attachment", "audio.bin"):
             suffix = f" {i + 1}" if n_cached > 1 else ""
             display_label = f"Voice Note{suffix}"
+        prepared.append({
+            "file_label": display_label,
+            "store_name": fname,
+            "cached_bytes": bytes(cached_bytes),
+            "cached_ct": cached_ct,
+            "cache_uid": str(cached.get("cache_uid") or id(cached)),
+            "cached": cached,
+        })
+
+    def _scan_one(prep: dict) -> dict:
         scanned, local_hit, local_name, local_action, excerpt, upload_images, scan_evaluated, scan_eval_error = _scan_upload_for_rules(
-            bytes(cached_bytes),
-            cached_ct,
+            prep["cached_bytes"],
+            prep["cached_ct"],
             raw_text or "",
-            fname,
-            cached,
+            prep["store_name"],
+            prep["cached"],
             platform=platform,
             domain=domain,
             client_ip=client_ip,
             url=url,
             method=method,
-            skip_backend=False,
+            # Local extract + regex only here — one optional AI-bot call below (fast path).
+            skip_backend=True,
             extra_context="",
         )
-        file_rows.append({
-            "file_label": display_label,
-            "store_name": fname,
-            "cached_bytes": bytes(cached_bytes),
-            "cached_ct": cached_ct,
+        return {
+            "file_label": prep["file_label"],
+            "store_name": prep["store_name"],
+            "cached_bytes": prep["cached_bytes"],
+            "cached_ct": prep["cached_ct"],
             "scanned": scanned or "",
             "excerpt": excerpt or "",
             "upload_images": upload_images or [],
@@ -325,8 +337,69 @@ def enforce_file_send_policy(
             "rule_action": (local_action or "").upper(),
             "scan_evaluated": bool(scan_evaluated),
             "scan_eval_error": scan_eval_error or "",
-            "cache_uid": str(cached.get("cache_uid") or id(cached)),
-        })
+            "cache_uid": prep["cache_uid"],
+        }
+
+    file_rows: list[dict] = []
+    if len(prepared) <= 1:
+        file_rows = [_scan_one(p) for p in prepared]
+    else:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        workers = min(4, len(prepared))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = {pool.submit(_scan_one, p): idx for idx, p in enumerate(prepared)}
+            ordered: list[dict | None] = [None] * len(prepared)
+            for fut in as_completed(futs):
+                ordered[futs[fut]] = fut.result()
+            file_rows = [r for r in ordered if r is not None]
+
+    # Optional single AI Guard Bot pass on combined extract (skip when regex-only — already scanned).
+    need_bot = bool(has_ai_bot_rules() and platform and domain and not block_all)
+    any_local_block = any(
+        r.get("rule_hit") and (r.get("rule_action") or "").upper() == "BLOCK" for r in file_rows
+    )
+    if need_bot and not any_local_block:
+        combined = "\n\n".join(
+            x for x in (
+                [(r.get("scanned") or "").strip() for r in file_rows] + [caption]
+            ) if x
+        ).strip()
+        vision: list[str] = []
+        for r in file_rows:
+            for img in (r.get("upload_images") or [])[:2]:
+                if img and img not in vision:
+                    vision.append(img)
+                if len(vision) >= 4:
+                    break
+        if combined or vision:
+            try:
+                allowed, rt, action, _, _, eval_err = send_to_backend(
+                    platform,
+                    domain,
+                    combined[:40_000],
+                    client_ip,
+                    url,
+                    method or "POST",
+                    upload_images=vision or None,
+                    evaluation_only=True,
+                    extracted_text=combined[:40_000],
+                )
+                if not eval_err:
+                    for r in file_rows:
+                        hit, name, act = _merge_file_scan_backend(
+                            bool(r.get("rule_hit")),
+                            r.get("rule_name") or "",
+                            (r.get("rule_action") or "").upper(),
+                            allowed,
+                            rt,
+                            action or "",
+                        )
+                        r["rule_hit"] = bool(hit)
+                        r["rule_name"] = name or ""
+                        r["rule_action"] = (act or "").upper()
+                        r["scan_evaluated"] = True
+            except Exception as e:
+                print(f"[UnifAI Proxy] combined file bot scan failed (allowed): {e}")
 
     cap_hit = False
     cap_name = ""
@@ -336,17 +409,17 @@ def enforce_file_send_policy(
         cap_action = (cap_action or "").upper()
         if cap_action == "WARN":
             cap_action = "REDACT"
+        # Caption AI bot only when bots configured and caption not already BLOCK.
         if (
             not (cap_hit and cap_action == "BLOCK")
-            and platform
-            and domain
-            and (has_ai_bot_rules() or get_guard_rules())
+            and need_bot
+            and not any_local_block
         ):
             try:
                 allowed, rt, action, _, _, eval_err = send_to_backend(
                     platform,
                     domain,
-                    caption[:50_000],
+                    caption[:40_000],
                     client_ip,
                     url,
                     method or "POST",
@@ -470,28 +543,136 @@ def enforce_file_send_policy(
             f"verdict={file_status} (is_blocked={file_is_blocked}) | multi={idx + 1}/{n_files}"
         )
 
-        ok = post_upload_intercept(
-            platform=platform,
-            prompt=prompt_log,
-            client_ip=client_ip,
-            domain=domain,
-            url=url,
-            method=method,
-            file_name=row.get("store_name") or row["file_label"],
-            is_blocked=file_is_blocked,
-            blocked_reason=file_reason,
-            raw_bytes=row["cached_bytes"],
-            content_type=row["cached_ct"],
-            extracted_text=row_text or (caption if idx == 0 else ""),
-            upload_images=row_imgs,
-            scan_guard=this_scan_guard,
-        )
-        if ok:
-            mark_duplicate_event(domain, dedupe_key)
-        else:
-            print(f"[UnifAI Proxy WARNING] File log failed to post | {row['file_label']}")
+        def _post_row(
+            *,
+            _prompt_log=prompt_log,
+            _store_name=row.get("store_name") or row["file_label"],
+            _blocked=file_is_blocked,
+            _reason=file_reason,
+            _bytes=row["cached_bytes"],
+            _ct=row["cached_ct"],
+            _text=row_text or (caption if idx == 0 else ""),
+            _imgs=row_imgs,
+            _sg=this_scan_guard,
+            _dedupe=dedupe_key,
+            _label=row["file_label"],
+        ) -> None:
+            try:
+                ok = post_upload_intercept(
+                    platform=platform,
+                    prompt=_prompt_log,
+                    client_ip=client_ip,
+                    domain=domain,
+                    url=url,
+                    method=method,
+                    file_name=_store_name,
+                    is_blocked=_blocked,
+                    blocked_reason=_reason,
+                    raw_bytes=_bytes,
+                    content_type=_ct,
+                    extracted_text=_text,
+                    upload_images=_imgs,
+                    scan_guard=_sg,
+                )
+                if ok:
+                    mark_duplicate_event(domain, _dedupe)
+                else:
+                    print(f"[UnifAI Proxy WARNING] File log failed to post | {_label}")
+            except Exception as e:
+                print(f"[UnifAI Proxy WARNING] File log async failed | {_label}: {e}")
+
+        # Do not block the chat Send on Prompt Log upload — fire-and-forget.
+        threading.Thread(target=_post_row, daemon=True, name="unifai-file-log").start()
 
     return should_block, block_msg, redact_notice, n_files, bool(caption)
+
+
+def _extract_file_send_user_caption(
+    raw_text: str,
+    content_type: str = "",
+    host: str = "",
+    url: str = "",
+) -> str:
+    """
+    Pull the short typed chat text that accompanies a file Send (Claude/Gemini/ChatGPT).
+    Must not return PDF/doc dumps or filename-only tokens.
+    """
+    candidates: list[str] = []
+
+    def _accept(got: str) -> None:
+        t = (got or "").strip()
+        if not t or len(t) > 50_000:
+            return
+        if not looks_like_user_prompt(t):
+            return
+        if _looks_like_document_body_dump(t):
+            return
+        if _looks_like_filename_only(t):
+            return
+        if _is_google_wire_blob(t) or _is_opaque_wire_blob(t):
+            return
+        if t.startswith(("[null,", '[[["', '{"type":', '{"counters":', "[FILE UPLOAD", "[VOICE UPLOAD")):
+            return
+        # Prefer short captions; still allow longer typed instructions with a file.
+        candidates.append(t)
+
+    try:
+        from_body = extract_prompt_universal(
+            (raw_text or "").encode("utf-8", errors="ignore"),
+            content_type or "",
+            host,
+            url,
+        )
+        if from_body:
+            _accept(from_body)
+    except Exception:
+        pass
+
+    body = raw_text or ""
+    # Claude / Anthropic: {"type":"text","text":"..."}
+    for m in re.finditer(
+        r'"type"\s*:\s*"text"\s*,\s*"text"\s*:\s*"((?:[^"\\]|\\.)*)"',
+        body,
+    ):
+        try:
+            _accept(json.loads(f'"{m.group(1)}"'))
+        except Exception:
+            _accept(m.group(1).replace("\\n", "\n").replace('\\"', '"'))
+    # Alternate order: "text":"...","type":"text"
+    for m in re.finditer(
+        r'"text"\s*:\s*"((?:[^"\\]|\\.)*)"\s*,\s*"type"\s*:\s*"text"',
+        body,
+    ):
+        try:
+            _accept(json.loads(f'"{m.group(1)}"'))
+        except Exception:
+            _accept(m.group(1).replace("\\n", "\n").replace('\\"', '"'))
+    # Gemini / Google: parts[].text (skip huge blobs)
+    for m in re.finditer(r'"text"\s*:\s*"((?:[^"\\]|\\.){1,2000})"', body):
+        try:
+            t = json.loads(f'"{m.group(1)}"')
+        except Exception:
+            t = m.group(1).replace("\\n", "\n").replace('\\"', '"')
+        if len((t or "").strip()) <= 2000:
+            _accept(t or "")
+    # ChatGPT parts: "parts":["hello"]
+    for m in re.finditer(
+        r'"content_type"\s*:\s*"text"\s*,\s*"parts"\s*:\s*\[\s*"((?:[^"\\]|\\.)*)"',
+        body,
+    ):
+        try:
+            _accept(json.loads(f'"{m.group(1)}"'))
+        except Exception:
+            _accept(m.group(1))
+
+    if not candidates:
+        return ""
+    # Prefer the shortest non-empty caption that isn't a document dump (typed note),
+    # but if all are short, take the longest among short ones.
+    short = [c for c in candidates if len(c) <= 500]
+    pool = short or candidates
+    pool.sort(key=lambda s: (-min(len(s), 200), -len(s)))
+    return pool[0].strip()
 
 
 def _upload_log_tag(file_name: str = "", content_type: str = "", raw_bytes: bytes = b"") -> str:
@@ -619,8 +800,8 @@ def post_upload_intercept(
             headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
             method="POST",
         )
-        # Larger timeout when uploading file bytes
-        timeout = 30 if file_payload else 12
+        # Larger timeout when uploading file bytes (async log path — keep modest)
+        timeout = 12 if file_payload else 4
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             if 200 <= getattr(resp, "status", 200) < 300:
                 return True

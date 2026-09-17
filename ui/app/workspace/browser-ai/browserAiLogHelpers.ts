@@ -65,6 +65,23 @@ export function logHasStoredAttachment(log: BrowserAILogEntry | null | undefined
 	return !!(log?.attachment_stored_name);
 }
 
+export function logUserCaption(log: BrowserAILogEntry): string {
+	const meta = parseBrowserAiLogMetadata(log);
+	const fromMeta = typeof meta.user_caption === "string" ? meta.user_caption.trim() : "";
+	if (fromMeta && fromMeta.length <= 2000) return fromMeta;
+
+	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
+	const pipe = full.indexOf(" | ");
+	if (pipe < 0) return "";
+	let after = full.slice(pipe + 3).trim();
+	// Strip trailing status: — Allowed / -- Blocked (rule)
+	after = after.replace(/\s+[—–-]\s+(Allowed|Blocked|Redacted|Warned).*$/i, "").trim();
+	// Ignore if after looks like another file status line
+	if (!after || after.startsWith("[FILE") || after.startsWith("[VOICE")) return "";
+	if (/^attachment(-\d+)?$/i.test(after)) return "";
+	return after.slice(0, 500);
+}
+
 export function logAttachmentLabel(log: BrowserAILogEntry): string {
 	const name = (log.attachment_name || "").trim();
 	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();

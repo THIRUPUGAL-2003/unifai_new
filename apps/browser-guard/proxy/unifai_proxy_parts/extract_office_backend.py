@@ -236,7 +236,7 @@ def _audio_to_wav_path(data: bytes, content_type: str = "", file_name: str = "")
             proc = subprocess.run(
                 [ffmpeg, "-y", "-i", path, "-ac", "1", "-ar", "16000", wav_path],
                 capture_output=True,
-                timeout=45,
+                timeout=15,
             )
             if proc.returncode == 0 and os.path.isfile(wav_path) and os.path.getsize(wav_path) > 64:
                 try:
@@ -299,7 +299,7 @@ try {{
         proc = subprocess.run(
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
             capture_output=True,
-            timeout=60,
+            timeout=18,
             text=True,
             encoding="utf-8",
             errors="ignore",
@@ -872,7 +872,7 @@ def extract_upload_text_for_rules(
                 continue
             seen.add(key)
             out.append(p)
-        return "\n\n".join(out)[:250_000]
+        return "\n\n".join(out)[:100_000]
     except Exception as e:
         print(f"[UnifAI Proxy] extract_upload_text_for_rules failed (allowed): {e}")
         return ""
@@ -886,13 +886,15 @@ def match_guard_rules_on_text(text: str) -> tuple[bool, str, str]:
     """
     if not text or len(text.strip()) < 1:
         return False, "", ""
+    # Fast path: scan a bounded window (rules rarely need 100k+ of PDF noise)
+    scan = text if len(text) <= 80_000 else text[:80_000]
     rules = sorted(
         get_guard_rules(),
         key=lambda r: 0 if (r.get("action") or "BLOCK").upper() in ("BLOCK",) else 1,
     )
     for r in rules:
         try:
-            if not rule_matches_prompt(r, text):
+            if not rule_matches_prompt(r, scan):
                 continue
             return True, r.get("name", "Guard Rule"), (r.get("action") or "BLOCK").upper()
         except Exception:
@@ -1369,12 +1371,13 @@ def send_to_backend(platform: str, domain: str, prompt: str, client_ip: str, url
         )
 
         # AI Guard Bot may call an LLM — keep under browser request timeouts.
-        # Default 28s (was 95s): long holds look like "connection cut" on ChatGPT/Claude.
+        # evaluation_only (file/caption pre-check): prefer snappy defaults so Send stays fast.
         try:
-            eval_timeout = float(os.getenv("UNIFAI_EVAL_TIMEOUT", "18") or "18")
+            default_to = "10" if evaluation_only and not upload_images else "18"
+            eval_timeout = float(os.getenv("UNIFAI_EVAL_TIMEOUT", default_to) or default_to)
         except Exception:
-            eval_timeout = 28.0
-        eval_timeout = max(8.0, min(eval_timeout, 95.0))
+            eval_timeout = 10.0 if evaluation_only else 18.0
+        eval_timeout = max(5.0, min(eval_timeout, 45.0 if evaluation_only else 95.0))
         with urllib.request.urlopen(req, timeout=eval_timeout) as response:
             if response.status == 200:
                 res_data = json.loads(response.read().decode("utf-8"))
