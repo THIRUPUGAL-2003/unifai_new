@@ -1,7 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { DOCS } from "@/lib/constants/docs";
 import { WalletCards } from "lucide-react";
-import { ArrowUpRight } from "lucide-react";
 
 interface CustomersEmptyStateProps {
 	onAddClick: () => void;
@@ -20,16 +18,6 @@ export function CustomersEmptyState({ onAddClick, canCreate = true }: CustomersE
 					Create customer accounts to manage multi-tenant usage, assign teams, and set spending and rate limits per customer.
 				</div>
 				<div className="mx-auto mt-6 flex flex-row flex-wrap items-center justify-center gap-2">
-					<Button
-						variant="outline"
-						aria-label="Read more about customers (opens in new tab)"
-						data-testid="customer-button-read-more"
-						onClick={() => {
-							window.open(`${DOCS.governance}?utm_source=bfd`, "_blank", "noopener,noreferrer");
-						}}
-					>
-						Read more <ArrowUpRight className="text-muted-foreground h-3 w-3" />
-					</Button>
 					<Button aria-label="Add your first customer" onClick={onAddClick} disabled={!canCreate} data-testid="customer-button-create">
 						Add Customer
 					</Button>

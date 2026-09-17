@@ -1330,97 +1330,101 @@ export default function BrowserAiPage() {
 						/>
 					) : null}
 
-					<div className="flex items-center gap-2 bg-card border border-border px-2.5 py-1 rounded-md">
-						<Switch
-							checked={!!controls.search_log_auto_delete}
-							onCheckedChange={(on) => {
-								void patchControl({
-									search_log_auto_delete: on,
-									search_log_retention: (controls.search_log_retention as "1d" | "7d" | "30d") || "7d",
-								});
-								if (on) {
-									void refetchSearchLogs();
-								}
-							}}
-							id="search-log-auto-delete"
-						/>
-						<Label htmlFor="search-log-auto-delete" className="cursor-pointer font-medium text-xs whitespace-nowrap">
-							Auto-delete
-						</Label>
-						{controls.search_log_auto_delete ? (
-							<Select
-								value={
-									controls.search_log_retention === "1d" ||
-									controls.search_log_retention === "7d" ||
-									controls.search_log_retention === "30d"
-										? controls.search_log_retention
-										: "7d"
-								}
-								onValueChange={(v) => {
-									void patchControl({
-										search_log_auto_delete: true,
-										search_log_retention: v as "1d" | "7d" | "30d",
-									});
-									void refetchSearchLogs();
-								}}
-							>
-								<SelectTrigger className="h-7 w-[7.5rem] text-xs border-border bg-background">
-									<SelectValue />
-								</SelectTrigger>
-								<SelectContent>
-									<SelectItem value="1d">1 day</SelectItem>
-									<SelectItem value="7d">7 days</SelectItem>
-									<SelectItem value="30d">30 days</SelectItem>
-								</SelectContent>
-							</Select>
-						) : null}
-					</div>
+					{activeTab === "search-logs" ? (
+						<>
+							<div className="flex items-center gap-2 bg-card border border-border px-2.5 py-1 rounded-md">
+								<Switch
+									checked={!!controls.search_log_auto_delete}
+									onCheckedChange={(on) => {
+										void patchControl({
+											search_log_auto_delete: on,
+											search_log_retention: (controls.search_log_retention as "1d" | "7d" | "30d") || "7d",
+										});
+										if (on) {
+											void refetchSearchLogs();
+										}
+									}}
+									id="search-log-auto-delete"
+								/>
+								<Label htmlFor="search-log-auto-delete" className="cursor-pointer font-medium text-xs whitespace-nowrap">
+									Auto-delete
+								</Label>
+								{controls.search_log_auto_delete ? (
+									<Select
+										value={
+											controls.search_log_retention === "1d" ||
+											controls.search_log_retention === "7d" ||
+											controls.search_log_retention === "30d"
+												? controls.search_log_retention
+												: "7d"
+										}
+										onValueChange={(v) => {
+											void patchControl({
+												search_log_auto_delete: true,
+												search_log_retention: v as "1d" | "7d" | "30d",
+											});
+											void refetchSearchLogs();
+										}}
+									>
+										<SelectTrigger className="h-7 w-[7.5rem] text-xs border-border bg-background">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="1d">1 day</SelectItem>
+											<SelectItem value="7d">7 days</SelectItem>
+											<SelectItem value="30d">30 days</SelectItem>
+										</SelectContent>
+									</Select>
+								) : null}
+							</div>
 
-					<DropdownMenu>
-						<DropdownMenuTrigger asChild>
-							<Button
-								variant="outline"
-								size="sm"
-								disabled={isClearingSearchLogs}
-								className="h-8 text-xs gap-1.5 text-destructive hover:bg-destructive/10 border-destructive/30"
-							>
-								{isClearingSearchLogs ? (
-									<Loader2 className="h-3.5 w-3.5 animate-spin" />
-								) : (
-									<Trash2 className="h-3.5 w-3.5" />
-								)}
-								Delete Search Logs
-								<ChevronDown className="h-3.5 w-3.5 opacity-70" />
-							</Button>
-						</DropdownMenuTrigger>
-						<DropdownMenuContent align="end" className="min-w-[11rem]">
-							<DropdownMenuItem
-								onClick={() => runClearSearchLogs({ period: "1d" }, "last 1 day")}
-							>
-								Last 1 day
-							</DropdownMenuItem>
-							<DropdownMenuItem
-								onClick={() => runClearSearchLogs({ period: "7d" }, "last 7 days")}
-							>
-								Last 7 days (weekly)
-							</DropdownMenuItem>
-							<DropdownMenuItem
-								onClick={() => runClearSearchLogs({ period: "30d" }, "last 30 days")}
-							>
-								Last 30 days (monthly)
-							</DropdownMenuItem>
-							<DropdownMenuItem onClick={() => setSearchDeleteDayOpen(true)}>
-								Pick a day…
-							</DropdownMenuItem>
-							<DropdownMenuSeparator />
-							<DropdownMenuItem
-								className="text-destructive focus:text-destructive"
-								onClick={() => runClearSearchLogs({ period: "all" }, "all search logs")}
-							>
-								Clear all
-							</DropdownMenuItem>
-						</DropdownMenuContent>
-					</DropdownMenu>
+							<DropdownMenu>
+								<DropdownMenuTrigger asChild>
+									<Button
+										variant="outline"
+										size="sm"
+										disabled={isClearingSearchLogs}
+										className="h-8 text-xs gap-1.5 text-destructive hover:bg-destructive/10 border-destructive/30"
+									>
+										{isClearingSearchLogs ? (
+											<Loader2 className="h-3.5 w-3.5 animate-spin" />
+										) : (
+											<Trash2 className="h-3.5 w-3.5" />
+										)}
+										Delete Search Logs
+										<ChevronDown className="h-3.5 w-3.5 opacity-70" />
+									</Button>
+								</DropdownMenuTrigger>
+								<DropdownMenuContent align="end" className="min-w-[11rem]">
+									<DropdownMenuItem
+										onClick={() => runClearSearchLogs({ period: "1d" }, "last 1 day")}
+									>
+										Last 1 day
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										onClick={() => runClearSearchLogs({ period: "7d" }, "last 7 days")}
+									>
+										Last 7 days (weekly)
+									</DropdownMenuItem>
+									<DropdownMenuItem
+										onClick={() => runClearSearchLogs({ period: "30d" }, "last 30 days")}
+									>
+										Last 30 days (monthly)
+									</DropdownMenuItem>
+									<DropdownMenuItem onClick={() => setSearchDeleteDayOpen(true)}>
+										Pick a day…
+									</DropdownMenuItem>
+									<DropdownMenuSeparator />
+									<DropdownMenuItem
+										className="text-destructive focus:text-destructive"
+										onClick={() => runClearSearchLogs({ period: "all" }, "all search logs")}
+									>
+										Clear all
+									</DropdownMenuItem>
+								</DropdownMenuContent>
+							</DropdownMenu>
+						</>
+					) : null}
 
 					<Button
 						variant="outline"
