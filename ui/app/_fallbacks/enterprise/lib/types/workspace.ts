@@ -148,6 +148,7 @@ export interface BusinessUnit {
 	id: string;
 	name: string;
 	team_count?: number;
+	team_ids?: string[];
 	created_at?: string;
 	updated_at?: string;
 }

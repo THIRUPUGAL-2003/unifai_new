@@ -181,8 +181,12 @@ export default function CustomersTable({
 		return teams.filter((team) => team.customer_id === customerId);
 	};
 
+	// Direct customer VKs + VKs attached to this customer's teams (Team XOR Customer on VK).
 	const getVirtualKeysForCustomer = (customerId: string) => {
-		return virtualKeys.filter((vk) => vk.customer_id === customerId);
+		const teamIds = new Set(getTeamsForCustomer(customerId).map((t) => t.id));
+		return virtualKeys.filter(
+			(vk) => vk.customer_id === customerId || (vk.team_id != null && teamIds.has(vk.team_id)),
+		);
 	};
 
 	const hasActiveFilters = debouncedSearch;
@@ -232,7 +236,9 @@ export default function CustomersTable({
 					<div className="mb-4 flex items-center justify-between">
 						<div>
 							<h2 className="text-lg font-semibold">Customers</h2>
-							<p className="text-muted-foreground text-sm">Manage customer accounts with their own teams, budgets, and access controls.</p>
+							<p className="text-muted-foreground text-sm">
+								Manage customer accounts with teams, budgets, virtual keys, and related business units (via shared teams).
+							</p>
 						</div>
 						<Button data-testid="customer-button-create" onClick={handleAddCustomer} disabled={!hasCreateAccess}>
 							<Plus className="h-4 w-4" />

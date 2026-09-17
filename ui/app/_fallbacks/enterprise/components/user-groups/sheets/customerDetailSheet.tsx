@@ -1,9 +1,12 @@
 import { Label } from "@/components/ui/label";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { resetDurationLabels } from "@/lib/constants/governance";
+import { useGetTeamsQuery, useGetVirtualKeysQuery } from "@/lib/store";
 import { Customer } from "@/lib/types/governance";
 import { cn } from "@/lib/utils";
 import { formatCompactNumber } from "@/lib/utils/numbers";
+import { useGetBusinessUnitsQuery } from "@enterprise/lib/store/apis/businessUnitsApi";
+import { Link } from "@tanstack/react-router";
 
 interface Props {
 	customer: Customer | null;
@@ -83,27 +86,39 @@ function RateLimitBar({ label, current, max, resetDuration }: { label: string; c
 	);
 }
 
-//
-// OSS fallback for the enterprise CustomerDetailSheet. It renders the Info,
-// Budgets, and Rate Limits sections from the customer already in hand, and omits
-// the Teams / Business Units sections, which depend on enterprise-only APIs.
+function EmptyLine({ children }: { children: React.ReactNode }) {
+	return <p className="text-muted-foreground py-1 text-center text-sm">{children}</p>;
+}
 
 export function CustomerDetailSheet({ customer, open, onOpenChange }: Props) {
 	const budgets = customer?.budgets ?? [];
 	const rateLimit = customer?.rate_limit;
 	const hasRateLimit = rateLimit?.token_max_limit != null || rateLimit?.request_max_limit != null;
 
+	const { data: teamsData } = useGetTeamsQuery(undefined, { skip: !open || !customer });
+	const { data: vksData } = useGetVirtualKeysQuery(undefined, { skip: !open || !customer });
+	const { data: buData } = useGetBusinessUnitsQuery(undefined, { skip: !open || !customer });
+
+	const customerTeams = (teamsData?.teams || []).filter((t) => t.customer_id === customer?.id);
+	const teamIds = new Set(customerTeams.map((t) => t.id));
+	const customerVKs = (vksData?.virtual_keys || []).filter(
+		(vk) => vk.customer_id === customer?.id || (vk.team_id != null && teamIds.has(vk.team_id)),
+	);
+	// Related BUs: any unit that includes at least one of this customer's teams (derived — BU is not a Customer child).
+	const relatedBUs = (buData?.business_units || []).filter((bu) => (bu.team_ids || []).some((id) => teamIds.has(id)));
+
 	return (
 		<Sheet open={open} onOpenChange={onOpenChange}>
 			<SheetContent className="max-w-[700px] overflow-y-auto p-0 pt-4">
 				<SheetHeader className="flex flex-col items-start px-0 py-4" headerClassName="mb-0 px-8 sticky -top-4 bg-card z-10">
 					<SheetTitle className="text-lg">{customer?.name || "Customer Details"}</SheetTitle>
-					<SheetDescription>Usage details for this customer.</SheetDescription>
+					<SheetDescription>
+						Budgets, teams, virtual keys, and related business units (via shared teams).
+					</SheetDescription>
 				</SheetHeader>
 
 				{customer && (
 					<div className="space-y-6 px-8 py-4">
-						{/* ── Info ─────────────────────────────────────────── */}
 						<DetailCard title="Info">
 							<div className="grid grid-cols-2 gap-x-8 gap-y-4">
 								<div>
@@ -113,7 +128,6 @@ export function CustomerDetailSheet({ customer, open, onOpenChange }: Props) {
 							</div>
 						</DetailCard>
 
-						{/* ── Budgets ──────────────────────────────────────── */}
 						<DetailCard title="Budgets">
 							{budgets.length > 0 ? (
 								<div className="space-y-3">
@@ -124,11 +138,10 @@ export function CustomerDetailSheet({ customer, open, onOpenChange }: Props) {
 										))}
 								</div>
 							) : (
-								<p className="text-muted-foreground py-1 text-center text-sm">No budgets configured</p>
+								<EmptyLine>No budgets configured</EmptyLine>
 							)}
 						</DetailCard>
 
-						{/* ── Rate Limits ──────────────────────────────────── */}
 						<DetailCard title="Rate Limits">
 							{rateLimit && hasRateLimit ? (
 								<div className="space-y-3">
@@ -150,7 +163,72 @@ export function CustomerDetailSheet({ customer, open, onOpenChange }: Props) {
 									)}
 								</div>
 							) : (
-								<p className="text-muted-foreground py-1 text-center text-sm">No rate limits configured</p>
+								<EmptyLine>No rate limits configured</EmptyLine>
+							)}
+						</DetailCard>
+
+						<DetailCard title="Teams">
+							{customerTeams.length > 0 ? (
+								<ul className="space-y-1.5 text-sm">
+									{customerTeams.map((team) => (
+										<li key={team.id} className="flex items-center justify-between gap-2">
+											<span>{team.name}</span>
+											<Link
+												to="/workspace/governance/teams"
+												className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+												onClick={() => onOpenChange(false)}
+											>
+												Open Teams
+											</Link>
+										</li>
+									))}
+								</ul>
+							) : (
+								<EmptyLine>No teams linked to this customer</EmptyLine>
+							)}
+						</DetailCard>
+
+						<DetailCard title="Virtual Keys">
+							{customerVKs.length > 0 ? (
+								<ul className="space-y-1.5 text-sm">
+									{customerVKs.map((vk) => (
+										<li key={vk.id} className="flex items-center justify-between gap-2">
+											<span>
+												{vk.name}
+												<span className="text-muted-foreground ml-2 text-xs">
+													{vk.team_id ? "via team" : "direct"}
+												</span>
+											</span>
+										</li>
+									))}
+								</ul>
+							) : (
+								<EmptyLine>No virtual keys (attach VK to this customer or its teams)</EmptyLine>
+							)}
+						</DetailCard>
+
+						<DetailCard title="Related Business Units">
+							<p className="text-muted-foreground mb-2 text-xs">
+								Shown when a business unit includes this customer&apos;s teams. BUs are not nested under customers — they group
+								teams for reporting.
+							</p>
+							{relatedBUs.length > 0 ? (
+								<ul className="space-y-1.5 text-sm">
+									{relatedBUs.map((bu) => (
+										<li key={bu.id} className="flex items-center justify-between gap-2">
+											<span>{bu.name}</span>
+											<Link
+												to="/workspace/governance/business-units"
+												className="text-muted-foreground hover:text-foreground text-xs underline-offset-2 hover:underline"
+												onClick={() => onOpenChange(false)}
+											>
+												Open BUs
+											</Link>
+										</li>
+									))}
+								</ul>
+							) : (
+								<EmptyLine>No business units share this customer&apos;s teams yet</EmptyLine>
 							)}
 						</DetailCard>
 					</div>

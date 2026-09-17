@@ -371,6 +371,9 @@ export default function UsersView() {
 			if (role !== "admin") {
 				await syncUserTeam(selectedUser.id, teamId, initialTeamId);
 				await syncUserVirtualKey(selectedUser.id, virtualKeyId, initialVirtualKeyId);
+				if (!virtualKeyId) {
+					toast.warning("Saved without a Virtual Key — Prompt Repository chat stays blocked until you assign one.");
+				}
 			} else if (initialTeamId) {
 				await syncUserTeam(selectedUser.id, "", initialTeamId);
 			}

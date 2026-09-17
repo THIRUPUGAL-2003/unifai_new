@@ -1066,13 +1066,16 @@ export default function VirtualKeySheet({ virtualKey, teams, customers, defaultT
 												</TooltipTrigger>
 												<TooltipContent>
 													<p>
-														Configure which providers this virtual key can use and their specific settings. Leave empty to block all
-														providers. Add providers to allow them.
+														LLM / model access for this key. Leave empty for an MCP-only key. Add providers + allowed models for chat.
+														Entity assignment is Team OR Customer OR None — never both.
 													</p>
 												</TooltipContent>
 											</Tooltip>
 										</TooltipProvider>
 									</div>
+									<p className="text-muted-foreground text-xs">
+										Models door: empty = no LLM. Pair with MCP configs below for tools-only, models-only, or both.
+									</p>
 
 									{/* Add Provider Dropdown */}
 									<div className="flex gap-2">
@@ -1912,6 +1915,10 @@ export default function VirtualKeySheet({ virtualKey, teams, customers, defaultT
 										{/* Entity Assignment */}
 										<div className="space-y-4">
 											<Label className="text-sm font-medium">Entity Assignment</Label>
+											<p className="text-muted-foreground text-xs">
+												Attach this key to a Team or a Customer, or leave unassigned for standalone users. Team and Customer cannot both
+												be set.
+											</p>
 
 											<div className="grid grid-cols-1 items-center gap-2 md:grid-cols-2">
 												<FormField

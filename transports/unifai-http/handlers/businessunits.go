@@ -57,6 +57,7 @@ func (h *WorkspaceHandler) listBusinessUnits(ctx *fasthttp.RequestCtx) {
 		}
 		items = append(items, map[string]any{
 			"id": row.ID, "name": row.Name, "team_count": len(row.ParsedTeamIDs),
+			"team_ids": row.ParsedTeamIDs,
 			"created_at": row.CreatedAt, "updated_at": row.UpdatedAt,
 		})
 	}
@@ -137,6 +138,7 @@ func (h *WorkspaceHandler) getBusinessUnit(ctx *fasthttp.RequestCtx) {
 	}
 	SendJSON(ctx, map[string]any{
 		"id": row.ID, "name": row.Name, "team_count": len(row.ParsedTeamIDs),
+		"team_ids": row.ParsedTeamIDs,
 		"budget": row.ParsedBudget, "rate_limit": row.ParsedRateLimit,
 		"created_at": row.CreatedAt, "updated_at": row.UpdatedAt,
 	})

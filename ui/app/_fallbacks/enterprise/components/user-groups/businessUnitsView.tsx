@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { getErrorMessage, useGetTeamsQuery } from "@/lib/store";
+import { getErrorMessage, useGetCustomersQuery, useGetTeamsQuery } from "@/lib/store";
 import {
 	useAssignBusinessUnitTeamMutation,
 	useCreateBusinessUnitMutation,
@@ -14,7 +14,7 @@ import {
 } from "@enterprise/lib/store/apis/businessUnitsApi";
 import { BusinessUnit } from "@enterprise/lib/types/workspace";
 import { Building2, Plus, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
 export function BusinessUnitsView() {
@@ -24,6 +24,7 @@ export function BusinessUnitsView() {
 	const [teamId, setTeamId] = useState("");
 	const { data: unitData } = useGetBusinessUnitsQuery();
 	const { data: teamData } = useGetTeamsQuery();
+	const { data: customersData } = useGetCustomersQuery();
 	const { data: assignedData } = useGetBusinessUnitTeamsQuery(selected?.id ?? "", { skip: !selected });
 	const [createUnit] = useCreateBusinessUnitMutation();
 	const [deleteUnit] = useDeleteBusinessUnitMutation();
@@ -31,7 +32,12 @@ export function BusinessUnitsView() {
 	const [removeTeam] = useRemoveBusinessUnitTeamMutation();
 	const units = unitData?.business_units || [];
 	const teams = teamData?.teams || [];
+	const customers = customersData?.customers || [];
 	const assigned = assignedData?.teams || [];
+
+	const assignedIds = useMemo(() => new Set(assigned.map((t) => t.id)), [assigned]);
+	const teamById = useMemo(() => new Map(teams.map((t) => [t.id, t])), [teams]);
+	const customerNameById = useMemo(() => new Map(customers.map((c) => [c.id, c.name])), [customers]);
 
 	const create = async () => {
 		try {
@@ -59,6 +65,7 @@ export function BusinessUnitsView() {
 		try {
 			await assignTeam({ id: selected.id, team_id: teamId }).unwrap();
 			toast.success("Team assigned");
+			setTeamId("");
 		} catch (err) {
 			toast.error(getErrorMessage(err));
 		}
@@ -73,6 +80,14 @@ export function BusinessUnitsView() {
 		}
 	};
 
+	const teamLabel = (teamIdValue: string, fallbackName?: string) => {
+		const team = teamById.get(teamIdValue);
+		const nameLabel = fallbackName || team?.name || teamIdValue;
+		const customerName = team?.customer?.name || (team?.customer_id ? customerNameById.get(team.customer_id) : undefined);
+		if (customerName) return `${nameLabel} · ${customerName}`;
+		return `${nameLabel} · no customer`;
+	};
+
 	return (
 		<div className="grid h-full grid-cols-1 gap-4 lg:grid-cols-[1fr_360px]">
 			<div className="flex flex-col gap-4">
@@ -82,7 +97,10 @@ export function BusinessUnitsView() {
 							<Building2 className="h-6 w-6" />
 							Business Units
 						</h1>
-						<p className="text-muted-foreground text-sm">Group teams under an organizational unit with its own governance.</p>
+						<p className="text-muted-foreground text-sm">
+							Group teams for reporting and log filters. Budgets stay on Customer, Team, Virtual Key, User, and Model — not on the
+							business unit itself.
+						</p>
 					</div>
 					<Button onClick={() => setOpen(true)}>
 						<Plus className="h-4 w-4" />
@@ -125,27 +143,40 @@ export function BusinessUnitsView() {
 					<p className="text-muted-foreground text-sm">Select a business unit to assign teams.</p>
 				) : (
 					<div className="space-y-4">
-						<h2 className="text-lg font-semibold">{selected.name}</h2>
+						<div>
+							<h2 className="text-lg font-semibold">{selected.name}</h2>
+							<p className="text-muted-foreground text-xs">
+								Assign any team (with or without a customer). Related customers appear on the Customer detail view via shared teams.
+							</p>
+						</div>
 						<div className="flex gap-2">
 							<select value={teamId} onChange={(e) => setTeamId(e.target.value)} className="border-input bg-background h-9 flex-1 rounded-md border px-3 text-sm">
 								<option value="">Select team</option>
-								{teams.map((team) => (
-									<option key={team.id} value={team.id}>
-										{team.name}
-									</option>
-								))}
+								{teams
+									.filter((team) => !assignedIds.has(team.id))
+									.map((team) => (
+										<option key={team.id} value={team.id}>
+											{teamLabel(team.id, team.name)}
+										</option>
+									))}
 							</select>
-							<Button onClick={() => void assign()}>Assign</Button>
+							<Button onClick={() => void assign()} disabled={!teamId}>
+								Assign
+							</Button>
 						</div>
 						<div className="space-y-2">
-							{assigned.map((team) => (
-								<div key={team.id} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
-									<span>{team.name}</span>
-									<Button size="icon" variant="ghost" onClick={() => void unassign(team.id)}>
-										<Trash2 className="h-4 w-4" />
-									</Button>
-								</div>
-							))}
+							{assigned.length === 0 ? (
+								<p className="text-muted-foreground text-sm">No teams assigned yet.</p>
+							) : (
+								assigned.map((team) => (
+									<div key={team.id} className="flex items-center justify-between rounded-lg border px-3 py-2 text-sm">
+										<span>{teamLabel(team.id, team.name)}</span>
+										<Button size="icon" variant="ghost" onClick={() => void unassign(team.id)}>
+											<Trash2 className="h-4 w-4" />
+										</Button>
+									</div>
+								))
+							)}
 						</div>
 					</div>
 				)}
@@ -159,12 +190,15 @@ export function BusinessUnitsView() {
 					<div className="space-y-1 py-2">
 						<Label>Name</Label>
 						<Input value={name} onChange={(e) => setName(e.target.value)} />
+						<p className="text-muted-foreground text-xs">After create, assign teams. Spend limits remain on Customer / Team / VK / User.</p>
 					</div>
 					<DialogFooter>
 						<Button variant="outline" onClick={() => setOpen(false)}>
 							Cancel
 						</Button>
-						<Button onClick={() => void create()}>Create</Button>
+						<Button onClick={() => void create()} disabled={!name.trim()}>
+							Create
+						</Button>
 					</DialogFooter>
 				</DialogContent>
 			</Dialog>
