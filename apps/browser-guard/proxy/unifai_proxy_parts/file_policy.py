@@ -25,8 +25,9 @@ def enforce_file_send_policy(
           no match     → Allowed
 
     Multi-file + caption: EACH file is extracted + rule-checked separately; typed
-    chat text is rule-checked separately. Any file BLOCK or caption BLOCK → block Send.
-    Each file is logged as (i/n) with the caption attached when present.
+    chat text is rule-checked separately. Any file BLOCK or caption BLOCK → block the
+    whole Send on the site (ChatGPT/Gemini/…). Prompt Logs still show the truth per
+    file: matching file = Blocked, non-matching = Allowed. Caption attached when present.
 
     Returns (should_block, block_message, redact_notice, files_processed, caption_consumed).
     """
@@ -275,6 +276,13 @@ def enforce_file_send_policy(
     n_cached = len(cached_list)
     for i, cached in enumerate(cached_list):
         fname = (cached.get("file_name") or "").strip() or (hint if i == 0 else "") or ""
+        # Resolve real name from file_id registry before inventing document-N.pdf
+        fid = (cached.get("file_id") or "").strip()
+        if fid and not _is_real_user_upload_name(fname):
+            remembered = lookup_upload_filename(fid)
+            if remembered:
+                fname = remembered
+                cached["file_name"] = remembered
         cached_bytes = cached.get("raw_bytes") or b""
         if not isinstance(cached_bytes, (bytes, bytearray)):
             cached_bytes = b""
@@ -286,14 +294,22 @@ def enforce_file_send_policy(
                 suffix = f" {i + 1}" if n_cached > 1 else ""
                 fname = f"Voice Note{suffix}"
         elif _is_fake_upload_name(fname) or not fname:
-            fname = _default_name_from_bytes(
-                bytes(cached_bytes),
-                cached_ct,
-                i,
-                total_count=n_cached,
-            )
-            if n_cached > 1 and (not fname or fname == "attachment"):
-                fname = f"attachment-{i + 1}"
+            # Prefer Send-body real names by index — never show document-2.pdf as the "prompt"
+            send_real = [
+                n for n in extract_all_attachment_filenames_from_send(raw_text or "")
+                if _is_real_user_upload_name(n)
+            ]
+            if i < len(send_real):
+                fname = send_real[i]
+            else:
+                fname = _default_name_from_bytes(
+                    bytes(cached_bytes),
+                    cached_ct,
+                    i,
+                    total_count=n_cached,
+                )
+                if n_cached > 1 and (not fname or fname == "attachment"):
+                    fname = f"attachment-{i + 1}"
         display_label = _display_label_for_upload(fname, bytes(cached_bytes), cached_ct)
         if is_audio and display_label.lower() in ("document", "document.pdf", "attachment", "audio.bin"):
             suffix = f" {i + 1}" if n_cached > 1 else ""
@@ -472,6 +488,8 @@ def enforce_file_send_policy(
     block_msg = ""
     redact_notice = ""
 
+    # Site action: ANY matching file/caption BLOCK → block the entire Send on the website.
+    # Logs stay truthful per file (Allowed vs Blocked) — do not rewrite non-matching rows.
     if block_all or any_file_blocked or caption_blocked:
         should_block = True
         if block_all:
@@ -484,7 +502,7 @@ def enforce_file_send_policy(
         redact_notice = _redact_notice_for_rule(redact_rule)
 
     n_files = len(file_rows)
-    # Prompt Logs format: realname.pdf | typed caption  (UI shows name · text)
+    # Prompt Logs format: realname.pdf | typed caption  (UI shows name -- text)
     caption_bit = f" | {caption}" if caption else ""
 
     for idx, row in enumerate(file_rows):
@@ -508,6 +526,11 @@ def enforce_file_send_policy(
         )
         this_scan_guard["multi_file_count"] = n_files
         this_scan_guard["multi_file_index"] = idx + 1
+        if n_files > 1 and should_block:
+            # Site blocked the whole Send even if this particular file row is Allowed.
+            this_scan_guard["multi_file_send_blocked"] = True
+            if blocking_rule:
+                this_scan_guard["multi_file_send_block_rule"] = blocking_rule
         if caption:
             this_scan_guard["user_caption"] = caption[:500]
 

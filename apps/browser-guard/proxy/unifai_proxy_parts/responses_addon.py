@@ -648,6 +648,10 @@ class BrowserAIInterceptor:
                     raw_text_nt = raw_bytes_nt.decode("utf-8", errors="ignore")
                 except Exception:
                     raw_text_nt = ""
+                try:
+                    ingest_upload_filenames_from_body(raw_text_nt)
+                except Exception:
+                    pass
                 is_upload_nt, upload_reason_nt = detect_file_upload(flow, raw_text_nt)
                 if is_upload_nt:
                     fname_nt = extract_filename_from_upload(flow, raw_text_nt)
@@ -714,6 +718,12 @@ class BrowserAIInterceptor:
             raw_text = raw_bytes.decode("utf-8", errors="ignore")
         except Exception:
             raw_text = ""
+
+        # Learn file_id → real filename from JSON so later nameless CDN uploads log correctly.
+        try:
+            ingest_upload_filenames_from_body(raw_text)
+        except Exception:
+            pass
 
         # Gemini history/settings batchexecute must pass through BEFORE prompt extract.
         # Otherwise false extracts + block inject leave the sidebar spinning forever.

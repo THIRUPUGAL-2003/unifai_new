@@ -181,14 +181,11 @@ def extract_all_attachment_filenames_from_send(raw_text: str) -> list[str]:
     found: list[str] = []
     seen: set[str] = set()
     patterns = (
-        r'["\'](?:file_name|fileName|filename|original_name|originalName|original_filename)["\']\s*:\s*["\']([^"\']+)["\']',
-        r'"attachments"\s*:\s*\[[\s\S]{0,20000}?\]',
+        r'["\'](?:file_name|fileName|filename|original_name|originalName|original_filename|originalFilename|display_name|displayName)["\']\s*:\s*["\']([^"\']+)["\']',
         r'"name"\s*:\s*"([^"]+\.[A-Za-z0-9]{2,8})"',
         r'"title"\s*:\s*"([^"]+\.[A-Za-z0-9]{2,8})"',
     )
     for pat in patterns:
-        if pat.startswith('"attachments"'):
-            continue
         for m in re.finditer(pat, raw_text, re.I):
             got = _sanitize_upload_filename(m.group(1))
             if not got:
@@ -198,16 +195,16 @@ def extract_all_attachment_filenames_from_send(raw_text: str) -> list[str]:
                 continue
             seen.add(key)
             found.append(got)
-    # Attachment objects: pull name fields inside attachments/files arrays
+    # Attachment objects: pull name fields inside attachments/files/parts arrays
     for arr_pat in (
-        r'"attachments"\s*:\s*\[([\s\S]{0,40000}?)\]',
-        r'"files"\s*:\s*\[([\s\S]{0,40000}?)\]',
-        r'"parts"\s*:\s*\[([\s\S]{0,40000}?)\]',
+        r'"attachments"\s*:\s*\[([\s\S]{0,80000}?)\]',
+        r'"files"\s*:\s*\[([\s\S]{0,80000}?)\]',
+        r'"parts"\s*:\s*\[([\s\S]{0,80000}?)\]',
     ):
         for am in re.finditer(arr_pat, raw_text, re.I):
             block = am.group(1) or ""
             for m in re.finditer(
-                r'["\'](?:file_name|fileName|filename|name|title)["\']\s*:\s*["\']([^"\']+)["\']',
+                r'["\'](?:file_name|fileName|filename|original_name|originalName|name|title|display_name)["\']\s*:\s*["\']([^"\']+)["\']',
                 block,
                 re.I,
             ):
@@ -220,6 +217,63 @@ def extract_all_attachment_filenames_from_send(raw_text: str) -> list[str]:
                 seen.add(key)
                 found.append(got)
     return found
+
+
+# file_id / asset id → real user filename (ChatGPT often uploads bytes without a name,
+# then only later Send JSON carries the name — or a prior create call has both).
+_FILE_ID_NAME_REGISTRY: dict[str, str] = {}
+_FILE_ID_NAME_REGISTRY_LOCK = threading.Lock()
+_FILE_ID_NAME_REGISTRY_MAX = 400
+
+
+def remember_upload_filename(file_id: str, name: str) -> None:
+    """Remember a real filename for a file_id so later nameless CDN uploads can bind."""
+    fid = (file_id or "").strip()
+    got = _sanitize_upload_filename(name or "")
+    if not fid or not got or not _is_real_user_upload_name(got):
+        return
+    keys = {fid}
+    if fid.startswith("file-"):
+        keys.add(fid[5:])
+    else:
+        keys.add("file-" + fid)
+    with _FILE_ID_NAME_REGISTRY_LOCK:
+        for k in keys:
+            _FILE_ID_NAME_REGISTRY[k] = got
+        while len(_FILE_ID_NAME_REGISTRY) > _FILE_ID_NAME_REGISTRY_MAX:
+            _FILE_ID_NAME_REGISTRY.pop(next(iter(_FILE_ID_NAME_REGISTRY)), None)
+
+
+def lookup_upload_filename(file_id: str) -> str:
+    fid = (file_id or "").strip()
+    if not fid:
+        return ""
+    with _FILE_ID_NAME_REGISTRY_LOCK:
+        got = _FILE_ID_NAME_REGISTRY.get(fid) or ""
+        if not got and fid.startswith("file-"):
+            got = _FILE_ID_NAME_REGISTRY.get(fid[5:]) or ""
+        if not got and not fid.startswith("file-"):
+            got = _FILE_ID_NAME_REGISTRY.get("file-" + fid) or ""
+    return got if _is_real_user_upload_name(got) else ""
+
+
+def ingest_upload_filenames_from_body(raw_text: str) -> None:
+    """Learn file_id→name pairs from any ChatGPT/Claude/Gemini JSON on the wire."""
+    if not raw_text or len(raw_text) < 12:
+        return
+    id_map = extract_file_id_name_map(raw_text)
+    for fid, name in id_map.items():
+        remember_upload_filename(fid, name)
+    # Standalone create-file payloads
+    for m in re.finditer(
+        r'["\'](?:file_name|fileName|filename|name)["\']\s*:\s*["\']([^"\']+)["\']',
+        raw_text,
+        re.I,
+    ):
+        got = _sanitize_upload_filename(m.group(1))
+        if got and _is_real_user_upload_name(got):
+            # no id here — still useful when only one pending upload
+            remember_upload_filename(f"__pending__:{got.lower()}", got)
 
 
 def extract_file_id_name_map(raw_text: str) -> dict[str, str]:
@@ -734,16 +788,16 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
                     if pdf2:
                         if not name.lower().endswith(".pdf"):
                             if _is_fake_upload_name(name):
-                                name = "document.pdf"
+                                # Keep placeholder — Send/registry can still bind the real name.
+                                name = name or "attachment"
                             else:
                                 name = f"{name}.pdf"
                         return pdf2, "application/pdf", name
                     ctype = _sniff_upload_content_type(part, name, content_type)
                     if len(part) > 20 * 1024 * 1024:
                         part = part[: 20 * 1024 * 1024]
-                    if _is_fake_upload_name(name):
-                        name = _default_name_from_bytes(part, ctype, 0)
-                    return part, ctype, name
+                    # Do not invent document.pdf here — that becomes a fake "prompt" in logs.
+                    return part, ctype, name or "attachment"
 
     # Direct binary body (resumable / octet-stream)
     if len(raw) >= 32:
@@ -863,11 +917,29 @@ def cache_upload_file(
         stored = stored[: 20 * 1024 * 1024]
     final_ct = ctype or content_type or "application/octet-stream"
     final_name = (name or file_name or "").strip() or "attachment"
-    # Prefer sniffed real name so Send-time bind works when UI used "attachment".
+    # Prefer remembered real name (ChatGPT often uploads bytes with only file_id).
+    if file_id:
+        remembered = lookup_upload_filename(file_id)
+        if remembered:
+            final_name = remembered
+    if _is_real_user_upload_name(file_name or ""):
+        final_name = (file_name or "").strip()
+        if file_id:
+            remember_upload_filename(file_id, final_name)
+    elif _is_real_user_upload_name(name or ""):
+        final_name = (name or "").strip()
+        if file_id:
+            remember_upload_filename(file_id, final_name)
+    # Last resort label only — never invent document.pdf when a real name exists.
     if _is_fake_upload_name(final_name) or "." not in final_name:
         sniffed = _sniff_upload_content_type(stored, final_name, final_ct)
         final_ct = sniffed or final_ct
-        final_name = _default_name_from_bytes(stored, final_ct, 0) or final_name
+        # Keep "attachment" (still fake) rather than promoting to document.pdf when
+        # possible — Send-time bind + file_id registry can still attach the real name.
+        if not file_id:
+            final_name = _default_name_from_bytes(stored, final_ct, 0) or final_name
+        else:
+            final_name = final_name if final_name else "attachment"
     entry = {
         "ts": time.time(),
         "domain": domain,
