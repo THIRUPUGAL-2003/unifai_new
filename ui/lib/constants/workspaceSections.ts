@@ -2,6 +2,7 @@
 
 export type WorkspaceSectionKey =
 	| "observability"
+	| "browser-ai"
 	| "models"
 	| "mcp-gateway"
 	| "plugins"
@@ -13,8 +14,11 @@ export type WorkspaceSectionKey =
 	| "skills-repository"
 	| "settings";
 
-/** Parent key (`observability`) or child grant (`observability/browser-ai`). */
+/** Parent key (`observability`) or child grant (`observability/llm-logs`). Legacy: `observability/browser-ai` → `browser-ai`. */
 export type WorkspaceGrantKey = string;
+
+/** Old nested grant → new top-level Browser AI section. */
+const LEGACY_BROWSER_AI_GRANT = "observability/browser-ai";
 
 export type WorkspaceSectionItem = {
 	key: string;
@@ -38,10 +42,14 @@ export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
 			{ key: "dashboard", label: "Dashboard", path: "/workspace/dashboard" },
 			{ key: "llm-logs", label: "LLM Logs", path: "/workspace/logs" },
 			{ key: "mcp-logs", label: "MCP Logs", path: "/workspace/mcp-logs" },
-			{ key: "browser-ai", label: "Browser AI", path: "/workspace/browser-ai" },
 			{ key: "connectors", label: "Connectors", path: "/workspace/observability" },
 			{ key: "logs-settings", label: "Logs Settings", path: "/workspace/config/logging" },
 		],
+	},
+	{
+		key: "browser-ai",
+		label: "Browser AI",
+		defaultPath: "/workspace/browser-ai",
 	},
 	{
 		key: "models",
@@ -169,25 +177,34 @@ function pathsForSection(section: WorkspaceSection): string[] {
 	return Array.from(paths);
 }
 
+function normalizeGrants(grants: Set<WorkspaceGrantKey>): Set<WorkspaceGrantKey> {
+	if (!grants.has(LEGACY_BROWSER_AI_GRANT)) return grants;
+	const next = new Set(grants);
+	next.delete(LEGACY_BROWSER_AI_GRANT);
+	next.add("browser-ai");
+	return next;
+}
+
 /** Expand stored grants into concrete path prefixes (longest first for matching). */
 export function expandGrantsToPaths(grants: Set<WorkspaceGrantKey>): string[] {
+	const normalized = normalizeGrants(grants);
 	const paths = new Set<string>();
 
 	for (const section of WORKSPACE_SECTIONS) {
-		if (grants.has(section.key)) {
+		if (normalized.has(section.key)) {
 			for (const p of pathsForSection(section)) paths.add(p);
 			continue;
 		}
 		if (!section.items) continue;
 		for (const item of section.items) {
-			if (grants.has(itemGrantKey(section.key, item.key))) {
+			if (normalized.has(itemGrantKey(section.key, item.key))) {
 				paths.add(item.path);
 			}
 		}
 	}
 
 	// Legacy: cluster-config parent key → cluster path (also covered by guardrails/cluster-config)
-	if (grants.has("cluster-config")) {
+	if (normalized.has("cluster-config")) {
 		paths.add("/workspace/cluster");
 	}
 
@@ -203,7 +220,7 @@ export function parseAllowedSections(raw?: string | null): Set<WorkspaceGrantKey
 		.split(",")
 		.map((s) => s.trim())
 		.filter(Boolean);
-	return new Set(keys.length > 0 ? keys : [DEFAULT_USER_SECTIONS]);
+	return normalizeGrants(new Set(keys.length > 0 ? keys : [DEFAULT_USER_SECTIONS]));
 }
 
 /** Sub-admin: empty/null stored value = full workspace access. Non-empty = limited grants. */
@@ -216,7 +233,7 @@ export function parseAdminAllowedSections(raw?: string | null): Set<WorkspaceGra
 		.split(",")
 		.map((s) => s.trim())
 		.filter(Boolean);
-	return keys.length > 0 ? new Set(keys) : null;
+	return keys.length > 0 ? normalizeGrants(new Set(keys)) : null;
 }
 
 /** Form state when editing an admin — unchecked = full access. */
@@ -225,11 +242,13 @@ export function adminSectionsFromStorage(raw?: string | null): Set<WorkspaceGran
 	if (!trimmed) {
 		return new Set();
 	}
-	return new Set(
-		trimmed
-			.split(",")
-			.map((s) => s.trim())
-			.filter(Boolean),
+	return normalizeGrants(
+		new Set(
+			trimmed
+				.split(",")
+				.map((s) => s.trim())
+				.filter(Boolean),
+		),
 	);
 }
 
@@ -287,35 +306,37 @@ function findBestCatalogMatch(
 }
 
 export function isPathAllowedForUser(pathname: string, allowedSections: Set<WorkspaceGrantKey>): boolean {
+	const grants = normalizeGrants(allowedSections);
 	const best = findBestCatalogMatch(pathname);
 	if (!best) {
-		return expandGrantsToPaths(allowedSections).some((prefix) => pathMatches(pathname, prefix));
+		return expandGrantsToPaths(grants).some((prefix) => pathMatches(pathname, prefix));
 	}
-	if (allowedSections.has(best.sectionKey)) return true;
-	if (best.itemKey && allowedSections.has(itemGrantKey(best.sectionKey, best.itemKey))) return true;
+	if (grants.has(best.sectionKey)) return true;
+	if (best.itemKey && grants.has(itemGrantKey(best.sectionKey, best.itemKey))) return true;
 	// Section root URL with only child grants — allow if any child of that section is granted
 	if (!best.itemKey && best.path === WORKSPACE_SECTIONS.find((s) => s.key === best.sectionKey)?.defaultPath) {
 		const section = WORKSPACE_SECTIONS.find((s) => s.key === best.sectionKey);
-		if (section?.items?.some((item) => allowedSections.has(itemGrantKey(section.key, item.key)))) {
+		if (section?.items?.some((item) => grants.has(itemGrantKey(section.key, item.key)))) {
 			return pathMatches(pathname, section.defaultPath) && pathname === section.defaultPath;
 		}
 	}
-	if (best.sectionKey === "guardrails" && best.itemKey === "cluster-config" && allowedSections.has("cluster-config")) {
+	if (best.sectionKey === "guardrails" && best.itemKey === "cluster-config" && grants.has("cluster-config")) {
 		return true;
 	}
 	return false;
 }
 
 export function getDefaultPathForSections(allowedSections: Set<WorkspaceGrantKey>): string {
-	const prefixes = expandGrantsToPaths(allowedSections);
+	const grants = normalizeGrants(allowedSections);
+	const prefixes = expandGrantsToPaths(grants);
 	if (prefixes.length > 0) {
 		// Prefer first section's default among granted
 		for (const section of WORKSPACE_ACCESS_SECTIONS) {
-			if (allowedSections.has(section.key)) {
+			if (grants.has(section.key)) {
 				return section.defaultPath;
 			}
-			if (section.items?.some((item) => allowedSections.has(itemGrantKey(section.key, item.key)))) {
-				const first = section.items.find((item) => allowedSections.has(itemGrantKey(section.key, item.key)));
+			if (section.items?.some((item) => grants.has(itemGrantKey(section.key, item.key)))) {
+				const first = section.items.find((item) => grants.has(itemGrantKey(section.key, item.key)));
 				if (first) return first.path;
 			}
 		}
@@ -326,12 +347,13 @@ export function getDefaultPathForSections(allowedSections: Set<WorkspaceGrantKey
 
 /** True if this sidebar section title should appear for the grant set. */
 export function isSectionGranted(sectionKey: WorkspaceSectionKey, grants: Set<WorkspaceGrantKey>): boolean {
-	if (grants.has(sectionKey)) return true;
+	const normalized = normalizeGrants(grants);
+	if (normalized.has(sectionKey)) return true;
 	const section = WORKSPACE_SECTIONS.find((s) => s.key === sectionKey);
 	if (!section?.items) return false;
-	if (section.items.some((item) => grants.has(itemGrantKey(sectionKey, item.key)))) return true;
+	if (section.items.some((item) => normalized.has(itemGrantKey(sectionKey, item.key)))) return true;
 	// Legacy cluster-config unlocks Guardrails section visibility for that item
-	if (sectionKey === "guardrails" && grants.has("cluster-config")) return true;
+	if (sectionKey === "guardrails" && normalized.has("cluster-config")) return true;
 	return false;
 }
 
@@ -341,11 +363,12 @@ export function isSidebarItemGranted(
 	itemPath: string,
 	grants: Set<WorkspaceGrantKey>,
 ): boolean {
-	if (grants.has(sectionKey)) return true;
+	const normalized = normalizeGrants(grants);
+	if (normalized.has(sectionKey)) return true;
 	const section = WORKSPACE_SECTIONS.find((s) => s.key === sectionKey);
 	if (!section) return false;
 	if (!section.items?.length) {
-		return grants.has(sectionKey) && pathMatches(itemPath, section.defaultPath);
+		return normalized.has(sectionKey) && pathMatches(itemPath, section.defaultPath);
 	}
 	let best: WorkspaceSectionItem | null = null;
 	for (const i of section.items) {
@@ -354,8 +377,8 @@ export function isSidebarItemGranted(
 		}
 	}
 	if (!best) return false;
-	if (grants.has(itemGrantKey(sectionKey, best.key))) return true;
-	if (sectionKey === "guardrails" && best.key === "cluster-config" && grants.has("cluster-config")) return true;
+	if (normalized.has(itemGrantKey(sectionKey, best.key))) return true;
+	if (sectionKey === "guardrails" && best.key === "cluster-config" && normalized.has("cluster-config")) return true;
 	return false;
 }
 
@@ -363,10 +386,11 @@ export function sectionSelectionState(
 	section: WorkspaceSection,
 	grants: Set<WorkspaceGrantKey>,
 ): "all" | "some" | "none" {
-	if (grants.has(section.key)) return "all";
+	const normalized = normalizeGrants(grants);
+	if (normalized.has(section.key)) return "all";
 	if (!section.items?.length) return "none";
-	const selected = section.items.filter((item) => grants.has(itemGrantKey(section.key, item.key)));
-	if (section.key === "guardrails" && grants.has("cluster-config")) {
+	const selected = section.items.filter((item) => normalized.has(itemGrantKey(section.key, item.key)));
+	if (section.key === "guardrails" && normalized.has("cluster-config")) {
 		const cluster = section.items.find((i) => i.key === "cluster-config");
 		if (cluster && !selected.includes(cluster)) selected.push(cluster);
 	}

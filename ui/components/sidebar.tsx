@@ -626,13 +626,6 @@ export default function AppSidebar() {
 						hasAccess: hasMCPLogsAccess,
 					},
 					{
-						title: "Browser AI",
-						url: "/workspace/browser-ai",
-						icon: Globe,
-						description: "Browser AI observability & DLP proxy",
-						hasAccess: hasLogsAccess,
-					},
-					{
 						title: "Connectors",
 						url: "/workspace/observability",
 						icon: ChevronsLeftRightEllipsis,
@@ -647,6 +640,13 @@ export default function AppSidebar() {
 						hasAccess: hasSettingsAccess,
 					},
 				],
+			},
+			{
+				title: "Browser AI",
+				url: "/workspace/browser-ai",
+				icon: Globe,
+				description: "Browser AI observability & DLP proxy",
+				hasAccess: hasLogsAccess,
 			},
 			{
 				title: "Models",
