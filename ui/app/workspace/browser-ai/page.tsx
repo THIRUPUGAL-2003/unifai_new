@@ -128,6 +128,8 @@ import { getApiBaseUrl } from "@/lib/utils/port";
 import { GuardRuleAIEvaluatorFields } from "./guardRuleAIEvaluatorFields";
 import { logActionBadge, getPlatformBadge } from "./logBadges";
 import { LogPromptPreviewCell } from "./logPromptPreviewCell";
+import { LogTimestampCell } from "./logTimestampCell";
+import { formatLogDate, formatLogTime } from "./browserAiFormat";
 import { RegexLiveTestPanel } from "./regexLiveTestPanel";
 
 export default function BrowserAiPage() {
@@ -1225,8 +1227,9 @@ export default function BrowserAiPage() {
 				title: "Browser AI — Search Logs",
 				subtitle: `${searchLogs.length} of ${totalSearchLogs} shown`,
 				columns: [
-					{ key: "timestamp", header: "Time" },
-					{ key: "Desktop_name", header: "Desktop Name" },
+					{ key: "date", header: "Date" },
+					{ key: "time", header: "Time" },
+					{ key: "desktop_name", header: "Desktop Name" },
 					{ key: "engine", header: "Search Engine" },
 					{ key: "browser", header: "Browser" },
 					{ key: "privacy", header: "Privacy Mode" },
@@ -1235,8 +1238,9 @@ export default function BrowserAiPage() {
 					{ key: "threat", header: "Threat Risk" },
 				],
 				rows: searchLogs.map((log) => ({
-					timestamp: log.timestamp ? new Date(log.timestamp).toLocaleString() : "",
-					laptop_name: log.agent_hostname || "",
+					date: formatLogDate(log.timestamp),
+					time: formatLogTime(log.timestamp),
+					desktop_name: log.agent_hostname || "",
 					engine: log.engine || "",
 					browser: log.browser || "",
 					privacy: log.is_incognito ? "Incognito / InPrivate" : "Normal",
@@ -1267,8 +1271,9 @@ export default function BrowserAiPage() {
 			title: "Browser AI — Prompt Logs",
 			subtitle: `Page ${logPage} · ${logs.length} of ${totalLogs} shown`,
 			columns: [
-				{ key: "timestamp", header: "Timestamp" },
-				{ key: "Desktop_name", header: "Desktop Name" },
+				{ key: "date", header: "Date" },
+				{ key: "time", header: "Time" },
+				{ key: "desktop_name", header: "Desktop Name" },
 				{ key: "platform", header: "Platform" },
 				{ key: "prompt", header: "User Prompt" },
 				{ key: "tokens", header: "Est. Tokens" },
@@ -1276,8 +1281,9 @@ export default function BrowserAiPage() {
 				{ key: "details", header: "Details" },
 			],
 			rows: logs.map((log) => ({
-				timestamp: log.timestamp ? new Date(log.timestamp).toLocaleString() : "",
-				laptop_name: log.agent_hostname || log.agent_id || "",
+				date: formatLogDate(log.timestamp),
+				time: formatLogTime(log.timestamp),
+				desktop_name: log.agent_hostname || log.agent_id || "",
 				platform: log.platform || "",
 				prompt: promptPreviewForExport(log),
 				tokens: log.est_tokens ?? "",
@@ -1577,7 +1583,7 @@ export default function BrowserAiPage() {
 								<Table className="table-fixed w-full min-w-[960px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[150px]">Timestamp</TableHead>
+											<TableHead className="w-[120px]">Date / Time</TableHead>
 											<TableHead className="w-[110px]">Desktop Name</TableHead>
 											<TableHead className="w-[100px]">Platform</TableHead>
 											<TableHead className="w-[auto]">User Prompt</TableHead>
@@ -1591,12 +1597,10 @@ export default function BrowserAiPage() {
 											<TableRow
 												key={log.id}
 												onClick={() => setSelectedLog(log)}
-												className="h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
+				className="min-h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
 											>
 												<TableCell className="max-w-0 py-0">
-													<div className="truncate text-xs font-mono text-muted-foreground" title={new Date(log.timestamp).toLocaleString()}>
-														{new Date(log.timestamp).toLocaleString()}
-													</div>
+													<LogTimestampCell timestamp={log.timestamp} />
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
 													<div className="truncate text-xs text-muted-foreground" title={log.agent_hostname || log.agent_id || ""}>
@@ -1736,7 +1740,7 @@ export default function BrowserAiPage() {
 								<Table className="table-fixed w-full min-w-[960px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[150px]">Timestamp</TableHead>
+											<TableHead className="w-[120px]">Date / Time</TableHead>
 											<TableHead className="w-[110px]">Desktop Name</TableHead>
 											<TableHead className="w-[100px]">Platform</TableHead>
 											<TableHead className="w-[auto]">User Prompt</TableHead>
@@ -1750,12 +1754,10 @@ export default function BrowserAiPage() {
 											<TableRow
 												key={log.id}
 												onClick={() => setSelectedLog(log)}
-												className="h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
+				className="min-h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
 											>
 												<TableCell className="max-w-0 py-0">
-													<div className="truncate text-xs font-mono text-muted-foreground" title={new Date(log.timestamp).toLocaleString()}>
-														{new Date(log.timestamp).toLocaleString()}
-													</div>
+													<LogTimestampCell timestamp={log.timestamp} />
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
 													<div className="truncate text-xs text-muted-foreground" title={log.agent_hostname || log.agent_id || ""}>
@@ -1992,7 +1994,7 @@ export default function BrowserAiPage() {
 								<Table className="w-full min-w-[980px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[110px]">Time</TableHead>
+											<TableHead className="w-[120px]">Date / Time</TableHead>
 											<TableHead className="w-[140px]">Desktop Name</TableHead>
 											<TableHead className="w-[130px]">Search Engine</TableHead>
 											<TableHead className="w-[90px]">Browser</TableHead>
@@ -2024,8 +2026,8 @@ export default function BrowserAiPage() {
 														className="border-border hover:bg-muted/30 cursor-pointer"
 														onClick={() => setSelectedSearchLog(log)}
 													>
-														<TableCell className="font-mono text-xs whitespace-nowrap">
-															{new Date(log.timestamp).toLocaleTimeString()}
+														<TableCell className="py-1">
+															<LogTimestampCell timestamp={log.timestamp} />
 														</TableCell>
 														<TableCell className="font-mono text-xs">
 															<span className="font-medium text-foreground">{log.agent_hostname || "—"}</span>
@@ -4024,7 +4026,7 @@ export default function BrowserAiPage() {
 										</div>
 									</div>
 									<div className="rounded-lg border border-border/80 bg-background/60 p-3.5 space-y-1.5">
-										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Guard laptop</Label>
+										<Label className="text-[11px] uppercase tracking-wide text-muted-foreground">Desktop Name</Label>
 										<p className="text-sm font-medium truncate">{selectedLog.agent_hostname || "—"}</p>
 										<p className="text-[11px] text-muted-foreground font-mono truncate">
 											{selectedLog.agent_id || selectedLog.client_ip || ""}

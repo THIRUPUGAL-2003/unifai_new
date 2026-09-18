@@ -257,6 +257,18 @@ def enforce_file_send_policy(
         )
     except Exception:
         caption = ""
+    # ChatGPT / Copilot / Perplexity / Gemini: typed note often lives in composer
+    # traffic (or a sibling POST), not in the file Send JSON — join like Claude.
+    if not (caption or "").strip():
+        try:
+            caption = peek_recent_composer_caption(domain) or ""
+        except Exception:
+            caption = ""
+        if caption:
+            print(
+                f"[UnifAI Proxy] FILE CAPTION from composer | {domain} | "
+                f"{caption[:80]!r}"
+            )
 
     # Any Target Website (ChatGPT/Gemini/Claude/new domain): drop caption phantoms
     # like document-2.pdf / attachment extras; keep real names + caption text.
@@ -302,14 +314,14 @@ def enforce_file_send_policy(
             if i < len(send_real):
                 fname = send_real[i]
             else:
-                fname = _default_name_from_bytes(
-                    bytes(cached_bytes),
-                    cached_ct,
-                    i,
-                    total_count=n_cached,
-                )
-                if n_cached > 1 and (not fname or fname == "attachment"):
+                # Keep "attachment" rather than inventing document-N.pdf (Gemini/ChatGPT).
+                # UI still shows paperclip; real name may be missing from this wire.
+                fname = (fname or "").strip() or "attachment"
+                if _is_fake_upload_name(fname) or fname.lower() in ("document", "document.pdf"):
+                    fname = "attachment"
+                if n_cached > 1 and fname == "attachment":
                     fname = f"attachment-{i + 1}"
+            cached["file_name"] = fname
         display_label = _display_label_for_upload(fname, bytes(cached_bytes), cached_ct)
         if is_audio and display_label.lower() in ("document", "document.pdf", "attachment", "audio.bin"):
             suffix = f" {i + 1}" if n_cached > 1 else ""
@@ -745,6 +757,30 @@ def _extract_file_send_user_caption(
     # Loose ChatGPT author:user parts string after a file part
     for m in re.finditer(
         r'"author"\s*:\s*\{\s*"role"\s*:\s*"user"[\s\S]{0,4000}?"parts"\s*:\s*\[[\s\S]{0,20000}?"((?:[^"\\]|\\.){1,2000})"',
+        body,
+        re.I,
+    ):
+        try:
+            t = json.loads(f'"{m.group(1)}"')
+        except Exception:
+            t = m.group(1)
+        if looks_like_user_prompt(t or ""):
+            _accept(t or "")
+    # ChatGPT / Copilot: message string fields next to attachments
+    for m in re.finditer(
+        r'"(?:input_text|message|prompt|query|text|user_message|content)"\s*:\s*"((?:[^"\\]|\\.){1,2000})"',
+        body,
+        re.I,
+    ):
+        try:
+            t = json.loads(f'"{m.group(1)}"')
+        except Exception:
+            t = m.group(1).replace("\\n", "\n").replace('\\"', '"')
+        if looks_like_user_prompt(t or ""):
+            _accept(t or "")
+    # Copilot event / messages parts: {"text":"hiii"} inside event payloads
+    for m in re.finditer(
+        r'"role"\s*:\s*"user"[\s\S]{0,8000}?"(?:text|content)"\s*:\s*"((?:[^"\\]|\\.){1,2000})"',
         body,
         re.I,
     ):

@@ -6,13 +6,11 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/fasthttp/router"
 	"github.com/google/uuid"
 	"github.com/unifai/unifai/core/schemas"
 	"github.com/unifai/unifai/framework/configstore"
-	"github.com/unifai/unifai/framework/configstore/tables"
 	"github.com/unifai/unifai/transports/unifai-http/lib"
 	"github.com/valyala/fasthttp"
 )
@@ -47,7 +45,7 @@ func (h *WorkspaceHandler) RegisterRoutes(r *router.Router, middlewares ...schem
 		rbac = RBACMiddleware(h.store.ConfigStore)
 	}
 	wrap := func(fn fasthttp.RequestHandler) fasthttp.RequestHandler {
-		return lib.ChainMiddlewares(rbac(h.withAudit(fn)), middlewares...)
+		return lib.ChainMiddlewares(rbac(fn), middlewares...)
 	}
 
 	r.GET("/api/circuit-breaker/policies", wrap(h.listCircuitBreakerPolicies))
@@ -158,64 +156,7 @@ func (h *WorkspaceHandler) sessionActor(ctx *fasthttp.RequestCtx) string {
 	if h.store == nil || h.store.ConfigStore == nil {
 		return "system"
 	}
-	token := ""
-	if authHeader := string(ctx.Request.Header.Peek("Authorization")); strings.HasPrefix(authHeader, "Bearer ") {
-		token = strings.TrimPrefix(authHeader, "Bearer ")
-	}
-	if token == "" {
-		token = string(ctx.Request.Header.Cookie("token"))
-	}
-	if token == "" {
-		return "system"
-	}
-	session, err := h.store.ConfigStore.GetSession(ctx, token)
-	if err != nil || session == nil {
-		return "system"
-	}
-	if session.Username != "" {
-		return session.Username
-	}
-	return "admin"
-}
-
-func (h *WorkspaceHandler) withAudit(next fasthttp.RequestHandler) fasthttp.RequestHandler {
-	return func(ctx *fasthttp.RequestCtx) {
-		start := time.Now()
-		next(ctx)
-		method := string(ctx.Method())
-		if method == fasthttp.MethodGet || method == fasthttp.MethodHead || method == fasthttp.MethodOptions {
-			return
-		}
-		if h.workspace == nil {
-			return
-		}
-		if isAuditDisabled() {
-			return
-		}
-		status := ctx.Response.StatusCode()
-		outcome := "success"
-		if status >= 400 {
-			outcome = "failure"
-		}
-		action := "update"
-		switch method {
-		case fasthttp.MethodPost:
-			action = "create"
-		case fasthttp.MethodDelete:
-			action = "delete"
-		}
-		_ = h.workspace.CreateAuditLog(ctx, &tables.TableAuditLog{
-			Action:     action,
-			Outcome:    outcome,
-			Initiator:  h.sessionActor(ctx),
-			Target:     string(ctx.Path()),
-			Method:     method,
-			Path:       string(ctx.Path()),
-			IP:         ctx.RemoteIP().String(),
-			DurationMs: time.Since(start).Milliseconds(),
-			CreatedAt:  time.Now().UTC(),
-		})
-	}
+	return auditInitiator(h.store.ConfigStore, ctx)
 }
 
 func pathID(ctx *fasthttp.RequestCtx, name string) string {

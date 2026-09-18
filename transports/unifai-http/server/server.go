@@ -1839,6 +1839,9 @@ func (s *UnifAIHTTPServer) Bootstrap(ctx context.Context) error {
 		if ctx.Value(schemas.UnifAIContextKeyIsEnterprise) == nil {
 			apiMiddlewares = append(apiMiddlewares, s.AuthMiddleware.APIMiddleware())
 		}
+		// Audit every mutating /api/* action into Governance → Audit Logs
+		// (covers Virtual Keys, Users, Browser AI, plugins — not only workspace routes).
+		apiMiddlewares = append(apiMiddlewares, handlers.WorkspaceAuditMiddleware(s.Config.ConfigStore))
 	}
 	// Add semantic cache plugin embedding request executor if it exists
 	semanticCachePlugin, err := lib.FindPluginAs[*semanticcache.Plugin](s.Config, semanticcache.PluginName)

@@ -1131,6 +1131,37 @@ def clear_composer_state(domain: str) -> None:
             _composer_draft.pop(domain, None)
 
 
+def peek_recent_composer_caption(domain: str, max_age: float = 15.0) -> str:
+    """
+    Latest typed composer text for this Target family.
+    Used when file Send body omits the caption (ChatGPT/Copilot/Perplexity often
+    separate the typed note from the attachment wire) so Prompt Logs can still
+    show Claude-style: filename -- text.
+    """
+    if not domain:
+        return ""
+    with _composer_lock:
+        prev = _composer_draft.get(domain)
+    if not prev:
+        return ""
+    text, ts = prev
+    try:
+        if (time.time() - float(ts)) > float(max_age):
+            return ""
+    except Exception:
+        return ""
+    t = (text or "").strip()
+    if not t or len(t) > 2000:
+        return ""
+    if not looks_like_user_prompt(t):
+        return ""
+    if _looks_like_document_body_dump(t) or _looks_like_filename_only(t):
+        return ""
+    if _is_google_wire_blob(t) or _is_opaque_wire_blob(t):
+        return ""
+    return t
+
+
 def _parts_to_text(parts) -> str | None:
     """Join ChatGPT/Claude-style content parts into plain user text (skip file/document blocks)."""
     if parts is None:

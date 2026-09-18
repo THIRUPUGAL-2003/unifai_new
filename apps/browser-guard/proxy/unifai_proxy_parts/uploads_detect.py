@@ -737,11 +737,12 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
 
     pdf = extract_pdf_bytes(raw)
     if pdf:
-        if not name.lower().endswith(".pdf"):
-            if _is_fake_upload_name(name):
-                name = "document.pdf"
-            else:
-                name = f"{name}.pdf"
+        # Do NOT invent document.pdf here — that became the Prompt Log label for
+        # Gemini/ChatGPT when the real name arrives later on Send. Keep placeholder.
+        if not (name or "").lower().endswith(".pdf") and _is_real_user_upload_name(name):
+            name = f"{name}.pdf"
+        elif _is_fake_upload_name(name) or not name:
+            name = "attachment"
         return pdf, "application/pdf", name
 
     # Claude/Gemini/DeepSeek/etc often wrap file bytes as base64 JSON (not ChatGPT multipart).
@@ -930,16 +931,18 @@ def cache_upload_file(
         final_name = (name or "").strip()
         if file_id:
             remember_upload_filename(file_id, final_name)
-    # Last resort label only — never invent document.pdf when a real name exists.
+    # Last resort label only — never invent document.pdf when a real name may
+    # still arrive on Send (Gemini/ChatGPT). Keep "attachment" so bind can replace.
     if _is_fake_upload_name(final_name) or "." not in final_name:
         sniffed = _sniff_upload_content_type(stored, final_name, final_ct)
         final_ct = sniffed or final_ct
-        # Keep "attachment" (still fake) rather than promoting to document.pdf when
-        # possible — Send-time bind + file_id registry can still attach the real name.
-        if not file_id:
-            final_name = _default_name_from_bytes(stored, final_ct, 0) or final_name
-        else:
+        if file_id:
             final_name = final_name if final_name else "attachment"
+        else:
+            # Prefer sticky placeholder over document-N.pdf phantoms in Prompt Logs.
+            final_name = "attachment" if _is_fake_upload_name(final_name) or not final_name else final_name
+            if not _is_real_user_upload_name(final_name):
+                final_name = "attachment"
     entry = {
         "ts": time.time(),
         "domain": domain,

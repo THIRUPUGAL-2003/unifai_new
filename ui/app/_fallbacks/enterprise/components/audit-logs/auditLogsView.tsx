@@ -1,12 +1,24 @@
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { ExportFormatsDropdown } from "@/components/exportFormatsDropdown";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getErrorMessage } from "@/lib/store";
 import { useGetAuditLogsQuery, useLazyExportAuditLogsQuery } from "@enterprise/lib/store/apis/auditLogsApi";
-import { Download, ScrollText } from "lucide-react";
-import { useState } from "react";
+import { ScrollText } from "lucide-react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
+
+function formatAuditDate(ts: string) {
+	const d = new Date(ts);
+	if (Number.isNaN(d.getTime())) return "—";
+	return d.toLocaleDateString(undefined, { year: "numeric", month: "numeric", day: "numeric" });
+}
+
+function formatAuditTime(ts: string) {
+	const d = new Date(ts);
+	if (Number.isNaN(d.getTime())) return "—";
+	return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" });
+}
 
 export default function AuditLogsView() {
 	const [search, setSearch] = useState("");
@@ -20,20 +32,47 @@ export default function AuditLogsView() {
 	const [exportAuditLogs] = useLazyExportAuditLogsQuery();
 	const logs = data?.logs || [];
 
-	const exportLogs = async () => {
+	const getExportPayload = useCallback(async () => {
 		try {
 			const result = await exportAuditLogs().unwrap();
-			const blob = new Blob([JSON.stringify(result.logs || [], null, 2)], { type: "application/json" });
-			const url = URL.createObjectURL(blob);
-			const link = document.createElement("a");
-			link.href = url;
-			link.download = "audit-logs.json";
-			link.click();
-			URL.revokeObjectURL(url);
+			const rows = result.logs || [];
+			return {
+				filename: "audit-logs",
+				title: "Audit Logs",
+				subtitle: `${rows.length} entries`,
+				columns: [
+					{ key: "date", header: "Date" },
+					{ key: "time", header: "Time" },
+					{ key: "action", header: "Action" },
+					{ key: "outcome", header: "Outcome" },
+					{ key: "initiator", header: "Initiator" },
+					{ key: "path", header: "Path" },
+					{ key: "ip", header: "IP" },
+					{ key: "duration", header: "Duration" },
+				],
+				rows: rows.map((log) => ({
+					date: formatAuditDate(log.created_at),
+					time: formatAuditTime(log.created_at),
+					action: log.action || "",
+					outcome: log.outcome || "",
+					initiator: log.initiator || "",
+					path: `${log.method || ""} ${log.path || ""}`.trim(),
+					ip: log.ip || "",
+					duration: `${log.duration_ms ?? 0}ms`,
+				})),
+				json: rows,
+			};
 		} catch (err) {
 			toast.error(getErrorMessage(err));
+			return {
+				filename: "audit-logs",
+				title: "Audit Logs",
+				columns: [],
+				rows: [],
+				json: [],
+			};
 		}
-	};
+	}, [exportAuditLogs]);
 
 	return (
 		<div className="flex h-full w-full flex-col gap-4 p-4">
@@ -43,12 +82,12 @@ export default function AuditLogsView() {
 						<ScrollText className="h-6 w-6" />
 						Audit Logs
 					</h1>
-					<p className="text-muted-foreground text-sm">Administrative create/update/delete activity for this workspace.</p>
+					<p className="text-muted-foreground text-sm">
+						Every create / update / delete (and login / logout) across this workspace — Virtual Keys, Users,
+						Browser AI, roles, and more.
+					</p>
 				</div>
-				<Button variant="outline" onClick={() => void exportLogs()}>
-					<Download className="h-4 w-4" />
-					Export JSON
-				</Button>
+				<ExportFormatsDropdown getPayload={getExportPayload} testId="audit-logs-export-trigger" />
 			</div>
 			<div className="flex flex-wrap gap-2">
 				<Input className="max-w-xs" placeholder="Search initiator, path, IP…" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -57,6 +96,8 @@ export default function AuditLogsView() {
 					<option value="create">create</option>
 					<option value="update">update</option>
 					<option value="delete">delete</option>
+					<option value="login">login</option>
+					<option value="logout">logout</option>
 				</select>
 				<select value={outcome} onChange={(e) => setOutcome(e.target.value)} className="border-input bg-background h-9 rounded-md border px-3 text-sm">
 					<option value="">All outcomes</option>
@@ -71,7 +112,7 @@ export default function AuditLogsView() {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead>Time</TableHead>
+								<TableHead className="w-[120px]">Date / Time</TableHead>
 								<TableHead>Action</TableHead>
 								<TableHead>Outcome</TableHead>
 								<TableHead>Initiator</TableHead>
@@ -81,21 +122,37 @@ export default function AuditLogsView() {
 							</TableRow>
 						</TableHeader>
 						<TableBody>
-							{logs.map((log) => (
-								<TableRow key={log.id}>
-									<TableCell className="whitespace-nowrap text-xs">{new Date(log.created_at).toLocaleString()}</TableCell>
-									<TableCell>{log.action}</TableCell>
-									<TableCell>
-										<Badge variant={log.outcome === "success" ? "secondary" : "destructive"}>{log.outcome}</Badge>
+							{logs.length === 0 ? (
+								<TableRow>
+									<TableCell colSpan={7} className="text-muted-foreground h-24 text-center text-sm">
+										No audit entries yet. Create, update, or delete workspace resources to see them here.
 									</TableCell>
-									<TableCell>{log.initiator}</TableCell>
-									<TableCell className="font-mono text-xs">
-										{log.method} {log.path}
-									</TableCell>
-									<TableCell className="font-mono text-xs">{log.ip}</TableCell>
-									<TableCell className="text-xs">{log.duration_ms}ms</TableCell>
 								</TableRow>
-							))}
+							) : (
+								logs.map((log) => (
+									<TableRow key={log.id}>
+										<TableCell className="py-2">
+											<div
+												className="flex flex-col gap-0.5 font-mono text-xs leading-tight text-muted-foreground"
+												title={new Date(log.created_at).toLocaleString()}
+											>
+												<span className="whitespace-nowrap text-foreground/80">{formatAuditDate(log.created_at)}</span>
+												<span className="whitespace-nowrap">{formatAuditTime(log.created_at)}</span>
+											</div>
+										</TableCell>
+										<TableCell>{log.action}</TableCell>
+										<TableCell>
+											<Badge variant={log.outcome === "success" ? "secondary" : "destructive"}>{log.outcome}</Badge>
+										</TableCell>
+										<TableCell>{log.initiator}</TableCell>
+										<TableCell className="font-mono text-xs">
+											{log.method} {log.path}
+										</TableCell>
+										<TableCell className="font-mono text-xs">{log.ip}</TableCell>
+										<TableCell className="text-xs">{log.duration_ms}ms</TableCell>
+									</TableRow>
+								))
+							)}
 						</TableBody>
 					</Table>
 				)}
