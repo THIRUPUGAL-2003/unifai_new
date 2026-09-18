@@ -128,7 +128,6 @@ import { getApiBaseUrl } from "@/lib/utils/port";
 import { GuardRuleAIEvaluatorFields } from "./guardRuleAIEvaluatorFields";
 import { logActionBadge, getPlatformBadge } from "./logBadges";
 import { LogPromptPreviewCell } from "./logPromptPreviewCell";
-import { LogTimestampCell } from "./logTimestampCell";
 import { formatLogDate, formatLogTime } from "./browserAiFormat";
 import { RegexLiveTestPanel } from "./regexLiveTestPanel";
 
@@ -1583,7 +1582,8 @@ export default function BrowserAiPage() {
 								<Table className="table-fixed w-full min-w-[960px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[120px]">Date / Time</TableHead>
+											<TableHead className="w-[100px]">Date</TableHead>
+											<TableHead className="w-[100px]">Time</TableHead>
 											<TableHead className="w-[110px]">Desktop Name</TableHead>
 											<TableHead className="w-[100px]">Platform</TableHead>
 											<TableHead className="w-[auto]">User Prompt</TableHead>
@@ -1597,10 +1597,17 @@ export default function BrowserAiPage() {
 											<TableRow
 												key={log.id}
 												onClick={() => setSelectedLog(log)}
-				className="min-h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
+												className="min-h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
 											>
 												<TableCell className="max-w-0 py-0">
-													<LogTimestampCell timestamp={log.timestamp} />
+													<div className="truncate font-mono text-xs text-muted-foreground" title={formatLogDate(log.timestamp)}>
+														{formatLogDate(log.timestamp)}
+													</div>
+												</TableCell>
+												<TableCell className="max-w-0 py-0">
+													<div className="truncate font-mono text-xs text-muted-foreground" title={formatLogTime(log.timestamp)}>
+														{formatLogTime(log.timestamp)}
+													</div>
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
 													<div className="truncate text-xs text-muted-foreground" title={log.agent_hostname || log.agent_id || ""}>
@@ -1740,7 +1747,8 @@ export default function BrowserAiPage() {
 								<Table className="table-fixed w-full min-w-[960px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[120px]">Date / Time</TableHead>
+											<TableHead className="w-[100px]">Date</TableHead>
+											<TableHead className="w-[100px]">Time</TableHead>
 											<TableHead className="w-[110px]">Desktop Name</TableHead>
 											<TableHead className="w-[100px]">Platform</TableHead>
 											<TableHead className="w-[auto]">User Prompt</TableHead>
@@ -1754,10 +1762,17 @@ export default function BrowserAiPage() {
 											<TableRow
 												key={log.id}
 												onClick={() => setSelectedLog(log)}
-				className="min-h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
+												className="min-h-12 cursor-pointer border-border hover:bg-accent/50 transition-colors"
 											>
 												<TableCell className="max-w-0 py-0">
-													<LogTimestampCell timestamp={log.timestamp} />
+													<div className="truncate font-mono text-xs text-muted-foreground" title={formatLogDate(log.timestamp)}>
+														{formatLogDate(log.timestamp)}
+													</div>
+												</TableCell>
+												<TableCell className="max-w-0 py-0">
+													<div className="truncate font-mono text-xs text-muted-foreground" title={formatLogTime(log.timestamp)}>
+														{formatLogTime(log.timestamp)}
+													</div>
 												</TableCell>
 												<TableCell className="max-w-0 py-0">
 													<div className="truncate text-xs text-muted-foreground" title={log.agent_hostname || log.agent_id || ""}>
@@ -1994,7 +2009,8 @@ export default function BrowserAiPage() {
 								<Table className="w-full min-w-[980px]">
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
-											<TableHead className="w-[120px]">Date / Time</TableHead>
+											<TableHead className="w-[100px]">Date</TableHead>
+											<TableHead className="w-[100px]">Time</TableHead>
 											<TableHead className="w-[140px]">Desktop Name</TableHead>
 											<TableHead className="w-[130px]">Search Engine</TableHead>
 											<TableHead className="w-[90px]">Browser</TableHead>
@@ -2007,7 +2023,7 @@ export default function BrowserAiPage() {
 									<TableBody>
 										{searchLogs.length === 0 ? (
 											<TableRow>
-												<TableCell colSpan={8} className="h-32 text-center text-muted-foreground">
+												<TableCell colSpan={9} className="h-32 text-center text-muted-foreground">
 													<div className="flex flex-col items-center justify-center gap-2">
 														<Search className="h-6 w-6 text-muted-foreground/50" />
 														<p>No search events logged yet.</p>
@@ -2026,8 +2042,11 @@ export default function BrowserAiPage() {
 														className="border-border hover:bg-muted/30 cursor-pointer"
 														onClick={() => setSelectedSearchLog(log)}
 													>
-														<TableCell className="py-1">
-															<LogTimestampCell timestamp={log.timestamp} />
+														<TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground">
+															{formatLogDate(log.timestamp)}
+														</TableCell>
+														<TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground">
+															{formatLogTime(log.timestamp)}
 														</TableCell>
 														<TableCell className="font-mono text-xs">
 															<span className="font-medium text-foreground">{log.agent_hostname || "—"}</span>

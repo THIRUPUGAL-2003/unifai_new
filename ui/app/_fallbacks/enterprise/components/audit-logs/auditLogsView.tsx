@@ -112,7 +112,8 @@ export default function AuditLogsView() {
 					<Table>
 						<TableHeader>
 							<TableRow>
-								<TableHead className="w-[120px]">Date / Time</TableHead>
+								<TableHead className="w-[100px]">Date</TableHead>
+								<TableHead className="w-[100px]">Time</TableHead>
 								<TableHead>Action</TableHead>
 								<TableHead>Outcome</TableHead>
 								<TableHead>Initiator</TableHead>
@@ -124,21 +125,18 @@ export default function AuditLogsView() {
 						<TableBody>
 							{logs.length === 0 ? (
 								<TableRow>
-									<TableCell colSpan={7} className="text-muted-foreground h-24 text-center text-sm">
+									<TableCell colSpan={8} className="text-muted-foreground h-24 text-center text-sm">
 										No audit entries yet. Create, update, or delete workspace resources to see them here.
 									</TableCell>
 								</TableRow>
 							) : (
 								logs.map((log) => (
 									<TableRow key={log.id}>
-										<TableCell className="py-2">
-											<div
-												className="flex flex-col gap-0.5 font-mono text-xs leading-tight text-muted-foreground"
-												title={new Date(log.created_at).toLocaleString()}
-											>
-												<span className="whitespace-nowrap text-foreground/80">{formatAuditDate(log.created_at)}</span>
-												<span className="whitespace-nowrap">{formatAuditTime(log.created_at)}</span>
-											</div>
+										<TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground">
+											{formatAuditDate(log.created_at)}
+										</TableCell>
+										<TableCell className="font-mono text-xs whitespace-nowrap text-muted-foreground">
+											{formatAuditTime(log.created_at)}
 										</TableCell>
 										<TableCell>{log.action}</TableCell>
 										<TableCell>
