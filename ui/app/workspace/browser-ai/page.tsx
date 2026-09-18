@@ -1226,7 +1226,7 @@ export default function BrowserAiPage() {
 				subtitle: `${searchLogs.length} of ${totalSearchLogs} shown`,
 				columns: [
 					{ key: "timestamp", header: "Time" },
-					{ key: "laptop_name", header: "Laptop Name" },
+					{ key: "Desktop_name", header: "Desktop Name" },
 					{ key: "engine", header: "Search Engine" },
 					{ key: "browser", header: "Browser" },
 					{ key: "privacy", header: "Privacy Mode" },
@@ -1268,7 +1268,7 @@ export default function BrowserAiPage() {
 			subtitle: `Page ${logPage} · ${logs.length} of ${totalLogs} shown`,
 			columns: [
 				{ key: "timestamp", header: "Timestamp" },
-				{ key: "laptop_name", header: "Laptop Name" },
+				{ key: "Desktop_name", header: "Desktop Name" },
 				{ key: "platform", header: "Platform" },
 				{ key: "prompt", header: "User Prompt" },
 				{ key: "tokens", header: "Est. Tokens" },
@@ -1578,7 +1578,7 @@ export default function BrowserAiPage() {
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
 											<TableHead className="w-[150px]">Timestamp</TableHead>
-											<TableHead className="w-[110px]">Laptop Name</TableHead>
+											<TableHead className="w-[110px]">Desktop Name</TableHead>
 											<TableHead className="w-[100px]">Platform</TableHead>
 											<TableHead className="w-[auto]">User Prompt</TableHead>
 											<TableHead className="w-[80px] text-right">Est. Tokens</TableHead>
@@ -1737,7 +1737,7 @@ export default function BrowserAiPage() {
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
 											<TableHead className="w-[150px]">Timestamp</TableHead>
-											<TableHead className="w-[110px]">Laptop Name</TableHead>
+											<TableHead className="w-[110px]">Desktop Name</TableHead>
 											<TableHead className="w-[100px]">Platform</TableHead>
 											<TableHead className="w-[auto]">User Prompt</TableHead>
 											<TableHead className="w-[80px] text-right">Est. Tokens</TableHead>
@@ -1993,7 +1993,7 @@ export default function BrowserAiPage() {
 									<TableHeader>
 										<TableRow className="border-border hover:bg-transparent">
 											<TableHead className="w-[110px]">Time</TableHead>
-											<TableHead className="w-[140px]">Laptop Name</TableHead>
+											<TableHead className="w-[140px]">Desktop Name</TableHead>
 											<TableHead className="w-[130px]">Search Engine</TableHead>
 											<TableHead className="w-[90px]">Browser</TableHead>
 											<TableHead className="w-[150px]">Privacy Mode</TableHead>
@@ -4492,7 +4492,7 @@ export default function BrowserAiPage() {
 									<div><span className="text-foreground font-semibold">Engine:</span> {selectedSearchLog.engine}</div>
 									<div><span className="text-foreground font-semibold">Browser:</span> {selectedSearchLog.browser}</div>
 									<div><span className="text-foreground font-semibold">Client IP:</span> {selectedSearchLog.client_ip}</div>
-									<div><span className="text-foreground font-semibold">Laptop Name:</span> {selectedSearchLog.agent_hostname || "Local Endpoint"}</div>
+									<div><span className="text-foreground font-semibold">Desktop Name:</span> {selectedSearchLog.agent_hostname || "Local Endpoint"}</div>
 									<div className="col-span-2 break-all"><span className="text-foreground font-semibold">Host:</span> {selectedSearchLog.host}</div>
 									<div className="col-span-2"><span className="text-foreground font-semibold">Timestamp:</span> {new Date(selectedSearchLog.timestamp).toLocaleString()}</div>
 								</div>

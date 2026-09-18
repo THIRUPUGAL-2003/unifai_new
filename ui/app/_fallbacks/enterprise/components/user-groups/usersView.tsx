@@ -1,14 +1,33 @@
-import { useEffect, useState } from "react";
-import { Users, Plus, Search, Edit2, Trash2, Shield, Check, X, Clock, Key, DollarSign, Activity } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import {
+	Users,
+	Plus,
+	Search,
+	Edit2,
+	Trash2,
+	Shield,
+	Check,
+	X,
+	Clock,
+	Key,
+	DollarSign,
+	Activity,
+	ChevronDown,
+	ChevronRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import {
-	WORKSPACE_SECTIONS,
+	WORKSPACE_ACCESS_SECTIONS,
 	adminSectionsFromStorage,
 	allowedSectionsToString,
+	itemGrantKey,
+	sectionSelectionState,
+	type WorkspaceGrantKey,
+	type WorkspaceSection,
 	type WorkspaceSectionKey,
 } from "@/lib/constants/workspaceSections";
 import {
@@ -33,6 +52,32 @@ import {
 	useGetUserVirtualKeysQuery,
 	useSetVirtualKeyUserMutation,
 } from "@enterprise/lib/store/apis/virtualKeyUsersApi";
+
+function IndeterminateCheckbox({
+	checked,
+	indeterminate,
+	onChange,
+}: {
+	checked: boolean;
+	indeterminate: boolean;
+	onChange: (checked: boolean) => void;
+}) {
+	const ref = useRef<HTMLInputElement>(null);
+	useEffect(() => {
+		if (ref.current) {
+			ref.current.indeterminate = indeterminate && !checked;
+		}
+	}, [indeterminate, checked]);
+	return (
+		<input
+			ref={ref}
+			type="checkbox"
+			checked={checked}
+			onChange={(e) => onChange(e.target.checked)}
+			className="border-border rounded text-teal-500 focus:ring-teal-500/50"
+		/>
+	);
+}
 
 function UserTeamCell({ userId }: { userId: string }) {
 	const { data } = useGetUserTeamsQuery(userId);
@@ -87,7 +132,8 @@ export default function UsersView() {
 	const [budget, setBudget] = useState(0);
 	const [rateLimit, setRateLimit] = useState(0);
 	const [allowedPromptRepos, setAllowedPromptRepos] = useState("");
-	const [allowedSections, setAllowedSections] = useState<Set<WorkspaceSectionKey>>(new Set());
+	const [allowedSections, setAllowedSections] = useState<Set<WorkspaceGrantKey>>(new Set());
+	const [expandedSections, setExpandedSections] = useState<Set<WorkspaceSectionKey>>(new Set());
 
 	const { data: editUserTeams } = useGetUserTeamsQuery(selectedUser?.id || "", {
 		skip: !selectedUser?.id || !isEditOpen,
@@ -110,16 +156,74 @@ export default function UsersView() {
 		setInitialVirtualKeyId(current);
 	}, [isEditOpen, selectedUser?.id, editUserVKs]);
 
-	const toggleSection = (key: WorkspaceSectionKey, checked: boolean) => {
+	const toggleExpanded = (key: WorkspaceSectionKey) => {
+		setExpandedSections((prev) => {
+			const next = new Set(prev);
+			if (next.has(key)) next.delete(key);
+			else next.add(key);
+			return next;
+		});
+	};
+
+	const clearSectionGrants = (next: Set<WorkspaceGrantKey>, section: WorkspaceSection) => {
+		next.delete(section.key);
+		for (const item of section.items ?? []) {
+			next.delete(itemGrantKey(section.key, item.key));
+		}
+		if (section.key === "guardrails") next.delete("cluster-config");
+	};
+
+	const toggleSection = (section: WorkspaceSection, checked: boolean) => {
 		setAllowedSections((prev) => {
 			const next = new Set(prev);
+			clearSectionGrants(next, section);
 			if (checked) {
-				next.add(key);
-			} else {
-				next.delete(key);
+				next.add(section.key);
 			}
 			return next;
 		});
+	};
+
+	const toggleItem = (section: WorkspaceSection, itemKey: string, checked: boolean) => {
+		setAllowedSections((prev) => {
+			const next = new Set(prev);
+			const grant = itemGrantKey(section.key, itemKey);
+			// Expand parent-all into individual children before toggling one
+			if (next.has(section.key) && section.items?.length) {
+				next.delete(section.key);
+				for (const item of section.items) {
+					next.add(itemGrantKey(section.key, item.key));
+				}
+			}
+			if (checked) {
+				next.add(grant);
+				if (section.key === "guardrails" && itemKey === "cluster-config") {
+					next.delete("cluster-config");
+				}
+				const allSelected = section.items?.every(
+					(item) => next.has(itemGrantKey(section.key, item.key)),
+				);
+				if (allSelected && section.items?.length) {
+					clearSectionGrants(next, section);
+					next.add(section.key);
+				}
+			} else {
+				next.delete(grant);
+				if (section.key === "guardrails" && itemKey === "cluster-config") {
+					next.delete("cluster-config");
+				}
+			}
+			return next;
+		});
+	};
+
+	const isItemChecked = (section: WorkspaceSection, itemKey: string) => {
+		if (allowedSections.has(section.key)) return true;
+		if (allowedSections.has(itemGrantKey(section.key, itemKey))) return true;
+		if (section.key === "guardrails" && itemKey === "cluster-config" && allowedSections.has("cluster-config")) {
+			return true;
+		}
+		return false;
 	};
 
 	const syncUserTeam = async (userId: string, nextTeamId: string, prevTeamId: string) => {
@@ -199,20 +303,59 @@ export default function UsersView() {
 			<div className="space-y-2">
 				<label className="text-muted-foreground text-sm font-medium">Workspace Access</label>
 				<p className="text-muted-foreground text-xs">
-					Choose sidebar sections for this sub-admin. Leave all unchecked for full workspace access (super admin).
+					Expand a section to pick pages. Parent tick = whole section. Leave all unchecked for full
+					workspace access (super admin).
 				</p>
-				<div className="border-border/50 bg-muted/10 max-h-48 space-y-2 overflow-y-auto rounded-lg border p-3">
-					{WORKSPACE_SECTIONS.map((section) => (
-						<label key={section.key} className="text-foreground flex cursor-pointer items-center gap-2 text-sm select-none">
-							<input
-								type="checkbox"
-								checked={allowedSections.has(section.key)}
-								onChange={(e) => toggleSection(section.key, e.target.checked)}
-								className="border-border mr-1 rounded text-teal-500 focus:ring-teal-500/50"
-							/>
-							{section.label}
-						</label>
-					))}
+				<div className="border-border/50 bg-muted/10 max-h-64 space-y-1 overflow-y-auto rounded-lg border p-2">
+					{WORKSPACE_ACCESS_SECTIONS.map((section) => {
+						const hasChildren = !!section.items?.length;
+						const expanded = expandedSections.has(section.key);
+						const sel = sectionSelectionState(section, allowedSections);
+						return (
+							<div key={section.key} className="rounded-md">
+								<div className="hover:bg-muted/40 flex items-center gap-1 rounded-md px-1 py-1">
+									{hasChildren ? (
+										<button
+											type="button"
+											onClick={() => toggleExpanded(section.key)}
+											className="text-muted-foreground hover:text-foreground flex size-6 shrink-0 items-center justify-center rounded"
+											aria-label={expanded ? `Collapse ${section.label}` : `Expand ${section.label}`}
+										>
+											{expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+										</button>
+									) : (
+										<span className="size-6 shrink-0" />
+									)}
+									<label className="text-foreground flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-sm select-none">
+										<IndeterminateCheckbox
+											checked={sel === "all"}
+											indeterminate={sel === "some"}
+											onChange={(checked) => toggleSection(section, checked)}
+										/>
+										<span className="truncate font-medium">{section.label}</span>
+									</label>
+								</div>
+								{hasChildren && expanded ? (
+									<div className="border-border/40 ml-6 space-y-0.5 border-l py-1 pl-3">
+										{section.items!.map((item) => (
+											<label
+												key={item.key}
+												className="text-foreground hover:bg-muted/40 flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-sm select-none"
+											>
+												<input
+													type="checkbox"
+													checked={isItemChecked(section, item.key)}
+													onChange={(e) => toggleItem(section, item.key, e.target.checked)}
+													className="border-border rounded text-teal-500 focus:ring-teal-500/50"
+												/>
+												<span className="truncate">{item.label}</span>
+											</label>
+										))}
+									</div>
+								) : null}
+							</div>
+						);
+					})}
 				</div>
 			</div>
 		) : null;
@@ -454,6 +597,7 @@ export default function UsersView() {
 		setRateLimit(0);
 		setAllowedPromptRepos("");
 		setAllowedSections(new Set());
+		setExpandedSections(new Set());
 		setSelectedUser(null);
 	};
 
@@ -471,7 +615,15 @@ export default function UsersView() {
 		setBudget(user.budget);
 		setRateLimit(user.rate_limit);
 		setAllowedPromptRepos(sanitizeAllowedPromptRepos(user.allowed_prompt_repos || ""));
-		setAllowedSections(nextRole === "admin" ? adminSectionsFromStorage(user.allowed_sections) : new Set());
+		const grants = nextRole === "admin" ? adminSectionsFromStorage(user.allowed_sections) : new Set<WorkspaceGrantKey>();
+		setAllowedSections(grants);
+		setExpandedSections(
+			new Set(
+				WORKSPACE_ACCESS_SECTIONS.filter(
+					(s) => s.items?.length && sectionSelectionState(s, grants) !== "none",
+				).map((s) => s.key),
+			),
+		);
 		setIsEditOpen(true);
 	};
 
@@ -781,6 +933,7 @@ export default function UsersView() {
 										setVirtualKeyId("");
 									} else {
 										setAllowedSections(new Set());
+										setExpandedSections(new Set());
 									}
 								}}
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"
@@ -910,6 +1063,7 @@ export default function UsersView() {
 										setVirtualKeyId("");
 									} else {
 										setAllowedSections(new Set());
+										setExpandedSections(new Set());
 									}
 								}}
 								className="bg-muted/20 border-border/50 text-foreground w-full rounded-lg border p-2.5 text-sm focus:border-teal-500/50 focus:outline-none"

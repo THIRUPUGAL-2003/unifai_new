@@ -69,10 +69,12 @@ import { IS_ENTERPRISE, COMPANY_NAME, COMPANY_LOGO, COMPANY_SHORT_NAME } from "@
 import { useGetCoreConfigQuery, useGetLatestReleaseQuery, useGetVersionQuery, useLogoutMutation, useIsAuthEnabledQuery } from "@/lib/store";
 import {
 	parseAdminAllowedSections,
-	adminSectionsFromStorage,
 	SECTION_KEY_BY_TITLE,
 	isPathAllowedForUser,
 	getDefaultPathForSections,
+	isSectionGranted,
+	isSidebarItemGranted,
+	type WorkspaceSectionKey,
 } from "@/lib/constants/workspaceSections";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import type { UserInfo } from "@enterprise/lib/store/utils/tokenManager";
@@ -988,7 +990,22 @@ export default function AppSidebar() {
 			return allItems.filter((item) => item.title === "Prompt Repository");
 		}
 		if (scopedSidebarSections) {
-			return allItems.filter((item) => scopedSidebarSections.has(SECTION_KEY_BY_TITLE[item.title] || ""));
+			return allItems
+				.map((item) => {
+					const sectionKey = SECTION_KEY_BY_TITLE[item.title] as WorkspaceSectionKey | undefined;
+					if (!sectionKey || !isSectionGranted(sectionKey, scopedSidebarSections)) {
+						return null;
+					}
+					if (item.subItems?.length) {
+						const visibleSubItems = item.subItems.filter((sub) =>
+							isSidebarItemGranted(sectionKey, sub.url, scopedSidebarSections),
+						);
+						if (visibleSubItems.length === 0) return null;
+						return { ...item, subItems: visibleSubItems };
+					}
+					return item;
+				})
+				.filter(Boolean) as typeof allItems;
 		}
 		return allItems;
 	}, [

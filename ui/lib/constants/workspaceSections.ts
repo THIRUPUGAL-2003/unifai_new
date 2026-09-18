@@ -1,19 +1,151 @@
-/** Sidebar sections super-admin can grant to sub-admins. Keys must stay stable in DB. */
-export const WORKSPACE_SECTIONS = [
-	{ key: "observability", label: "Observability", defaultPath: "/workspace/logs" },
-	{ key: "models", label: "Models", defaultPath: "/workspace/providers" },
-	{ key: "mcp-gateway", label: "MCP Gateway", defaultPath: "/workspace/mcp-registry" },
-	{ key: "plugins", label: "Plugins", defaultPath: "/workspace/plugins" },
-	{ key: "governance", label: "Governance", defaultPath: "/workspace/governance" },
-	{ key: "guardrails", label: "Guardrails", defaultPath: "/workspace/guardrails" },
-	{ key: "cluster-config", label: "Cluster Config", defaultPath: "/workspace/cluster" },
-	{ key: "adaptive-routing", label: "Adaptive Routing", defaultPath: "/workspace/adaptive-routing" },
-	{ key: "prompt-repository", label: "Prompt Repository", defaultPath: "/workspace/prompt-repo" },
-	{ key: "skills-repository", label: "Skills Repository", defaultPath: "/workspace/skills-repo" },
-	{ key: "settings", label: "Settings", defaultPath: "/workspace/config" },
+/** Sidebar sections/items super-admin can grant to sub-admins. Keys must stay stable in DB. */
+
+export type WorkspaceSectionKey =
+	| "observability"
+	| "models"
+	| "mcp-gateway"
+	| "plugins"
+	| "governance"
+	| "guardrails"
+	| "cluster-config"
+	| "adaptive-routing"
+	| "prompt-repository"
+	| "skills-repository"
+	| "settings";
+
+/** Parent key (`observability`) or child grant (`observability/browser-ai`). */
+export type WorkspaceGrantKey = string;
+
+export type WorkspaceSectionItem = {
+	key: string;
+	label: string;
+	path: string;
+};
+
+export type WorkspaceSection = {
+	key: WorkspaceSectionKey;
+	label: string;
+	defaultPath: string;
+	items?: readonly WorkspaceSectionItem[];
+};
+
+export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
+	{
+		key: "observability",
+		label: "Observability",
+		defaultPath: "/workspace/logs",
+		items: [
+			{ key: "dashboard", label: "Dashboard", path: "/workspace/dashboard" },
+			{ key: "llm-logs", label: "LLM Logs", path: "/workspace/logs" },
+			{ key: "mcp-logs", label: "MCP Logs", path: "/workspace/mcp-logs" },
+			{ key: "browser-ai", label: "Browser AI", path: "/workspace/browser-ai" },
+			{ key: "connectors", label: "Connectors", path: "/workspace/observability" },
+			{ key: "logs-settings", label: "Logs Settings", path: "/workspace/config/logging" },
+		],
+	},
+	{
+		key: "models",
+		label: "Models",
+		defaultPath: "/workspace/providers",
+		items: [
+			{ key: "model-providers", label: "Model Providers", path: "/workspace/providers" },
+			{ key: "model-catalog", label: "Model Catalog", path: "/workspace/model-catalog" },
+			{ key: "budgets-limits", label: "Budgets & Limits", path: "/workspace/model-limits" },
+			{ key: "complexity-router", label: "Complexity Router", path: "/workspace/complexity-router" },
+			{ key: "routing-rules", label: "Routing Rules", path: "/workspace/routing-rules" },
+			{ key: "circuit-breaker", label: "Circuit Breaker", path: "/workspace/circuit-breaker" },
+			{ key: "pricing-overrides", label: "Pricing Overrides", path: "/workspace/custom-pricing/overrides" },
+			{ key: "model-settings", label: "Model Settings", path: "/workspace/custom-pricing" },
+		],
+	},
+	{
+		key: "mcp-gateway",
+		label: "MCP Gateway",
+		defaultPath: "/workspace/mcp-registry",
+		items: [
+			{ key: "mcp-catalog", label: "MCP Catalog", path: "/workspace/mcp-registry" },
+			{ key: "mcp-library", label: "MCP Library", path: "/workspace/mcp-registry/library" },
+			{ key: "tool-groups", label: "Tool Groups", path: "/workspace/mcp-tool-groups" },
+			{ key: "auth-sessions", label: "Auth Sessions", path: "/workspace/mcp-sessions" },
+			{ key: "oauth-grants", label: "OAuth Grants", path: "/workspace/oauth-grants" },
+			{ key: "mcp-settings", label: "MCP Settings", path: "/workspace/mcp-settings" },
+		],
+	},
+	{
+		key: "plugins",
+		label: "Plugins",
+		defaultPath: "/workspace/plugins",
+	},
+	{
+		key: "governance",
+		label: "Governance",
+		defaultPath: "/workspace/governance",
+		items: [
+			{ key: "virtual-keys", label: "Virtual Keys", path: "/workspace/governance/virtual-keys" },
+			{ key: "users", label: "Users", path: "/workspace/governance/users" },
+			{ key: "teams", label: "Teams", path: "/workspace/governance/teams" },
+			{ key: "business-units", label: "Business Units", path: "/workspace/governance/business-units" },
+			{ key: "customers", label: "Customers", path: "/workspace/governance/customers" },
+			{ key: "user-provisioning", label: "User Provisioning", path: "/workspace/scim" },
+			{ key: "roles-permissions", label: "Roles & Permissions", path: "/workspace/governance/rbac" },
+			{ key: "access-profiles", label: "Access Profiles", path: "/workspace/governance/access-profiles" },
+			{ key: "audit-logs", label: "Audit Logs", path: "/workspace/audit-logs" },
+		],
+	},
+	{
+		key: "guardrails",
+		label: "Guardrails",
+		defaultPath: "/workspace/guardrails",
+		items: [
+			{ key: "rules", label: "Rules", path: "/workspace/guardrails/configuration" },
+			{ key: "providers", label: "Providers", path: "/workspace/guardrails/providers" },
+			{ key: "cluster-config", label: "Cluster Config", path: "/workspace/cluster" },
+		],
+	},
+	/** Legacy top-level key — still accepted from DB; UI nests under Guardrails. */
+	{
+		key: "cluster-config",
+		label: "Cluster Config",
+		defaultPath: "/workspace/cluster",
+	},
+	{
+		key: "adaptive-routing",
+		label: "Adaptive Routing",
+		defaultPath: "/workspace/adaptive-routing",
+		items: [
+			{ key: "dashboard", label: "Dashboard", path: "/workspace/adaptive-routing" },
+			{ key: "settings", label: "Settings", path: "/workspace/adaptive-routing/settings" },
+		],
+	},
+	{
+		key: "prompt-repository",
+		label: "Prompt Repository",
+		defaultPath: "/workspace/prompt-repo",
+	},
+	{
+		key: "skills-repository",
+		label: "Skills Repository",
+		defaultPath: "/workspace/skills-repo",
+	},
+	{
+		key: "settings",
+		label: "Settings",
+		defaultPath: "/workspace/config",
+		items: [
+			{ key: "client-settings", label: "Client Settings", path: "/workspace/config/client-settings" },
+			{ key: "compatibility", label: "Compatibility", path: "/workspace/config/compatibility" },
+			{ key: "caching", label: "Caching", path: "/workspace/config/caching" },
+			{ key: "security", label: "Security", path: "/workspace/config/security" },
+			{ key: "proxy", label: "Proxy", path: "/workspace/config/proxy" },
+			{ key: "api-keys", label: "API Keys", path: "/workspace/config/api-keys" },
+			{ key: "performance-tuning", label: "Performance Tuning", path: "/workspace/config/performance-tuning" },
+			{ key: "feature-flags", label: "Feature Flags", path: "/workspace/config/feature-flags" },
+		],
+	},
 ] as const;
 
-export type WorkspaceSectionKey = (typeof WORKSPACE_SECTIONS)[number]["key"];
+/** Sections shown in the Workspace Access picker (hide legacy duplicate cluster-config row). */
+export const WORKSPACE_ACCESS_SECTIONS = WORKSPACE_SECTIONS.filter((s) => s.key !== "cluster-config");
 
 export const DEFAULT_USER_SECTIONS = "prompt-repository";
 
@@ -21,50 +153,48 @@ export const SECTION_KEY_BY_TITLE: Record<string, WorkspaceSectionKey> = Object.
 	WORKSPACE_SECTIONS.map((s) => [s.label, s.key]),
 ) as Record<string, WorkspaceSectionKey>;
 
-const SECTION_PATH_PREFIXES: Record<WorkspaceSectionKey, string[]> = {
-	observability: [
-		"/workspace/dashboard",
-		"/workspace/logs",
-		"/workspace/mcp-logs",
-		"/workspace/browser-ai",
-		"/workspace/observability",
-		"/workspace/config/logging",
-	],
-	models: [
-		"/workspace/model-catalog",
-		"/workspace/providers",
-		"/workspace/model-limits",
-		"/workspace/routing-rules",
-		"/workspace/complexity-router",
-		"/workspace/circuit-breaker",
-		"/workspace/custom-pricing",
-	],
-	"mcp-gateway": [
-		"/workspace/mcp-gateway",
-		"/workspace/mcp-registry",
-		"/workspace/mcp-tool-groups",
-		"/workspace/mcp-sessions",
-		"/workspace/oauth-grants",
-		"/workspace/mcp-settings",
-		"/workspace/mcp-auth-config",
-	],
-	plugins: ["/workspace/plugins"],
-	governance: [
-		"/workspace/governance",
-		"/workspace/virtual-keys",
-		"/workspace/rbac",
-		"/workspace/scim",
-		"/workspace/audit-logs",
-	],
-	guardrails: ["/workspace/guardrails"],
-	"cluster-config": ["/workspace/cluster"],
-	"adaptive-routing": ["/workspace/adaptive-routing"],
-	"prompt-repository": ["/workspace/prompt-repo"],
-	"skills-repository": ["/workspace/skills-repo"],
-	settings: ["/workspace/config"],
-};
+export function itemGrantKey(sectionKey: WorkspaceSectionKey, itemKey: string): WorkspaceGrantKey {
+	return `${sectionKey}/${itemKey}`;
+}
 
-export function parseAllowedSections(raw?: string | null): Set<WorkspaceSectionKey> {
+export function pathMatches(pathname: string, prefix: string): boolean {
+	return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function pathsForSection(section: WorkspaceSection): string[] {
+	const paths = new Set<string>([section.defaultPath]);
+	for (const i of section.items ?? []) {
+		paths.add(i.path);
+	}
+	return Array.from(paths);
+}
+
+/** Expand stored grants into concrete path prefixes (longest first for matching). */
+export function expandGrantsToPaths(grants: Set<WorkspaceGrantKey>): string[] {
+	const paths = new Set<string>();
+
+	for (const section of WORKSPACE_SECTIONS) {
+		if (grants.has(section.key)) {
+			for (const p of pathsForSection(section)) paths.add(p);
+			continue;
+		}
+		if (!section.items) continue;
+		for (const item of section.items) {
+			if (grants.has(itemGrantKey(section.key, item.key))) {
+				paths.add(item.path);
+			}
+		}
+	}
+
+	// Legacy: cluster-config parent key → cluster path (also covered by guardrails/cluster-config)
+	if (grants.has("cluster-config")) {
+		paths.add("/workspace/cluster");
+	}
+
+	return Array.from(paths).sort((a, b) => b.length - a.length);
+}
+
+export function parseAllowedSections(raw?: string | null): Set<WorkspaceGrantKey> {
 	const trimmed = (raw || "").trim();
 	if (!trimmed) {
 		return new Set([DEFAULT_USER_SECTIONS]);
@@ -72,12 +202,12 @@ export function parseAllowedSections(raw?: string | null): Set<WorkspaceSectionK
 	const keys = trimmed
 		.split(",")
 		.map((s) => s.trim())
-		.filter(Boolean) as WorkspaceSectionKey[];
+		.filter(Boolean);
 	return new Set(keys.length > 0 ? keys : [DEFAULT_USER_SECTIONS]);
 }
 
-/** Sub-admin: empty/null stored value = full workspace access. Non-empty = limited sections. */
-export function parseAdminAllowedSections(raw?: string | null): Set<WorkspaceSectionKey> | null {
+/** Sub-admin: empty/null stored value = full workspace access. Non-empty = limited grants. */
+export function parseAdminAllowedSections(raw?: string | null): Set<WorkspaceGrantKey> | null {
 	const trimmed = (raw || "").trim();
 	if (!trimmed) {
 		return null;
@@ -85,12 +215,12 @@ export function parseAdminAllowedSections(raw?: string | null): Set<WorkspaceSec
 	const keys = trimmed
 		.split(",")
 		.map((s) => s.trim())
-		.filter(Boolean) as WorkspaceSectionKey[];
+		.filter(Boolean);
 	return keys.length > 0 ? new Set(keys) : null;
 }
 
 /** Form state when editing an admin — unchecked = full access. */
-export function adminSectionsFromStorage(raw?: string | null): Set<WorkspaceSectionKey> {
+export function adminSectionsFromStorage(raw?: string | null): Set<WorkspaceGrantKey> {
 	const trimmed = (raw || "").trim();
 	if (!trimmed) {
 		return new Set();
@@ -99,28 +229,148 @@ export function adminSectionsFromStorage(raw?: string | null): Set<WorkspaceSect
 		trimmed
 			.split(",")
 			.map((s) => s.trim())
-			.filter(Boolean) as WorkspaceSectionKey[],
+			.filter(Boolean),
 	);
 }
 
-export function allowedSectionsToString(sections: Set<WorkspaceSectionKey>): string {
-	return Array.from(sections).join(",");
-}
+/** Normalize UI selection: all children checked → store parent key only. */
+export function allowedSectionsToString(sections: Set<WorkspaceGrantKey>): string {
+	const out = new Set<string>();
 
-export function isPathAllowedForUser(pathname: string, allowedSections: Set<WorkspaceSectionKey>): boolean {
-	for (const section of allowedSections) {
-		const prefixes = SECTION_PATH_PREFIXES[section];
-		if (!prefixes) continue;
-		for (const prefix of prefixes) {
-			if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
-				return true;
+	for (const section of WORKSPACE_ACCESS_SECTIONS) {
+		if (sections.has(section.key)) {
+			out.add(section.key);
+			continue;
+		}
+		if (!section.items?.length) continue;
+		const selectedChildren = section.items.filter((item) => sections.has(itemGrantKey(section.key, item.key)));
+		if (selectedChildren.length === 0) continue;
+		if (selectedChildren.length === section.items.length) {
+			out.add(section.key);
+		} else {
+			for (const item of selectedChildren) {
+				out.add(itemGrantKey(section.key, item.key));
 			}
 		}
+	}
+
+	// Preserve unknown legacy keys (e.g. bare cluster-config) if still present and not covered
+	for (const key of sections) {
+		if (key === "cluster-config" && !out.has("guardrails") && !out.has("guardrails/cluster-config")) {
+			out.add("cluster-config");
+		}
+	}
+
+	return Array.from(out).join(",");
+}
+
+/** Longest matching catalog path for a URL (avoids /custom-pricing catching /overrides). */
+function findBestCatalogMatch(
+	pathname: string,
+): { sectionKey: WorkspaceSectionKey; itemKey?: string; path: string } | null {
+	let best: { sectionKey: WorkspaceSectionKey; itemKey?: string; path: string } | null = null;
+	for (const section of WORKSPACE_SECTIONS) {
+		const candidates: { sectionKey: WorkspaceSectionKey; itemKey?: string; path: string }[] = [
+			{ sectionKey: section.key, path: section.defaultPath },
+		];
+		for (const i of section.items ?? []) {
+			candidates.push({ sectionKey: section.key, itemKey: i.key, path: i.path });
+		}
+		for (const c of candidates) {
+			if (!pathMatches(pathname, c.path)) continue;
+			if (!best || c.path.length > best.path.length) {
+				best = c;
+			}
+		}
+	}
+	return best;
+}
+
+export function isPathAllowedForUser(pathname: string, allowedSections: Set<WorkspaceGrantKey>): boolean {
+	const best = findBestCatalogMatch(pathname);
+	if (!best) {
+		return expandGrantsToPaths(allowedSections).some((prefix) => pathMatches(pathname, prefix));
+	}
+	if (allowedSections.has(best.sectionKey)) return true;
+	if (best.itemKey && allowedSections.has(itemGrantKey(best.sectionKey, best.itemKey))) return true;
+	// Section root URL with only child grants — allow if any child of that section is granted
+	if (!best.itemKey && best.path === WORKSPACE_SECTIONS.find((s) => s.key === best.sectionKey)?.defaultPath) {
+		const section = WORKSPACE_SECTIONS.find((s) => s.key === best.sectionKey);
+		if (section?.items?.some((item) => allowedSections.has(itemGrantKey(section.key, item.key)))) {
+			return pathMatches(pathname, section.defaultPath) && pathname === section.defaultPath;
+		}
+	}
+	if (best.sectionKey === "guardrails" && best.itemKey === "cluster-config" && allowedSections.has("cluster-config")) {
+		return true;
 	}
 	return false;
 }
 
-export function getDefaultPathForSections(allowedSections: Set<WorkspaceSectionKey>): string {
-	const first = WORKSPACE_SECTIONS.find((s) => allowedSections.has(s.key));
-	return first?.defaultPath ?? "/workspace/prompt-repo";
+export function getDefaultPathForSections(allowedSections: Set<WorkspaceGrantKey>): string {
+	const prefixes = expandGrantsToPaths(allowedSections);
+	if (prefixes.length > 0) {
+		// Prefer first section's default among granted
+		for (const section of WORKSPACE_ACCESS_SECTIONS) {
+			if (allowedSections.has(section.key)) {
+				return section.defaultPath;
+			}
+			if (section.items?.some((item) => allowedSections.has(itemGrantKey(section.key, item.key)))) {
+				const first = section.items.find((item) => allowedSections.has(itemGrantKey(section.key, item.key)));
+				if (first) return first.path;
+			}
+		}
+		return prefixes[prefixes.length - 1]; // shortest / first-ish
+	}
+	return "/workspace/prompt-repo";
+}
+
+/** True if this sidebar section title should appear for the grant set. */
+export function isSectionGranted(sectionKey: WorkspaceSectionKey, grants: Set<WorkspaceGrantKey>): boolean {
+	if (grants.has(sectionKey)) return true;
+	const section = WORKSPACE_SECTIONS.find((s) => s.key === sectionKey);
+	if (!section?.items) return false;
+	if (section.items.some((item) => grants.has(itemGrantKey(sectionKey, item.key)))) return true;
+	// Legacy cluster-config unlocks Guardrails section visibility for that item
+	if (sectionKey === "guardrails" && grants.has("cluster-config")) return true;
+	return false;
+}
+
+/** True if a sidebar sub-item path is covered by grants. */
+export function isSidebarItemGranted(
+	sectionKey: WorkspaceSectionKey,
+	itemPath: string,
+	grants: Set<WorkspaceGrantKey>,
+): boolean {
+	if (grants.has(sectionKey)) return true;
+	const section = WORKSPACE_SECTIONS.find((s) => s.key === sectionKey);
+	if (!section) return false;
+	if (!section.items?.length) {
+		return grants.has(sectionKey) && pathMatches(itemPath, section.defaultPath);
+	}
+	let best: WorkspaceSectionItem | null = null;
+	for (const i of section.items) {
+		if (itemPath === i.path || pathMatches(itemPath, i.path)) {
+			if (!best || i.path.length > best.path.length) best = i;
+		}
+	}
+	if (!best) return false;
+	if (grants.has(itemGrantKey(sectionKey, best.key))) return true;
+	if (sectionKey === "guardrails" && best.key === "cluster-config" && grants.has("cluster-config")) return true;
+	return false;
+}
+
+export function sectionSelectionState(
+	section: WorkspaceSection,
+	grants: Set<WorkspaceGrantKey>,
+): "all" | "some" | "none" {
+	if (grants.has(section.key)) return "all";
+	if (!section.items?.length) return "none";
+	const selected = section.items.filter((item) => grants.has(itemGrantKey(section.key, item.key)));
+	if (section.key === "guardrails" && grants.has("cluster-config")) {
+		const cluster = section.items.find((i) => i.key === "cluster-config");
+		if (cluster && !selected.includes(cluster)) selected.push(cluster);
+	}
+	if (selected.length === 0) return "none";
+	if (selected.length === section.items.length) return "all";
+	return "some";
 }
