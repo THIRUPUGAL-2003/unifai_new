@@ -1282,6 +1282,9 @@ func (h *GovernanceHandler) getVirtualKeys(ctx *fasthttp.RequestCtx) {
 			virtualKeys = filtered
 			totalCount = int64(len(filtered))
 		}
+		if virtualKeys == nil {
+			virtualKeys = []configstoreTables.TableVirtualKey{}
+		}
 		SendJSON(ctx, map[string]interface{}{
 			"virtual_keys": virtualKeys,
 			"count":        len(virtualKeys),
@@ -1308,6 +1311,9 @@ func (h *GovernanceHandler) getVirtualKeys(ctx *fasthttp.RequestCtx) {
 			}
 		}
 		virtualKeys = filtered
+	}
+	if virtualKeys == nil {
+		virtualKeys = []configstoreTables.TableVirtualKey{}
 	}
 	SendJSON(ctx, map[string]interface{}{
 		"virtual_keys": virtualKeys,
@@ -2160,6 +2166,9 @@ func (h *GovernanceHandler) getTeams(ctx *fasthttp.RequestCtx) {
 			SendError(ctx, 500, fmt.Sprintf("Failed to retrieve teams: %v", err))
 			return
 		}
+		if teams == nil {
+			teams = []configstoreTables.TableTeam{}
+		}
 		SendJSON(ctx, map[string]interface{}{
 			"teams":       teams,
 			"count":       len(teams),
@@ -2176,6 +2185,9 @@ func (h *GovernanceHandler) getTeams(ctx *fasthttp.RequestCtx) {
 		logger.Error("failed to retrieve teams: %v", err)
 		SendError(ctx, 500, fmt.Sprintf("Failed to retrieve teams: %v", err))
 		return
+	}
+	if teams == nil {
+		teams = []configstoreTables.TableTeam{}
 	}
 	SendJSON(ctx, map[string]interface{}{
 		"teams":       teams,
@@ -2621,6 +2633,9 @@ func (h *GovernanceHandler) getCustomers(ctx *fasthttp.RequestCtx) {
 			SendError(ctx, 500, "failed to retrieve customers")
 			return
 		}
+		if customers == nil {
+			customers = []configstoreTables.TableCustomer{}
+		}
 		SendJSON(ctx, map[string]interface{}{
 			"customers":   customers,
 			"count":       len(customers),
@@ -2636,6 +2651,9 @@ func (h *GovernanceHandler) getCustomers(ctx *fasthttp.RequestCtx) {
 		logger.Error("failed to retrieve customers: %v", err)
 		SendError(ctx, 500, "failed to retrieve customers")
 		return
+	}
+	if customers == nil {
+		customers = []configstoreTables.TableCustomer{}
 	}
 	SendJSON(ctx, map[string]interface{}{
 		"customers":   customers,
@@ -3983,6 +4001,9 @@ func (h *GovernanceHandler) getRoutingRules(ctx *fasthttp.RequestCtx) {
 			SendError(ctx, 500, "Failed to retrieve routing rules")
 			return
 		}
+		if rules == nil {
+			rules = []configstoreTables.TableRoutingRule{}
+		}
 		SendJSON(ctx, map[string]interface{}{
 			"rules":       rules,
 			"count":       len(rules),
@@ -3999,6 +4020,9 @@ func (h *GovernanceHandler) getRoutingRules(ctx *fasthttp.RequestCtx) {
 		logger.Error("failed to retrieve routing rules: %v", err)
 		SendError(ctx, 500, "Failed to retrieve routing rules")
 		return
+	}
+	if rules == nil {
+		rules = []configstoreTables.TableRoutingRule{}
 	}
 	SendJSON(ctx, map[string]interface{}{
 		"rules":       rules,

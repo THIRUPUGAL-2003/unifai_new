@@ -53,9 +53,9 @@ function useScopeName(scope: string, scopeId?: string): string | undefined {
 
 	return useMemo(() => {
 		if (!scopeId) return undefined;
-		if (scope === "team") return teamsData?.teams?.find((t) => t.id === scopeId)?.name;
-		if (scope === "customer") return customersData?.customers?.find((c) => c.id === scopeId)?.name;
-		if (scope === "virtual_key") return vksData?.virtual_keys?.find((v) => v.id === scopeId)?.name;
+		if (scope === "team") return (teamsData?.teams ?? []).find((t) => t.id === scopeId)?.name;
+		if (scope === "customer") return (customersData?.customers ?? []).find((c) => c.id === scopeId)?.name;
+		if (scope === "virtual_key") return (vksData?.virtual_keys ?? []).find((v) => v.id === scopeId)?.name;
 		return undefined;
 	}, [scope, scopeId, teamsData, customersData, vksData]);
 }

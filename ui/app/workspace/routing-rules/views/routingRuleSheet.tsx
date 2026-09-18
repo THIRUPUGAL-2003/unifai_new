@@ -31,7 +31,7 @@ import { validateRateLimitAndBudgetRules, validateRoutingRules } from "@/lib/uti
 import { normalizeRoutingRuleGroupQuery } from "@/lib/utils/routingRuleGroupQuery";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { Plus, Trash2, X } from "lucide-react";
-import { lazy, Suspense, useCallback, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useForm } from "react-hook-form";
 import { RuleGroupType } from "react-querybuilder";
 import { toast } from "sonner";
@@ -65,11 +65,24 @@ export function RoutingRuleSheet({ open, onOpenChange, editingRule, onSuccess }:
 	const rules = rulesData?.rules || [];
 	const { data: providersData = [] } = useGetProvidersQuery();
 	const { data: allKeysData = [] } = useGetAllKeysQuery();
-	const { data: vksData = { virtual_keys: [] } } = useGetVirtualKeysQuery();
-	const { data: teamsData = { teams: [], count: 0, total_count: 0, limit: 0, offset: 0 } } = useGetTeamsQuery();
-	const { data: customersData = { customers: [] } } = useGetCustomersQuery();
+	const { data: vksData } = useGetVirtualKeysQuery();
+	const { data: teamsData } = useGetTeamsQuery();
+	const { data: customersData } = useGetCustomersQuery();
 	const [createRoutingRule, { isLoading: isCreating }] = useCreateRoutingRuleMutation();
 	const [updateRoutingRule, { isLoading: isUpdating }] = useUpdateRoutingRuleMutation();
+
+	const virtualKeys = useMemo(
+		() => (Array.isArray(vksData?.virtual_keys) ? vksData.virtual_keys : []),
+		[vksData],
+	);
+	const teams = useMemo(
+		() => (Array.isArray(teamsData?.teams) ? teamsData.teams : []),
+		[teamsData],
+	);
+	const customers = useMemo(
+		() => (Array.isArray(customersData?.customers) ? customersData.customers : []),
+		[customersData],
+	);
 
 	// State for targets and query (managed outside react-hook-form for complex nested structures)
 	const [targets, setTargets] = useState<RoutingTargetFormData[]>([{ ...DEFAULT_ROUTING_TARGET }]);
@@ -376,36 +389,36 @@ export function RoutingRuleSheet({ open, onOpenChange, editingRule, onSuccess }:
 								<Label htmlFor="scope_id">
 									{scope === "team" ? "Team" : scope === "customer" ? "Customer" : "Virtual Key"} <span className="text-red-500">*</span>
 								</Label>
-								{scope === "team" && teamsData.teams.length > 0 && (
+								{scope === "team" && teams.length > 0 && (
 									<ComboboxSelect
-										options={teamsData.teams.map((team) => ({ label: team.name, value: team.id }))}
+										options={teams.map((team) => ({ label: team.name || team.id || "Unnamed Team", value: team.id }))}
 										value={scopeId || null}
 										onValueChange={(value) => setValue("scope_id", value ?? "")}
 										placeholder="Select a team..."
 										noPortal
 									/>
 								)}
-								{scope === "customer" && customersData.customers.length > 0 && (
+								{scope === "customer" && customers.length > 0 && (
 									<ComboboxSelect
-										options={customersData.customers.map((customer) => ({ label: customer.name, value: customer.id }))}
+										options={customers.map((customer) => ({ label: customer.name || customer.id || "Unnamed Customer", value: customer.id }))}
 										value={scopeId || null}
 										onValueChange={(value) => setValue("scope_id", value ?? "")}
 										placeholder="Select a customer..."
 										noPortal
 									/>
 								)}
-								{scope === "virtual_key" && vksData.virtual_keys.length > 0 && (
+								{scope === "virtual_key" && virtualKeys.length > 0 && (
 									<ComboboxSelect
-										options={vksData.virtual_keys.map((vk) => ({ label: vk.name, value: vk.id }))}
+										options={virtualKeys.map((vk) => ({ label: vk.name || vk.id || "Unnamed Key", value: vk.id }))}
 										value={scopeId || null}
 										onValueChange={(value) => setValue("scope_id", value ?? "")}
 										placeholder="Select a virtual key..."
 										noPortal
 									/>
 								)}
-								{((scope === "team" && teamsData.teams.length === 0) ||
-									(scope === "customer" && customersData.customers.length === 0) ||
-									(scope === "virtual_key" && vksData.virtual_keys.length === 0)) && (
+								{((scope === "team" && teams.length === 0) ||
+									(scope === "customer" && customers.length === 0) ||
+									(scope === "virtual_key" && virtualKeys.length === 0)) && (
 									<p className="text-muted-foreground text-sm">
 										No {scope === "team" ? "teams" : scope === "customer" ? "customers" : "virtual keys"} available
 									</p>
