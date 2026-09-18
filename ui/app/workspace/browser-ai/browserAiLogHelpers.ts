@@ -68,7 +68,13 @@ export function logHasStoredAttachment(log: BrowserAILogEntry | null | undefined
 export function logUserCaption(log: BrowserAILogEntry): string {
 	const meta = parseBrowserAiLogMetadata(log);
 	const fromMeta = typeof meta.user_caption === "string" ? meta.user_caption.trim() : "";
-	if (fromMeta && fromMeta.length <= 2000) return fromMeta;
+	if fromMeta && fromMeta.length <= 2000) {
+		if (/^(asset_pointer|image_asset_pointer|audio_asset_pointer|content_type|file_id)$/i.test(fromMeta)) {
+			/* wire junk — fall through */
+		} else {
+			return fromMeta;
+		}
+	}
 
 	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
 	const pipe = full.indexOf(" | ");
@@ -79,6 +85,7 @@ export function logUserCaption(log: BrowserAILogEntry): string {
 	// Ignore if after looks like another file status line
 	if (!after || after.startsWith("[FILE") || after.startsWith("[VOICE")) return "";
 	if (/^attachment(-\d+)?$/i.test(after)) return "";
+	if (/^(asset_pointer|image_asset_pointer|audio_asset_pointer|content_type|file_id)$/i.test(after)) return "";
 	return after.slice(0, 500);
 }
 

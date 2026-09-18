@@ -626,12 +626,27 @@ def _extract_file_send_user_caption(
     Pull the short typed chat text that accompanies a file Send (Claude/Gemini/ChatGPT).
     Must not return PDF/doc dumps or filename-only tokens.
     """
+    # ChatGPT multimodal JSON keys often get scraped as "captions" (e.g. asset_pointer).
+    _WIRE_CAPTION_REJECT = frozenset({
+        "asset_pointer", "content_type", "file_id", "mime_type", "multimodal_text",
+        "text", "parts", "author", "role", "user", "assistant", "system", "tool",
+        "image_asset_pointer", "audio_asset_pointer", "file", "files", "attachments",
+        "sediment", "name", "size", "width", "height", "id", "type", "model",
+    })
+
     candidates: list[str] = []
 
     def _accept(got: str) -> None:
         t = (got or "").strip()
         if not t or len(t) > 50_000:
             return
+        low = t.lower()
+        if low in _WIRE_CAPTION_REJECT:
+            return
+        if low.endswith("_pointer") or low.endswith("_id") or low.endswith("_type"):
+            return
+        if re.fullmatch(r"[a-z][a-z0-9_]{2,40}", low) and "_" in low:
+            return  # snake_case schema keys, not typed chat
         if not looks_like_user_prompt(t):
             return
         if _looks_like_document_body_dump(t):
@@ -715,8 +730,13 @@ def _extract_file_send_user_caption(
             except Exception:
                 t = sm.group(1).replace("\\n", "\n").replace('\\"', '"')
             t = (t or "").strip()
-            # Skip file ids / pointers / mime junk
+            # Skip file ids / pointers / mime junk / JSON key names
             if not t or t.startswith(("file-", "sediment://", "file-service://", "http")):
+                continue
+            if t.lower() in (
+                "asset_pointer", "image_asset_pointer", "audio_asset_pointer",
+                "content_type", "file_id", "mime_type", "multimodal_text",
+            ):
                 continue
             if "." in t and len(t) < 180 and re.search(r"\.[A-Za-z0-9]{2,5}$", t):
                 continue  # filename-looking token
