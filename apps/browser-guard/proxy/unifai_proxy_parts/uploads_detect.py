@@ -204,7 +204,7 @@ def extract_all_attachment_filenames_from_send(raw_text: str) -> list[str]:
         for am in re.finditer(arr_pat, raw_text, re.I):
             block = am.group(1) or ""
             for m in re.finditer(
-                r'["\'](?:file_name|fileName|filename|original_name|originalName|name|title|display_name)["\']\s*:\s*["\']([^"\']+)["\']',
+                r'["\'](?:file_name|fileName|filename|original_name|originalName|original_filename|originalFilename|display_name|displayName|name|title)["\']\s*:\s*["\']([^"\']+)["\']',
                 block,
                 re.I,
             ):
@@ -254,6 +254,42 @@ def lookup_upload_filename(file_id: str) -> str:
             got = _FILE_ID_NAME_REGISTRY.get(fid[5:]) or ""
         if not got and not fid.startswith("file-"):
             got = _FILE_ID_NAME_REGISTRY.get("file-" + fid) or ""
+    return got if _is_real_user_upload_name(got) else ""
+
+
+# Content fingerprint → real filename (Gemini/ChatGPT/Copilot/DeepSeek nameless re-upload).
+_CONTENT_HASH_NAME_REGISTRY: dict[str, str] = {}
+_CONTENT_HASH_NAME_LOCK = threading.Lock()
+_CONTENT_HASH_NAME_MAX = 400
+
+
+def _bytes_name_fingerprint(raw: bytes) -> str:
+    if not raw:
+        return ""
+    head = raw[:8192]
+    tail = raw[-2048:] if len(raw) > 8192 else b""
+    return f"{len(raw)}|{hash(head)}|{hash(tail)}"
+
+
+def remember_upload_name_by_bytes(raw: bytes, name: str) -> None:
+    got = _sanitize_upload_filename(name or "")
+    if not got or not _is_real_user_upload_name(got):
+        return
+    key = _bytes_name_fingerprint(raw or b"")
+    if not key:
+        return
+    with _CONTENT_HASH_NAME_LOCK:
+        _CONTENT_HASH_NAME_REGISTRY[key] = got
+        while len(_CONTENT_HASH_NAME_REGISTRY) > _CONTENT_HASH_NAME_MAX:
+            _CONTENT_HASH_NAME_REGISTRY.pop(next(iter(_CONTENT_HASH_NAME_REGISTRY)), None)
+
+
+def lookup_upload_name_by_bytes(raw: bytes) -> str:
+    key = _bytes_name_fingerprint(raw or b"")
+    if not key:
+        return ""
+    with _CONTENT_HASH_NAME_LOCK:
+        got = _CONTENT_HASH_NAME_REGISTRY.get(key) or ""
     return got if _is_real_user_upload_name(got) else ""
 
 
@@ -337,10 +373,38 @@ def _prefer_named_upload(a: dict, b: dict) -> dict:
         return a
     if b_real and not a_real:
         return b
-    # Same class — prefer longer / more specific name
+    ar = a.get("raw_bytes") or b""
+    br = b.get("raw_bytes") or b""
+    if isinstance(ar, (bytes, bytearray)) and isinstance(br, (bytes, bytearray)):
+        if len(br) > len(ar) + 64:
+            return b
+        if len(ar) > len(br) + 64:
+            return a
     if len(an) >= len(bn):
         return a
     return b
+
+
+def _dedupe_cached_uploads_by_bytes(cached_list: list[dict]) -> list[dict]:
+    """One row per distinct file bytes — ChatGPT often caches the same PNG 3× with real names."""
+    if not cached_list or len(cached_list) <= 1:
+        return cached_list
+    by_fp: dict[str, dict] = {}
+    no_fp: list[dict] = []
+    for e in cached_list:
+        fp = _upload_content_fingerprint(e)
+        if not fp or fp.startswith("empty|"):
+            raw = e.get("raw_bytes") or b""
+            if isinstance(raw, (bytes, bytearray)) and len(raw) < 96:
+                continue
+            no_fp.append(e)
+            continue
+        prev = by_fp.get(fp)
+        by_fp[fp] = e if prev is None else _prefer_named_upload(prev, e)
+    out = list(by_fp.values())
+    if out:
+        return out
+    return no_fp or cached_list
 
 
 def _trim_phantom_upload_caches(
@@ -348,25 +412,13 @@ def _trim_phantom_upload_caches(
     raw_text: str = "",
     caption: str = "",
 ) -> list[dict]:
-    """Drop ChatGPT/Gemini caption phantoms (extra document-N / attachment rows).
-
-    When the user types a caption with multi-file Send, those sites often leave an
-    extra cached blob with only a generated name. Keep real-named files first;
-    fall back to Send body filename count; never invent a second document row.
-    """
-    if not cached_list or len(cached_list) <= 1:
+    """Drop caption phantoms / duplicate caches on ANY Target Website."""
+    if not cached_list:
         return cached_list
 
-    # Same bytes under IOB DOC.pdf + document.pdf → keep the real name only.
-    by_fp: dict[str, dict] = {}
-    for e in cached_list:
-        fp = _upload_content_fingerprint(e)
-        prev = by_fp.get(fp)
-        by_fp[fp] = e if prev is None else _prefer_named_upload(prev, e)
-    if len(by_fp) < len(cached_list):
-        cached_list = list(by_fp.values())
-        if len(cached_list) <= 1:
-            return cached_list
+    cached_list = _dedupe_cached_uploads_by_bytes(cached_list)
+    if len(cached_list) <= 1:
+        return cached_list
 
     send_names = [
         n for n in extract_all_attachment_filenames_from_send(raw_text or "")
@@ -377,45 +429,37 @@ def _trim_phantom_upload_caches(
 
     if send_names:
         target = len(send_names)
-        if len(realish) >= target:
-            return realish[:target]
-        if realish:
-            need = max(target - len(realish), 0)
-            return realish + fakeish[:need]
-        return cached_list[:target]
+        uniq_real: list[dict] = []
+        seen_names: set[str] = set()
+        for e in realish:
+            nk = ((e.get("file_name") or "").strip()).lower()
+            if nk and nk in seen_names:
+                continue
+            if nk:
+                seen_names.add(nk)
+            uniq_real.append(e)
+        if len(uniq_real) >= target:
+            return uniq_real[:target]
+        if uniq_real:
+            need = max(target - len(uniq_real), 0)
+            return uniq_real + fakeish[:need]
+        return _dedupe_cached_uploads_by_bytes(cached_list)[:target]
 
-    # No Send filenames — but we already have ≥1 real name: drop leftover placeholders
-    # (classic Gemini/ChatGPT "attachment" + "document-2.pdf" pair with caption text).
     if realish and fakeish:
-        return realish
+        return _dedupe_cached_uploads_by_bytes(realish)
 
-    # All placeholders + typed caption: keep distinct byte payloads only (drop dupes /
-    # tiny caption wrappers). Prefer larger blobs — real docs beat empty shells.
-    if (caption or "").strip() and fakeish and len(cached_list) > 1:
-        by_hash: dict[str, dict] = {}
-        for e in cached_list:
-            raw = e.get("raw_bytes") or b""
-            if not isinstance(raw, (bytes, bytearray)):
-                raw = b""
-            key = f"{len(raw)}|{hash(bytes(raw[:4096]) if raw else b'')}"
-            prev = by_hash.get(key)
-            if prev is None or len(raw) >= len(prev.get("raw_bytes") or b""):
-                by_hash[key] = e
-        uniq = list(by_hash.values())
-        if len(uniq) < len(cached_list):
-            cached_list = uniq
-        # Drop tiny shells (<2KB) when a larger sibling exists — caption wrappers.
+    if (caption or "").strip() and len(cached_list) > 1:
         large = [
             e for e in cached_list
-            if len(e.get("raw_bytes") or b"") >= 2048
+            if len(e.get("raw_bytes") or b"") >= 512
         ]
-        if large and len(large) < len(cached_list):
-            return large
+        if large:
+            return _dedupe_cached_uploads_by_bytes(large)
     return cached_list
 
 
 def _bind_real_filenames_to_cached_uploads(cached_list: list[dict], raw_text: str) -> list[dict]:
-    """Attach real names from the Send body onto cached uploads (ChatGPT often omits name at upload)."""
+    """Attach real names from Send body / registries onto cached uploads (any Target)."""
     if not cached_list:
         return cached_list
     id_map = extract_file_id_name_map(raw_text or "")
@@ -428,16 +472,37 @@ def _bind_real_filenames_to_cached_uploads(cached_list: list[dict], raw_text: st
     for entry in cached_list:
         cur = (entry.get("file_name") or "").strip()
         fid = (entry.get("file_id") or "").strip()
+        raw = entry.get("raw_bytes") or b""
+        if not isinstance(raw, (bytes, bytearray)):
+            raw = b""
+        if not _is_real_user_upload_name(cur) and raw:
+            by_bytes = lookup_upload_name_by_bytes(bytes(raw))
+            if by_bytes:
+                entry["file_name"] = by_bytes
+                cur = by_bytes
         if fid and fid in id_map and _is_real_user_upload_name(id_map[fid]):
             entry["file_name"] = id_map[fid]
             used_names.add(id_map[fid].lower())
+            if raw:
+                remember_upload_name_by_bytes(bytes(raw), id_map[fid])
             continue
         if fid.startswith("file-") and fid[5:] in id_map and _is_real_user_upload_name(id_map[fid[5:]]):
             entry["file_name"] = id_map[fid[5:]]
             used_names.add(id_map[fid[5:]].lower())
+            if raw:
+                remember_upload_name_by_bytes(bytes(raw), id_map[fid[5:]])
             continue
+        if fid and not _is_real_user_upload_name(cur):
+            remembered = lookup_upload_filename(fid)
+            if remembered:
+                entry["file_name"] = remembered
+                cur = remembered
+                if raw:
+                    remember_upload_name_by_bytes(bytes(raw), remembered)
         if _is_real_user_upload_name(cur):
             used_names.add(cur.lower())
+            if raw:
+                remember_upload_name_by_bytes(bytes(raw), cur)
 
     unused = [n for n in send_names if n.lower() not in used_names]
     ui = 0
@@ -447,14 +512,15 @@ def _bind_real_filenames_to_cached_uploads(cached_list: list[dict], raw_text: st
             continue
         if ui < len(unused):
             entry["file_name"] = unused[ui]
+            raw = entry.get("raw_bytes") or b""
+            if isinstance(raw, (bytes, bytearray)) and raw:
+                remember_upload_name_by_bytes(bytes(raw), unused[ui])
             used_names.add(unused[ui].lower())
             ui += 1
             continue
-        # Leave placeholders as-is (still fake). Display naming happens later —
-        # promoting to document-2.pdf here made phantoms look like real files.
         if _is_fake_upload_name(cur) or not cur:
             entry["file_name"] = cur or f"attachment-{i + 1}"
-    return cached_list
+    return _dedupe_cached_uploads_by_bytes(cached_list)
 
 
 def _display_label_for_upload(name: str, raw: bytes, content_type: str = "") -> str:
@@ -936,13 +1002,20 @@ def cache_upload_file(
     if _is_fake_upload_name(final_name) or "." not in final_name:
         sniffed = _sniff_upload_content_type(stored, final_name, final_ct)
         final_ct = sniffed or final_ct
-        if file_id:
+        by_bytes = lookup_upload_name_by_bytes(stored)
+        if by_bytes:
+            final_name = by_bytes
+        elif file_id:
             final_name = final_name if final_name else "attachment"
         else:
             # Prefer sticky placeholder over document-N.pdf phantoms in Prompt Logs.
             final_name = "attachment" if _is_fake_upload_name(final_name) or not final_name else final_name
             if not _is_real_user_upload_name(final_name):
                 final_name = "attachment"
+    if _is_real_user_upload_name(final_name):
+        remember_upload_name_by_bytes(stored, final_name)
+        if file_id:
+            remember_upload_filename(file_id, final_name)
     entry = {
         "ts": time.time(),
         "domain": domain,
@@ -1515,7 +1588,7 @@ def take_all_cached_uploads_for_send(
                 if latest and (now - float(latest.get("ts") or 0)) <= _UPLOAD_LATEST_MATCH_TTL:
                     add_entry(latest)
                     _remove_cache_keys_for_entry(latest, aliases)
-    return found
+    return _dedupe_cached_uploads_by_bytes(found)
 
 
 def take_recent_confident_caches_for_send(domain: str) -> list[dict]:
@@ -1557,7 +1630,7 @@ def take_recent_confident_caches_for_send(domain: str) -> list[dict]:
                 seen.add(uid)
                 out.append(entry)
                 _remove_cache_keys_for_entry(entry, aliases)
-    return out
+    return _dedupe_cached_uploads_by_bytes(out)
 
 
 def _scan_upload_for_rules(

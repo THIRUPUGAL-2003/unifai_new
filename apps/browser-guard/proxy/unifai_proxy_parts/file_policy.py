@@ -257,11 +257,10 @@ def enforce_file_send_policy(
         )
     except Exception:
         caption = ""
-    # ChatGPT / Copilot / Perplexity / Gemini: typed note often lives in composer
-    # traffic (or a sibling POST), not in the file Send JSON — join like Claude.
+    # Any Target: typed note often lives in composer traffic — join like Claude.
     if not (caption or "").strip():
         try:
-            caption = peek_recent_composer_caption(domain) or ""
+            caption = peek_recent_composer_caption(domain, max_age=45.0) or ""
         except Exception:
             caption = ""
         if caption:
@@ -269,14 +268,26 @@ def enforce_file_send_policy(
                 f"[UnifAI Proxy] FILE CAPTION from composer | {domain} | "
                 f"{caption[:80]!r}"
             )
+    if not (caption or "").strip():
+        try:
+            from_body = extract_prompt_universal(
+                (raw_text or "").encode("utf-8", errors="ignore"),
+                content_type or "",
+                host,
+                url,
+            )
+            if from_body and looks_like_user_prompt(from_body) and not _looks_like_filename_only(from_body):
+                if not _looks_like_document_body_dump(from_body) and not _is_opaque_wire_blob(from_body):
+                    caption = from_body.strip()
+        except Exception:
+            pass
 
-    # Any Target Website (ChatGPT/Gemini/Claude/new domain): drop caption phantoms
-    # like document-2.pdf / attachment extras; keep real names + caption text.
     cached_list = _trim_phantom_upload_caches(
         cached_list,
         raw_text or "",
         caption or "",
     )
+    cached_list = _dedupe_cached_uploads_by_bytes(cached_list)
 
     get_control_settings()
     block_all = controls_active("block_upload")
@@ -306,7 +317,6 @@ def enforce_file_send_policy(
                 suffix = f" {i + 1}" if n_cached > 1 else ""
                 fname = f"Voice Note{suffix}"
         elif _is_fake_upload_name(fname) or not fname:
-            # Prefer Send-body real names by index — never show document-2.pdf as the "prompt"
             send_real = [
                 n for n in extract_all_attachment_filenames_from_send(raw_text or "")
                 if _is_real_user_upload_name(n)
@@ -314,14 +324,25 @@ def enforce_file_send_policy(
             if i < len(send_real):
                 fname = send_real[i]
             else:
-                # Keep "attachment" rather than inventing document-N.pdf (Gemini/ChatGPT).
-                # UI still shows paperclip; real name may be missing from this wire.
-                fname = (fname or "").strip() or "attachment"
-                if _is_fake_upload_name(fname) or fname.lower() in ("document", "document.pdf"):
-                    fname = "attachment"
-                if n_cached > 1 and fname == "attachment":
-                    fname = f"attachment-{i + 1}"
+                by_bytes = ""
+                try:
+                    by_bytes = lookup_upload_name_by_bytes(bytes(cached_bytes))
+                except Exception:
+                    by_bytes = ""
+                if by_bytes:
+                    fname = by_bytes
+                else:
+                    fname = (fname or "").strip() or "attachment"
+                    if _is_fake_upload_name(fname) or fname.lower() in ("document", "document.pdf"):
+                        fname = "attachment"
+                    if n_cached > 1 and fname == "attachment":
+                        fname = f"attachment-{i + 1}"
             cached["file_name"] = fname
+            if _is_real_user_upload_name(fname) and cached_bytes:
+                try:
+                    remember_upload_name_by_bytes(bytes(cached_bytes), fname)
+                except Exception:
+                    pass
         display_label = _display_label_for_upload(fname, bytes(cached_bytes), cached_ct)
         if is_audio and display_label.lower() in ("document", "document.pdf", "attachment", "audio.bin"):
             suffix = f" {i + 1}" if n_cached > 1 else ""
@@ -335,10 +356,26 @@ def enforce_file_send_policy(
             "cached": cached,
         })
 
-    # Never log document.pdf / attachment phantoms alongside a real user filename.
-    real_prep = [p for p in prepared if _is_real_user_upload_name(p.get("store_name") or p.get("file_label") or "")]
-    if real_prep and len(real_prep) < len(prepared):
-        prepared = real_prep
+    # ALWAYS one row per distinct bytes (even when all have real names).
+    unique_prep: list[dict] = []
+    seen_fps: set[str] = set()
+    seen_names: set[str] = set()
+    for p in prepared:
+        b = p.get("cached_bytes") or b""
+        fp = _bytes_name_fingerprint(b)
+        lbl = (p.get("store_name") or p.get("file_label") or "").strip()
+        lbl_key = lbl.lower()
+        if fp and fp in seen_fps:
+            continue
+        if lbl_key and _is_real_user_upload_name(lbl) and lbl_key in seen_names and (not b or len(b) < 96):
+            continue
+        if fp:
+            seen_fps.add(fp)
+        if lbl_key and _is_real_user_upload_name(lbl):
+            seen_names.add(lbl_key)
+        unique_prep.append(p)
+    if unique_prep:
+        prepared = unique_prep
         n_cached = len(prepared)
 
     def _scan_one(prep: dict) -> dict:
@@ -514,8 +551,8 @@ def enforce_file_send_policy(
         redact_notice = _redact_notice_for_rule(redact_rule)
 
     n_files = len(file_rows)
-    # Prompt Logs format: realname.pdf | typed caption  (UI shows name -- text)
-    caption_bit = f" | {caption}" if caption else ""
+    # Prompt Logs format: realname.pdf -- typed caption  (Claude-style, all Targets)
+    caption_bit = f" -- {caption}" if caption else ""
 
     for idx, row in enumerate(file_rows):
         tag = _upload_log_tag(row["file_label"], row["cached_ct"], row["cached_bytes"])
@@ -625,7 +662,7 @@ def enforce_file_send_policy(
         # Do not block the chat Send on Prompt Log upload — fire-and-forget.
         threading.Thread(target=_post_row, daemon=True, name="unifai-file-log").start()
 
-    return should_block, block_msg, redact_notice, n_files, bool(caption)
+    return should_block, block_msg, redact_notice, n_files, bool(caption) or n_files > 0
 
 
 def _extract_file_send_user_caption(

@@ -794,16 +794,7 @@ class BrowserAIInterceptor:
             if blocked:
                 return
             if n_processed > 0:
-                # Caption already evaluated with files — avoid duplicate predict row.
-                # If caption was skipped (edge extract miss), still rule-check typed text.
-                if (
-                    not caption_consumed
-                    and has_prompt
-                    and peek_prompt
-                    and not _looks_like_document_body_dump(peek_prompt)
-                    and not _looks_like_filename_only(peek_prompt)
-                ):
-                    self._apply_http_prompt(flow, domain, platform, peek_prompt, client_ip, raw_text)
+                # File row(s) already logged with caption joined (Claude-style).
                 return
             # Cache miss with attachment markers: fall through so prompt + rules still run.
             print(
@@ -842,8 +833,7 @@ class BrowserAIInterceptor:
             )
             if blocked:
                 return
-            if n_processed > 0 and caption_consumed:
-                # Combined multi-file+caption already predicted — skip duplicate text path.
+            if n_processed > 0:
                 return
             # If no cache processed, continue so prompt evaluate can still block.
 
@@ -894,6 +884,17 @@ class BrowserAIInterceptor:
                         return
                 else:
                     prompt = stable
+        elif len(prompt.strip()) <= 48 and is_composer_typing_draft(domain, prompt):
+            # ChatGPT/Gemini often mark keystroke bodies "confident" — still coalesce.
+            stable = wait_if_composer_unstable(domain, prompt)
+            if stable is None:
+                with _composer_lock:
+                    _fallback = _composer_draft.get(domain)
+                prompt = (_fallback[0] or prompt).strip() if _fallback else prompt
+                if not prompt:
+                    return
+            else:
+                prompt = stable
 
 
         # Collapse browser double-fire — MUST still enforce the same guard decision
@@ -1118,9 +1119,9 @@ class BrowserAIInterceptor:
                         pass
                 inject_websocket_reply(flow, host, file_block_msg)
                 return
-            if n_processed > 0 and caption_consumed:
+            if n_processed > 0:
                 return
-            # Cache miss OR files without caption: fall through so typed text still gets rules.
+            # Cache miss: fall through so typed text still gets rules.
 
         # Copilot/Edge image or file frames must not fall through as garbled text prompts.
         if (

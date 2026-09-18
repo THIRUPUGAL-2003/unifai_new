@@ -1,11 +1,11 @@
-UnifAI Guard Windows install (v1.1)
+UnifAI Guard Windows install (v1.1.2)
 ===================================
 1. Close previous UnifAI Guard if running (taskkill /im UnifAI_Guard.exe /f).
-2. Prefer UnifAI_Guard.exe from this ZIP (must match VERSION.txt = 1.1).
-3. Open http://127.0.0.1:18085/ — version must show 1.1, proxy_port OK.
-4. Guard Agents UI → Active row must show Version 1.1 (not 1.6.0).
+2. Prefer UnifAI_Guard.exe from this ZIP (must match VERSION.txt = 1.1.2).
+3. Open http://127.0.0.1:18085/ — version must show 1.1.2, proxy_port OK.
+4. Guard Agents UI → Active row must show Version 1.1.2 (not 1.6.0).
 5. Fully quit Chrome/Edge (all windows) and reopen.
-6. Test Target Website + multi-file upload + text Send.
+6. Test Target Website + multi-file upload + text Send (expect: filename -- text).
 
 TURN OFF / UNINSTALL
 --------------------
