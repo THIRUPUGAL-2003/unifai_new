@@ -153,7 +153,7 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 	const { data: authStatus } = useIsAuthEnabledQuery();
 	const isUserRole = isPromptMemberRole(authStatus?.role);
 
-	// Members must run through an assigned Virtual Key (budget/team metering).
+	// Members prefer an assigned Virtual Key when present; otherwise Auto (provider keys).
 	const { data: virtualKeysData } = useGetVirtualKeysQuery(undefined, { skip: !isUserRole });
 	const assignedMemberVkValue = useMemo(() => {
 		if (!isUserRole) return "";
@@ -590,11 +590,9 @@ export function PromptProvider({ children }: { children: ReactNode }) {
 					activeRunRef.current = null;
 					return;
 				}
-				if (!execApiKeyId || execApiKeyId === "__auto__") {
-					toast.error("No Virtual Key assigned. Ask your admin to assign a Virtual Key to your user.");
-					setIsStreaming(false);
-					activeRunRef.current = null;
-					return;
+				// No assigned VK: run with Auto (server provider keys), same as admin Auto.
+				if (!execApiKeyId) {
+					execApiKeyId = "__auto__";
 				}
 			}
 

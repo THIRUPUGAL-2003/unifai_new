@@ -24,6 +24,7 @@ export function NewMessageInputView() {
 		requiredHeaders,
 		customHeaders,
 		setVariables,
+		selectedPrompt,
 	} = usePromptContext();
 	const [userInput, setUserInput] = useState("");
 	const [inputRole, setInputRole] = useState<string>("user");
@@ -36,6 +37,12 @@ export function NewMessageInputView() {
 	);
 
 	const canAttach = inputRole === "user";
+
+	const committed = selectedPrompt?.latest_version;
+	const canRun = !!(
+		(provider && model) ||
+		(committed?.provider && committed?.model)
+	);
 
 	const handleAddAttachments = useCallback((newAttachments: MessageContent[]) => {
 		setAttachments((prev) => [...prev, ...newAttachments]);
@@ -69,10 +76,10 @@ export function NewMessageInputView() {
 		setTimeout(() => userInputRef.current?.focus(), 0);
 	}, [userInput, attachments, isStreaming, inputRole, onUpdateMessages, setVariables]);
 
-	const canRun = !!(provider && model);
-
 	const handleRun = useCallback(async () => {
-		if (isStreaming || !provider || !model) return;
+		const effectiveProvider = provider || committed?.provider;
+		const effectiveModel = model || committed?.model;
+		if (isStreaming || !effectiveProvider || !effectiveModel) return;
 		if (missingRequiredHeaders.length > 0) {
 			toast.error("Fill required headers in Settings before running", {
 				description: missingRequiredHeaders.join(", "),
@@ -99,7 +106,7 @@ export function NewMessageInputView() {
 		setTimeout(() => {
 			userInputRef.current?.focus();
 		}, 100);
-	}, [userInput, attachments, isStreaming, inputRole, onSendMessage, provider, model, missingRequiredHeaders]);
+	}, [userInput, attachments, isStreaming, inputRole, onSendMessage, provider, model, committed, missingRequiredHeaders]);
 
 	const handleKeyDown = useCallback(
 		(e: React.KeyboardEvent) => {
@@ -288,7 +295,7 @@ export function NewMessageInputView() {
 								</Button>
 							</TooltipTrigger>
 							<TooltipContent side="top">
-								{!canRun ? <span>Select a provider and model to run</span> : <span>Run prompt</span>}
+								{!canRun ? <span>Select a prompt with a committed model to run</span> : <span>Run prompt</span>}
 								<kbd className="bg-primary-foreground/20 ml-1.5 rounded px-1 py-0.5 font-mono text-[10px]">↵</kbd>
 							</TooltipContent>
 						</Tooltip>

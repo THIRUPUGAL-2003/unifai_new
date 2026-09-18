@@ -747,10 +747,11 @@ func isWorkspaceAdminRole(role string) bool {
 	return role == "admin"
 }
 
-// enrichInferenceFromDashboardSession stamps user_id/user_name and binds the member's
-// assigned Virtual Key onto /v1 requests that arrive with a dashboard session cookie.
-// External API callers without a session cookie are unchanged.
-// Returns a non-empty error message when a non-admin member must be blocked.
+// enrichInferenceFromDashboardSession stamps user_id/user_name and, when a member
+// has an assigned Virtual Key, binds it onto /v1 requests that arrive with a
+// dashboard session cookie. External API callers without a session cookie are unchanged.
+// Members with no assigned VK are allowed through (Auto / configured provider keys).
+// Returns a non-empty error message when the member must be blocked.
 func (m *AuthMiddleware) enrichInferenceFromDashboardSession(ctx *fasthttp.RequestCtx) string {
 	if m == nil || m.store == nil {
 		return ""
@@ -801,8 +802,15 @@ func (m *AuthMiddleware) enrichInferenceFromDashboardSession(ctx *fasthttp.Reque
 	if err != nil {
 		return "Failed to resolve assigned Virtual Key. Contact your admin."
 	}
+	// No VK assigned: allow Prompt Repo via Auto / configured provider keys.
+	// Strip any client-supplied VK so members cannot use a foreign key.
 	if len(links) == 0 {
-		return "No Virtual Key assigned. Ask your admin to assign a Virtual Key before using Prompt Repository."
+		if existingVK := governance.ParseVirtualKeyFromFastHTTPRequest(ctx); existingVK != nil && *existingVK != "" {
+			ctx.Request.Header.Del("Authorization")
+			ctx.Request.Header.Del("x-uf-vk")
+			ctx.Request.Header.Del("x-api-key")
+		}
+		return ""
 	}
 
 	existingVK := governance.ParseVirtualKeyFromFastHTTPRequest(ctx)
@@ -836,7 +844,7 @@ func (m *AuthMiddleware) enrichInferenceFromDashboardSession(ctx *fasthttp.Reque
 		return ""
 	}
 
-	// Auto / no VK: force assigned Virtual Key so budget always ticks on the right meter.
+	// Auto / no VK header: force assigned Virtual Key so budget ticks on the right meter.
 	ctx.Request.Header.Set("Authorization", "Bearer "+firstValue)
 	return ""
 }
@@ -1074,9 +1082,9 @@ func (m *AuthMiddleware) tryTempTokenOrUnauthorized(ctx *fasthttp.RequestCtx, ne
 
 // InferenceMiddleware is for inference requests (including MCP routes).
 // It does not require dashboard auth, but when a session cookie is present it
-// stamps user_id and auto-binds the member's assigned Virtual Key so Prompt Repo
-// usage always hits the correct VK → Team → Customer budget chain.
-// Non-admin members with a session but no assigned VK are rejected (fail-closed).
+// stamps user_id and, if the member has an assigned Virtual Key, auto-binds it
+// so Prompt Repo usage hits the correct VK → Team → Customer budget chain.
+// Members with a session but no assigned VK may still run via Auto / provider keys.
 func (m *AuthMiddleware) InferenceMiddleware() schemas.UnifAIHTTPMiddleware {
 	return func(next fasthttp.RequestHandler) fasthttp.RequestHandler {
 		return func(ctx *fasthttp.RequestCtx) {
