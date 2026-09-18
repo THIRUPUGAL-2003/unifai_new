@@ -68,7 +68,7 @@ export function logHasStoredAttachment(log: BrowserAILogEntry | null | undefined
 export function logUserCaption(log: BrowserAILogEntry): string {
 	const meta = parseBrowserAiLogMetadata(log);
 	const fromMeta = typeof meta.user_caption === "string" ? meta.user_caption.trim() : "";
-	if fromMeta && fromMeta.length <= 2000) {
+	if (fromMeta && fromMeta.length <= 2000) {
 		if (/^(asset_pointer|image_asset_pointer|audio_asset_pointer|content_type|file_id)$/i.test(fromMeta)) {
 			/* wire junk — fall through */
 		} else {
