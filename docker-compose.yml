@@ -1,6 +1,7 @@
 services:
-  # Employees: Guard EXE on each laptop (local :8085) AND/OR shared network proxy below.
-  # Both report to the same Browser AI dashboard (Prompt Logs + Agents + shared rules).
+  # Employees: Guard EXE on each laptop (local :8085). Optional shared network proxy:
+  #   docker compose --profile network-proxy up -d unifai_broswer_proxy
+  # Both report to the same Browser AI dashboard when the network profile is enabled.
   # Secrets and environment-specific hosts MUST come from .env — no hardcoded fallbacks.
   zen_gauss_v1:
     build:
@@ -48,9 +49,13 @@ services:
       # /app/data/config.json — that breaks atomic rename saves (device or resource busy).
     restart: unless-stopped
 
-  # Shared/network Guard proxy — same UnifAI Browser AI dashboard as laptop EXE.
-  # Point office PAC/GPO to: https://<backend>/api/browser-ai/pac?proxy=<this-host>:8082
+  # Shared/network Guard proxy — OPTIONAL. Off by default (laptop Guard EXE is enough).
+  # Enable only when you need office PAC/GPO → shared proxy:
+  #   docker compose --profile network-proxy up -d unifai_broswer_proxy
+  # Point PAC to: https://<backend>/api/browser-ai/pac?proxy=<this-host>:8082
   unifai_broswer_proxy:
+    profiles:
+      - network-proxy
     image: mitmproxy/mitmproxy:latest
     container_name: unifai_broswer_proxy
     command: mitmdump -s /app/proxy/browser_ai_proxy.py -p ${PROXY_PORT:-8082} --set listen_host=0.0.0.0 --set block_global=false --set ssl_insecure=true --set ignore_hosts='^(localhost|127\.0\.0\.1|zen_gauss_v1)'

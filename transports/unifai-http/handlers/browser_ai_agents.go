@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"os"
 	"strconv"
 	"strings"
 
@@ -41,6 +42,20 @@ func (h *BrowserAIHandler) agentHeartbeat(ctx *fasthttp.RequestCtx) {
 	}
 	if strings.TrimSpace(body.ID) == "" {
 		SendError(ctx, fasthttp.StatusBadRequest, "agent id is required")
+		return
+	}
+	body.AgentType = logstore.NormalizeBrowserAIAgentType(body.AgentType)
+	host := strings.ToLower(strings.TrimSpace(body.Hostname))
+	// Laptop-only setups: drop shared network proxy heartbeats (corp-network-proxy)
+	// so they cannot reappear after admin delete. Opt back in with BROWSER_AI_ALLOW_NETWORK_AGENTS=1.
+	allowNetwork := strings.TrimSpace(os.Getenv("BROWSER_AI_ALLOW_NETWORK_AGENTS"))
+	allowNetworkOn := allowNetwork == "1" || strings.EqualFold(allowNetwork, "true") || strings.EqualFold(allowNetwork, "yes")
+	if !allowNetworkOn && (body.AgentType == "network" || host == "corp-network-proxy" || strings.HasPrefix(strings.ToLower(strings.TrimSpace(body.ID)), "network-")) {
+		SendJSON(ctx, map[string]any{
+			"status":  "ignored",
+			"reason":  "network agents disabled",
+			"command": "",
+		})
 		return
 	}
 	if strings.TrimSpace(body.IPAddress) == "" {

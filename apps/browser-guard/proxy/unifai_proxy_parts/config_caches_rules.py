@@ -80,7 +80,13 @@ def _agent_metadata_fields() -> dict:
 
 
 def _network_proxy_heartbeat_loop() -> None:
-    """Register the shared/server proxy on the same Agents dashboard as laptop Guards."""
+    """Register the shared/server proxy on the same Agents dashboard as laptop Guards.
+
+    Opt-in only: set UNIFAI_NETWORK_AGENT_REGISTER=1. Laptop Guard EXE never hits this
+    path. Default off so corp-network-proxy does not keep reappearing for laptop-only setups.
+    """
+    if (os.getenv("UNIFAI_NETWORK_AGENT_REGISTER") or "").strip().lower() not in ("1", "true", "yes", "on"):
+        return
     if not (UNIFAI_SERVER_MODE or UNIFAI_AGENT_TYPE == "network"):
         return
     if not UNIFAI_BACKEND_URL or not UNIFAI_AGENT_ID:
