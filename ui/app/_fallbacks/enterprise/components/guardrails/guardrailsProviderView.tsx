@@ -149,7 +149,7 @@ export default function GuardrailsProviderView() {
 		<div className="flex h-full flex-col gap-6 p-6">
 			<div className="flex items-center justify-between">
 				<div>
-					<h1 className="text-2xl font-bold tracking-tight">Guardrail Providers</h1>
+					<h1 className="text-2xl font-bold tracking-tight">Rule Providers</h1>
 					<p className="text-muted-foreground mt-1 text-sm">
 						Create regex scanner providers and attach them under{" "}
 						<a href="/workspace/guardrails/configuration" className="text-primary underline underline-offset-2">
@@ -180,7 +180,7 @@ export default function GuardrailsProviderView() {
 								<TableCell colSpan={4} className="text-muted-foreground h-32 text-center">
 									<div className="flex flex-col items-center justify-center">
 										<ShieldAlert className="text-muted-foreground/50 mb-2 h-8 w-8" />
-										<p>No guardrail providers configured yet.</p>
+										<p>No rule providers configured yet.</p>
 									</div>
 								</TableCell>
 							</TableRow>

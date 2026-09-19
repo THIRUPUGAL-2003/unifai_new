@@ -47,16 +47,40 @@ def _can_bind(host: str, port: int) -> bool:
             pass
 
 
+def _force_ipv4_name_resolution() -> None:
+    """Windows IPv6 is often broken (SYN_SENT hang). mitmproxy then never
+    finishes CONNECT → Chrome ERR_TIMED_OUT / 502 for ChatGPT, Gemini, etc.
+    Pin DNS to IPv4 in the MitM worker only.
+    """
+    if getattr(socket, "_unifai_ipv4_only", False):
+        return
+    orig = socket.getaddrinfo
+
+    def getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):  # noqa: A002
+        if family == socket.AF_INET6:
+            return orig(host, port, family, type, proto, flags)
+        try:
+            return orig(host, port, socket.AF_INET, type, proto, flags)
+        except OSError:
+            return orig(host, port, family, type, proto, flags)
+
+    socket.getaddrinfo = getaddrinfo  # type: ignore[assignment]
+    socket._unifai_ipv4_only = True  # type: ignore[attr-defined]
+
+
 def _run_mitmdump_inline(addon_script: str, listen_host: str, port: int) -> None:
     """Run mitmdump in THIS process (used by --mitm-worker child)."""
     from mitmproxy.tools.main import mitmdump
 
+    _force_ipv4_name_resolution()
+    print("[UnifAI Guard] MitM upstream DNS: IPv4 only (avoids broken IPv6 CONNECT hang).")
     args = [
         "--listen-host", listen_host,
         "-p", str(port),
         "-s", addon_script,
         "--set", "block_global=false",
         "--set", "ssl_insecure=true",
+        "--set", "upstream_cert=false",
     ]
     # mitmdump registers signal handlers; worker may be a child process (ok on main thread).
     _orig_signal = signal.signal
@@ -119,13 +143,11 @@ def run_proxy_server(addon_script: str, port: int = 8085) -> None:
 
     env = os.environ.copy()
     env["UNIFAI_MITM_WORKER"] = "1"
-    cmd = [
-        sys.executable,
-        "--mitm-worker",
-        addon_script,
-        str(port),
-        listen_host,
-    ]
+    if getattr(sys, "frozen", False):
+        cmd = [sys.executable, "--mitm-worker", addon_script, str(port), listen_host]
+    else:
+        agent_main = os.path.join(os.path.dirname(os.path.abspath(__file__)), "unifai_agent.py")
+        cmd = [sys.executable, agent_main, "--mitm-worker", addon_script, str(port), listen_host]
     print(f"[UnifAI Guard] Launching MitM Security Interceptor on {listen_host}:{port}...")
     proc = subprocess.Popen(
         cmd,

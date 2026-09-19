@@ -106,7 +106,7 @@ export const WORKSPACE_SECTIONS: readonly WorkspaceSection[] = [
 		defaultPath: "/workspace/guardrails",
 		items: [
 			{ key: "rules", label: "Rules", path: "/workspace/guardrails/configuration" },
-			{ key: "providers", label: "Providers", path: "/workspace/guardrails/providers" },
+			{ key: "providers", label: "Rule Providers", path: "/workspace/guardrails/providers" },
 			{ key: "cluster-config", label: "Cluster Config", path: "/workspace/cluster" },
 		],
 	},

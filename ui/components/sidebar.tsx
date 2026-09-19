@@ -858,10 +858,10 @@ export default function AppSidebar() {
 						hasAccess: hasGuardrailsConfigAccess,
 					},
 					{
-						title: "Providers",
+						title: "Rule Providers",
 						url: "/workspace/guardrails/providers",
 						icon: Boxes,
-						description: "Guardrail providers configuration",
+						description: "Rule providers configuration",
 						hasAccess: hasGuardrailsProvidersAccess,
 					},
 					{
