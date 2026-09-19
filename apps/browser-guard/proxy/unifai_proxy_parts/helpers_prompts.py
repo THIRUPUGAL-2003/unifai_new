@@ -23,6 +23,64 @@ def _is_anthropic_messages_api_shape(path: str, body: str) -> bool:
     return False
 
 
+def _is_unifai_inject_frame(body: str) -> bool:
+    """Frames Guard itself injected — never treat as a user Send."""
+    b = (body or "").lower()
+    return "unifai-reply" in b or '"messageid":"unifai-reply"' in b
+
+
+def _is_persistent_chat_websocket(path: str) -> bool:
+    """Long-lived chat sockets whose URL stays the same for pings AND Sends."""
+    path_l = (path or "").lower()
+    return any(
+        m in path_l
+        for m in (
+            "/c/api/chat",
+            "chathub",
+            "sydney",
+            "chatoverstream",
+            "turing/conversation",
+        )
+    )
+
+
+def _copilot_frame_is_user_send(body: str) -> bool:
+    """True only for a finished Copilot/Bing/Edge user Send frame — not attach-ack or ping."""
+    if not body or not str(body).strip():
+        return False
+    if _is_unifai_inject_frame(body):
+        return False
+    if is_event_sync_noise_content(body):
+        return False
+    bl = body.lower()
+    if '"event":"send"' in bl or '"event": "send"' in bl:
+        return True
+    if '"target":"chat"' in bl or '"target": "chat"' in bl:
+        return True
+    if ('"type":4' in bl or '"type": 4' in bl) and "chat" in bl:
+        return True
+    data = _loads_json_maybe_signalr(body)
+    if isinstance(data, dict) and _body_has_user_send_payload(data):
+        return True
+    if isinstance(data, list) and any(
+        isinstance(item, dict) and _body_has_user_send_payload(item) for item in data
+    ):
+        return True
+    # File-only Send (empty caption) still has a chat envelope + attachment refs.
+    if chat_carries_attachment(body) and any(
+        k in bl
+        for k in (
+            '"messagetype":"chat"',
+            '"role":"user"',
+            '"author":"user"',
+            '"conversationid"',
+            '"conversation_id"',
+        )
+    ):
+        return True
+    return False
+
+
 def is_event_sync_noise_content(content: str) -> bool:
     """Copilot SignalR / Sydney frames that are not a user chat submit."""
     if not content:
@@ -61,6 +119,49 @@ def _parse_signalr_frames(text: str) -> list:
     return out
 
 
+def _loads_json_maybe_signalr(text: str):
+    """Parse JSON, including Copilot/Bing SignalR frames terminated by 0x1e."""
+    if not text or not isinstance(text, str):
+        return None
+    raw = text.strip()
+    if not raw:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+    if "\x1e" not in raw:
+        return None
+    frames = _parse_signalr_frames(raw)
+    for frame in reversed(frames):
+        if isinstance(frame, (dict, list)):
+            return frame
+    try:
+        return json.loads(raw.replace("\x1e", "").strip())
+    except Exception:
+        return None
+
+
+def websocket_frame_text(msg) -> str:
+    """Decode a mitmproxy WebSocketMessage (text frame or binary UTF-8/JSON)."""
+    text = ""
+    try:
+        text = getattr(msg, "text", None) or ""
+    except Exception:
+        text = ""
+    if isinstance(text, str) and text.strip():
+        return text
+    content = getattr(msg, "content", None) or b""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, (bytes, bytearray)) and content:
+        try:
+            return bytes(content).decode("utf-8")
+        except Exception:
+            return bytes(content).decode("utf-8", errors="ignore")
+    return text if isinstance(text, str) else ""
+
+
 def extract_event_send_prompt(content: str) -> str:
     """Extract user-typed text from Copilot / Bing Sydney / Edge / M365 SignalR payloads."""
 
@@ -74,12 +175,30 @@ def extract_event_send_prompt(content: str) -> str:
             return got
         return ""
 
+    def _from_content_field(val) -> str:
+        if isinstance(val, str):
+            return _pick_text(val)
+        if isinstance(val, list):
+            got = _parts_to_text(val)
+            return got.strip() if got and looks_like_user_prompt(got) else ""
+        if isinstance(val, dict):
+            if isinstance(val.get("text"), str):
+                got = _pick_text(val.get("text") or "")
+                if got:
+                    return got
+            got = _parts_to_text(val.get("parts") or [val])
+            return got.strip() if got and looks_like_user_prompt(got) else ""
+        return ""
+
     def _from_message_dict(msg: dict) -> str:
         if not isinstance(msg, dict):
             return ""
         author = str(msg.get("author") or msg.get("role") or "").lower()
         if author and author not in ("user", "human", "customer", "client", "sender"):
             return ""
+        got = _from_content_field(msg.get("content"))
+        if got:
+            return got
         for key in ("text", "hiddenText", "rawText", "input", "query", "prompt", "utterance"):
             got = _pick_text(msg.get(key) or "")
             if got:
@@ -100,6 +219,9 @@ def extract_event_send_prompt(content: str) -> str:
                 got = _from_message_dict(arg.get("message") or {})
                 if got:
                     return got
+                got = _from_content_field(arg.get("content"))
+                if got:
+                    return got
                 for key in ("text", "query", "prompt", "rawUserQuery", "utterance", "userMessage"):
                     got = _pick_text(arg.get(key) or "")
                     if got:
@@ -110,6 +232,9 @@ def extract_event_send_prompt(content: str) -> str:
             got = _from_message_dict(obj.get("message") or {})
             if got:
                 return got
+            got = _from_content_field(obj.get("content"))
+            if got:
+                return got
             for key in ("text", "query", "prompt", "rawUserQuery", "utterance", "userMessage"):
                 got = _pick_text(obj.get(key) or "")
                 if got:
@@ -117,6 +242,9 @@ def extract_event_send_prompt(content: str) -> str:
             return ""
 
         got = _from_message_dict(obj.get("message") or {})
+        if got:
+            return got
+        got = _from_content_field(obj.get("content"))
         if got:
             return got
         for key in ("text", "query", "prompt", "rawUserQuery", "utterance", "userMessage", "input"):
@@ -447,11 +575,15 @@ def _body_has_user_send_payload(data) -> bool:
         if _body_has_user_send_payload(variables):
             return True
 
-    # Nested operation objects common in modern AIs
-    for nest_key in ("request", "input", "payload", "body", "args", "data", "params"):
+    # Nested operation objects common in modern AIs (incl. Copilot SignalR arguments)
+    for nest_key in ("request", "input", "payload", "body", "args", "data", "params", "arguments"):
         sub = data.get(nest_key)
         if isinstance(sub, dict) and _body_has_user_send_payload(sub):
             return True
+        if isinstance(sub, list):
+            for item in sub:
+                if isinstance(item, dict) and _body_has_user_send_payload(item):
+                    return True
 
     msgs = data.get("messages")
     if isinstance(msgs, list):
@@ -475,6 +607,14 @@ def _body_has_user_send_payload(data) -> bool:
             cv = content.get(ck)
             if isinstance(cv, str) and cv.strip():
                 return True
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, str) and block.strip() and looks_like_user_prompt(block.strip()):
+                return True
+            if isinstance(block, dict):
+                tv = block.get("text") or block.get("input_text")
+                if isinstance(tv, str) and tv.strip() and looks_like_user_prompt(tv.strip()):
+                    return True
     if isinstance(content, str) and content.strip() and looks_like_user_prompt(content.strip()):
         return True
     for key in _UNIVERSAL_PROMPT_KEYS:
@@ -516,13 +656,14 @@ def _is_clear_chat_submit(path: str, host: str, raw_text: str, raw_bytes: bytes 
         if is_noise(path, body):
             return False
         return True
-    if body.lstrip().startswith("{"):
-        try:
-            data = json.loads(body)
-            if _body_has_user_send_payload(data):
-                return True
-        except Exception:
-            pass
+    if body.lstrip().startswith(("{", "[")) or "\x1e" in body:
+        data = _loads_json_maybe_signalr(body)
+        if isinstance(data, dict) and _body_has_user_send_payload(data):
+            return True
+        if isinstance(data, list) and any(
+            isinstance(item, dict) and _body_has_user_send_payload(item) for item in data
+        ):
+            return True
     return False
 
 
@@ -547,15 +688,12 @@ def _is_confident_chat_send(path: str, raw_text: str, raw_bytes: bytes = b"") ->
     if _is_anthropic_messages_api_shape(path, body):
         return True
     # Unknown / new AI: JSON user-send payload = finished Send (any path, any domain).
-    if body.lstrip().startswith(("{", "[")):
-        try:
-            data = json.loads(body)
-            if isinstance(data, dict) and _body_has_user_send_payload(data):
-                return True
-            if isinstance(data, list) and any(isinstance(item, dict) and _body_has_user_send_payload(item) for item in data):
-                return True
-        except Exception:
-            pass
+    if body.lstrip().startswith(("{", "[")) or "\x1e" in body:
+        data = _loads_json_maybe_signalr(body)
+        if isinstance(data, dict) and _body_has_user_send_payload(data):
+            return True
+        if isinstance(data, list) and any(isinstance(item, dict) and _body_has_user_send_payload(item) for item in data):
+            return True
 
     # Form, XML, NDJSON user-send shapes
     if "=" in body and any(k in body for k in ("prompt=", "query=", "message=", "text=", "input=")):
@@ -1763,22 +1901,30 @@ def extract_prompt_universal(body_bytes: bytes, content_type: str = "", host: st
     ct = (content_type or "").lower()
     stripped = text.lstrip()
 
-    # ── Step 3: JSON — deep recursive walk ────────────────────────────────
-    if stripped.startswith(("{", "[")):
+    # ── Step 3: JSON — deep recursive walk (incl. Copilot SignalR \x1e) ──
+    if stripped.startswith(("{", "[")) or "\x1e" in text:
         try:
-            data = json.loads(text)
-            # If GraphQL payload (has "variables" dictionary), extract user prompt from variables first
-            if isinstance(data, dict) and "variables" in data:
+            if "\x1e" in text:
+                event_got = extract_event_send_prompt(text)
+                if event_got:
+                    return _clean_prompt_text(event_got)
+            data = _loads_json_maybe_signalr(text)
+            if data is not None:
+                # If GraphQL payload (has "variables" dictionary), extract user prompt from variables first
+                if isinstance(data, dict) and "variables" in data:
+                    got = _extract_from_graphql(data)
+                    if got:
+                        return got
+                got = _deep_extract_from_json(data)
+                if got:
+                    return got
+                # ── Step 4: GraphQL inside JSON ────────────────────────────────
                 got = _extract_from_graphql(data)
                 if got:
                     return got
-            got = _deep_extract_from_json(data)
-            if got:
-                return got
-            # ── Step 4: GraphQL inside JSON ────────────────────────────────
-            got = _extract_from_graphql(data)
-            if got:
-                return got
+                got = _extract_from_json(data)
+                if got:
+                    return got
         except Exception:
             pass
 

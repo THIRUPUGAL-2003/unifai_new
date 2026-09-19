@@ -4,10 +4,25 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/bytedance/sonic"
 	"github.com/unifai/unifai/framework/logstore"
 	"github.com/valyala/fasthttp"
+)
+
+var (
+	uninstallAttemptsMu sync.Mutex
+	uninstallAttempts   = make(map[string]struct {
+		count int
+		last  time.Time
+	})
+)
+
+const (
+	maxUninstallAttempts   = 5
+	uninstallLockoutPeriod = 15 * time.Minute
 )
 
 func (h *BrowserAIHandler) listAgents(ctx *fasthttp.RequestCtx) {
@@ -116,6 +131,16 @@ func (h *BrowserAIHandler) saveUninstallKey(ctx *fasthttp.RequestCtx) {
 
 func (h *BrowserAIHandler) verifyUninstall(ctx *fasthttp.RequestCtx) {
 	h.ensureDB(ctx)
+	clientIP := clientIPAddress(ctx)
+
+	uninstallAttemptsMu.Lock()
+	if state, exists := uninstallAttempts[clientIP]; exists && state.count >= maxUninstallAttempts && time.Since(state.last) <= uninstallLockoutPeriod {
+		uninstallAttemptsMu.Unlock()
+		SendError(ctx, fasthttp.StatusTooManyRequests, "Too many failed uninstall attempts. Locked out for 15 minutes.")
+		return
+	}
+	uninstallAttemptsMu.Unlock()
+
 	var req struct {
 		Key string `json:"key"`
 	}
@@ -128,6 +153,28 @@ func (h *BrowserAIHandler) verifyUninstall(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
 	}
+	if !ok {
+		uninstallAttemptsMu.Lock()
+		state := uninstallAttempts[clientIP]
+		if time.Since(state.last) > uninstallLockoutPeriod {
+			state.count = 0
+		}
+		state.count++
+		state.last = time.Now()
+		uninstallAttempts[clientIP] = state
+		fails := state.count
+		uninstallAttemptsMu.Unlock()
+
+		if fails >= maxUninstallAttempts {
+			SendError(ctx, fasthttp.StatusTooManyRequests, "Too many failed uninstall attempts. Locked out for 15 minutes.")
+			return
+		}
+	} else {
+		uninstallAttemptsMu.Lock()
+		delete(uninstallAttempts, clientIP)
+		uninstallAttemptsMu.Unlock()
+	}
+
 	SendJSON(ctx, map[string]any{
 		"valid":    ok,
 		"settings": settings,
@@ -136,6 +183,16 @@ func (h *BrowserAIHandler) verifyUninstall(ctx *fasthttp.RequestCtx) {
 
 func (h *BrowserAIHandler) uninstallAgent(ctx *fasthttp.RequestCtx) {
 	h.ensureDB(ctx)
+	clientIP := clientIPAddress(ctx)
+
+	uninstallAttemptsMu.Lock()
+	if state, exists := uninstallAttempts[clientIP]; exists && state.count >= maxUninstallAttempts && time.Since(state.last) <= uninstallLockoutPeriod {
+		uninstallAttemptsMu.Unlock()
+		SendError(ctx, fasthttp.StatusTooManyRequests, "Too many failed uninstall attempts. Locked out for 15 minutes.")
+		return
+	}
+	uninstallAttemptsMu.Unlock()
+
 	var req struct {
 		AgentID string `json:"agent_id"`
 		Key     string `json:"key"`
@@ -150,9 +207,28 @@ func (h *BrowserAIHandler) uninstallAgent(ctx *fasthttp.RequestCtx) {
 		return
 	}
 	if !ok {
+		uninstallAttemptsMu.Lock()
+		state := uninstallAttempts[clientIP]
+		if time.Since(state.last) > uninstallLockoutPeriod {
+			state.count = 0
+		}
+		state.count++
+		state.last = time.Now()
+		uninstallAttempts[clientIP] = state
+		fails := state.count
+		uninstallAttemptsMu.Unlock()
+
+		if fails >= maxUninstallAttempts {
+			SendError(ctx, fasthttp.StatusTooManyRequests, "Too many failed uninstall attempts. Locked out for 15 minutes.")
+			return
+		}
 		SendError(ctx, fasthttp.StatusForbidden, "Invalid uninstall key")
 		return
 	}
+
+	uninstallAttemptsMu.Lock()
+	delete(uninstallAttempts, clientIP)
+	uninstallAttemptsMu.Unlock()
 	agent, err := h.manager.MarkAgentUninstalled(ctx, req.AgentID)
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())

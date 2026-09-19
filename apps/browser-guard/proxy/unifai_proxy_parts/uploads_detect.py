@@ -1434,6 +1434,8 @@ def _extract_file_ids_from_chat(raw_text: str) -> list[str]:
         r'"document_id"\s*:\s*"([^"]+)"',
         r'"attachment_id"\s*:\s*"([^"]+)"',
         r'"attachmentId"\s*:\s*"([^"]+)"',
+        r'"attachmentIds"\s*:\s*\[\s*"([^"]+)"',
+        r'/c/api/attachments/([^"?\s]+)',
         r'file-service://file-([a-zA-Z0-9_-]+)',
         r'asset_pointer"\s*:\s*"[^"]*file-([a-zA-Z0-9_-]+)',
         r'"id"\s*:\s*"(file-[a-zA-Z0-9_-]+)"',
@@ -1485,6 +1487,11 @@ def chat_carries_attachment(raw_text: str) -> bool:
             '"messagetype":"image"',
             "input_file",
             "input_image",
+            '"attachmentids"',
+            '"referencedattachments"',
+            '"hiddenattachments"',
+            '"parttype":"file"',
+            '"contentorigin":"upload"',
         )
     ):
         return True
@@ -1821,6 +1828,67 @@ def lookup_client_target_domain(client_ip: str) -> str:
         return domain or ""
 
 
+_FILE_SEND_BLOCK_LOCK = threading.Lock()
+_FILE_SEND_BLOCKS: dict[str, dict] = {}
+_FILE_SEND_BLOCK_TTL = 90.0
+
+
+def remember_file_send_block(
+    domain: str,
+    *,
+    names: list[str] | tuple[str, ...] = (),
+    ids: list[str] | tuple[str, ...] = (),
+    message: str = "",
+) -> None:
+    """Remember a file-rule BLOCK so a second Copilot socket cannot retry the same Send."""
+    d = (domain or "").strip().lower()
+    if not d:
+        return
+    with _FILE_SEND_BLOCK_LOCK:
+        prev = _FILE_SEND_BLOCKS.get(d) or {}
+        nset = set(prev.get("names") or [])
+        iset = set(prev.get("ids") or [])
+        for n in names:
+            nn = (n or "").strip().lower()
+            if nn and not _is_fake_upload_name(nn):
+                nset.add(nn)
+        for i in ids:
+            ii = str(i or "").strip().lower()
+            if ii:
+                iset.add(ii)
+        _FILE_SEND_BLOCKS[d] = {
+            "ts": time.time(),
+            "names": nset,
+            "ids": iset,
+            "msg": (message or prev.get("msg") or "").strip(),
+        }
+
+
+def file_send_block_matches(domain: str, raw_text: str) -> str:
+    """Block message if this Send retries files that just failed a Guard rule."""
+    d = (domain or "").strip().lower()
+    if not d:
+        return ""
+    now = time.time()
+    with _FILE_SEND_BLOCK_LOCK:
+        rec = _FILE_SEND_BLOCKS.get(d)
+        if not rec:
+            return ""
+        if now - float(rec.get("ts") or 0) > _FILE_SEND_BLOCK_TTL:
+            _FILE_SEND_BLOCKS.pop(d, None)
+            return ""
+        body = (raw_text or "").lower()
+        if not body:
+            return ""
+        for fid in rec.get("ids") or []:
+            if fid and fid in body:
+                return rec.get("msg") or "This request was blocked by UnifAI Guard."
+        for name in rec.get("names") or []:
+            if name and len(name) >= 4 and name in body:
+                return rec.get("msg") or "This request was blocked by UnifAI Guard."
+    return ""
+
+
 def _file_policy_applies_on_send(
     path: str,
     raw_text: str,
@@ -1837,6 +1905,8 @@ def _file_policy_applies_on_send(
     path_l = (path or "").lower().split("?", 1)[0]
     if "/realtime" in path_l:
         return False
+    if _is_unifai_inject_frame(raw_text or ""):
+        return False
     if _is_typing_or_draft_path(path_l, raw_text or ""):
         return False
     # Pure file-upload URLs must NEVER trigger file policy on send — they are uploads, not Sends!
@@ -1850,19 +1920,22 @@ def _file_policy_applies_on_send(
         or chat_carries_attachment(body)
         or event_send_carries_binary_attach(body)
     )
-    confident = _is_confident_chat_send(path, raw_text, raw_bytes)
+    confident = _is_confident_chat_send(path, raw_text, raw_bytes) or _copilot_frame_is_user_send(body)
     chatish = (
         confident
         or is_chat_path(path, host, body)
         or _path_has_chat_marker(path)
     )
+    # Long-lived Copilot WS URL is always /c/api/chat — path chatish is not a Send.
+    if _is_persistent_chat_websocket(path) and not confident:
+        chatish = False
 
     # Pure file-API picks (/files, /upload, …) wait for a later chat Send.
     # Exception: custom AIs that POST file+prompt on the same upload URL.
     if _path_looks_like_upload(path) and not (confident or (has_file and chatish)):
         return False
 
-    # Attachment markers on a chat-shaped request → always scan.
+    # Attachment markers on a finished chat Send → scan. Attach-ack frames must wait.
     if has_file and chatish:
         return True
 
@@ -1884,16 +1957,21 @@ def _file_policy_applies_on_send(
         # Require real chat Send + (file markers OR typed caption/"hi").
         if confident and (has_file or has_user_text):
             return True
-        if has_file and (
+        if has_file and not _is_persistent_chat_websocket(path) and (
             is_chat_path(path, host, body)
             or _path_has_chat_marker(path)
             or _is_anthropic_messages_api_shape(path, body)
         ):
             return True
-        if has_user_text and (
+        if has_user_text and not _is_persistent_chat_websocket(path) and (
             is_chat_path(path, host, body)
             or _path_has_chat_marker(path)
             or _is_confident_chat_send(path, raw_text, raw_bytes)
+        ):
+            return True
+        # Copilot / SignalR finished Send only — never every /c/api/chat frame.
+        if _copilot_frame_is_user_send(body) or (
+            is_event_send_chat_submit(path, body) and not _is_persistent_chat_websocket(path)
         ):
             return True
     return False

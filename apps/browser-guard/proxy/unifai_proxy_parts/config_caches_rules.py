@@ -1145,17 +1145,14 @@ def is_chat_path(path: str, host: str = "", body: str = "") -> bool:
         return True
 
     # Custom / unknown AI site: structured user send payload only (dict or list) — not every POST.
-    if body.strip() and body.lstrip().startswith(("{", "[")):
-        try:
-            data = json.loads(body)
-            if isinstance(data, dict) and _body_has_user_send_payload(data):
-                return True
-            if isinstance(data, list) and any(
-                isinstance(item, dict) and _body_has_user_send_payload(item) for item in data
-            ):
-                return True
-        except Exception:
-            pass
+    if body.strip() and (body.lstrip().startswith(("{", "[")) or "\x1e" in body):
+        data = _loads_json_maybe_signalr(body)
+        if isinstance(data, dict) and _body_has_user_send_payload(data):
+            return True
+        if isinstance(data, list) and any(
+            isinstance(item, dict) and _body_has_user_send_payload(item) for item in data
+        ):
+            return True
     return False
 
 
@@ -1475,35 +1472,32 @@ def _is_file_content_part(part: dict) -> bool:
 
 
 def is_event_send_chat_submit(path: str, body: str = "") -> bool:
-    """True only for Copilot/Bing/Edge chat submit — not telemetry or sync frames."""
+    """True only for Copilot/Bing/Edge chat submit — not telemetry, attach-ack, or ping.
+
+    `/c/api/chat` is a long-lived WebSocket URL. Path alone is never a Send.
+    """
+    if _is_unifai_inject_frame(body or ""):
+        return False
+    if _copilot_frame_is_user_send(body or ""):
+        return True
     path_l = (path or "").lower().split("?", 1)[0]
     body_l = (body or "").lower()
+    # Persistent chat WS: body already decided above.
+    if _is_persistent_chat_websocket(path):
+        return False
     if not path_l:
-        if not body_l:
-            return False
-        return (
-            '"event":"send"' in body_l
-            or '"event": "send"' in body_l
-            or '"target":"chat"' in body_l
-            or '"target": "chat"' in body_l
-            or (('"type":4' in body_l or '"type": 4' in body_l) and "chat" in body_l)
-        )
+        return False
     markers = (
-        "chathub", "sydney", "chatoverstream", "getresponse", "/c/api/",
-        "copilot", "turing/conversation", "createconversation", "/api/copilot",
+        "getresponse", "createconversation", "/api/copilot",
         "edgesvc", "edgechat",
     )
-    if any(m in path_l for m in markers):
+    if any(m in path_l for m in markers) and body_l:
         return True
-    if "/chat" in path_l and "telemetry" not in path_l and "analytics" not in path_l:
-        return True
-    if body_l and (
-        '"event":"send"' in body_l
-        or '"event": "send"' in body_l
-        or '"target":"chat"' in body_l
-        or '"target": "chat"' in body_l
-    ):
-        return True
+    if "/chat" in path_l and "telemetry" not in path_l and "analytics" not in path_l and body_l:
+        if _body_has_user_send_payload(_loads_json_maybe_signalr(body) or {}) or (
+            '"event":"send"' in body_l or '"target":"chat"' in body_l
+        ):
+            return True
     return False
 
 

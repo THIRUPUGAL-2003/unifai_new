@@ -1137,8 +1137,6 @@ func (m *AuthMiddleware) APIMiddleware() schemas.UnifAIHTTPMiddleware {
 		// no cookie context). DO NOT add a broad "/api/oauth" prefix here:
 		// it would whitelist /api/oauth/per-user/* (auth-via-temp-token) and
 		// /api/oauth/config/* (admin-only) and bypass the temp-token fallback
-		// in tryTempTokenOrUnauthorized.
-		"/api/dev",
 		// Skills serving endpoints are public — marketplace URLs cannot carry
 		// credentials securely. Management endpoints under /api/skills (without
 		// /serve/) remain authenticated.
@@ -1179,7 +1177,7 @@ func isPublicBrowserAIRoute(method, path string) bool {
 	case "/api/browser-ai/intercept", "/api/browser-ai/intercept-file":
 		return method == fasthttp.MethodPost
 	case "/api/browser-ai/search-logs":
-		return true
+		return method == fasthttp.MethodPost
 	case "/api/browser-ai/proxy.pac", "/api/browser-ai/pac":
 		return method == fasthttp.MethodGet
 	case "/api/browser-ai/targets", "/api/browser-ai/rules", "/api/browser-ai/controls":

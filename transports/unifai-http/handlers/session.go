@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fasthttp/router"
@@ -37,6 +38,29 @@ func NewSessionHandler(configStore configstore.ConfigStore, wsTicketStore *WSTic
 	}
 	return h
 }
+
+var (
+	otpFailureLock sync.Mutex
+	otpFailureMap  = make(map[string]struct {
+		count int
+		last  time.Time
+	})
+
+	forgotPasswordRateMu  sync.Mutex
+	forgotPasswordRateMap = make(map[string]time.Time)
+
+	registrationRateMu  sync.Mutex
+	registrationRateMap = make(map[string]struct {
+		count int
+		reset time.Time
+	})
+)
+
+const (
+	maxOTPAttempts          = 5
+	forgotPasswordCooldown  = 30 * time.Second
+	maxRegistrationsPerHour = 10
+)
 
 // normalizeUserRole accepts admin/user or a custom RBAC role that exists in the workspace store.
 // Returns ("", false) when the role is invalid so callers can 400 instead of silently coercing to "user".
@@ -298,8 +322,8 @@ func (h *SessionHandler) login(ctx *fasthttp.RequestCtx) {
 	cookie.SetPath("/")
 	cookie.SetHTTPOnly(true)
 	cookie.SetSameSite(fasthttp.CookieSameSiteLaxMode)
-	// Check if source is https then set secure
-	if string(ctx.Request.Header.Peek("X-Forwarded-Proto")) == "https" {
+	// Check if source is https or direct TLS then set secure
+	if ctx.IsTLS() || strings.EqualFold(string(ctx.Request.Header.Peek("X-Forwarded-Proto")), "https") {
 		cookie.SetSecure(true)
 	}
 	ctx.Response.Header.SetCookie(cookie)
@@ -345,8 +369,8 @@ func (h *SessionHandler) logout(ctx *fasthttp.RequestCtx) {
 	cookie.SetPath("/")
 	cookie.SetHTTPOnly(true)
 	cookie.SetSameSite(fasthttp.CookieSameSiteLaxMode)
-	// Check if source is https then set secure
-	if string(ctx.Request.Header.Peek("X-Forwarded-Proto")) == "https" {
+	// Check if source is https or direct TLS then set secure
+	if ctx.IsTLS() || strings.EqualFold(string(ctx.Request.Header.Peek("X-Forwarded-Proto")), "https") {
 		cookie.SetSecure(true)
 	}
 	ctx.Response.Header.SetCookie(cookie)
@@ -754,6 +778,21 @@ func (h *SessionHandler) forgotPassword(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	targetKey := strings.ToLower(strings.TrimSpace(user.Email))
+	if targetKey == "" {
+		targetKey = clientIPAddress(ctx)
+	}
+
+	forgotPasswordRateMu.Lock()
+	if lastSent, exists := forgotPasswordRateMap[targetKey]; exists && time.Since(lastSent) < forgotPasswordCooldown {
+		forgotPasswordRateMu.Unlock()
+		// Silent success to prevent SMTP exhaustion without leaking email status
+		SendJSON(ctx, generic)
+		return
+	}
+	forgotPasswordRateMap[targetKey] = time.Now()
+	forgotPasswordRateMu.Unlock()
+
 	otp, err := generateOTP6()
 	if err != nil {
 		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to generate OTP")
@@ -775,6 +814,9 @@ func (h *SessionHandler) forgotPassword(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to store OTP")
 		return
 	}
+	otpFailureLock.Lock()
+	delete(otpFailureMap, user.Username)
+	otpFailureLock.Unlock()
 	body := fmt.Sprintf(
 		"Hello %s,\n\nYour UnifAI password reset code is: %s\n\nIt expires in %d minutes. If you did not request this, ignore this email.\n",
 		user.Username, otp, int(passwordResetOTPTTL.Minutes()),
@@ -831,6 +873,14 @@ func (h *SessionHandler) verifyOTP(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	otpFailureLock.Lock()
+	if state, exists := otpFailureMap[user.Username]; exists && state.count >= maxOTPAttempts && time.Since(state.last) <= passwordResetOTPTTL {
+		otpFailureLock.Unlock()
+		SendError(ctx, fasthttp.StatusTooManyRequests, "Too many failed OTP attempts. This code has been invalidated for security. Please request a new code.")
+		return
+	}
+	otpFailureLock.Unlock()
+
 	otpRow, err := h.configStore.GetLatestPasswordResetOTP(ctx, user.Username)
 	if err != nil || otpRow == nil {
 		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid or expired OTP")
@@ -842,9 +892,29 @@ func (h *SessionHandler) verifyOTP(ctx *fasthttp.RequestCtx) {
 	}
 	ok, err := encrypt.CompareHash(otpRow.OTPHash, payload.OTP)
 	if err != nil || !ok {
-		SendError(ctx, fasthttp.StatusUnauthorized, "Invalid OTP code")
+		otpFailureLock.Lock()
+		state := otpFailureMap[user.Username]
+		if time.Since(state.last) > passwordResetOTPTTL {
+			state.count = 0
+		}
+		state.count++
+		state.last = time.Now()
+		otpFailureMap[user.Username] = state
+		fails := state.count
+		otpFailureLock.Unlock()
+
+		if fails >= maxOTPAttempts {
+			_ = h.configStore.MarkPasswordResetOTPUsed(ctx, otpRow.ID)
+			SendError(ctx, fasthttp.StatusTooManyRequests, "Too many failed OTP attempts. This code has been invalidated for security. Please request a new one.")
+			return
+		}
+		SendError(ctx, fasthttp.StatusUnauthorized, fmt.Sprintf("Invalid OTP code. %d attempt(s) remaining before invalidation.", maxOTPAttempts-fails))
 		return
 	}
+
+	otpFailureLock.Lock()
+	delete(otpFailureMap, user.Username)
+	otpFailureLock.Unlock()
 
 	SendJSON(ctx, map[string]any{
 		"valid":   true,
@@ -1144,13 +1214,30 @@ func (h *SessionHandler) register(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Email is required")
 		return
 	}
+
+	ip := clientIPAddress(ctx)
+	now := time.Now()
+	registrationRateMu.Lock()
+	regState := registrationRateMap[ip]
+	if now.After(regState.reset) {
+		regState.count = 0
+		regState.reset = now.Add(time.Hour)
+	}
+	if regState.count >= maxRegistrationsPerHour {
+		registrationRateMu.Unlock()
+		SendError(ctx, fasthttp.StatusTooManyRequests, "Too many registration requests from this network. Please try again later.")
+		return
+	}
+	regState.count++
+	registrationRateMap[ip] = regState
+	registrationRateMu.Unlock()
 	if failures := getPasswordPolicyFailures(payload.Password); len(failures) > 0 {
 		SendError(ctx, fasthttp.StatusBadRequest, "Password must include "+strings.Join(failures, ", "))
 		return
 	}
-	if payload.Role != "admin" && payload.Role != "user" {
-		payload.Role = "user"
-	}
+	// Public registration always assigns the default "user" role.
+	// Elevated/Admin privileges must be explicitly granted by an existing administrator.
+	payload.Role = "user"
 
 	hashedPassword, err := encrypt.Hash(payload.Password)
 	if err != nil {
@@ -1158,7 +1245,7 @@ func (h *SessionHandler) register(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	now := time.Now()
+	now = time.Now()
 	if existing, err := h.configStore.GetUserByUsername(ctx, payload.Username); err == nil && existing != nil {
 		if existing.IsApproved() || existing.Status == tables.UserStatusPending {
 			SendError(ctx, fasthttp.StatusConflict, alreadyRegisteredMessage(existing))
@@ -1170,7 +1257,7 @@ func (h *SessionHandler) register(ctx *fasthttp.RequestCtx) {
 		}
 		existing.Email = payload.Email
 		existing.Password = hashedPassword
-		existing.Role = payload.Role
+		existing.Role = "user"
 		existing.Status = tables.UserStatusPending
 		existing.ReviewedAt = nil
 		existing.UpdatedAt = now

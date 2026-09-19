@@ -113,6 +113,24 @@ def _ws_frames_universal(reply: str) -> list[bytes]:
     return frames
 
 
+def _drop_websocket_outbound(msg) -> None:
+    """Stop a client WebSocket Send from reaching the site. Empty payload if drop is late."""
+    try:
+        msg.drop()
+    except Exception:
+        try:
+            msg.kill()
+        except Exception:
+            pass
+    try:
+        if hasattr(msg, "content"):
+            msg.content = b""
+        if hasattr(msg, "text"):
+            msg.text = ""
+    except Exception:
+        pass
+
+
 def inject_websocket_reply(flow: http.HTTPFlow, host: str, reply_text: str) -> None:
     """
     Push an in-chat assistant reply over WebSocket for ANY monitored Target Website.

@@ -2,7 +2,7 @@
 ; Build: "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer\UnifAI_Guard.iss
 
 #define MyAppName "UnifAI Guard"
-#define MyAppVersion "1.1.7"
+#define MyAppVersion "1.1.9"
 #define MyAppPublisher "UnifAI"
 #define MyAppURL "http://127.0.0.1:8081"
 #define MyAppExeName "UnifAI_Guard.exe"

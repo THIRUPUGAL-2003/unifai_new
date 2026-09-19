@@ -1063,28 +1063,36 @@ class BrowserAIInterceptor:
         if not is_target:
             return
 
-        content = msg.text or ""
+        content = websocket_frame_text(msg)
         if not content or len(content.strip()) < 1:
             return
 
         ws_path = flow.request.path or ""
+        if "unifai-reply" in ws_path.lower() or _is_unifai_inject_frame(content):
+            return
         # History/settings batchexecute over WS — pass through before extract/inject.
         if "batchexecute" in ws_path.lower() and not is_batchexecute_chat_submit(ws_path, content):
             return
 
         client_ip = get_client_ip(flow)
+        ws_bytes = content.encode("utf-8", errors="ignore")
         ws_has_prompt = False
         ws_prompt = extract_prompt_universal(
-            content.encode("utf-8"), "application/json", host=host, url=flow.request.url,
+            ws_bytes, "application/json", host=host, url=flow.request.url,
         )
         ws_has_prompt = _should_intercept_extracted_prompt(
-            ws_prompt, ws_path, content, domain, host=host, raw_bytes=content.encode("utf-8", errors="ignore"),
+            ws_prompt, ws_path, content, domain, host=host, raw_bytes=ws_bytes,
         )
-        attachment_send = _send_carries_attachment(content)
+        apply_files = _file_policy_applies_on_send(
+            ws_path, content, ws_bytes, domain=domain, host=host,
+        )
+        repeat_file_block = file_send_block_matches(domain, content)
+        if repeat_file_block and _copilot_frame_is_user_send(content):
+            _drop_websocket_outbound(msg)
+            inject_websocket_reply(flow, host, repeat_file_block)
+            return
 
-        if attachment_send and _file_policy_applies_on_send(
-            ws_path, content, content.encode("utf-8", errors="ignore"), domain=domain, host=host,
-        ):
+        if apply_files:
             should_block_file, file_block_msg, _redact_notice, _n, _caption_consumed = enforce_file_send_policy(
                 platform=platform,
                 domain=domain,
@@ -1097,13 +1105,7 @@ class BrowserAIInterceptor:
                 path=ws_path,
             )
             if should_block_file:
-                try:
-                    msg.drop()
-                except Exception:
-                    try:
-                        msg.kill()
-                    except Exception:
-                        pass
+                _drop_websocket_outbound(msg)
                 inject_websocket_reply(flow, host, (file_block_msg or "").strip())
                 return
             # File row logged — only allow a short user caption, never embedded doc text.
@@ -1121,13 +1123,7 @@ class BrowserAIInterceptor:
                             method="WS",
                         )
                         if not allowed:
-                            try:
-                                msg.drop()
-                            except Exception:
-                                try:
-                                    msg.kill()
-                                except Exception:
-                                    pass
+                            _drop_websocket_outbound(msg)
                             inject_websocket_reply(flow, host, (reply_text or "").strip())
                         elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != ws_prompt:
                             new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
@@ -1144,13 +1140,7 @@ class BrowserAIInterceptor:
                         )
                         allowed, rule_triggered, action, redacted_prompt, reply_text = decision
                         if not allowed:
-                            try:
-                                msg.drop()
-                            except Exception:
-                                try:
-                                    msg.kill()
-                                except Exception:
-                                    pass
+                            _drop_websocket_outbound(msg)
                             inject_websocket_reply(flow, host, (reply_text or "").strip())
                         elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != ws_prompt:
                             new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
@@ -1160,12 +1150,20 @@ class BrowserAIInterceptor:
 
         # ── Universal WebSocket: domain-agnostic extract (same rule as HTTP) ──
         if ws_has_prompt:
-            if len(ws_prompt.strip()) <= 15 or is_composer_typing_draft(domain, ws_prompt):
+            confident_ws = (
+                _is_confident_chat_send(ws_path, content, ws_bytes)
+                or is_event_send_chat_submit(ws_path, content)
+            )
+            # Finished Copilot/chat Send: do not debounce short prompts like "Emil id".
+            if not confident_ws and (
+                len(ws_prompt.strip()) <= 15 or is_composer_typing_draft(domain, ws_prompt)
+            ):
                 stable = wait_if_composer_unstable(domain, ws_prompt)
                 if stable is None:
                     return
                 ws_prompt = stable
 
+            print(f"[UnifAI Proxy] WebSocket prompt | {client_ip} → {platform} ({domain}) | {ws_prompt[:80]!r}")
             mark_duplicate_event(domain, ws_prompt)
             allowed, rule_triggered, action, redacted_prompt, reply_text = evaluate_prompt_coalesced(
                 platform=platform,
@@ -1176,13 +1174,7 @@ class BrowserAIInterceptor:
                 method="WS",
             )
             if not allowed:
-                try:
-                    msg.drop()
-                except Exception:
-                    try:
-                        msg.kill()
-                    except Exception:
-                        pass
+                _drop_websocket_outbound(msg)
                 inject_websocket_reply(flow, host, (reply_text or "").strip())
             elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != ws_prompt:
                 new_content = inject_warned_prompt(content, ws_prompt, redacted_prompt)
@@ -1215,13 +1207,7 @@ class BrowserAIInterceptor:
                 path=flow.request.path or "",
             )
             if should_block_file:
-                try:
-                    msg.drop()
-                except Exception:
-                    try:
-                        msg.kill()
-                    except Exception:
-                        pass
+                _drop_websocket_outbound(msg)
                 inject_websocket_reply(flow, host, file_block_msg)
                 return
             if n_processed > 0:
@@ -1275,13 +1261,7 @@ class BrowserAIInterceptor:
                 )
             allowed, rule_triggered, action, redacted_prompt, reply_text = decision
             if not allowed:
-                try:
-                    msg.drop()
-                except Exception:
-                    try:
-                        msg.kill()
-                    except Exception:
-                        pass
+                _drop_websocket_outbound(msg)
                 inject_websocket_reply(flow, host, (reply_text or "").strip())
             elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
                 new_content = inject_warned_prompt(content, prompt, redacted_prompt)
@@ -1309,13 +1289,7 @@ class BrowserAIInterceptor:
                 print(f"[UnifAI Proxy] BLOCKED WebSocket to {domain} → Rule: {rule_triggered or action}")
             block_msg = (reply_text or "").strip()
             # Drop outbound turn (site AI never sees it), inject reply for ANY target site.
-            try:
-                msg.drop()
-            except Exception:
-                try:
-                    msg.kill()
-                except Exception:
-                    pass
+            _drop_websocket_outbound(msg)
             inject_websocket_reply(flow, host, block_msg)
         elif action in ("Warned", "Redacted") and redacted_prompt and redacted_prompt != prompt:
             print(f"[UnifAI Proxy] WARNED WebSocket prompt to {domain} → Rule: {rule_triggered}")

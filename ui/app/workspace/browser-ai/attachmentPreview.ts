@@ -1,6 +1,7 @@
 /** Client-side preview helpers for Browser AI attachment viewer. */
 
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import DOMPurify from "dompurify";
 
 export type AttachmentPreviewKind = "pdf" | "image" | "html" | "text" | "unsupported";
 
@@ -101,16 +102,13 @@ function escapeHtml(s: string): string {
 		.replace(/"/g, "&quot;");
 }
 
-/** Strip script/handlers from mammoth / sheet HTML before dangerouslySetInnerHTML. */
+/** Strip script/handlers from mammoth / sheet HTML before dangerouslySetInnerHTML using DOMPurify. */
 export function sanitizePreviewHtml(html: string): string {
-	return (html || "")
-		.replace(/<script\b[\s\S]*?<\/script>/gi, "")
-		.replace(/<iframe\b[\s\S]*?<\/iframe>/gi, "")
-		.replace(/<object\b[\s\S]*?<\/object>/gi, "")
-		.replace(/<embed\b[^>]*>/gi, "")
-		.replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, "")
-		.replace(/(href|src)\s*=\s*("|')\s*javascript:[^"']*\2/gi, '$1="#"')
-		.replace(/javascript:/gi, "");
+	if (!html) return "";
+	return DOMPurify.sanitize(html, {
+		USE_PROFILES: { html: true },
+		ADD_ATTR: ["target"],
+	});
 }
 
 function csvRowsToHtml(rows: string[]): string {

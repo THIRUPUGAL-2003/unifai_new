@@ -31,6 +31,11 @@ def enforce_file_send_policy(
 
     Returns (should_block, block_message, redact_notice, files_processed, caption_consumed).
     """
+    repeat_msg = file_send_block_matches(domain, raw_text or "")
+    if repeat_msg:
+        print(f"[UnifAI Proxy] FILE SEND BLOCKED (repeat after rule hit) | {host}")
+        return True, repeat_msg, "", 0, False
+
     has_attach = (
         chat_carries_attachment(raw_text)
         or messages_parts_carries_file(raw_text)
@@ -44,12 +49,19 @@ def enforce_file_send_policy(
         cached_list = take_recent_confident_caches_for_send(domain)
     # Claude/Gemini/Perplexity/DeepSeek: attach-time cache exists but Send omits file ids /
     # uses placeholder names — still bind recent uploads so predict + rules run.
+    # Copilot long-lived WS: never consume cache unless this frame is a finished Send.
     if not cached_list and domain and _domain_has_pending_upload_cache(domain):
-        cached_list = take_all_cached_uploads_for_send(domain, raw_text or "", allow_latest=True)
-        if not cached_list:
-            cached_list = take_recent_confident_caches_for_send(domain)
-        if cached_list:
-            has_attach = True
+        if _is_persistent_chat_websocket(path) and not (
+            _copilot_frame_is_user_send(raw_text or "")
+            or _is_confident_chat_send(path, raw_text or "")
+        ):
+            pass
+        else:
+            cached_list = take_all_cached_uploads_for_send(domain, raw_text or "", allow_latest=True)
+            if not cached_list:
+                cached_list = take_recent_confident_caches_for_send(domain)
+            if cached_list:
+                has_attach = True
 
     if not has_attach and not cached_list:
         return False, "", "", 0, False
@@ -107,6 +119,12 @@ def enforce_file_send_policy(
                 )
                 if ok:
                     mark_duplicate_event(domain, dedupe_key)
+            remember_file_send_block(
+                domain,
+                names=[hint],
+                ids=_extract_file_ids_from_chat(raw_text or ""),
+                message=msg,
+            )
             return True, msg, "", 0, False
 
         # Voice/transcript or caption text still get regex+bot even without file bytes.
@@ -166,6 +184,12 @@ def enforce_file_send_policy(
                     )
                     if ok:
                         mark_duplicate_event(domain, dedupe_key)
+                remember_file_send_block(
+                    domain,
+                    names=[hint],
+                    ids=_extract_file_ids_from_chat(raw_text or ""),
+                    message=msg,
+                )
                 return True, msg, "", 1, cap_done
             if rule_hit and rule_action == "REDACT":
                 notice = _warning_for_rule_name(rule_name) or "UnifAI Guard redaction policy."
@@ -729,6 +753,16 @@ def enforce_file_send_policy(
         # Do not block the chat Send on Prompt Log upload — fire-and-forget.
         threading.Thread(target=_post_row, daemon=True, name="unifai-file-log").start()
 
+    if should_block:
+        remember_file_send_block(
+            domain,
+            names=[
+                (r.get("file_label") or r.get("file_name") or "").strip()
+                for r in file_rows
+            ],
+            ids=_extract_file_ids_from_chat(raw_text or ""),
+            message=block_msg,
+        )
     return should_block, block_msg, redact_notice, n_files, bool(caption) or n_files > 0
 
 
@@ -988,11 +1022,12 @@ def post_upload_intercept(
     file_ctype = ctype
     file_label = safe_name
     try:
-        if raw_bytes and len(raw_bytes) >= 32:
+        if raw_bytes and len(raw_bytes) >= 1:
             payload, sniffed_ct, sniffed_name = extract_upload_file_payload(
                 raw_bytes, content_type, safe_name,
             )
-            if payload and len(payload) >= 32:
+            tiny_txt = (safe_name or "").lower().endswith((".txt", ".md", ".csv", ".log"))
+            if payload and (len(payload) >= 32 or (tiny_txt and len(payload) >= 1)):
                 file_payload = payload
                 if sniffed_ct:
                     file_ctype = sniffed_ct

@@ -824,9 +824,26 @@ def extract_upload_text_for_rules(
         if transcript:
             parts.append(transcript)
 
+        def _tiny_text_ok(blob: bytes, ct_s: str, name_s: str) -> bool:
+            if not blob:
+                return False
+            nl = (name_s or "").lower()
+            cl = (ct_s or "").lower()
+            if nl.endswith((".txt", ".md", ".csv", ".json", ".xml", ".html", ".log", ".rtf")):
+                return True
+            if cl.startswith("text/") or "json" in cl or "csv" in cl:
+                return True
+            if 1 <= len(blob) < 32:
+                try:
+                    blob.decode("utf-8")
+                    return all(b >= 9 or b in (10, 13) for b in blob)
+                except Exception:
+                    return False
+            return False
+
         # Prefer clean file bytes from multipart / wrappers when present
         payload, sniffed_ct, sniffed_name = extract_upload_file_payload(data, content_type, fname)
-        if payload and len(payload) >= 32:
+        if payload and (len(payload) >= 32 or _tiny_text_ok(payload, sniffed_ct or content_type, sniffed_name or fname)):
             t = _extract_text_from_file_bytes(payload, sniffed_ct or content_type, sniffed_name or fname)
             if t:
                 parts.append(t)
@@ -858,10 +875,18 @@ def extract_upload_text_for_rules(
                     parts.append(t)
 
         # Plain text bodies only — never treat ChatGPT/API JSON metadata as file content.
-        if raw_text and len(raw_text) > 20 and not parts:
+        # Tiny .txt files ("Emil id") are often <20 bytes — still scan them.
+        if raw_text and not parts:
             stripped = raw_text.lstrip()
-            if stripped[:1] not in ("{", "[") and "filename=" not in raw_text[:2000].lower() and raw_text.count("\x00") == 0:
-                parts.append(raw_text[:200_000])
+            tiny_name = (fname or "").lower().endswith((".txt", ".md", ".csv", ".log"))
+            if (
+                (len(raw_text) > 20 or tiny_name or len(raw_text.strip()) >= 1)
+                and stripped[:1] not in ("{", "[")
+                and "filename=" not in raw_text[:2000].lower()
+                and raw_text.count("\x00") == 0
+            ):
+                if len(raw_text) > 20 or tiny_name or (1 <= len(data) < 64):
+                    parts.append(raw_text[:200_000])
 
         # Deduplicate while preserving order
         seen = set()
@@ -1264,7 +1289,14 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
             if batchexecute_prompt:
                 return _clean_prompt_text(batchexecute_prompt)
 
-        if is_event_send_chat_submit("", text) or '"event":"send"' in text or '"event": "send"' in text:
+        if (
+            "\x1e" in text
+            or is_event_send_chat_submit("", text)
+            or '"event":"send"' in text
+            or '"event": "send"' in text
+            or '"target":"chat"' in text
+            or '"target": "chat"' in text
+        ):
             event_send_prompt = extract_event_send_prompt(text)
             if event_send_prompt:
                 return _clean_prompt_text(event_send_prompt)
@@ -1304,11 +1336,8 @@ def extract_prompt(body_bytes: bytes, content_type: str = "", host: str = "") ->
             return None  # Form data must never fall through to plain text!
 
         # Structured JSON chat payloads (any platform or custom website)
-        if "json" in ct or text.lstrip().startswith(("{", "[")):
-            try:
-                data = json.loads(text)
-            except Exception:
-                data = None
+        if "json" in ct or text.lstrip().startswith(("{", "[")) or "\x1e" in text:
+            data = _loads_json_maybe_signalr(text)
             if data is not None:
                 got = _extract_from_json(data)
                 if got:
