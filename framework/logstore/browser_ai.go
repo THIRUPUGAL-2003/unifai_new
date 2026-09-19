@@ -1824,8 +1824,8 @@ func (m *BrowserAIManager) UpsertAgentHeartbeat(ctx context.Context, incoming *B
 	existing.Username = firstNonEmpty(strings.TrimSpace(incoming.Username), existing.Username)
 	existing.IPAddress = firstNonEmpty(strings.TrimSpace(incoming.IPAddress), existing.IPAddress)
 	existing.MacAddress = firstNonEmpty(strings.TrimSpace(incoming.MacAddress), existing.MacAddress)
-	if guid := nicGUIDFromTransport(incoming.TransportName); guid != "" {
-		existing.TransportName = guid
+	if t := nicGUIDFromTransport(incoming.TransportName); t != "" {
+		existing.TransportName = t
 	}
 	existing.OSVersion = firstNonEmpty(strings.TrimSpace(incoming.OSVersion), existing.OSVersion)
 	existing.AgentVersion = firstNonEmpty(strings.TrimSpace(incoming.AgentVersion), existing.AgentVersion)
@@ -1860,11 +1860,14 @@ func nicGUIDFromTransport(raw string) string {
 	if s == "" {
 		return ""
 	}
-	m := nicGUID.FindString(s)
-	if m == "" {
-		return ""
+	if m := nicGUID.FindString(s); m != "" {
+		return strings.ToUpper(m)
 	}
-	return strings.ToUpper(m)
+	// macOS / Linux: keep "Wi-Fi", "Ethernet", "en0" — not Windows GUID-only.
+	if len(s) > 80 {
+		s = s[:80]
+	}
+	return s
 }
 
 func firstNonEmpty(values ...string) string {
