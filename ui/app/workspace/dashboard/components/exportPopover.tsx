@@ -93,7 +93,7 @@ export function ExportPopover({ getData, onPreloadData, onPdfExport, onPdfExport
 				subtitle: "Usage and ranking snapshot",
 				columns,
 				rows,
-				logoSrc: "/header_logo.png",
+				logoSrc: "/yes-panchi-logo.png",
 			});
 		} finally {
 			setExporting(false);
@@ -117,7 +117,7 @@ export function ExportPopover({ getData, onPreloadData, onPdfExport, onPdfExport
 
 			await generatePdf(sections, "dashboard-export", {
 				branding: {
-					logoSrc: "/header_logo.png",
+					logoSrc: "/yes-panchi-logo.png",
 					text: "Powered by",
 				},
 			});

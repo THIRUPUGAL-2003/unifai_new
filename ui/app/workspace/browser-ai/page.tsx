@@ -206,7 +206,7 @@ export default function BrowserAiPage() {
 	const [agentStatusFilter, setAgentStatusFilter] = useState("all");
 	const [agentTypeFilter, setAgentTypeFilter] = useState("all");
 	const [agentPageOffset, setAgentPageOffset] = useState(0);
-	const agentPageLimit = 50;
+	const [agentPageLimit, setAgentPageLimit] = useState(25);
 	const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
 	const [showAgentDeleteDialog, setShowAgentDeleteDialog] = useState(false);
 	const [agentDeleteError, setAgentDeleteError] = useState("");
@@ -341,6 +341,8 @@ export default function BrowserAiPage() {
 	const [searchBrowserFilter, setSearchBrowserFilter] = useState("all");
 	const [searchIncognitoFilter, setSearchIncognitoFilter] = useState("all");
 	const [selectedSearchLog, setSelectedSearchLog] = useState<BrowserAISearchLogEntry | null>(null);
+	const [searchLogPageLimit, setSearchLogPageLimit] = useState(25);
+	const [searchLogPageOffset, setSearchLogPageOffset] = useState(0);
 
 	const {
 		data: searchLogsData,
@@ -352,8 +354,8 @@ export default function BrowserAiPage() {
 			browser: searchBrowserFilter !== "all" ? searchBrowserFilter : undefined,
 			is_incognito: searchIncognitoFilter !== "all" ? searchIncognitoFilter : undefined,
 			search: searchLogQuery || undefined,
-			limit: 50,
-			offset: 0,
+			limit: searchLogPageLimit,
+			offset: searchLogPageOffset,
 		},
 		{ pollingInterval: activePolling }
 	);
@@ -411,6 +413,14 @@ export default function BrowserAiPage() {
 		setAgentBulkAction("");
 	}, [agentPageOffset, agentSearch, agentStatusFilter, agentTypeFilter]);
 
+	useEffect(() => {
+		setSearchLogPageOffset(0);
+	}, [searchLogQuery, searchEngineFilter, searchBrowserFilter, searchIncognitoFilter]);
+
+	useEffect(() => {
+		setAgentPageOffset(0);
+	}, [agentSearch, agentStatusFilter, agentTypeFilter, agentPageLimit]);
+
 	// --- Detect new blocked violations and fire notifications ---
 	useEffect(() => {
 		if (!logsData?.logs) return;
@@ -431,7 +441,7 @@ export default function BrowserAiPage() {
 				try {
 					new Notification("🚨 AI Guard: Security Violation Blocked!", {
 						body: `[${platform}] ${reason}`,
-						icon: "/favicon.ico",
+						icon: "/yes-panchi-logo.png",
 						tag: toastId,
 					});
 				} catch {}
@@ -1352,6 +1362,10 @@ export default function BrowserAiPage() {
 	// Pagination calculations
 	const currentPage = Math.floor(pageOffset / pageLimit) + 1;
 	const totalPages = Math.ceil(totalLogs / pageLimit) || 1;
+	const searchLogCurrentPage = Math.floor(searchLogPageOffset / searchLogPageLimit) + 1;
+	const searchLogTotalPages = Math.ceil(totalSearchLogs / searchLogPageLimit) || 1;
+	const agentCurrentPage = Math.floor(agentPageOffset / agentPageLimit) + 1;
+	const agentTotalPages = Math.ceil(totalAgents / agentPageLimit) || 1;
 
 	return (
 		<div className="space-y-6 p-2 md:p-6 text-foreground max-w-7xl mx-auto">
@@ -2144,6 +2158,61 @@ export default function BrowserAiPage() {
 										)}
 									</TableBody>
 								</Table>
+							</div>
+
+							{/* Search Logs pagination */}
+							<div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-4 text-xs text-muted-foreground">
+								<div className="flex items-center gap-2">
+									<span>Rows per page</span>
+									<Select
+										value={searchLogPageLimit.toString()}
+										onValueChange={(val) => {
+											setSearchLogPageLimit(Number(val));
+											setSearchLogPageOffset(0);
+										}}
+									>
+										<SelectTrigger className="h-8 w-[70px] bg-background border-border">
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value="10">10</SelectItem>
+											<SelectItem value="25">25</SelectItem>
+											<SelectItem value="50">50</SelectItem>
+											<SelectItem value="100">100</SelectItem>
+										</SelectContent>
+									</Select>
+									<span>
+										Showing {totalSearchLogs > 0 ? searchLogPageOffset + 1 : 0} to{" "}
+										{Math.min(searchLogPageOffset + searchLogPageLimit, totalSearchLogs)} of {totalSearchLogs} entries
+									</span>
+								</div>
+								<div className="flex items-center gap-2">
+									<span>
+										Page {searchLogCurrentPage} of {searchLogTotalPages}
+									</span>
+									<div className="flex items-center gap-1">
+										<Button
+											variant="outline"
+											size="icon"
+											disabled={searchLogPageOffset === 0}
+											onClick={() => setSearchLogPageOffset(Math.max(0, searchLogPageOffset - searchLogPageLimit))}
+											className="h-8 w-8 border-border"
+											aria-label="Previous search logs page"
+										>
+											<ChevronLeft className="h-4 w-4" />
+										</Button>
+										<Button
+											variant="outline"
+											size="icon"
+											disabled={searchLogPageOffset + searchLogPageLimit >= totalSearchLogs}
+											onClick={() => setSearchLogPageOffset(searchLogPageOffset + searchLogPageLimit)}
+											className="h-8 w-8 border-border"
+											aria-label="Next search logs page"
+										>
+											<ChevronRight className="h-4 w-4" />
+										</Button>
+									</div>
+								</div>
 							</div>
 						</CardContent>
 					</Card>
@@ -3604,29 +3673,59 @@ export default function BrowserAiPage() {
 						</CardContent>
 					</Card>
 
-					{totalAgents > agentPageLimit && (
-						<div className="flex items-center justify-end gap-2">
-							<Button
-								variant="outline"
-								size="sm"
-								disabled={agentPageOffset === 0}
-								onClick={() => setAgentPageOffset(Math.max(0, agentPageOffset - agentPageLimit))}
+					{/* Guard Agents pagination — always visible (Prompt Logs style) */}
+					<div className="flex flex-col sm:flex-row justify-between items-center gap-4 text-xs text-muted-foreground">
+						<div className="flex items-center gap-2">
+							<span>Rows per page</span>
+							<Select
+								value={agentPageLimit.toString()}
+								onValueChange={(val) => {
+									setAgentPageLimit(Number(val));
+								}}
 							>
-								<ChevronLeft className="h-4 w-4" />
-							</Button>
-							<span className="text-xs text-muted-foreground">
-								{agentPageOffset + 1}–{Math.min(agentPageOffset + agentPageLimit, totalAgents)} of {totalAgents}
+								<SelectTrigger className="h-8 w-[70px] bg-background border-border">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="10">10</SelectItem>
+									<SelectItem value="25">25</SelectItem>
+									<SelectItem value="50">50</SelectItem>
+									<SelectItem value="100">100</SelectItem>
+								</SelectContent>
+							</Select>
+							<span>
+								Showing {totalAgents > 0 ? agentPageOffset + 1 : 0} to{" "}
+								{Math.min(agentPageOffset + agentPageLimit, totalAgents)} of {totalAgents} entries
 							</span>
-							<Button
-								variant="outline"
-								size="sm"
-								disabled={agentPageOffset + agentPageLimit >= totalAgents}
-								onClick={() => setAgentPageOffset(agentPageOffset + agentPageLimit)}
-							>
-								<ChevronRight className="h-4 w-4" />
-							</Button>
 						</div>
-					)}
+						<div className="flex items-center gap-2">
+							<span>
+								Page {agentCurrentPage} of {agentTotalPages}
+							</span>
+							<div className="flex items-center gap-1">
+								<Button
+									variant="outline"
+									size="icon"
+									disabled={agentPageOffset === 0}
+									onClick={() => setAgentPageOffset(Math.max(0, agentPageOffset - agentPageLimit))}
+									className="h-8 w-8 border-border"
+									aria-label="Previous agents page"
+								>
+									<ChevronLeft className="h-4 w-4" />
+								</Button>
+								<Button
+									variant="outline"
+									size="icon"
+									disabled={agentPageOffset + agentPageLimit >= totalAgents}
+									onClick={() => setAgentPageOffset(agentPageOffset + agentPageLimit)}
+									className="h-8 w-8 border-border"
+									aria-label="Next agents page"
+								>
+									<ChevronRight className="h-4 w-4" />
+								</Button>
+							</div>
+						</div>
+					</div>
 
 					<AlertDialog
 						open={showAgentDeleteDialog}

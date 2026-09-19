@@ -181,8 +181,8 @@ console.log(response.choices[0].message.content);`
 							className="h-8 w-auto max-w-[160px] object-contain shrink-0"
 							onError={(e) => {
 								const target = e.currentTarget;
-								if (!target.src.endsWith("/header_logo.png")) {
-									target.src = "/header_logo.png";
+								if (!target.src.endsWith("/yes-panchi-logo.png")) {
+									target.src = "/yes-panchi-logo.png";
 								}
 							}}
 						/>

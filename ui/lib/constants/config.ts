@@ -346,5 +346,6 @@ export const TRIAL_EXPIRY = parseTrialExpiry(process.env.UNIFAI_ENTERPRISE_TRIAL
 
 /** Dashboard branding — override via UNIFAI_COMPANY_NAME / UNIFAI_COMPANY_LOGO in .env. */
 export const COMPANY_NAME = (process.env.UNIFAI_COMPANY_NAME || "YesPanchi Group of Companies").trim() || "YesPanchi Group of Companies";
+/** Official YesPanchi mark (public/yes-panchi-logo.png). GIF source also at /yes-panchi-logo.gif. */
 export const COMPANY_LOGO = (process.env.UNIFAI_COMPANY_LOGO || "/yes-panchi-logo.png").trim() || "/yes-panchi-logo.png";
 export const COMPANY_SHORT_NAME = COMPANY_NAME.split(/\s+/)[0] || "YesPanchi";

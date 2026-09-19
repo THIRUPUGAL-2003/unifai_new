@@ -5,7 +5,9 @@
 export type ExportTableColumn = { key: string; header: string };
 export type ExportTableRow = Record<string, string | number | boolean | null | undefined>;
 
-const LOGO_SRC = "/header_logo.png";
+import { COMPANY_LOGO } from "@/lib/constants/config";
+
+const LOGO_SRC = COMPANY_LOGO || "/yes-panchi-logo.png";
 
 function dateStamp(): string {
 	const now = new Date();
