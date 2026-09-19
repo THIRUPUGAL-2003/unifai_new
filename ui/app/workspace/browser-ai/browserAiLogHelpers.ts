@@ -77,6 +77,23 @@ export function logUserCaption(log: BrowserAILogEntry): string {
 	}
 
 	const full = (log.user_prompt_full || log.user_prompt_preview || "").trim();
+	// Proxy embeds Claude-style: "[FILE UPLOAD] name.pdf -- caption — Allowed"
+	const dashCaption = full.match(
+		/^\[(?:FILE|VOICE) UPLOAD\]\s+.+?\s+--\s+(.+?)(?:\s+[—–-]\s+(?:Allowed|Blocked|Redacted|Warned).*)?$/i,
+	);
+	if (dashCaption?.[1]) {
+		let after = dashCaption[1].trim();
+		after = after.replace(/\s+[—–-]\s+(Allowed|Blocked|Redacted|Warned).*$/i, "").trim();
+		if (
+			after &&
+			!after.startsWith("[FILE") &&
+			!after.startsWith("[VOICE") &&
+			!/^attachment(-\d+)?$/i.test(after) &&
+			!/^(asset_pointer|image_asset_pointer|audio_asset_pointer|content_type|file_id)$/i.test(after)
+		) {
+			return after.slice(0, 500);
+		}
+	}
 	const pipe = full.indexOf(" | ");
 	if (pipe < 0) return "";
 	let after = full.slice(pipe + 3).trim();

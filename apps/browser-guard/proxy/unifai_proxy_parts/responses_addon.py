@@ -556,6 +556,11 @@ class BrowserAIInterceptor:
             if is_upload_n:
                 fname_n = extract_filename_from_upload(flow, raw_text_n)
                 bind = _resolve_upload_bind_domain(flow, host)
+                # Block Upload must kill CDN attach too (ChatGPT/Gemini often use noise hosts).
+                if bind and controls_active("block_upload"):
+                    warn = (get_control_settings().get("upload_warning") or "").strip() or "File uploads are blocked by admin policy."
+                    make_blocked_response(flow, "Block Upload", host, reply_text=warn)
+                    return
                 confident_n = is_confident_file_upload(
                     fname=fname_n,
                     content_type=content_type_n,
@@ -573,6 +578,10 @@ class BrowserAIInterceptor:
                     elif raw_bytes_n.lstrip()[:1] not in (b"{", b"[") and len(raw_bytes_n) >= 256:
                         payload_ok_n = True
                 if bind and (confident_n or payload_ok_n):
+                    try:
+                        ingest_upload_filenames_from_body(raw_text_n, bind)
+                    except Exception:
+                        pass
                     file_ids = _extract_file_ids_from_chat(raw_text_n)
                     cache_upload_file(
                         bind,
@@ -648,14 +657,19 @@ class BrowserAIInterceptor:
                     raw_text_nt = raw_bytes_nt.decode("utf-8", errors="ignore")
                 except Exception:
                     raw_text_nt = ""
-                try:
-                    ingest_upload_filenames_from_body(raw_text_nt)
-                except Exception:
-                    pass
                 is_upload_nt, upload_reason_nt = detect_file_upload(flow, raw_text_nt)
                 if is_upload_nt:
                     fname_nt = extract_filename_from_upload(flow, raw_text_nt)
                     bind = _resolve_upload_bind_domain(flow, host)
+                    try:
+                        ingest_upload_filenames_from_body(raw_text_nt, bind or "")
+                    except Exception:
+                        pass
+                    # Block Upload must kill non-target CDN attach (ChatGPT files.oaiusercontent.com etc).
+                    if bind and controls_active("block_upload"):
+                        warn = (get_control_settings().get("upload_warning") or "").strip() or "File uploads are blocked by admin policy."
+                        make_blocked_response(flow, "Block Upload", host, reply_text=warn)
+                        return
                     confident_nt = is_confident_file_upload(
                         fname=fname_nt,
                         content_type=content_type_nt,
@@ -721,7 +735,7 @@ class BrowserAIInterceptor:
 
         # Learn file_id → real filename from JSON so later nameless CDN uploads log correctly.
         try:
-            ingest_upload_filenames_from_body(raw_text)
+            ingest_upload_filenames_from_body(raw_text, domain or "")
         except Exception:
             pass
 

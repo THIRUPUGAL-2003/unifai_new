@@ -260,7 +260,7 @@ def enforce_file_send_policy(
     # Any Target: typed note often lives in composer traffic — join like Claude.
     if not (caption or "").strip():
         try:
-            caption = peek_recent_composer_caption(domain, max_age=45.0) or ""
+            caption = peek_recent_composer_caption(domain, max_age=90.0) or ""
         except Exception:
             caption = ""
         if caption:
@@ -332,11 +332,19 @@ def enforce_file_send_policy(
                 if by_bytes:
                     fname = by_bytes
                 else:
-                    fname = (fname or "").strip() or "attachment"
-                    if _is_fake_upload_name(fname) or fname.lower() in ("document", "document.pdf"):
-                        fname = "attachment"
-                    if n_cached > 1 and fname == "attachment":
-                        fname = f"attachment-{i + 1}"
+                    pending = ""
+                    try:
+                        pending = peek_pending_upload_name_for_domain(domain)
+                    except Exception:
+                        pending = ""
+                    if pending:
+                        fname = pending
+                    else:
+                        fname = (fname or "").strip() or "attachment"
+                        if _is_fake_upload_name(fname) or fname.lower() in ("document", "document.pdf"):
+                            fname = "attachment"
+                        if n_cached > 1 and fname == "attachment":
+                            fname = f"attachment-{i + 1}"
             cached["file_name"] = fname
             if _is_real_user_upload_name(fname) and cached_bytes:
                 try:
@@ -803,6 +811,27 @@ def _extract_file_send_user_caption(
             t = m.group(1)
         if looks_like_user_prompt(t or ""):
             _accept(t or "")
+    # ChatGPT conversation create: top-level "messages" with string part after file_id
+    for m in re.finditer(
+        r'"role"\s*:\s*"user"[\s\S]{0,12000}?"parts"\s*:\s*\[[\s\S]{0,40000}?\]\s*,\s*"content_type"\s*:\s*"(?:text|multimodal_text)"',
+        body,
+        re.I,
+    ):
+        block = m.group(0) or ""
+        for sm in re.finditer(r'"((?:[^"\\]|\\.){1,500})"', block):
+            try:
+                t = json.loads(f'"{sm.group(1)}"')
+            except Exception:
+                t = sm.group(1)
+            t = (t or "").strip()
+            if not t or len(t) > 500:
+                continue
+            if t.startswith(("file-", "sediment://", "file-service://", "http", "{", "[")):
+                continue
+            if "." in t and len(t) < 180 and re.search(r"\.[A-Za-z0-9]{2,5}$", t):
+                continue
+            if looks_like_user_prompt(t):
+                _accept(t)
     # ChatGPT / Copilot: message string fields next to attachments
     for m in re.finditer(
         r'"(?:input_text|message|prompt|query|text|user_message|content)"\s*:\s*"((?:[^"\\]|\\.){1,2000})"',

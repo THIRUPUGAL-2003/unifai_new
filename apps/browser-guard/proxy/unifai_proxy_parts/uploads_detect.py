@@ -257,6 +257,68 @@ def lookup_upload_filename(file_id: str) -> str:
     return got if _is_real_user_upload_name(got) else ""
 
 
+# Per-domain pending real names (ChatGPT create-file → nameless CDN PUT).
+_DOMAIN_PENDING_NAMES: dict[str, list[str]] = {}
+_DOMAIN_PENDING_NAMES_LOCK = threading.Lock()
+_DOMAIN_PENDING_NAMES_MAX = 40
+
+
+def remember_pending_upload_name_for_domain(domain: str, name: str) -> None:
+    """Queue a real filename for this Target so the next nameless CDN cache can bind it."""
+    d = (domain or "").strip().lower()
+    got = _sanitize_upload_filename(name or "")
+    if not d or not got or not _is_real_user_upload_name(got):
+        return
+    with _DOMAIN_PENDING_NAMES_LOCK:
+        q = _DOMAIN_PENDING_NAMES.setdefault(d, [])
+        # Avoid dupes at end; keep FIFO of recent real names.
+        if q and q[-1].lower() == got.lower():
+            return
+        q.append(got)
+        if len(q) > _DOMAIN_PENDING_NAMES_MAX:
+            _DOMAIN_PENDING_NAMES[d] = q[-_DOMAIN_PENDING_NAMES_MAX:]
+
+
+def peek_pending_upload_name_for_domain(domain: str) -> str:
+    """Latest pending real name for domain (do not consume)."""
+    d = (domain or "").strip().lower()
+    if not d:
+        return ""
+    with _DOMAIN_PENDING_NAMES_LOCK:
+        q = _DOMAIN_PENDING_NAMES.get(d) or []
+        if not q:
+            # Try alias roots (chatgpt.com vs chatgpt.com family)
+            for key, qq in _DOMAIN_PENDING_NAMES.items():
+                if key.endswith(d) or d.endswith(key):
+                    if qq:
+                        got = qq[-1]
+                        return got if _is_real_user_upload_name(got) else ""
+            return ""
+        got = q[-1]
+    return got if _is_real_user_upload_name(got) else ""
+
+
+def take_pending_upload_name_for_domain(domain: str) -> str:
+    """Consume one pending real name for this domain (FIFO)."""
+    d = (domain or "").strip().lower()
+    if not d:
+        return ""
+    with _DOMAIN_PENDING_NAMES_LOCK:
+        q = _DOMAIN_PENDING_NAMES.get(d) or []
+        if not q:
+            for key, qq in list(_DOMAIN_PENDING_NAMES.items()):
+                if (key.endswith(d) or d.endswith(key)) and qq:
+                    got = qq.pop(0)
+                    if not qq:
+                        _DOMAIN_PENDING_NAMES.pop(key, None)
+                    return got if _is_real_user_upload_name(got) else ""
+            return ""
+        got = q.pop(0)
+        if not q:
+            _DOMAIN_PENDING_NAMES.pop(d, None)
+    return got if _is_real_user_upload_name(got) else ""
+
+
 # Content fingerprint → real filename (Gemini/ChatGPT/Copilot/DeepSeek nameless re-upload).
 _CONTENT_HASH_NAME_REGISTRY: dict[str, str] = {}
 _CONTENT_HASH_NAME_LOCK = threading.Lock()
@@ -293,16 +355,18 @@ def lookup_upload_name_by_bytes(raw: bytes) -> str:
     return got if _is_real_user_upload_name(got) else ""
 
 
-def ingest_upload_filenames_from_body(raw_text: str) -> None:
+def ingest_upload_filenames_from_body(raw_text: str, domain: str = "") -> None:
     """Learn file_id→name pairs from any ChatGPT/Claude/Gemini JSON on the wire."""
     if not raw_text or len(raw_text) < 12:
         return
     id_map = extract_file_id_name_map(raw_text)
     for fid, name in id_map.items():
         remember_upload_filename(fid, name)
+        if domain:
+            remember_pending_upload_name_for_domain(domain, name)
     # Standalone create-file payloads
     for m in re.finditer(
-        r'["\'](?:file_name|fileName|filename|name)["\']\s*:\s*["\']([^"\']+)["\']',
+        r'["\'](?:file_name|fileName|filename|name|original_name|originalName|display_name|displayName)["\']\s*:\s*["\']([^"\']+)["\']',
         raw_text,
         re.I,
     ):
@@ -310,6 +374,8 @@ def ingest_upload_filenames_from_body(raw_text: str) -> None:
         if got and _is_real_user_upload_name(got):
             # no id here — still useful when only one pending upload
             remember_upload_filename(f"__pending__:{got.lower()}", got)
+            if domain:
+                remember_pending_upload_name_for_domain(domain, got)
 
 
 def extract_file_id_name_map(raw_text: str) -> dict[str, str]:
@@ -317,36 +383,53 @@ def extract_file_id_name_map(raw_text: str) -> dict[str, str]:
     out: dict[str, str] = {}
     if not raw_text:
         return out
-    # file_id then name (within a small window)
+
+    def _put(fid: str, name: str) -> None:
+        fid = (fid or "").strip()
+        name = _sanitize_upload_filename(name or "")
+        if not fid or not name or not _is_real_user_upload_name(name):
+            return
+        # Skip opaque ChatGPT ids mistaken for names
+        if fid.lower() in ("file", "id", "name", "type", "role", "user"):
+            return
+        out[fid] = name
+        if fid.startswith("file-"):
+            out[fid[5:]] = name
+        else:
+            out["file-" + fid] = name
+
+    # Wider window — ChatGPT create/upload JSON often separates id and name by >400 chars.
     for m in re.finditer(
-        r'(?:file_id|fileId|id)\s*"?\s*:\s*"((?:file-)?[A-Za-z0-9_-]{6,})"[^\n]{0,400}?'
-        r'(?:file_name|fileName|filename|name|title)\s*"?\s*:\s*"([^"]+)"',
+        r'(?:file_id|fileId|id)\s*"?\s*:\s*"((?:file-)?[A-Za-z0-9_-]{6,})"[^\n]{0,2500}?'
+        r'(?:file_name|fileName|filename|name|title|original_name|originalName|display_name|displayName)\s*"?\s*:\s*"([^"]+)"',
         raw_text,
         re.I,
     ):
-        fid = (m.group(1) or "").strip()
-        name = _sanitize_upload_filename(m.group(2))
-        if fid and name:
-            out[fid] = name
-            if fid.startswith("file-"):
-                out[fid[5:]] = name
-            else:
-                out["file-" + fid] = name
-    # name then file_id
+        _put(m.group(1), m.group(2))
     for m in re.finditer(
-        r'(?:file_name|fileName|filename|name|title)\s*"?\s*:\s*"([^"]+)"[^\n]{0,400}?'
+        r'(?:file_name|fileName|filename|name|title|original_name|originalName|display_name|displayName)\s*"?\s*:\s*"([^"]+)"[^\n]{0,2500}?'
         r'(?:file_id|fileId|id)\s*"?\s*:\s*"((?:file-)?[A-Za-z0-9_-]{6,})"',
         raw_text,
         re.I,
     ):
-        name = _sanitize_upload_filename(m.group(1))
-        fid = (m.group(2) or "").strip()
-        if fid and name:
-            out[fid] = name
-            if fid.startswith("file-"):
-                out[fid[5:]] = name
-            else:
-                out["file-" + fid] = name
+        _put(m.group(2), m.group(1))
+    # ChatGPT file-service:// / sediment:// pointers next to a filename
+    for m in re.finditer(
+        r'(?:file-service://file-|sediment://file-)([A-Za-z0-9_-]{6,})[^\n]{0,2500}?'
+        r'(?:file_name|fileName|filename|name|title)\s*"?\s*:\s*"([^"]+)"',
+        raw_text,
+        re.I,
+    ):
+        _put("file-" + m.group(1), m.group(2))
+        _put(m.group(1), m.group(2))
+    for m in re.finditer(
+        r'(?:file_name|fileName|filename|name|title)\s*"?\s*:\s*"([^"]+)"[^\n]{0,2500}?'
+        r'(?:file-service://file-|sediment://file-)([A-Za-z0-9_-]{6,})',
+        raw_text,
+        re.I,
+    ):
+        _put("file-" + m.group(2), m.group(1))
+        _put(m.group(2), m.group(1))
     return out
 
 
@@ -499,6 +582,16 @@ def _bind_real_filenames_to_cached_uploads(cached_list: list[dict], raw_text: st
                 cur = remembered
                 if raw:
                     remember_upload_name_by_bytes(bytes(raw), remembered)
+        if not _is_real_user_upload_name(cur):
+            pending = peek_pending_upload_name_for_domain(
+                (entry.get("domain") or "")
+            )
+            # domain on entry may be empty — caller passes raw_text only; try later in prepare
+            if pending:
+                entry["file_name"] = pending
+                cur = pending
+                if raw:
+                    remember_upload_name_by_bytes(bytes(raw), pending)
         if _is_real_user_upload_name(cur):
             used_names.add(cur.lower())
             if raw:
@@ -984,19 +1077,25 @@ def cache_upload_file(
         stored = stored[: 20 * 1024 * 1024]
     final_ct = ctype or content_type or "application/octet-stream"
     final_name = (name or file_name or "").strip() or "attachment"
+    name_from_wire = False
     # Prefer remembered real name (ChatGPT often uploads bytes with only file_id).
     if file_id:
         remembered = lookup_upload_filename(file_id)
         if remembered:
             final_name = remembered
+            name_from_wire = True
     if _is_real_user_upload_name(file_name or ""):
         final_name = (file_name or "").strip()
+        name_from_wire = True
         if file_id:
             remember_upload_filename(file_id, final_name)
+        remember_pending_upload_name_for_domain(domain, final_name)
     elif _is_real_user_upload_name(name or ""):
         final_name = (name or "").strip()
+        name_from_wire = True
         if file_id:
             remember_upload_filename(file_id, final_name)
+        remember_pending_upload_name_for_domain(domain, final_name)
     # Last resort label only — never invent document.pdf when a real name may
     # still arrive on Send (Gemini/ChatGPT). Keep "attachment" so bind can replace.
     if _is_fake_upload_name(final_name) or "." not in final_name:
@@ -1005,17 +1104,29 @@ def cache_upload_file(
         by_bytes = lookup_upload_name_by_bytes(stored)
         if by_bytes:
             final_name = by_bytes
-        elif file_id:
-            final_name = final_name if final_name else "attachment"
         else:
-            # Prefer sticky placeholder over document-N.pdf phantoms in Prompt Logs.
-            final_name = "attachment" if _is_fake_upload_name(final_name) or not final_name else final_name
-            if not _is_real_user_upload_name(final_name):
-                final_name = "attachment"
+            # Nameless CDN PUT after create-file: bind domain-pending real name.
+            pending = take_pending_upload_name_for_domain(domain)
+            if not pending:
+                pending = peek_pending_upload_name_for_domain(domain)
+            if pending:
+                final_name = pending
+                if file_id:
+                    remember_upload_filename(file_id, pending)
+            elif file_id:
+                final_name = final_name if final_name else "attachment"
+            else:
+                # Prefer sticky placeholder over document-N.pdf phantoms in Prompt Logs.
+                final_name = "attachment" if _is_fake_upload_name(final_name) or not final_name else final_name
+                if not _is_real_user_upload_name(final_name):
+                    final_name = "attachment"
     if _is_real_user_upload_name(final_name):
         remember_upload_name_by_bytes(stored, final_name)
         if file_id:
             remember_upload_filename(file_id, final_name)
+        # Only re-queue when name came from wire/create — not when we just consumed pending.
+        if name_from_wire:
+            remember_pending_upload_name_for_domain(domain, final_name)
     entry = {
         "ts": time.time(),
         "domain": domain,
@@ -1545,6 +1656,19 @@ def take_all_cached_uploads_for_send(
         uid = entry.get("cache_uid") or str(id(entry))
         if uid in seen_uids:
             return
+        # Prefer registry / pending name over cached "attachment" placeholder.
+        cur = (entry.get("file_name") or "").strip()
+        fid = (entry.get("file_id") or "").strip()
+        if not _is_real_user_upload_name(cur):
+            remembered = lookup_upload_filename(fid) if fid else ""
+            if not remembered:
+                raw = entry.get("raw_bytes") or b""
+                if isinstance(raw, (bytes, bytearray)) and raw:
+                    remembered = lookup_upload_name_by_bytes(bytes(raw))
+            if not remembered:
+                remembered = peek_pending_upload_name_for_domain(domain)
+            if remembered:
+                entry["file_name"] = remembered
         seen_uids.add(uid)
         found.append(entry)
 
