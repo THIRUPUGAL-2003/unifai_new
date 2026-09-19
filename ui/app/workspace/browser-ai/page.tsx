@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { parseAsStringLiteral, useQueryState } from "nuqs";
 import {
 	Globe,
 	RefreshCw,
@@ -58,7 +59,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import {
 	DropdownMenu,
@@ -131,8 +132,34 @@ import { LogPromptPreviewCell } from "./logPromptPreviewCell";
 import { formatLogDate, formatLogTime } from "./browserAiFormat";
 import { RegexLiveTestPanel } from "./regexLiveTestPanel";
 
+const BROWSER_AI_TABS = ["overview", "targets", "rules", "logs", "search-logs", "setup", "agents"] as const;
+type BrowserAiTab = (typeof BROWSER_AI_TABS)[number];
+
+const BROWSER_AI_TAB_TITLES: Record<BrowserAiTab, string> = {
+	overview: "Overview",
+	targets: "Target Websites",
+	rules: "Guard Rules",
+	logs: "Prompt Logs",
+	"search-logs": "Search Logs",
+	setup: "Setup",
+	agents: "Guard Agents",
+};
+
 export default function BrowserAiPage() {
-	const [activeTab, setActiveTab] = useState("overview");
+	const [tabParam, setTabParam] = useQueryState(
+		"tab",
+		parseAsStringLiteral(BROWSER_AI_TABS).withDefault("overview"),
+	);
+	const activeTab: BrowserAiTab = tabParam;
+	const setActiveTab = useCallback(
+		(value: string) => {
+			const next = (BROWSER_AI_TABS as readonly string[]).includes(value)
+				? (value as BrowserAiTab)
+				: "overview";
+			void setTabParam(next);
+		},
+		[setTabParam],
+	);
 
 	// Live updates & Polling control
 	const [liveUpdatesEnabled, setLiveUpdatesEnabled] = useState(true);
@@ -1348,7 +1375,9 @@ export default function BrowserAiPage() {
 				<div>
 					<div className="flex items-center gap-3">
 						<Globe className="h-6 w-6 text-primary" />
-						<h1 className="text-2xl font-bold tracking-tight">Browser AI Observability</h1>
+						<h1 className="text-2xl font-bold tracking-tight">
+							Browser AI · {BROWSER_AI_TAB_TITLES[activeTab]}
+						</h1>
 					</div>
 					<p className="text-muted-foreground text-sm mt-1">
 						Monitor browser AI prompts, predict security threat levels, warn or block policy hits, and control DLP guardrails.
@@ -1489,32 +1518,8 @@ export default function BrowserAiPage() {
 				</div>
 			</div>
 
-			{/* Sub-navigation Tabs */}
+			{/* Section content — nav is sidebar dropdown (Observability / Models style) */}
 			<Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-				<TabsList className="bg-card border border-border p-1">
-					<TabsTrigger value="overview" className="gap-2">
-						<Activity className="h-4 w-4" /> Overview
-					</TabsTrigger>
-					<TabsTrigger value="targets" className="gap-2">
-						<Globe className="h-4 w-4" /> Target Websites ({targets.length})
-					</TabsTrigger>
-					<TabsTrigger value="rules" className="gap-2">
-						<Shield className="h-4 w-4" /> Guard Rules ({rules.length})
-					</TabsTrigger>
-					<TabsTrigger value="logs" className="gap-2">
-						<FileText className="h-4 w-4" /> Prompt Logs ({totalLogs})
-					</TabsTrigger>
-					<TabsTrigger value="search-logs" className="gap-2 text-emerald-400 data-[state=active]:text-emerald-400">
-						<Search className="h-4 w-4" /> Search Logs ({totalSearchLogs})
-					</TabsTrigger>
-					<TabsTrigger value="setup" className="gap-2">
-						<Terminal className="h-4 w-4" /> Setup
-					</TabsTrigger>
-					<TabsTrigger value="agents" className="gap-2">
-						<Radio className="h-4 w-4" /> Guard Agents ({totalAgents})
-					</TabsTrigger>
-				</TabsList>
-
 				{/* TAB 1: OVERVIEW */}
 				<TabsContent value="overview" className="space-y-6">
 					<div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

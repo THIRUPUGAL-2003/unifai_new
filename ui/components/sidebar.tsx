@@ -1,4 +1,5 @@
 import {
+	Activity,
 	ArrowUpRight,
 	BookOpenText,
 	BookUser,
@@ -11,6 +12,7 @@ import {
 	ChevronsLeftRightEllipsis,
 	Construction,
 	DatabaseZap,
+	FileText,
 	Flag,
 	ShieldHalf,
 	FlaskConical,
@@ -26,15 +28,18 @@ import {
 	PanelLeftOpen,
 	Plug,
 	Puzzle,
+	Radio,
 	ScrollText,
 	Search,
 	SearchCheck,
 	Settings,
 	Settings2Icon,
+	Shield,
 	ShieldCheck,
 	Shuffle,
 	SlidersHorizontal,
 	Telescope,
+	Terminal,
 	ToolCase,
 	TrendingUp,
 	User,
@@ -156,6 +161,15 @@ const splitUrlAndQuery = (url: string): { to: string; search?: any } => {
 	if (!query) return { to };
 	const search = Object.fromEntries(new URLSearchParams(query).entries());
 	return { to, search };
+};
+
+/** Active state for tab= queryParam sub-items (e.g. Browser AI). Default tab = overview. */
+const isQueryParamTabActive = (pathname: string, search: string, subItem: Pick<SidebarItem, "url" | "queryParam">) => {
+	if (!subItem.queryParam || pathname !== subItem.url) return false;
+	const params = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+	const tab = params.get("tab");
+	if (!tab) return subItem.queryParam === "overview";
+	return tab === subItem.queryParam;
 };
 
 const slug = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
@@ -365,7 +379,9 @@ const SidebarItemView = ({
 						{item.subItems?.map((subItem) => {
 							const baseHref = getSidebarItemHref(subItem);
 							const href = preserveTimeFilters(baseHref, subItem.url, pathname, search);
-							const isSubItemActive = subItem.queryParam ? pathname === subItem.url : isRouteMatch(subItem.url);
+							const isSubItemActive = subItem.queryParam
+								? isQueryParamTabActive(pathname, search, subItem)
+								: isRouteMatch(subItem.url);
 							const SubItemIcon = subItem.icon;
 							const subSlug = slug(subItem.title);
 							const inner = (
@@ -420,8 +436,9 @@ const SidebarItemView = ({
 					{item.subItems?.map((subItem: SidebarItem) => {
 						const baseHref = getSidebarItemHref(subItem);
 						const subItemHref = preserveTimeFilters(baseHref, subItem.url, pathname, search);
-						// For query param based subitems, check if tab matches
-						const isSubItemActive = subItem.queryParam ? pathname === subItem.url : isRouteMatch(subItem.url);
+						const isSubItemActive = subItem.queryParam
+							? isQueryParamTabActive(pathname, search, subItem)
+							: isRouteMatch(subItem.url);
 						const isSubItemHighlighted = highlightedUrl ? subItemHref.startsWith(highlightedUrl) : false;
 						const SubItemIcon = subItem.icon;
 						const subItemClassName = `group/nav-item h-7 cursor-pointer rounded-sm px-2 transition-all duration-200 ${
@@ -647,6 +664,64 @@ export default function AppSidebar() {
 				icon: Globe,
 				description: "Browser AI observability & DLP proxy",
 				hasAccess: hasLogsAccess,
+				subItems: [
+					{
+						title: "Overview",
+						url: "/workspace/browser-ai",
+						icon: Activity,
+						description: "Browser AI overview",
+						hasAccess: hasLogsAccess,
+						queryParam: "overview",
+					},
+					{
+						title: "Target Websites",
+						url: "/workspace/browser-ai",
+						icon: Globe,
+						description: "Monitored / blocked websites",
+						hasAccess: hasLogsAccess,
+						queryParam: "targets",
+					},
+					{
+						title: "Guard Rules",
+						url: "/workspace/browser-ai",
+						icon: Shield,
+						description: "DLP guard rules",
+						hasAccess: hasLogsAccess,
+						queryParam: "rules",
+					},
+					{
+						title: "Prompt Logs",
+						url: "/workspace/browser-ai",
+						icon: FileText,
+						description: "Intercepted prompt logs",
+						hasAccess: hasLogsAccess,
+						queryParam: "logs",
+					},
+					{
+						title: "Search Logs",
+						url: "/workspace/browser-ai",
+						icon: Search,
+						description: "Browser search query logs",
+						hasAccess: hasLogsAccess,
+						queryParam: "search-logs",
+					},
+					{
+						title: "Setup",
+						url: "/workspace/browser-ai",
+						icon: Terminal,
+						description: "Guard install & PAC setup",
+						hasAccess: hasLogsAccess,
+						queryParam: "setup",
+					},
+					{
+						title: "Guard Agents",
+						url: "/workspace/browser-ai",
+						icon: Radio,
+						description: "Installed Guard agents",
+						hasAccess: hasLogsAccess,
+						queryParam: "agents",
+					},
+				],
 			},
 			{
 				title: "Models",
