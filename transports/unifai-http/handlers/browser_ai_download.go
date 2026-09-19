@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/valyala/fasthttp"
 )
@@ -90,14 +89,6 @@ func findFirstExisting(candidates []string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-func fileModTime(path string) time.Time {
-	info, err := os.Stat(path)
-	if err != nil {
-		return time.Time{}
-	}
-	return info.ModTime()
 }
 
 func readGuardReleaseVersion() string {
@@ -187,11 +178,8 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 			SendError(ctx, fasthttp.StatusNotFound, "No Windows Guard installer on server — add UnifAI_Guard_Setup.exe or UnifAI_Guard.exe under apps/browser-guard/release/")
 			return
 		}
-		if setupOK && exeOK {
-			if fileModTime(exePath).After(fileModTime(setupPath)) {
-				setupOK = false
-			}
-		}
+		// Always ship BOTH when present: Setup (Inno install) + portable EXE.
+		// INSTALL_WINDOWS.txt tells employees to prefer newer EXE if Setup is older.
 		var winAssets []zipAsset
 		if setupOK {
 			winAssets = append(winAssets, zipAsset{name: "UnifAI_Guard_Setup.exe", path: setupPath})
@@ -239,11 +227,7 @@ func (h *BrowserAIHandler) downloadSetupPackage(ctx *fasthttp.RequestCtx) {
 	}
 
 	// 3. COMBINED / LEGACY DOWNLOAD (when no platform specified)
-	if setupOK && exeOK {
-		if fileModTime(exePath).After(fileModTime(setupPath)) {
-			setupOK = false
-		}
-	}
+	// Always include Setup + portable EXE when both exist (same as Windows ZIP).
 
 	var assets []zipAsset
 	if setupOK {
