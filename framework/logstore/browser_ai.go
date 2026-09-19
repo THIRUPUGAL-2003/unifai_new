@@ -1730,6 +1730,7 @@ func (m *BrowserAIManager) ensureAgentSettingsLocked(ctx context.Context) (*Brow
 			return nil, createErr
 		}
 	}
+	settings.RequireUninstallKey = true
 	settings.KeyConfigured = strings.TrimSpace(settings.UninstallKeyHash) != ""
 	return &settings, nil
 }
@@ -1747,15 +1748,15 @@ func (m *BrowserAIManager) SaveUninstallKey(ctx context.Context, plaintext, upda
 		return nil, err
 	}
 	updates := map[string]any{
-		"updated_at": time.Now(),
-		"updated_by": strings.TrimSpace(updatedBy),
+		"updated_at":            time.Now(),
+		"updated_by":            strings.TrimSpace(updatedBy),
+		// Company policy: uninstall is always key-gated (Settings / CLI / remote).
+		"require_uninstall_key": true,
 	}
 	if plaintext = strings.TrimSpace(plaintext); plaintext != "" {
 		updates["uninstall_key_hash"] = hashUninstallKey(plaintext)
 	}
-	if requireKey != nil {
-		updates["require_uninstall_key"] = *requireKey
-	}
+	_ = requireKey // ignored — key is always required
 	if err := m.db.WithContext(ctx).Model(&BrowserAIAgentSettings{}).Where("id = ?", BrowserAIAgentSettingsID).Updates(updates).Error; err != nil {
 		return nil, err
 	}
@@ -1772,10 +1773,11 @@ func (m *BrowserAIManager) VerifyUninstallKey(ctx context.Context, plaintext str
 	if err := m.db.WithContext(ctx).Where("id = ?", BrowserAIAgentSettingsID).First(&settings).Error; err != nil {
 		return false, nil, err
 	}
+	settings.RequireUninstallKey = true
 	settings.KeyConfigured = strings.TrimSpace(settings.UninstallKeyHash) != ""
-	// If admin never saved a key, do not lock employees out of uninstall.
-	if !settings.RequireUninstallKey || !settings.KeyConfigured {
-		return true, &settings, nil
+	// No key configured → unlock nothing. Admin must set a company key first.
+	if !settings.KeyConfigured {
+		return false, &settings, nil
 	}
 	ok := hashUninstallKey(plaintext) == settings.UninstallKeyHash
 	return ok, &settings, nil

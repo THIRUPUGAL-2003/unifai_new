@@ -1023,7 +1023,7 @@ export default function BrowserAiPage() {
 		try {
 			await saveUninstallKey({
 				key: nextKey,
-				require_uninstall_key: agentSettings?.require_uninstall_key ?? true,
+				require_uninstall_key: true,
 				updated_by: "admin",
 			}).unwrap();
 			setSavedUninstallKeyDisplay(nextKey);
@@ -1034,21 +1034,6 @@ export default function BrowserAiPage() {
 			refetchAgentSettings();
 		} catch (error) {
 			setUninstallKeyError(error instanceof Error ? error.message : "Failed to save uninstall key");
-		}
-	};
-
-	const handleToggleRequireUninstallKey = async (checked: boolean) => {
-		setUninstallKeyMessage("");
-		setUninstallKeyError("");
-		try {
-			await saveUninstallKey({
-				require_uninstall_key: checked,
-				updated_by: "admin",
-			}).unwrap();
-			setUninstallKeyMessage(checked ? "Uninstall key is now required." : "Uninstall key requirement disabled.");
-			refetchAgentSettings();
-		} catch (error) {
-			setUninstallKeyError(error instanceof Error ? error.message : "Failed to update uninstall policy");
 		}
 	};
 
@@ -3506,8 +3491,7 @@ export default function BrowserAiPage() {
 							<CardHeader className="pb-2">
 								<CardDescription>Uninstall key</CardDescription>
 								<CardTitle className="text-lg">
-									{agentSettings?.key_configured ? "Configured" : "Not set"}
-									{agentSettings?.require_uninstall_key ? " · Required" : " · Optional"}
+									{agentSettings?.key_configured ? "Configured · Always required" : "Not set · Set key first"}
 								</CardTitle>
 							</CardHeader>
 						</Card>
@@ -3689,23 +3673,17 @@ export default function BrowserAiPage() {
 								<div>
 									<CardTitle className="text-lg">Uninstall Key</CardTitle>
 									<CardDescription>
-										Employees can remove Guard only when this key matches (if required). Key is stored hashed in unifai_new.
+										Employees and admins can remove Guard only with this company key. Key is stored hashed.
 									</CardDescription>
 								</div>
 							</div>
 						</CardHeader>
 						<CardContent className="space-y-4">
-							<div className="flex items-center justify-between gap-4 rounded-md border border-border p-3">
-								<div>
-									<p className="text-sm font-medium">Require uninstall key</p>
-									<p className="text-xs text-muted-foreground">When off, Windows/macOS uninstall proceeds without a key check.</p>
-								</div>
-								<Switch
-									checked={!!agentSettings?.require_uninstall_key}
-									onAsyncCheckedChange={async (checked) => {
-										await handleToggleRequireUninstallKey(checked);
-									}}
-								/>
+							<div className="rounded-md border border-amber-800/50 bg-amber-950/20 p-3">
+								<p className="text-sm font-medium text-amber-200">Uninstall always requires this key</p>
+								<p className="text-xs text-muted-foreground mt-1">
+									Windows Settings / Start Menu / CLI / Mac uninstall / admin remote uninstall — all need the matching key. You cannot turn this off.
+								</p>
 							</div>
 							<div className="space-y-3">
 								{agentSettings?.key_configured && !uninstallKeyEditing ? (

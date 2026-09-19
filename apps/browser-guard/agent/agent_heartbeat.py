@@ -64,8 +64,8 @@ def heartbeat_wants_uninstall(data: dict | None) -> bool:
 
 
 def apply_admin_uninstall(agent_id: str) -> None:
-    """Admin requested uninstall from Browser AI. No employee key required."""
-    print("[UnifAI Guard] Admin remote uninstall received — stopping Guard.")
+    """Remote uninstall after admin verified company key on the API request."""
+    print("[UnifAI Guard] Remote uninstall authorized — stopping Guard.")
     _http_json(
         "POST",
         f"{UNIFAI_BACKEND_URL}/api/browser-ai/agents/uninstall-ack",

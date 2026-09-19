@@ -381,10 +381,14 @@ export const browserAiApi = baseApi.injectEndpoints({
 			invalidatesTags: ["BrowserAiAgentSettings" as any],
 		}),
 
-		remoteUninstallBrowserAiAgent: builder.mutation<{ status: string; agent: BrowserAIAgent }, string>({
-			query: (id) => ({
+		remoteUninstallBrowserAiAgent: builder.mutation<
+			{ status: string; agent: BrowserAIAgent },
+			{ id: string; key: string }
+		>({
+			query: ({ id, key }) => ({
 				url: `/browser-ai/agents/${encodeURIComponent(id)}/remote-uninstall`,
 				method: "POST",
+				body: { key },
 			}),
 			invalidatesTags: ["BrowserAiAgents" as any],
 		}),

@@ -206,6 +206,10 @@ func (h *BrowserAIHandler) uninstallAgent(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
 		return
 	}
+	if settings != nil && !settings.KeyConfigured {
+		SendError(ctx, fasthttp.StatusForbidden, "Set a company uninstall key in Browser AI → Setup before uninstalling")
+		return
+	}
 	if !ok {
 		uninstallAttemptsMu.Lock()
 		state := uninstallAttempts[clientIP]
@@ -246,6 +250,28 @@ func (h *BrowserAIHandler) remoteUninstallAgent(ctx *fasthttp.RequestCtx) {
 	id, ok := ctx.UserValue("id").(string)
 	if !ok || id == "" {
 		SendError(ctx, fasthttp.StatusBadRequest, "Missing agent ID")
+		return
+	}
+	var req struct {
+		Key string `json:"key"`
+	}
+	if len(ctx.PostBody()) > 0 {
+		if err := sonic.Unmarshal(ctx.PostBody(), &req); err != nil {
+			SendError(ctx, fasthttp.StatusBadRequest, "Invalid JSON payload")
+			return
+		}
+	}
+	valid, settings, err := h.manager.VerifyUninstallKey(ctx, req.Key)
+	if err != nil {
+		SendError(ctx, fasthttp.StatusInternalServerError, err.Error())
+		return
+	}
+	if settings != nil && !settings.KeyConfigured {
+		SendError(ctx, fasthttp.StatusForbidden, "Set a company uninstall key in Browser AI → Setup before uninstalling")
+		return
+	}
+	if !valid {
+		SendError(ctx, fasthttp.StatusForbidden, "Invalid uninstall key")
 		return
 	}
 	agent, err := h.manager.RequestRemoteUninstall(ctx, id)
