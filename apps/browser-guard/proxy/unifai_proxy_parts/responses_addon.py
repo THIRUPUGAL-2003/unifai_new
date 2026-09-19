@@ -975,8 +975,71 @@ class BrowserAIInterceptor:
                 print(f"[UnifAI Proxy Warning] Failed to inject warning into request: {e}")
 
     def response(self, flow: http.HTTPFlow) -> None:
-        # Download / copy-paste controls removed — only upload is blocked on request().
-        return
+        """Learn real filenames from upload/create responses on ANY Target / CDN.
+
+        Many sites (ChatGPT, Gemini, Copilot, custom AIs) omit the name on the
+        byte PUT and only return {id, filename} after. Request-side cache then
+        stays 'attachment' unless we bind here.
+        """
+        try:
+            host = flow.request.pretty_host
+            method = (flow.request.method or "").upper()
+            if method not in ("POST", "PUT", "PATCH", "GET"):
+                return
+            resp = flow.response
+            if resp is None or (resp.status_code or 0) >= 400:
+                return
+            ct = (resp.headers.get("content-type", "") or "").lower()
+            raw = resp.content or b""
+            if not raw or len(raw) > 2 * 1024 * 1024:
+                return
+            if not (
+                "json" in ct
+                or "text/" in ct
+                or raw.lstrip()[:1] in (b"{", b"[")
+            ):
+                return
+            try:
+                text = raw.decode("utf-8", errors="ignore")
+            except Exception:
+                return
+            if not text or len(text) < 8:
+                return
+            bind = ""
+            ok, domain, _plat = detect_target(host)
+            if ok and domain:
+                bind = domain
+            if not bind:
+                bind = _resolve_upload_bind_domain(flow, host)
+            if not bind:
+                return
+            ingest_upload_filenames_from_body(text, bind)
+            # Pair request-side name (headers / multipart) with response file_id.
+            try:
+                req_bytes = flow.request.content or b""
+                req_text = ""
+                try:
+                    req_text = req_bytes.decode("utf-8", errors="ignore")
+                except Exception:
+                    req_text = ""
+                req_name = _filename_from_multipart_or_headers(
+                    req_bytes, flow.request.headers, req_text,
+                )
+                if not req_name or not _is_real_user_upload_name(req_name):
+                    req_names = [
+                        n for n in extract_all_attachment_filenames_from_send(req_text)
+                        if _is_real_user_upload_name(n)
+                    ]
+                    req_name = req_names[0] if req_names else ""
+                resp_ids = _extract_file_ids_from_chat(text)
+                if req_name and resp_ids:
+                    remember_upload_filename(resp_ids[0], req_name)
+                    remember_pending_upload_name_for_domain(bind, req_name)
+                    rename_recent_nameless_caches(bind, req_name, resp_ids[0])
+            except Exception:
+                pass
+        except Exception:
+            return
 
     # ── WebSocket Message Interception ─────────
 

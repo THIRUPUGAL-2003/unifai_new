@@ -315,17 +315,38 @@ def enforce_file_send_policy(
         if _is_real_user_upload_name(n)
     ]
     if send_real_names:
-        named_only = [
-            e for e in cached_list
+        # Stamp Send names onto nameless rows; keep distinct real files.
+        unused = [n for n in send_real_names]
+        used: set[str] = set()
+        for e in cached_list:
+            cur = (e.get("file_name") or "").strip()
+            if _is_real_user_upload_name(cur):
+                used.add(cur.lower())
+        leftover = [n for n in unused if n.lower() not in used]
+        li = 0
+        for e in cached_list:
+            cur = (e.get("file_name") or "").strip()
+            if _is_real_user_upload_name(cur):
+                continue
+            if li < len(leftover):
+                e["file_name"] = leftover[li]
+                li += 1
+    # Any Target: leftover pending names (learned from create/response) → nameless caches.
+    still_fake = [e for e in cached_list if not _is_real_user_upload_name((e.get("file_name") or "").strip())]
+    if still_fake:
+        try:
+            pending_names = list_pending_upload_names_for_domain(domain)
+        except Exception:
+            pending_names = []
+        already = {
+            (e.get("file_name") or "").strip().lower()
+            for e in cached_list
             if _is_real_user_upload_name((e.get("file_name") or "").strip())
-        ]
-        if named_only:
-            cached_list = named_only
-        else:
-            # Rename fake rows from Send names (1:1).
-            for i, e in enumerate(cached_list):
-                if i < len(send_real_names) and not _is_real_user_upload_name((e.get("file_name") or "").strip()):
-                    e["file_name"] = send_real_names[i]
+        }
+        leftover_p = [n for n in pending_names if n.lower() not in already]
+        for i, e in enumerate(still_fake):
+            if i < len(leftover_p):
+                e["file_name"] = leftover_p[i]
 
     get_control_settings()
     block_all = controls_active("block_upload")

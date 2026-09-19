@@ -408,6 +408,98 @@ def take_pending_upload_name_for_domain(domain: str) -> str:
     return got if _is_real_user_upload_name(got) else ""
 
 
+def list_pending_upload_names_for_domain(domain: str) -> list[str]:
+    """Copy of pending real names (do not consume) — used to label multi-file Sends."""
+    d = (domain or "").strip().lower()
+    if not d:
+        return []
+    out: list[str] = []
+    with _DOMAIN_PENDING_NAMES_LOCK:
+        keys = [d]
+        for key in _DOMAIN_PENDING_NAMES:
+            if key != d and (key.endswith(d) or d.endswith(key)):
+                keys.append(key)
+        seen: set[str] = set()
+        for key in keys:
+            for n in _DOMAIN_PENDING_NAMES.get(key) or []:
+                if n and _is_real_user_upload_name(n) and n.lower() not in seen:
+                    seen.add(n.lower())
+                    out.append(n)
+    return out
+
+
+def rename_recent_nameless_caches(domain: str, name: str, file_id: str = "") -> int:
+    """Stamp a learned real name onto recent nameless cached uploads (any Target).
+
+    ChatGPT/Gemini often cache bytes first (CDN PUT) and only later return
+    {id, filename} on the create-file response. Without this, Prompt Logs stay
+    'attachment' even after the real name is on the wire.
+    """
+    got = _sanitize_upload_filename(name or "")
+    if not got or not _is_real_user_upload_name(got):
+        return 0
+    fid = (file_id or "").strip()
+    aliases = upload_domain_aliases(domain) or [((domain or "").strip().lower())]
+    aliases = [a for a in aliases if a]
+    if not aliases:
+        return 0
+    changed = 0
+    with _UPLOAD_FILE_CACHE_LOCK:
+        _purge_upload_file_cache()
+        candidates: list[dict] = []
+        seen: set[str] = set()
+        for alias in aliases:
+            for entry in list(_UPLOAD_FILE_QUEUES.get(_upload_queue_key(alias), [])):
+                uid = str(entry.get("cache_uid") or id(entry))
+                if uid in seen:
+                    continue
+                seen.add(uid)
+                candidates.append(entry)
+            latest = _UPLOAD_FILE_CACHE.get(f"{alias}|latest")
+            if latest:
+                uid = str(latest.get("cache_uid") or id(latest))
+                if uid not in seen:
+                    seen.add(uid)
+                    candidates.append(latest)
+        # Prefer file_id match; else oldest nameless real-byte cache.
+        targets: list[dict] = []
+        if fid:
+            for e in candidates:
+                efid = (e.get("file_id") or "").strip()
+                if efid and (efid == fid or efid == fid[5:] or ("file-" + efid) == fid):
+                    targets.append(e)
+        if not targets:
+            nameless = [
+                e for e in candidates
+                if not _is_real_user_upload_name((e.get("file_name") or "").strip())
+                and isinstance(e.get("raw_bytes"), (bytes, bytearray))
+                and len(e.get("raw_bytes") or b"") >= 64
+            ]
+            nameless.sort(key=lambda e: float(e.get("ts") or 0))
+            if nameless:
+                targets = [nameless[0]]
+        for entry in targets:
+            cur = (entry.get("file_name") or "").strip()
+            if _is_real_user_upload_name(cur) and cur.lower() == got.lower():
+                continue
+            raw = entry.get("raw_bytes") or b""
+            if not isinstance(raw, (bytes, bytearray)):
+                raw = b""
+            entry["file_name"] = _ensure_name_has_extension(got, bytes(raw), entry.get("content_type") or "")
+            if fid and not (entry.get("file_id") or "").strip():
+                entry["file_id"] = fid
+            if raw:
+                remember_upload_name_by_bytes(bytes(raw), entry["file_name"])
+            if fid:
+                remember_upload_filename(fid, entry["file_name"])
+            changed += 1
+            print(
+                f"[UnifAI Proxy] FILE NAME retro-bound | {domain} | "
+                f"{cur or 'attachment'} → {entry['file_name']}"
+            )
+    return changed
+
+
 # Content fingerprint → real filename (Gemini/ChatGPT/Copilot/DeepSeek nameless re-upload).
 _CONTENT_HASH_NAME_REGISTRY: dict[str, str] = {}
 _CONTENT_HASH_NAME_LOCK = threading.Lock()
@@ -445,26 +537,92 @@ def lookup_upload_name_by_bytes(raw: bytes) -> str:
 
 
 def ingest_upload_filenames_from_body(raw_text: str, domain: str = "") -> None:
-    """Learn file_id→name pairs from any ChatGPT/Claude/Gemini JSON on the wire."""
-    if not raw_text or len(raw_text) < 12:
+    """Learn file_id→name pairs from any Target's JSON (request OR response)."""
+    if not raw_text or len(raw_text) < 8:
         return
     id_map = extract_file_id_name_map(raw_text)
     for fid, name in id_map.items():
         remember_upload_filename(fid, name)
         if domain:
             remember_pending_upload_name_for_domain(domain, name)
-    # Standalone create-file payloads
+            try:
+                rename_recent_nameless_caches(domain, name, fid)
+            except Exception:
+                pass
+    # Standalone create-file payloads / display names without an id
     for m in re.finditer(
-        r'["\'](?:file_name|fileName|filename|name|original_name|originalName|display_name|displayName)["\']\s*:\s*["\']([^"\']+)["\']',
+        r'["\'](?:file_name|fileName|filename|original_name|originalName|original_filename|originalFilename|display_name|displayName)["\']\s*:\s*["\']([^"\']+)["\']',
         raw_text,
         re.I,
     ):
         got = _sanitize_upload_filename(m.group(1))
         if got and _is_real_user_upload_name(got):
-            # no id here — still useful when only one pending upload
             remember_upload_filename(f"__pending__:{got.lower()}", got)
             if domain:
                 remember_pending_upload_name_for_domain(domain, got)
+                try:
+                    rename_recent_nameless_caches(domain, got, "")
+                except Exception:
+                    pass
+    # Deep JSON walk — ChatGPT/Gemini nest {id, filename} under data/file/attachment.
+    stripped = (raw_text or "").lstrip()
+    if stripped[:1] in ("{", "["):
+        try:
+            data = json.loads(raw_text)
+        except Exception:
+            data = None
+        if data is not None:
+            for fid, name in _walk_json_file_id_names(data).items():
+                remember_upload_filename(fid, name)
+                if domain:
+                    remember_pending_upload_name_for_domain(domain, name)
+                    try:
+                        rename_recent_nameless_caches(domain, name, fid)
+                    except Exception:
+                        pass
+
+
+def _walk_json_file_id_names(obj, out: dict[str, str] | None = None, depth: int = 0) -> dict[str, str]:
+    """Recursively collect id↔filename pairs from any vendor JSON shape."""
+    if out is None:
+        out = {}
+    if depth > 12 or obj is None:
+        return out
+    if isinstance(obj, dict):
+        fid = ""
+        for k in (
+            "file_id", "fileId", "file_uuid", "fileUuid", "attachment_id",
+            "attachmentId", "docId", "document_id", "id",
+        ):
+            v = obj.get(k)
+            if isinstance(v, str) and len(v.strip()) >= 6:
+                fid = v.strip()
+                break
+        name = ""
+        for k in (
+            "filename", "file_name", "fileName", "original_filename", "originalFilename",
+            "original_name", "originalName", "display_name", "displayName", "name", "title",
+        ):
+            v = obj.get(k)
+            if isinstance(v, str) and v.strip():
+                cand = _sanitize_upload_filename(v)
+                if cand and _is_real_user_upload_name(cand):
+                    name = cand
+                    break
+        if fid and name:
+            out[fid] = name
+            if fid.startswith("file-"):
+                out[fid[5:]] = name
+            else:
+                out["file-" + fid] = name
+        for v in obj.values():
+            if isinstance(v, (dict, list)):
+                _walk_json_file_id_names(v, out, depth + 1)
+    elif isinstance(obj, list):
+        for v in obj[:80]:
+            if isinstance(v, (dict, list)):
+                _walk_json_file_id_names(v, out, depth + 1)
+    return out
 
 
 def extract_file_id_name_map(raw_text: str) -> dict[str, str]:
@@ -574,11 +732,6 @@ def _dedupe_cached_uploads_by_bytes(cached_list: list[dict]) -> list[dict]:
         prev = by_fp.get(fp)
         by_fp[fp] = e if prev is None else _prefer_named_upload(prev, e)
     out = list(by_fp.values())
-    # Also drop fake-named rows when ANY real-named row exists (different bytes but phantom).
-    realish = [e for e in out if _is_real_user_upload_name((e.get("file_name") or "").strip())]
-    if realish and len(out) > len(realish):
-        # Keep real names; keep fake only if no real sibling (shouldn't happen).
-        return realish
     if out:
         return out
     return no_fp or cached_list
@@ -604,8 +757,15 @@ def _trim_phantom_upload_caches(
     realish = [e for e in cached_list if _is_real_user_upload_name((e.get("file_name") or "").strip())]
     fakeish = [e for e in cached_list if not _is_real_user_upload_name((e.get("file_name") or "").strip())]
 
-    # Hard rule: never keep "attachment" rows alongside a real filename (ChatGPT phantom).
+    # Drop tiny caption/metadata phantoms next to a real file. Keep unnamed
+    # rows that still look like real documents (multi-file: 1 named + 2 nameless).
     if realish and fakeish:
+        keep_fake = [
+            e for e in fakeish
+            if len(e.get("raw_bytes") or b"") >= 512
+        ]
+        if keep_fake:
+            return _dedupe_cached_uploads_by_bytes(realish + keep_fake)
         return _dedupe_cached_uploads_by_bytes(realish)
 
     if send_names:
@@ -1062,8 +1222,10 @@ def extract_upload_file_payload(raw: bytes, content_type: str = "", file_name: s
         if stripped[:1] in (b"{", b"[") and len(raw) < 50_000 and ctype == "application/octet-stream":
             return None, "", name
         data = raw if len(raw) <= 20 * 1024 * 1024 else raw[: 20 * 1024 * 1024]
+        # Keep placeholder — inventing document.pdf creates fake Prompt Log rows
+        # that never get replaced by the real name from create-file / Send.
         if _is_fake_upload_name(name):
-            name = _default_name_from_bytes(data, ctype, 0)
+            name = "attachment"
         return data, ctype, name
     return None, "", name
 

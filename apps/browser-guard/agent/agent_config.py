@@ -9,7 +9,7 @@ import sys
 from guard_platform import data_dir
 
 DEFAULT_BACKEND = ""  # Set UNIFAI_BACKEND_URL or SERVER_DOMAIN / unifai_guard_config.json backend_url
-AGENT_VERSION = "1.1.5"
+AGENT_VERSION = "1.1.6"
 HEARTBEAT_SECONDS = 30
 HEALTH_SECONDS = 45
 _HEALTH_WHEN_PROXY_DOWN_SECONDS = 8
