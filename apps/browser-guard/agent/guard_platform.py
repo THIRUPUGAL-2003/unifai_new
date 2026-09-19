@@ -94,15 +94,39 @@ def detect_mac_and_transport() -> tuple[str, str]:
             )
             import re
 
+            # Internal Apple interfaces to skip (not real network adapters)
+            _SKIP_IFACE_PREFIXES = ("anpi", "bridge", "llw", "awdl", "utun", "lo", "gif", "stf", "ap1")
+
             lines = (completed.stdout or "").splitlines()
             current_iface = ""
+            # Collect all candidates: list of (mac, transport, iface)
+            candidates: list[tuple[str, str, str]] = []
             for line in lines:
                 if line and not line[0].isspace():
                     current_iface = line.split(":", 1)[0].strip()
                 m = re.search(r"ether\s+([0-9a-f:]{17})", line, re.I)
                 if m:
+                    if any(current_iface.startswith(p) for p in _SKIP_IFACE_PREFIXES):
+                        continue
                     mac = m.group(1).upper().replace(":", "-")
-                    return mac, current_iface
+                    transport = _mac_iface_to_service_name(current_iface) or current_iface
+                    candidates.append((mac, transport, current_iface))
+
+            if candidates:
+                # Priority 1: Wi-Fi
+                for mac, transport, iface in candidates:
+                    if "wi-fi" in transport.lower() or transport.lower() == "wi-fi":
+                        return mac, transport
+                # Priority 2: Plain "Ethernet" (not numbered)
+                for mac, transport, iface in candidates:
+                    if transport.lower() == "ethernet":
+                        return mac, transport
+                # Priority 3: Any known named service (not raw interface name)
+                for mac, transport, iface in candidates:
+                    if transport and transport != iface:
+                        return mac, transport
+                # Fallback: first candidate
+                return candidates[0][0], candidates[0][1]
 
             for m in re.finditer(r"ether\s+([0-9a-f:]{17})", completed.stdout or "", re.I):
                 return m.group(1).upper().replace(":", "-"), ""
@@ -114,6 +138,37 @@ def detect_mac_and_transport() -> tuple[str, str]:
         return mac, ""
     except Exception:
         return "", ""
+
+
+def _mac_iface_to_service_name(iface: str) -> str:
+    """Map macOS interface (en0, en1, …) to human-readable network service name (Wi-Fi, Ethernet, …)."""
+    if not iface:
+        return ""
+    try:
+        completed = subprocess.run(
+            ["networksetup", "-listallhardwareports"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+        # Output looks like:
+        #   Hardware Port: Wi-Fi
+        #   Device: en0
+        #   Ethernet Address: ...
+        current_service = ""
+        for line in (completed.stdout or "").splitlines():
+            line = line.strip()
+            if line.startswith("Hardware Port:"):
+                current_service = line.split(":", 1)[1].strip()
+            elif line.startswith("Device:"):
+                device = line.split(":", 1)[1].strip()
+                if device == iface:
+                    return current_service
+    except Exception:
+        pass
+    return ""
 
 
 def ensure_single_instance(mutex_name: str = "UnifAI_Guard_Agent") -> bool:
