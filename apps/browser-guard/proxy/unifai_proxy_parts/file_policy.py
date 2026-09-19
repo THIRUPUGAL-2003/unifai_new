@@ -260,7 +260,7 @@ def enforce_file_send_policy(
     # Any Target: typed note often lives in composer traffic — join like Claude.
     if not (caption or "").strip():
         try:
-            caption = peek_recent_composer_caption(domain, max_age=90.0) or ""
+            caption = peek_recent_composer_caption(domain, max_age=120.0) or ""
         except Exception:
             caption = ""
         if caption:
@@ -281,6 +281,27 @@ def enforce_file_send_policy(
                     caption = from_body.strip()
         except Exception:
             pass
+    # ChatGPT often puts short captions like "anlayse this" only in parts[] strings.
+    if not (caption or "").strip() and (raw_text or ""):
+        for m in re.finditer(
+            r'"parts"\s*:\s*\[[^\]]{0,80000}?"((?:[^"\\]|\\.){1,400})"',
+            raw_text or "",
+            re.I,
+        ):
+            try:
+                t = json.loads(f'"{m.group(1)}"')
+            except Exception:
+                t = (m.group(1) or "").replace("\\n", "\n").replace('\\"', '"')
+            t = (t or "").strip()
+            if not t or len(t) > 500:
+                continue
+            if t.startswith(("file-", "sediment://", "file-service://", "http")):
+                continue
+            if "." in t and len(t) < 180 and re.search(r"\.[A-Za-z0-9]{2,5}$", t):
+                continue
+            if looks_like_user_prompt(t) and not _looks_like_filename_only(t):
+                caption = t
+                break
 
     cached_list = _trim_phantom_upload_caches(
         cached_list,
@@ -288,6 +309,23 @@ def enforce_file_send_policy(
         caption or "",
     )
     cached_list = _dedupe_cached_uploads_by_bytes(cached_list)
+    # Final hard drop: never process bare "attachment" when Send JSON has a real name.
+    send_real_names = [
+        n for n in extract_all_attachment_filenames_from_send(raw_text or "")
+        if _is_real_user_upload_name(n)
+    ]
+    if send_real_names:
+        named_only = [
+            e for e in cached_list
+            if _is_real_user_upload_name((e.get("file_name") or "").strip())
+        ]
+        if named_only:
+            cached_list = named_only
+        else:
+            # Rename fake rows from Send names (1:1).
+            for i, e in enumerate(cached_list):
+                if i < len(send_real_names) and not _is_real_user_upload_name((e.get("file_name") or "").strip()):
+                    e["file_name"] = send_real_names[i]
 
     get_control_settings()
     block_all = controls_active("block_upload")

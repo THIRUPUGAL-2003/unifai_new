@@ -51,9 +51,84 @@ def _is_fake_upload_name(name: str) -> bool:
 
 
 def _is_real_user_upload_name(name: str) -> bool:
-    """True when filename looks like a user-picked name (not Guard/site placeholder)."""
+    """True when filename looks like a user-picked name (not Guard/site placeholder).
+
+    Gemini/Google often send display names WITHOUT an extension (e.g. 'UnifAI Product (1)').
+    Those are still real user names — do not treat as fake.
+    """
     n = (name or "").strip()
-    return bool(n) and not _is_fake_upload_name(n)
+    if not n or _is_fake_upload_name(n):
+        return False
+    # Reject opaque ids mistaken for names
+    if re.fullmatch(r"(?:file-)?[A-Za-z0-9_-]{20,}", n):
+        return False
+    if re.fullmatch(r"[0-9a-f]{8,}(?:-[0-9a-f]{4,})+", n, re.I):
+        return False
+    return True
+
+
+def _ensure_name_has_extension(name: str, raw: bytes = b"", content_type: str = "") -> str:
+    """If a real display name has no extension, append one from magic/content-type."""
+    n = (name or "").strip()
+    if not n:
+        return n
+    if "." in n.rsplit("/", 1)[-1]:
+        return n
+    kind = ""
+    try:
+        kind = _classify_upload_kind(raw or b"", content_type, n)
+    except Exception:
+        kind = ""
+    ext = {
+        "pdf": ".pdf",
+        "zip": ".zip",
+        "image": ".png",
+        "audio": ".m4a",
+        "video": ".mp4",
+        "docx": ".docx",
+        "xlsx": ".xlsx",
+        "pptx": ".pptx",
+        "plain": ".txt",
+    }.get(kind, "")
+    if not ext and (raw or b"")[:5] == b"%PDF-":
+        ext = ".pdf"
+    return (n + ext) if ext else n
+
+
+def _name_from_pdf_metadata(raw: bytes) -> str:
+    """Last-resort label from PDF Title / metadata when the wire omits filename."""
+    if not raw or raw[:5] != b"%PDF-":
+        return ""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(raw), strict=False)
+        meta = getattr(reader, "metadata", None) or {}
+        for key in ("/Title", "Title", "/Subject"):
+            try:
+                val = meta.get(key) if hasattr(meta, "get") else None
+            except Exception:
+                val = None
+            if not val:
+                try:
+                    val = getattr(meta, key.lstrip("/").lower(), None)
+                except Exception:
+                    val = None
+            got = _sanitize_upload_filename(str(val or "").strip())
+            if got and _is_real_user_upload_name(got):
+                return _ensure_name_has_extension(got, raw, "application/pdf")
+    except Exception:
+        pass
+    # Lightweight /Title (....) scan without full parse
+    try:
+        sample = raw[: min(len(raw), 256 * 1024)]
+        m = re.search(rb"/Title\s*\(([^\)]{3,120})\)", sample)
+        if m:
+            got = _sanitize_upload_filename(m.group(1).decode("latin-1", errors="ignore"))
+            if got and _is_real_user_upload_name(got):
+                return _ensure_name_has_extension(got, raw, "application/pdf")
+    except Exception:
+        pass
+    return ""
 
 
 def _sanitize_upload_filename(name: str) -> str:
@@ -81,15 +156,29 @@ def _filename_from_multipart_or_headers(raw: bytes = b"", headers=None, raw_text
                 if got:
                     return got
         for hk in (
-            "x-file-name", "x-goog-upload-file-name", "x-filename", "x-upload-filename",
+            "x-file-name", "x-goog-upload-file-name", "x-goog-upload-header-content-disposition",
+            "x-filename", "x-upload-filename",
             "x-ms-file-name", "openai-file-name", "file-name", "x-amz-meta-filename",
+            "x-amz-meta-file-name", "x-amz-meta-name",
         ):
             try:
                 val = headers.get(hk)
             except Exception:
                 val = None
             if val:
-                got = _sanitize_upload_filename(str(val))
+                # Content-Disposition: attachment; filename="foo.pdf"
+                raw_val = str(val)
+                if "filename" in raw_val.lower():
+                    m = re.search(
+                        r'filename\*=(?:UTF-8\'\'|utf-8\'\')([^;\r\n]+)|filename\*?=(?:UTF-8\'\')?\"?([^\";\r\n]+)\"?',
+                        raw_val,
+                        re.I,
+                    )
+                    if m:
+                        got = _sanitize_upload_filename(m.group(1) or m.group(2) or "")
+                        if got:
+                            return got
+                got = _sanitize_upload_filename(raw_val)
                 if got:
                     return got
 
@@ -469,7 +558,7 @@ def _prefer_named_upload(a: dict, b: dict) -> dict:
 
 
 def _dedupe_cached_uploads_by_bytes(cached_list: list[dict]) -> list[dict]:
-    """One row per distinct file bytes — ChatGPT often caches the same PNG 3× with real names."""
+    """One row per distinct file bytes — ChatGPT often caches the same PDF as name + attachment."""
     if not cached_list or len(cached_list) <= 1:
         return cached_list
     by_fp: dict[str, dict] = {}
@@ -485,6 +574,11 @@ def _dedupe_cached_uploads_by_bytes(cached_list: list[dict]) -> list[dict]:
         prev = by_fp.get(fp)
         by_fp[fp] = e if prev is None else _prefer_named_upload(prev, e)
     out = list(by_fp.values())
+    # Also drop fake-named rows when ANY real-named row exists (different bytes but phantom).
+    realish = [e for e in out if _is_real_user_upload_name((e.get("file_name") or "").strip())]
+    if realish and len(out) > len(realish):
+        # Keep real names; keep fake only if no real sibling (shouldn't happen).
+        return realish
     if out:
         return out
     return no_fp or cached_list
@@ -510,6 +604,10 @@ def _trim_phantom_upload_caches(
     realish = [e for e in cached_list if _is_real_user_upload_name((e.get("file_name") or "").strip())]
     fakeish = [e for e in cached_list if not _is_real_user_upload_name((e.get("file_name") or "").strip())]
 
+    # Hard rule: never keep "attachment" rows alongside a real filename (ChatGPT phantom).
+    if realish and fakeish:
+        return _dedupe_cached_uploads_by_bytes(realish)
+
     if send_names:
         target = len(send_names)
         uniq_real: list[dict] = []
@@ -527,9 +625,6 @@ def _trim_phantom_upload_caches(
             need = max(target - len(uniq_real), 0)
             return uniq_real + fakeish[:need]
         return _dedupe_cached_uploads_by_bytes(cached_list)[:target]
-
-    if realish and fakeish:
-        return _dedupe_cached_uploads_by_bytes(realish)
 
     if (caption or "").strip() and len(cached_list) > 1:
         large = [
@@ -1085,41 +1180,41 @@ def cache_upload_file(
             final_name = remembered
             name_from_wire = True
     if _is_real_user_upload_name(file_name or ""):
-        final_name = (file_name or "").strip()
+        final_name = _ensure_name_has_extension((file_name or "").strip(), stored, final_ct)
         name_from_wire = True
         if file_id:
             remember_upload_filename(file_id, final_name)
         remember_pending_upload_name_for_domain(domain, final_name)
     elif _is_real_user_upload_name(name or ""):
-        final_name = (name or "").strip()
+        final_name = _ensure_name_has_extension((name or "").strip(), stored, final_ct)
         name_from_wire = True
         if file_id:
             remember_upload_filename(file_id, final_name)
         remember_pending_upload_name_for_domain(domain, final_name)
-    # Last resort label only — never invent document.pdf when a real name may
-    # still arrive on Send (Gemini/ChatGPT). Keep "attachment" so bind can replace.
-    if _is_fake_upload_name(final_name) or "." not in final_name:
+    # Last resort — Gemini/ChatGPT nameless CDN/resumable: pending → bytes hash → PDF title.
+    # IMPORTANT: names WITHOUT "." (Gemini "UnifAI Product (1)") are still real — keep them.
+    if _is_fake_upload_name(final_name) or not _is_real_user_upload_name(final_name):
         sniffed = _sniff_upload_content_type(stored, final_name, final_ct)
         final_ct = sniffed or final_ct
         by_bytes = lookup_upload_name_by_bytes(stored)
         if by_bytes:
             final_name = by_bytes
         else:
-            # Nameless CDN PUT after create-file: bind domain-pending real name.
             pending = take_pending_upload_name_for_domain(domain)
             if not pending:
                 pending = peek_pending_upload_name_for_domain(domain)
             if pending:
-                final_name = pending
+                final_name = _ensure_name_has_extension(pending, stored, final_ct)
                 if file_id:
-                    remember_upload_filename(file_id, pending)
-            elif file_id:
-                final_name = final_name if final_name else "attachment"
+                    remember_upload_filename(file_id, final_name)
             else:
-                # Prefer sticky placeholder over document-N.pdf phantoms in Prompt Logs.
-                final_name = "attachment" if _is_fake_upload_name(final_name) or not final_name else final_name
-                if not _is_real_user_upload_name(final_name):
+                pdf_name = _name_from_pdf_metadata(stored)
+                if pdf_name:
+                    final_name = pdf_name
+                else:
                     final_name = "attachment"
+    elif "." not in final_name.rsplit("/", 1)[-1]:
+        final_name = _ensure_name_has_extension(final_name, stored, final_ct)
     if _is_real_user_upload_name(final_name):
         remember_upload_name_by_bytes(stored, final_name)
         if file_id:
@@ -1609,35 +1704,36 @@ def _file_policy_applies_on_send(
     if has_file and chatish:
         return True
 
-    # Pending upload cache: bind on finished Send even when the wire omits file ids
-    # (common on Claude/Gemini/Perplexity — attach then type short text).
+    # Pending upload cache: ONLY on a finished user Send — never on intermediate
+    # ChatGPT JSON calls (those used to consume cache as "attachment" and log a
+    # phantom Blocked row 1–2s before the real named Send).
     if domain and _domain_has_pending_upload_cache(domain):
-        if chatish:
-            return True
-        stripped = body.lstrip()
-        if stripped[:1] in ("{", "[") and not is_noise(path, body):
-            return True
-        # Short typed follow-ups after attach (e.g. "hi") on monitored chat hosts.
-        if body.strip() and len(body) < 200_000 and not is_noise(path, body):
-            if (
-                is_chat_path(path, host, body)
-                or _path_has_chat_marker(path)
-                or _is_anthropic_messages_api_shape(path, body)
-                or _is_confident_chat_send(path, raw_text, raw_bytes)
-            ):
-                return True
-        # Any confirmed user prompt on this Target Website after a recent upload.
+        peek = ""
         try:
             peek = extract_prompt_universal(
                 (raw_text or "").encode("utf-8", errors="ignore") if isinstance(raw_text, str) else (raw_bytes or b""),
                 "",
                 host or "",
                 "",
-            )
-            if peek and looks_like_user_prompt(peek) and not is_noise(path, body):
-                return True
+            ) or ""
         except Exception:
-            pass
+            peek = ""
+        has_user_text = bool(peek and looks_like_user_prompt(peek))
+        # Require real chat Send + (file markers OR typed caption/"hi").
+        if confident and (has_file or has_user_text):
+            return True
+        if has_file and (
+            is_chat_path(path, host, body)
+            or _path_has_chat_marker(path)
+            or _is_anthropic_messages_api_shape(path, body)
+        ):
+            return True
+        if has_user_text and (
+            is_chat_path(path, host, body)
+            or _path_has_chat_marker(path)
+            or _is_confident_chat_send(path, raw_text, raw_bytes)
+        ):
+            return True
     return False
 
 

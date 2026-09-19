@@ -657,12 +657,33 @@ class BrowserAIInterceptor:
                     raw_text_nt = raw_bytes_nt.decode("utf-8", errors="ignore")
                 except Exception:
                     raw_text_nt = ""
+                # Even tiny Google resumable START (no file bytes yet) carries the real name.
+                try:
+                    bind_early = _resolve_upload_bind_domain(flow, host)
+                    hdr_early = _filename_from_multipart_or_headers(
+                        raw_bytes_nt, flow.request.headers, raw_text_nt,
+                    )
+                    if bind_early and hdr_early and _is_real_user_upload_name(hdr_early):
+                        remember_pending_upload_name_for_domain(bind_early, hdr_early)
+                except Exception:
+                    pass
                 is_upload_nt, upload_reason_nt = detect_file_upload(flow, raw_text_nt)
                 if is_upload_nt:
                     fname_nt = extract_filename_from_upload(flow, raw_text_nt)
                     bind = _resolve_upload_bind_domain(flow, host)
                     try:
                         ingest_upload_filenames_from_body(raw_text_nt, bind or "")
+                    except Exception:
+                        pass
+                    # Google/ChatGPT CDN: capture name from headers even before bytes land.
+                    try:
+                        hdr_name = _filename_from_multipart_or_headers(
+                            raw_bytes_nt, flow.request.headers, raw_text_nt,
+                        )
+                        if bind and hdr_name and _is_real_user_upload_name(hdr_name):
+                            remember_pending_upload_name_for_domain(bind, hdr_name)
+                            if not fname_nt or not _is_real_user_upload_name(fname_nt):
+                                fname_nt = hdr_name
                     except Exception:
                         pass
                     # Block Upload must kill non-target CDN attach (ChatGPT files.oaiusercontent.com etc).
@@ -736,6 +757,13 @@ class BrowserAIInterceptor:
         # Learn file_id → real filename from JSON so later nameless CDN uploads log correctly.
         try:
             ingest_upload_filenames_from_body(raw_text, domain or "")
+        except Exception:
+            pass
+        # Gemini/Google: resumable START often has x-goog-upload-file-name with empty/tiny body.
+        try:
+            hdr_name = _filename_from_multipart_or_headers(b"", flow.request.headers, raw_text or "")
+            if hdr_name and _is_real_user_upload_name(hdr_name):
+                remember_pending_upload_name_for_domain(domain, hdr_name)
         except Exception:
             pass
 
