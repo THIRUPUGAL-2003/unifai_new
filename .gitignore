@@ -208,3 +208,5 @@ apps/browser-guard/release/UnifAI_Guard.app/
 
 # Built gateway binary (must not push to GitHub)
 transports/unifai-http.exe
+apps/browser-guard/installer/pkg-root/
+apps/browser-guard/installer/pkg-scripts/
