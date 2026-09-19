@@ -15,7 +15,6 @@ import {
 	Lock,
 	CheckCircle,
 	CheckCircle2,
-	ExternalLink,
 	Menu,
 	X,
 	Laptop,
@@ -32,7 +31,6 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getApiBaseUrl } from "@/lib/utils/port";
-import { DOCS } from "@/lib/constants/docs";
 import { COMPANY_LOGO, COMPANY_NAME } from "@/lib/constants/config";
 
 export default function LandingPage() {
@@ -197,14 +195,6 @@ console.log(response.choices[0].message.content);`
 						<a href="#features" className="hover:text-white transition-colors">Capabilities</a>
 						<a href="#quickstart" className="hover:text-white transition-colors">Quickstart</a>
 						<a href="#faq" className="hover:text-white transition-colors">FAQ</a>
-						<a
-							href={DOCS.home}
-							target="_blank"
-							rel="noopener noreferrer"
-							className="hover:text-white transition-colors flex items-center gap-1"
-						>
-							Docs <ExternalLink className="h-3.5 w-3.5 text-slate-500" />
-						</a>
 					</nav>
 
 					{/* Actions */}
@@ -259,7 +249,6 @@ console.log(response.choices[0].message.content);`
 						<a href="#features" onClick={() => setMobileMenuOpen(false)} className="block py-1.5 text-sm text-slate-300 hover:text-white">Capabilities</a>
 						<a href="#quickstart" onClick={() => setMobileMenuOpen(false)} className="block py-1.5 text-sm text-slate-300 hover:text-white">Quickstart</a>
 						<a href="#faq" onClick={() => setMobileMenuOpen(false)} className="block py-1.5 text-sm text-slate-300 hover:text-white">FAQ</a>
-						<a href={DOCS.home} target="_blank" rel="noopener noreferrer" className="block py-1.5 text-sm text-slate-300 hover:text-white">Documentation</a>
 						
 						<div className="pt-3 border-t border-white/[0.08] flex flex-col gap-2.5">
 							<button
@@ -753,7 +742,6 @@ console.log(response.choices[0].message.content);`
 
 					<div className="flex items-center gap-6">
 						<a href="#products" className="hover:text-slate-300 transition-colors">Products</a>
-						<a href={DOCS.home} target="_blank" rel="noopener noreferrer" className="hover:text-slate-300 transition-colors">Docs</a>
 						<button onClick={() => setIsDemoModalOpen(true)} className="hover:text-slate-300 transition-colors cursor-pointer">Demo</button>
 						<a href={`mailto:support@${companyFullName.toLowerCase().replace(/[^a-z0-9]/g, '')}.com`} className="hover:text-slate-300 transition-colors">Contact</a>
 					</div>

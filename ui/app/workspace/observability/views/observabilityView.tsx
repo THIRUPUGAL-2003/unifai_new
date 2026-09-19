@@ -14,11 +14,22 @@ import {
 	useGetConnectorsQuery,
 	useUpdateConnectorMutation,
 } from "@enterprise/lib/store/apis/connectorsApi";
-import { Cable } from "lucide-react";
+import { Cable, Trash2 } from "lucide-react";
 import { useTheme } from "next-themes";
 import { useQueryState } from "nuqs";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@/components/ui/alertDialog";
 import { AddConnectorDropdown } from "./addConnectorDropdown";
 import BigQueryView from "./plugins/bigqueryView";
 import DatadogView from "./plugins/datadogView";
@@ -115,6 +126,7 @@ export default function ObservabilityView() {
 	const [selectedPluginId, setSelectedPluginId] = useQueryState("plugin");
 	const { resolvedTheme } = useTheme();
 	const [addingId, setAddingId] = useState<string | null>(null);
+	const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
 
 	const supportedPlatforms = useMemo(() => supportedPlatformsList(resolvedTheme || "light"), [resolvedTheme]);
 
@@ -205,10 +217,14 @@ export default function ObservabilityView() {
 			toast.success(`${platform.name} removed`);
 			const remaining = addedPlatforms.filter((p) => p.id !== selectedPluginId);
 			setSelectedPluginId(remaining[0]?.id ?? null);
+			setRemoveDialogOpen(false);
 		} catch (err) {
 			toast.error("Failed to remove connector", { description: getErrorMessage(err) });
 		}
 	};
+
+	const selectedPlatformName =
+		supportedPlatforms.find((p) => p.id === selectedPluginId)?.name ?? selectedPluginId ?? "connector";
 
 	const isDeleting = isDeletingConnector || isDeletingPlugin;
 	const isLoading = isLoadingPlugins || isLoadingConnectors;
@@ -282,6 +298,20 @@ export default function ObservabilityView() {
 								</button>
 							))}
 							<div className="mt-2">{addDropdown}</div>
+							{selectedPluginId && addedIds.has(selectedPluginId) ? (
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									className="mt-2 w-full justify-start gap-2 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+									disabled={isDeleting}
+									onClick={() => setRemoveDialogOpen(true)}
+									data-testid="observability-remove-connector-btn"
+								>
+									<Trash2 className="h-3.5 w-3.5" />
+									<span className="text-xs">Remove {selectedPlatformName}</span>
+								</Button>
+							) : null}
 						</div>
 					</div>
 				</div>
@@ -295,6 +325,31 @@ export default function ObservabilityView() {
 				{selectedPluginId === "pubsub" && <PubSubView onDelete={handleDelete} isDeleting={isDeleting} />}
 				{selectedPluginId === "newrelic" && <NewrelicView onDelete={handleDelete} isDeleting={isDeleting} />}
 			</div>
+
+			<AlertDialog open={removeDialogOpen} onOpenChange={setRemoveDialogOpen}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Remove {selectedPlatformName}?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This removes the connector from your workspace. You can add it again later from Add New Connector.
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+						<AlertDialogAction
+							onClick={(e) => {
+								e.preventDefault();
+								void handleDelete();
+							}}
+							disabled={isDeleting}
+							className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+							data-testid="observability-remove-connector-confirm"
+						>
+							{isDeleting ? "Removing…" : "Remove"}
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 		</div>
 	);
 }

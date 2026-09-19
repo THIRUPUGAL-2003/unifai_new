@@ -248,10 +248,12 @@ export function OtelFormFragment({
 								onClick={onDelete}
 								disabled={isDeleting || !hasOtelAccess}
 								data-testid="otel-connector-delete-btn"
-								title="Delete connector"
-								aria-label="Delete connector"
+								title="Remove connector"
+								aria-label="Remove connector"
+								className="gap-2 text-destructive hover:text-destructive"
 							>
 								<Trash2 className="size-4" />
+								Remove
 							</Button>
 						)}
 						<Button
